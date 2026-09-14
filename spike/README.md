@@ -53,3 +53,24 @@ DFL.getGamepadNavigationTrees().find((t) => t?.id === "QuickAccess-NA")
 ```
 
 It is replaced on every QAM remount and has to be re-attached, exactly like the patch.
+
+## Desktop (#1866) — `spike/desktop.js`
+
+Standalone functions, evaluated in `SharedJSContext`, no build step. They answered all seven questions of #1866 YES on
+hardware. Each carries the trap that made it hard, in a comment above it:
+
+| Function                         | Question                                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `deskWin()`                      | the desktop client's own window — everything below needs it, because its document is a different realm |
+| `reactClient()`                  | `createRoot` is NOT on `SP_REACTDOM` under React 19                                                    |
+| `coverCandidates()`              | cover URLs are a candidate list, .jpg then .png, and only one exists                                   |
+| `mountGamePanel()`               | 1, 2, 5 — our React panel in place of Steam's overview panel                                           |
+| `watchNavigation()`              | 6 — survives page switches; needs an address watcher AND a DOM observer                                |
+| `addMenuEntry()`                 | 3 — DOM, not React: an `afterPatch` on the menu element fires zero times                               |
+| `openFullPage()` / `openModal()` | 4 — full-area page, or Steam's own modal                                                               |
+| `mountRealPanel()`               | Tender's real QAM panel in the desktop; proved a full sync run works there                             |
+| `watchRealmErrors()`             | read exceptions from the view that actually throws                                                     |
+
+Two things break when the real panel is mounted, and both are listed at `mountRealPanel`: `WidePage` reaches for
+gamepad-UI state that desktop mode does not have, and the panel's current page is module-level, so a page that throws
+keeps throwing until `DeckyPluginLoader.importPlugin('Tender')` resets it.
