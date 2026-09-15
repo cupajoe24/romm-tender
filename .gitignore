@@ -44,6 +44,10 @@ log.txt
 # not descend into an ignored directory.
 .claude/*
 !.claude/rules/
+
+# Antigravity / Gemini agent rules
+.agents/
+AGENTS.md
 .venv/
 
 # Git worktrees
