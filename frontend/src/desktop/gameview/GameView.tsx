@@ -3,6 +3,9 @@ import { useGameDetail } from "../../utils/gameDetailStore";
 import { getRomMetadataShared } from "../../api/sharedReads";
 import type { RomMetadata } from "../../types";
 import { coverCandidates } from "../desktopWindow";
+import { applyArtwork, cancelArtworkApply } from "../../utils/artwork";
+import { debugLog } from "../../api/backend";
+import { detach } from "../../utils/detach";
 import { AboutHeader } from "./AboutHeader";
 import { AboutDetails } from "./AboutDetails";
 
@@ -20,9 +23,27 @@ interface AppStoreStub {
   GetAppOverviewByAppID?: (id: number) => SteamOverview | undefined;
 }
 
+const artworkApplied = new Map<number, number>();
+
 export const GameView: FC<GameViewProps> = ({ appId }) => {
   const detail = useGameDetail(appId);
   const [loadedMetadata, setLoadedMetadata] = useState<RomMetadata | null>(null);
+
+  useEffect(() => {
+    return () => {
+      detach(cancelArtworkApply(appId));
+    };
+  }, [appId]);
+
+  useEffect(() => {
+    const romId = detail.romId;
+    if (!romId || artworkApplied.get(appId) === romId) return;
+    applyArtwork(romId, appId)
+      .then(() => {
+        artworkApplied.set(appId, romId);
+      })
+      .catch((e) => debugLog(`Desktop auto-artwork error: ${e}`));
+  }, [appId, detail.romId]);
 
   useEffect(() => {
     const romId = detail.romId;

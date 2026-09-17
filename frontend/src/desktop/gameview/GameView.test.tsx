@@ -4,6 +4,7 @@ import { GameView, GameViewPage } from "./GameView";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
 import * as desktopWin from "../desktopWindow";
+import * as artwork from "../../utils/artwork";
 import type { RomMetadata } from "../../types";
 
 vi.mock("../../utils/gameDetailStore", () => ({
@@ -16,6 +17,11 @@ vi.mock("../../api/sharedReads", () => ({
 
 vi.mock("../desktopWindow", () => ({
   coverCandidates: vi.fn(),
+}));
+
+vi.mock("../../utils/artwork", () => ({
+  applyArtwork: vi.fn().mockResolvedValue(4),
+  cancelArtworkApply: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("GameView", () => {
@@ -192,5 +198,43 @@ describe("GameView", () => {
     await waitFor(() => {
       expect(screen.queryByText("Mocked RPG Summary")).not.toBeInTheDocument();
     });
+  });
+
+  it("triggers applyArtwork when romId is present and cancels on unmount", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 999,
+      romName: "Zelda",
+      platformSlug: "n64",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    const { unmount } = render(<GameView appId={55555} />);
+
+    await waitFor(() => {
+      expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(999, 55555);
+    });
+
+    unmount();
+
+    expect(vi.mocked(artwork.cancelArtworkApply)).toHaveBeenCalledWith(55555);
   });
 });
