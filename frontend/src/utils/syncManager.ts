@@ -5,9 +5,13 @@ import {
   reportUnitResults,
   syncHeartbeat,
   getArtworkBase64,
+  getSgdbArtworkBase64,
+  saveShortcutIcon,
   logInfo,
   logError,
 } from "../api/backend";
+import { detach } from "./detach";
+import { releasePruneLease } from "./pruneLease";
 import {
   getExistingRomMShortcuts,
   getLiveRomMShortcutAppIds,
@@ -258,6 +262,29 @@ async function applyCoverArtwork(appId: number, romId: number): Promise<void> {
 }
 
 /**
+ * Fetch and apply the SteamGridDB shortcut icon if available.
+ * ``saveShortcutIcon`` writes ``{app_id}_icon.png`` to Steam's grid dir;
+ * ``SteamClient.Apps.SetShortcutIcon`` points the shortcut at it.
+ * Fail-soft: an absent icon or save failure never fails the shortcut.
+ */
+async function applyShortcutIcon(appId: number, romId: number): Promise<void> {
+  try {
+    const result = await getSgdbArtworkBase64(romId, 4);
+    if (result?.prune_lease_token) {
+      detach(releasePruneLease(result.prune_lease_token, "Sync shortcut icon"));
+    }
+    if (result?.base64) {
+      const iconResult = await saveShortcutIcon(appId, result.base64);
+      if (iconResult?.success && iconResult.icon_path) {
+        SteamClient?.Apps?.SetShortcutIcon?.(appId, iconResult.icon_path);
+      }
+    }
+  } catch (e) {
+    logError(`Per-unit: failed to apply icon for rom ${romId} (appId ${appId}): ${e}`);
+  }
+}
+
+/**
  * Re-apply the covers of EXISTING shortcuts whose server-side cover changed
  * (#1386). The backend's cover-cache invalidation pass already re-downloaded
  * the per-ROM cache file and republished the grid copy — this loop pushes each
@@ -373,6 +400,7 @@ async function processUnitShortcuts(
           // #1386). Awaited so covers stay one-per-item under the 50ms pacing;
           // fail-soft.
           if (created) await applyCoverArtwork(appId, item.rom_id);
+          await applyShortcutIcon(appId, item.rom_id);
         }
       } catch (e) {
         logError(`Per-unit: failed to process shortcut for rom ${item.rom_id}: ${e}`);
