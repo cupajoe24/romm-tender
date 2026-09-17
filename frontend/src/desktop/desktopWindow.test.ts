@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { findDesktopWindow, findReactClient } from "./desktopWindow";
+import { findDesktopWindow, findReactClient, coverCandidates } from "./desktopWindow";
 import * as deckyUi from "@decky/ui";
 
 describe("desktopWindow", () => {
   const originalPopupManager = (window as unknown as { g_PopupManager?: unknown }).g_PopupManager;
+  const originalAppStore = (window as unknown as { appStore?: unknown }).appStore;
 
   beforeEach(() => {
     delete (window as unknown as { g_PopupManager?: unknown }).g_PopupManager;
+    delete (window as unknown as { appStore?: unknown }).appStore;
   });
 
   afterEach(() => {
     (window as unknown as { g_PopupManager?: unknown }).g_PopupManager = originalPopupManager;
+    (window as unknown as { appStore?: unknown }).appStore = originalAppStore;
     vi.restoreAllMocks();
   });
 
@@ -53,6 +56,39 @@ describe("desktopWindow", () => {
     it("returns undefined when no module exports createRoot", () => {
       vi.spyOn(deckyUi, "findModule").mockReturnValue(undefined);
       expect(findReactClient()).toBeUndefined();
+    });
+  });
+
+  describe("coverCandidates", () => {
+    it("returns empty array when appStore is absent", () => {
+      expect(coverCandidates(1234)).toEqual([]);
+    });
+
+    it("returns empty array when app overview is absent", () => {
+      (window as unknown as { appStore?: unknown }).appStore = {
+        GetAppOverviewByAppID: vi.fn().mockReturnValue(undefined),
+        GetCustomVerticalCapsuleURLs: vi.fn(),
+      };
+      expect(coverCandidates(1234)).toEqual([]);
+    });
+
+    it("returns empty array when GetCustomVerticalCapsuleURLs returns non-array", () => {
+      (window as unknown as { appStore?: unknown }).appStore = {
+        GetAppOverviewByAppID: vi.fn().mockReturnValue({ appid: 1234 }),
+        GetCustomVerticalCapsuleURLs: vi.fn().mockReturnValue(undefined),
+      };
+      expect(coverCandidates(1234)).toEqual([]);
+    });
+
+    it("formats candidate URLs with steamloopback.host", () => {
+      (window as unknown as { appStore?: unknown }).appStore = {
+        GetAppOverviewByAppID: vi.fn().mockReturnValue({ appid: 1234 }),
+        GetCustomVerticalCapsuleURLs: vi.fn().mockReturnValue(["/capsules/1234.jpg", "/capsules/1234.png"]),
+      };
+      expect(coverCandidates(1234)).toEqual([
+        "https://steamloopback.host/capsules/1234.jpg",
+        "https://steamloopback.host/capsules/1234.png",
+      ]);
     });
   });
 });

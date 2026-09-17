@@ -1,29 +1,21 @@
 /**
- * Tender's desktop client surface: the one place that decides what the
- * navigation watcher draws on a RomM game page.
+ * Tender Steam Desktop client surface.
+ *
+ * This entry point exports the desktop navigation watcher and desktop UI components.
+ * Per docs/architecture and desktop/README.md, this surface is a peer to bigpicture/,
+ * shares data and logic from api/, utils/, and types/, and never imports from bigpicture/.
  */
 
-import { logError } from "../api/backend";
-import { startDesktopNavigationWatcher, stopDesktopNavigationWatcher, type DesktopGamePage } from "./navigationWatcher";
+export {
+  startDesktopNavigationWatcher,
+  stopDesktopNavigationWatcher,
+  appIdOf,
+  findSteamOverviewPanel,
+  TENDER_SUBSTITUTE_ID,
+} from "./navigationWatcher";
 
-const GAME_PAGE: DesktopGamePage = {};
+export { findDesktopWindow, findReactClient, coverCandidates } from "./desktopWindow";
 
-/**
- * Start the navigation watcher. It runs inside the panel's start-up, so a throw
- * is logged here rather than left to stop the rest of that start-up.
- */
-export function startDesktopSurface(): void {
-  try {
-    startDesktopNavigationWatcher(GAME_PAGE);
-  } catch (e) {
-    logError(`desktop: the desktop surface did not start: ${String(e)}`);
-  }
-}
-
-/**
- * Stop the navigation watcher. Nothing in the dev build calls it
- * (docs/architecture/frontend-bundles.md, "The desktop dev build").
- */
-export function stopDesktopSurface(): void {
-  stopDesktopNavigationWatcher();
-}
+export { GameView, GameViewPage, type GameViewProps, type GameViewPageProps } from "./gameview/GameView";
+export { AboutHeader, type AboutHeaderProps } from "./gameview/AboutHeader";
+export { AboutDetails, formatReleaseDate, type AboutDetailsProps } from "./gameview/AboutDetails";

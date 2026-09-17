@@ -1,39 +1,20 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { startDesktopSurface, stopDesktopSurface } from "./index";
-import * as desktopWin from "./desktopWindow";
-import * as backend from "../api/backend";
+import { describe, it, expect } from "vitest";
+import * as desktopIndex from "./index";
 
-describe("the desktop surface", () => {
-  afterEach(() => {
-    stopDesktopSurface();
-    vi.restoreAllMocks();
-  });
-
-  it("starts the navigation watcher, which looks for the desktop window, and stops it again", () => {
-    vi.useFakeTimers();
-    try {
-      const find = vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(undefined);
-      startDesktopSurface();
-      expect(find).toHaveBeenCalledTimes(1);
-
-      vi.advanceTimersByTime(500);
-      expect(find).toHaveBeenCalledTimes(2);
-
-      stopDesktopSurface();
-      vi.advanceTimersByTime(1000);
-      expect(find).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("logs a start that throws instead of throwing into the panel's start-up", () => {
-    const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
-    vi.spyOn(desktopWin, "findDesktopWindow").mockImplementation(() => {
-      throw new Error("no popup manager");
-    });
-
-    expect(() => startDesktopSurface()).not.toThrow();
-    expect(logError).toHaveBeenCalledWith(expect.stringContaining("no popup manager"));
+describe("desktop index exports", () => {
+  it("exports the public desktop navigation watcher and components", () => {
+    expect(typeof desktopIndex.startDesktopNavigationWatcher).toBe("function");
+    expect(typeof desktopIndex.stopDesktopNavigationWatcher).toBe("function");
+    expect(desktopIndex.appIdOf(null)).toBeNull();
+    expect(typeof desktopIndex.findSteamOverviewPanel).toBe("function");
+    expect(typeof desktopIndex.findDesktopWindow).toBe("function");
+    expect(typeof desktopIndex.findReactClient).toBe("function");
+    expect(desktopIndex.coverCandidates(-1)).toEqual([]);
+    expect(typeof desktopIndex.GameView).toBe("function");
+    expect(desktopIndex.GameViewPage).toBe(desktopIndex.GameView);
+    expect(typeof desktopIndex.AboutHeader).toBe("function");
+    expect(typeof desktopIndex.AboutDetails).toBe("function");
+    expect(desktopIndex.formatReleaseDate(null)).toBeNull();
+    expect(desktopIndex.TENDER_SUBSTITUTE_ID).toBe("tender-desktop-substitute");
   });
 });

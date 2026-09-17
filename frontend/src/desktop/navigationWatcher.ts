@@ -1,60 +1,20 @@
 /**
- * The navigation watcher: adapts Steam's game page for a RomM shortcut in the
- * desktop client (docs/architecture/desktop-dom-architecture.md).
+ * Navigation watcher and DOM injector for Steam's Desktop client.
+ *
+ * In desktop mode, page navigation changes `MainWindowBrowserManager.m_lastLocation`.
+ * Because the DOM is constructed asynchronously after the location change, both a
+ * polling check on `m_lastLocation` and a `win.MutationObserver` (sourced from the
+ * desktop window's own realm) are used to detect and mount on RomM shortcut pages.
  */
 
-import { createElement, useLayoutEffect, type ComponentType } from "react";
-import { logError, logInfo, logWarn } from "../api/backend";
+import { createElement } from "react";
+import type { Root } from "react-dom/client";
+import { appDetailsClasses, basicAppDetailsSectionStylerClasses, playSectionClasses } from "../utils/deckyUiInternals";
 import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
-import { findDesktopWindow, findReactClient, type ReactClientModule } from "./desktopWindow";
-import { getAppIdFromFiber } from "./watcher/fiberInspector";
-import { DomRestorationLedger } from "./watcher/restorationLedger";
-import {
-  TENDER_PLAY_BUTTON_ID,
-  TENDER_SUBSTITUTE_ID,
-  findPlayBarAndContainer,
-  findSteamContentSections,
-  findSteamPlayBarBadges,
-  findSteamPlaySection,
-  findSteamRightControls,
-  findSteamStickyPlayBar,
-  locateOverviewPanel,
-  locatePlayButton,
-  type Located,
-} from "./watcher/elementSelectors";
-import { createStickyPlayBarController, type StickyPlayBarController } from "./watcher/stickyPlayBarController";
+import { findDesktopWindow, findReactClient } from "./desktopWindow";
+import { GameView } from "./gameview/GameView";
 
-interface ViewProps {
-  appId: number;
-}
-
-/**
- * What the watcher draws on a RomM game page. A part left out leaves Steam's
- * own in its place: without `gameView` the page's content sections stay, and
- * without `playButton` Steam's Play button and the badges beside it stay.
- */
-export interface DesktopGamePage {
-  /** Drawn below the play bar, in place of the page's content sections. */
-  gameView?: ComponentType<ViewProps>;
-  /** Drawn in place of Steam's Play button and its badges. */
-  playButton?: ComponentType<ViewProps>;
-}
-
-type Part = keyof DesktopGamePage;
-
-const HOST_IDS: Record<Part, string> = { gameView: TENDER_SUBSTITUTE_ID, playButton: TENDER_PLAY_BUTTON_ID };
-
-/** Steam's page as the finders found it, or the part of it they could not find. */
-type FoundPage = { panel: Located; playSection: HTMLElement } | { missing: "overview panel" | "play section" };
-
-/** The RomM game page the watcher is on, from the first pass on its appId until the appId changes. */
-interface Visit {
-  appId: number;
-  startedAt: number;
-  recognised: boolean;
-  missing: string | null;
-  announced: boolean;
-}
+export const TENDER_SUBSTITUTE_ID = "tender-desktop-substitute";
 
 interface MainWindowBrowserManagerStub {
   m_lastLocation?: {
@@ -66,478 +26,397 @@ interface WindowWithManager extends Window {
   MainWindowBrowserManager?: MainWindowBrowserManagerStub;
 }
 
-/**
- * Extract shortcut appId from a path string (e.g. `/library/app/12345`).
- */
 export function appIdOf(path: string | undefined | null): number | null {
   if (!path) return null;
   const match = /\/library\/app\/(\d+)/.exec(path);
   return match ? Number(match[1]) : null;
 }
 
-/** Draws `view`, and calls `onRendered` once React has committed it. */
-function Rendered({
-  view,
-  appId,
-  onRendered,
-}: {
-  view: ComponentType<ViewProps>;
-  appId: number;
-  onRendered: () => void;
-}) {
-  useLayoutEffect(() => {
-    onRendered();
-  }, [onRendered]);
-  return createElement(view, { appId });
+/**
+ * Locate Steam's native overview panel within the document.
+ * Tries the resolved CSS module class from @decky/ui first, then falls back to a substring
+ * class match to guard against uninitialized webpack modules or class name variations.
+ */
+export function findSteamOverviewPanel(doc: Document): HTMLElement | null {
+  const ovClass = appDetailsClasses?.AppDetailsOverviewPanel;
+  if (ovClass) {
+    const el = doc.querySelector(`.${ovClass}:not(#${TENDER_SUBSTITUTE_ID})`);
+    if (el) return el as HTMLElement;
+  }
+  return doc.querySelector(`[class*="AppDetailsOverviewPanel"]:not(#${TENDER_SUBSTITUTE_ID})`) as HTMLElement | null;
+}
+
+/**
+ * Helper to find the direct child of `parent` that is or contains `descendant`.
+ */
+export function getDirectChild(parent: HTMLElement, descendant: HTMLElement): HTMLElement {
+  let curr: HTMLElement = descendant;
+  while (curr.parentElement && curr.parentElement !== parent) {
+    curr = curr.parentElement;
+  }
+  return curr;
+}
+
+export function isPlayBarElement(el: HTMLElement): boolean {
+  if (playSectionClasses?.PlayBar && el.classList.contains(playSectionClasses.PlayBar)) return true;
+  if (appDetailsClasses?.PlayBar && el.classList.contains(appDetailsClasses.PlayBar)) return true;
+  if (
+    basicAppDetailsSectionStylerClasses?.PlaySection &&
+    el.classList.contains(basicAppDetailsSectionStylerClasses.PlaySection)
+  )
+    return true;
+  if (el.className && typeof el.className === "string" && /\b(PlayBar|PlaySection)\b/i.test(el.className)) return true;
+  return false;
+}
+
+/**
+ * Locate Steam's native play section / action bar (middle bar).
+ * Checks @decky/ui classes, common class substrings, and button fallbacks.
+ */
+export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement | null {
+  const psClass = basicAppDetailsSectionStylerClasses?.PlaySection;
+  if (psClass) {
+    const el = root.querySelector<HTMLElement>(`.${psClass}`);
+    if (el) return el;
+  }
+  const pbClass1 = playSectionClasses?.PlayBar;
+  if (pbClass1) {
+    const el = root.querySelector<HTMLElement>(`.${pbClass1}`);
+    if (el) return el;
+  }
+  const pbClass2 = appDetailsClasses?.PlayBar;
+  if (pbClass2) {
+    const el = root.querySelector<HTMLElement>(`.${pbClass2}`);
+    if (el) return el;
+  }
+  const contClass = playSectionClasses?.Container;
+  if (contClass) {
+    const el = root.querySelector<HTMLElement>(`.${contClass}`);
+    if (el) return el;
+  }
+  const actionClass = playSectionClasses?.ActionSection;
+  if (actionClass) {
+    const el = root.querySelector<HTMLElement>(`.${actionClass}`);
+    if (el) return el;
+  }
+  const directMatch = root.querySelector<HTMLElement>(
+    '[class*="PlaySection"], [class*="PlayBar"], [class*="playsection"], [class*="playbar"], [class*="ActionButtonAndStatusPanel"]',
+  );
+  if (directMatch) return directMatch;
+
+  // Fallback: locate via the play button itself and walk up to action container
+  const btn = root.querySelector<HTMLElement>(
+    '[class*="AppActionButton"], [class*="PlayButton"], button[class*="play" i]',
+  );
+  if (btn) {
+    const docBody = root.ownerDocument ? root.ownerDocument.body : (root as Document).body;
+    let curr = btn;
+    while (curr.parentElement && curr.parentElement !== root && curr.parentElement !== docBody) {
+      if (curr.parentElement.children.length > 1 || /play|action/i.test(curr.parentElement.className)) {
+        return curr.parentElement;
+      }
+      curr = curr.parentElement;
+    }
+    return curr;
+  }
+
+  // Final fallback: if root is an HTMLElement with multiple children, the first child is the top action bar
+  if ("children" in root && (root as HTMLElement).children.length >= 2) {
+    return (root as HTMLElement).firstElementChild as HTMLElement;
+  }
+
+  return null;
+}
+
+/**
+ * Locate the play bar element and the common content container that holds both
+ * the play bar and the content sections (dashed shortcut notice, notes, screenshots).
+ */
+export function findPlayBarAndContainer(
+  overviewPanel: HTMLElement,
+  playSection: HTMLElement,
+): { playBarTop: HTMLElement; container: HTMLElement } {
+  // If playSection is outside overviewPanel
+  if (!overviewPanel.contains(playSection)) {
+    return { playBarTop: playSection, container: overviewPanel.parentElement || overviewPanel };
+  }
+
+  // First, check if playSection or one of its ancestors inside overviewPanel is explicitly recognized as the PlayBar
+  let curr: HTMLElement | null = playSection;
+  let recognizedPlayBar: HTMLElement | null = null;
+  while (curr && curr !== overviewPanel && curr !== overviewPanel.parentElement) {
+    if (isPlayBarElement(curr)) {
+      recognizedPlayBar = curr;
+    }
+    curr = curr.parentElement;
+  }
+
+  if (recognizedPlayBar?.parentElement && overviewPanel.contains(recognizedPlayBar.parentElement)) {
+    return { playBarTop: recognizedPlayBar, container: recognizedPlayBar.parentElement };
+  }
+
+  // Structural discovery: walk down from overviewPanel towards playSection.
+  // overviewPanel often wraps an inner container (e.g. Container Glassy).
+  // If an ancestor has no siblings in its parent, it is an outer wrapper, so we drill down
+  // until we find the level where the play bar has subsequent siblings (the content sections).
+  let container: HTMLElement = overviewPanel;
+  let playBarTop: HTMLElement = getDirectChild(container, playSection);
+
+  while (
+    !playBarTop.nextElementSibling &&
+    playBarTop !== playSection &&
+    overviewPanel.contains(playBarTop) &&
+    playBarTop.children.length > 0
+  ) {
+    const deeper = getDirectChild(playBarTop, playSection);
+    if (deeper === playBarTop) break;
+    container = playBarTop;
+    playBarTop = deeper;
+  }
+
+  return { playBarTop, container };
+}
+
+/**
+ * Locate the content sections to hide (the lower non-Steam placeholder area, notes, etc.)
+ * while preserving the native play section.
+ */
+export function findSteamContentSections(overviewPanel: HTMLElement, playSection: HTMLElement | null): HTMLElement[] {
+  if (!playSection) {
+    return [];
+  }
+
+  const { playBarTop } = findPlayBarAndContainer(overviewPanel, playSection);
+  const toHide = new Set<HTMLElement>();
+
+  // 1. Collect all siblings of playBarTop that come after playBarTop in the container
+  let next = playBarTop.nextElementSibling as HTMLElement | null;
+  while (next) {
+    if (next.id !== TENDER_SUBSTITUTE_ID) {
+      toHide.add(next);
+    }
+    next = next.nextElementSibling as HTMLElement | null;
+  }
+
+  // 2. Also explicitly target known non-Steam / desktop content containers
+  const explicitSelectors = [
+    '[class*="ColumnContainer"]',
+    '[class*="RightColumn"]',
+    '[class*="ShortcutContainer"]',
+    '[class*="Shortcut"]',
+    '[class*="AppDetailSectionList"]',
+    '[class*="AppDetailsContent"]',
+  ];
+  for (const selector of explicitSelectors) {
+    const matches = overviewPanel.querySelectorAll<HTMLElement>(selector);
+    for (const el of Array.from(matches)) {
+      if (el.id !== TENDER_SUBSTITUTE_ID && !el.contains(playSection) && !el.contains(playBarTop)) {
+        toHide.add(el);
+      }
+    }
+  }
+
+  // If playSection is outside overviewPanel and no elements collected, overviewPanel is the target
+  if (toHide.size === 0 && !overviewPanel.contains(playSection)) {
+    toHide.add(overviewPanel);
+  }
+
+  return Array.from(toHide);
 }
 
 let activeWatcherStop: (() => void) | null = null;
-let supervisorInterval: number | null = null;
 
-function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => void {
-  const { gameView: GameView, playButton: PlayButton } = page;
-  const d = deskWin.document;
-  const ledger = new DomRestorationLedger();
-  let stickyController: StickyPlayBarController | null = null;
-  let visit: Visit | null = null;
-  // `undefined` until looked up: the lookup walks Steam's module registry, and
-  // its answer does not change within a JS context.
-  let client: ReactClientModule | null | undefined;
-  const failedMounts = new Set<string>();
-  const reported = new Set<string>();
-  let restoreRequested = false;
-  let frame: number | null = null;
-  // A view's render callback can still arrive after stop; it must not schedule another pass.
-  let stopped = false;
+export function startDesktopNavigationWatcher(customWin?: Window): () => void {
+  stopDesktopNavigationWatcher();
 
-  function once(key: string, log: () => void): void {
-    if (reported.has(key)) return;
-    reported.add(key);
-    log();
+  const win = customWin || findDesktopWindow();
+  if (!win || typeof win.setInterval !== "function") {
+    return () => {};
   }
+
+  const deskWin = win;
+  const d = deskWin.document;
+  let activeRoot: Root | null = null;
+  let hiddenElements: HTMLElement[] = [];
+  let lastPath: string | null = null;
 
   function unmountCurrent() {
-    if (stickyController) {
-      stickyController.dispose();
-      stickyController = null;
+    if (activeRoot) {
+      try {
+        activeRoot.unmount();
+      } catch {
+        // Ignored
+      }
+      activeRoot = null;
     }
-    ledger.restoreAll();
+    const existing = d.getElementById(TENDER_SUBSTITUTE_ID);
+    if (existing) {
+      existing.remove();
+    }
+    for (const el of hiddenElements) {
+      if (el.isConnected) {
+        el.style.display = "";
+      }
+    }
+    hiddenElements = [];
 
-    for (const id of Object.values(HOST_IDS)) d.getElementById(id)?.remove();
+    // Safety: ensure any accidentally hidden overview panel is visible again
+    const currentSteamPanel = findSteamOverviewPanel(d);
+    if (currentSteamPanel && currentSteamPanel.style.display === "none") {
+      currentSteamPanel.style.display = "";
+    }
   }
 
-  /** Resolve the current navigation path from the browser manager or window location. */
-  function getCurrentPath(): string {
+  function reinject() {
     const manager =
       (deskWin as unknown as WindowWithManager).MainWindowBrowserManager ||
       (window as unknown as WindowWithManager).MainWindowBrowserManager;
-    return manager?.m_lastLocation?.pathname || deskWin.location.pathname;
-  }
+    const path = manager?.m_lastLocation?.pathname || deskWin.location.pathname;
+    const appId = appIdOf(path);
 
-  /** The page's appId: the route's, or the overview panel's Fiber's when the route names none. */
-  function currentAppId(): number | null {
-    const fromRoute = appIdOf(getCurrentPath());
-    if (fromRoute) return fromRoute;
-    const overviewCandidate = locateOverviewPanel(d)?.element;
-    return overviewCandidate ? getAppIdFromFiber(overviewCandidate) : null;
-  }
+    const existing = d.getElementById(TENDER_SUBSTITUTE_ID);
 
-  /**
-   * Give Steam's page back. What decides it is whether the ledger holds
-   * anything, not whether a page was entered, so a pass that threw partway is
-   * given back too.
-   */
-  function leavePage(left: number | null): void {
-    const hostLeft = Object.values(HOST_IDS).some((id) => d.getElementById(id));
-    if (!hostLeft && ledger.isEmpty()) return;
-    unmountCurrent();
-    logInfo(`desktop: left the game page of ${left ?? "a RomM shortcut"}, and gave Steam's page back`);
-  }
-
-  /**
-   * End the visit and give Steam's page back, reporting a page the finders
-   * never recognised (docs/architecture/desktop-dom-architecture.md, "What it logs").
-   */
-  function leaveVisit(): void {
-    const left = visit;
-    visit = null;
-    if (left && !left.recognised && left.missing) {
-      logWarn(
-        `desktop: left the game page of ${left.appId} after ${Date.now() - left.startedAt} ms ` +
-          `without recognising it: found no ${left.missing}`,
-      );
+    // If not a RomM game or not on an app route, clean up any active mount
+    if (!appId || !isRomMAppId(appId)) {
+      if (existing || activeRoot) {
+        unmountCurrent();
+      }
+      return;
     }
-    leavePage(left?.appId ?? null);
-  }
 
-  /** Steam's overview panel and play section, or which is missing; a detached panel counts as missing. */
-  function findPage(): FoundPage {
-    const panel = locateOverviewPanel(d);
-    if (!panel?.element.parentElement) return { missing: "overview panel" };
-    const playSection = findSteamPlaySection(panel.element) || findSteamPlaySection(d);
-    return playSection ? { panel, playSection } : { missing: "play section" };
-  }
-
-  /** The React client to mount with; `undefined` when nothing was handed over to mount, or none was found. */
-  function clientForThePage(): ReactClientModule | undefined {
-    if (!GameView && !PlayButton) return undefined;
-    if (client === undefined) {
-      client = findReactClient() ?? null;
-      if (!client) logWarn("desktop: Steam's modules hold no createRoot, so the watcher mounts nothing");
+    // Locate Steam's native overview panel
+    const steamPanel = findSteamOverviewPanel(d);
+    if (!steamPanel || !steamPanel.parentElement) {
+      // Steam hasn't constructed the game overview panel in the DOM yet.
+      return;
     }
-    return client ?? undefined;
-  }
 
-  /** Whether `part`'s host for `appId` is on the page and React has committed into it. */
-  function rendered(part: Part, appId: number): boolean {
-    const host = d.getElementById(HOST_IDS[part]);
-    return !!host?.isConnected && host.dataset.appid === String(appId) && host.dataset.rendered === "true";
-  }
-
-  /**
-   * The GameView already in place for this game in `container`; null when there
-   * is none, or once a stale one is torn down.
-   */
-  function currentGameView(appId: number, container: HTMLElement): HTMLElement | null {
-    const substitute = d.getElementById(TENDER_SUBSTITUTE_ID);
-    if (!substitute) return null;
-    if (
-      substitute.isConnected &&
-      substitute.dataset.appid === String(appId) &&
-      substitute.parentElement === container
-    ) {
-      return substitute;
+    // Locate Steam's native play section
+    const playSection = findSteamPlaySection(steamPanel) || findSteamPlaySection(d);
+    if (!playSection) {
+      // Steam hasn't rendered the action bar / play button yet.
+      // Wait for MutationObserver or polling interval to fire once ready.
+      return;
     }
-    unmountCurrent();
-    return null;
-  }
 
-  /**
-   * Render `view` into `host`. A mount that fails is remembered for its appId
-   * and not tried again, and has the next pass give Steam's page back first, so
-   * Steam's own part returns where an earlier mount had hidden it.
-   */
-  function mountView(
-    part: Part,
-    view: ComponentType<ViewProps>,
-    roots: ReactClientModule,
-    host: HTMLElement,
-    appId: number,
-  ): void {
-    host.id = HOST_IDS[part];
-    host.dataset.appid = String(appId);
-    const key = `${part}:${appId}`;
-    const failed = (e: unknown) => {
-      failedMounts.add(key);
-      logError(`desktop: could not draw the ${part} for ${appId}, so Steam's own stays: ${String(e)}`);
-      restoreRequested = true;
-      schedulePass();
-    };
-    try {
-      const root = roots.createRoot(host, { onUncaughtError: failed });
-      ledger.recordRoot(root, host);
-      const onRendered = () => {
-        host.dataset.rendered = "true";
-        schedulePass();
-      };
-      root.render(createElement(Rendered, { view, appId, onRendered }));
-    } catch (e) {
-      failed(e);
-      ledger.releaseRoot(host);
+    // Ensure steamPanel itself is not hidden (we preserve the play bar inside it)
+    if (steamPanel.contains(playSection) && steamPanel.style.display === "none") {
+      steamPanel.style.display = "";
     }
-  }
 
-  function adaptPlayButton(
-    view: ComponentType<ViewProps>,
-    roots: ReactClientModule | undefined,
-    nativePlayBtn: HTMLElement,
-    appId: number,
-  ): void {
-    const current = d.getElementById(TENDER_PLAY_BUTTON_ID);
-    const inPlace =
-      current?.isConnected &&
-      current.dataset.appid === String(appId) &&
-      (nativePlayBtn.parentElement === null || current.parentElement === nativePlayBtn.parentElement);
-    if (!inPlace) {
-      if (current) ledger.releaseRoot(current);
-      if (!roots || failedMounts.has(`playButton:${appId}`)) return;
-      const host = d.createElement("div");
-      host.style.overflow = "visible";
-      host.style.position = "relative";
-      host.style.zIndex = "20";
-      host.style.paddingBottom = "2px";
-      nativePlayBtn.before(host);
-      mountView("playButton", view, roots, host, appId);
-    }
-    if (rendered("playButton", appId)) ledger.hide(nativePlayBtn);
-  }
+    // Locate the play bar top element and its container
+    const { playBarTop, container } = findPlayBarAndContainer(steamPanel, playSection);
 
-  function refreshStickyPlayBar(
-    playBarTop: HTMLElement,
-    playSection: HTMLElement,
-    container: HTMLElement,
-    steamPanel: HTMLElement,
-  ): void {
-    if (stickyController && !stickyController.matches(playBarTop, playSection)) {
-      stickyController.dispose();
-      stickyController = null;
-    }
-    if (stickyController) {
-      stickyController.updatePinning();
-    } else {
-      stickyController = createStickyPlayBarController(playBarTop, playSection, ledger, container, steamPanel);
-    }
-  }
+    // Locate content sections to hide (the lower sections, non-Steam notice, notes, recordings, etc.)
+    const contentSections = findSteamContentSections(steamPanel, playSection);
 
-  function hideBadges(playBarTop: HTMLElement, playSection: HTMLElement, nativePlayBtn: HTMLElement | null): void {
-    const badges = new Set(findSteamPlayBarBadges(playBarTop, nativePlayBtn));
-    if (!playBarTop.contains(playSection)) {
-      for (const badge of findSteamPlayBarBadges(playSection, nativePlayBtn)) badges.add(badge);
+    // Restore any previously hidden elements that are no longer targeted
+    for (const el of hiddenElements) {
+      if (!contentSections.includes(el) && el.isConnected) {
+        el.style.display = "";
+      }
     }
-    for (const badge of badges) ledger.hide(badge);
-  }
+    hiddenElements = contentSections;
 
-  /** Every adaptation of Steam's page, in the order desktop-dom-architecture.md, "The pass order", gives. */
-  function adaptPage(
-    steamPanel: HTMLElement,
-    playSection: HTMLElement,
-    playBarTop: HTMLElement,
-    container: HTMLElement,
-    nativePlayBtn: HTMLElement | null,
-    roots: ReactClientModule | undefined,
-    appId: number,
-  ): void {
-    if (GameView && rendered("gameView", appId)) {
-      for (const sec of findSteamContentSections(steamPanel, playSection)) {
-        ledger.hide(sec);
+    // Hide target content sections
+    for (const el of hiddenElements) {
+      if (el.style.display !== "none") {
+        el.style.display = "none";
       }
     }
 
-    if (PlayButton && nativePlayBtn) {
-      adaptPlayButton(PlayButton, roots, nativePlayBtn, appId);
+    // Determine insertion target: immediately after the play bar
+    const insertParent = container;
+    const insertBeforeRef = playBarTop.nextElementSibling as HTMLElement | null;
+
+    // If already mounted for this appId and properly placed, no further action needed
+    if (
+      existing &&
+      existing.isConnected &&
+      existing.dataset.appid === String(appId) &&
+      existing.parentElement === insertParent
+    ) {
+      return;
     }
 
-    refreshStickyPlayBar(playBarTop, playSection, container, steamPanel);
-
-    ledger.hide(findSteamStickyPlayBar(d, playBarTop));
-
-    if (PlayButton && rendered("playButton", appId)) {
-      hideBadges(playBarTop, playSection, nativePlayBtn);
+    // Navigated from a different RomM game or repositioning
+    if (existing) {
+      unmountCurrent();
+      // Re-apply hiding on content sections
+      for (const el of hiddenElements) {
+        if (el.style.display !== "none") {
+          el.style.display = "none";
+        }
+      }
     }
 
-    const rightControls = findSteamRightControls(playBarTop) ?? findSteamRightControls(playSection);
-    if (rightControls) {
-      ledger.style(rightControls, "margin-left", "auto");
-    }
-  }
-
-  function mountGameView(
-    view: ComponentType<ViewProps>,
-    roots: ReactClientModule,
-    playBarTop: HTMLElement,
-    container: HTMLElement,
-    appId: number,
-  ): void {
     const host = d.createElement("div");
-    host.className = "tender-desktop-cards-container";
-    host.style.position = "relative";
-    host.style.zIndex = "1";
+    host.id = TENDER_SUBSTITUTE_ID;
+    host.dataset.appid = String(appId);
 
-    const insertBeforeRef = playBarTop.nextElementSibling;
-    if (insertBeforeRef?.parentElement === container) {
-      insertBeforeRef.before(host);
-    } else {
-      container.appendChild(host);
+    const client = findReactClient();
+    if (!client) {
+      return;
     }
-    mountView("gameView", view, roots, host, appId);
-  }
 
-  function pass(): void {
-    if (restoreRequested) {
-      restoreRequested = false;
+    if (insertBeforeRef && insertBeforeRef.parentElement === insertParent) {
+      insertParent.insertBefore(host, insertBeforeRef);
+    } else {
+      insertParent.appendChild(host);
+    }
+
+    try {
+      const root = client.createRoot(host);
+      root.render(createElement(GameView, { appId }));
+      activeRoot = root;
+    } catch {
       unmountCurrent();
     }
-    const id = currentAppId();
-    const appId = id && isRomMAppId(id) ? id : null;
-    // Another game's page is a page left, even where Steam keeps the same elements.
-    if (visit?.appId !== appId) leaveVisit();
-    if (appId === null) return;
-    visit ??= { appId, startedAt: Date.now(), recognised: false, missing: null, announced: false };
-
-    const page = findPage();
-    if ("missing" in page) {
-      visit.missing = page.missing;
-      return;
-    }
-    visit.recognised = true;
-    const roots = clientForThePage();
-    const steamPanel = page.panel.element;
-    const { playSection } = page;
-    const playBar = findPlayBarAndContainer(steamPanel, playSection);
-    const { playBarTop, container } = playBar;
-    const nativePlayBtn = locatePlayButton(playSection);
-
-    // A stale GameView is torn down before the adaptations
-    // (docs/architecture/desktop-dom-architecture.md, "The pass order").
-    const substitute = currentGameView(appId, container);
-
-    adaptPage(steamPanel, playSection, playBarTop, container, nativePlayBtn?.element ?? null, roots, appId);
-    if (!visit.announced) {
-      visit.announced = true;
-      logInfo(
-        `desktop: adapted the game page of ${appId}; found the panel by ${page.panel.rung}, ` +
-          `the play bar by ${playBar.rung} and the Play button by ${nativePlayBtn?.rung ?? "no rung"}`,
-      );
-    }
-
-    // The adaptations stay above this guard: Steam adds the hero's canvases after
-    // a GameView has mounted, and a pass that returned here first would miss them.
-    if (!GameView || !roots || substitute || failedMounts.has(`gameView:${appId}`)) {
-      return;
-    }
-    mountGameView(GameView, roots, playBarTop, container, appId);
   }
 
-  function runFrame(): void {
-    frame = null;
-    if (stopped) return;
-    const path = getCurrentPath();
-    try {
-      pass();
-    } catch (e) {
-      once(`pass:${path}:${String(e)}`, () =>
-        logError(`desktop: a pass over ${path} threw, and is given back on leaving the page: ${String(e)}`),
-      );
+  const checkNav = () => {
+    const manager =
+      (deskWin as unknown as WindowWithManager).MainWindowBrowserManager ||
+      (window as unknown as WindowWithManager).MainWindowBrowserManager;
+    const p = manager?.m_lastLocation?.pathname || deskWin.location.pathname;
+    if (p !== lastPath) {
+      lastPath = p || null;
+      reinject();
+      if (typeof deskWin.setTimeout === "function") {
+        deskWin.setTimeout(reinject, 100);
+        deskWin.setTimeout(reinject, 300);
+        deskWin.setTimeout(reinject, 600);
+      }
     }
-  }
+  };
 
-  /** Run a pass in the next animation frame; triggers before it share that one pass. */
-  function schedulePass(): void {
-    if (stopped || frame !== null) return;
-    frame = deskWin.requestAnimationFrame(runFrame);
-  }
+  const iv = deskWin.setInterval(checkNav, 250);
 
-  let mo: MutationObserver | undefined;
-  let unlistenAppIds: (() => void) | undefined;
+  const WinObserver = (deskWin as { MutationObserver?: typeof MutationObserver }).MutationObserver || MutationObserver;
+  const mo = new WinObserver(() => reinject());
+  mo.observe(d.body, { childList: true, subtree: true });
+
+  const unlistenAppIds = onRomMAppIdsChanged(() => {
+    reinject();
+  });
 
   const stop = () => {
-    stopped = true;
-    if (frame !== null) deskWin.cancelAnimationFrame(frame);
-    mo?.disconnect();
-    unlistenAppIds?.();
+    win.clearInterval(iv);
+    mo.disconnect();
+    unlistenAppIds();
     unmountCurrent();
-  };
-
-  try {
-    const WinObserver =
-      (deskWin as { MutationObserver?: typeof MutationObserver }).MutationObserver || MutationObserver;
-    mo = new WinObserver(schedulePass);
-    mo.observe(d.body, { childList: true, subtree: true });
-
-    unlistenAppIds = onRomMAppIdsChanged(schedulePass);
-
-    schedulePass();
-  } catch (e) {
-    stop();
-    throw e;
-  }
-  return stop;
-}
-
-export function startDesktopNavigationWatcher(page: DesktopGamePage, customWin?: Window): () => void {
-  stopDesktopNavigationWatcher();
-
-  if (customWin) {
-    if (typeof customWin.requestAnimationFrame !== "function") {
-      return () => {};
-    }
-    const stop = attachToDesktopWindow(page, customWin);
-    activeWatcherStop = stop;
-    return () => {
-      stop();
-      if (activeWatcherStop === stop) {
-        activeWatcherStop = null;
-      }
-    };
-  }
-
-  let currentDeskWin: Window | null = null;
-  let currentDetach: (() => void) | null = null;
-  // A window the watcher could not attach to is not tried again every poll.
-  const refused = new WeakSet<Window>();
-  // Nothing here unregisters the popup callbacks below, so they outlive this
-  // supervisor; once it has stopped they must do nothing.
-  let supervisorStopped = false;
-
-  const detachCurrent = () => {
-    if (currentDetach) {
-      try {
-        currentDetach();
-      } catch (e) {
-        logError(`desktop: detaching from the desktop client's window threw: ${String(e)}`);
-      }
-      currentDetach = null;
-      logInfo("desktop: detached from the desktop client's window");
-    }
-    currentDeskWin = null;
-  };
-
-  const pollDesktop = () => {
-    if (supervisorStopped) return;
-    const foundWin = findDesktopWindow();
-
-    if (currentDeskWin && (currentDeskWin.closed || currentDeskWin !== foundWin)) {
-      detachCurrent();
-    }
-
-    if (!foundWin || foundWin.closed || foundWin === currentDeskWin || refused.has(foundWin)) return;
-    try {
-      const detach = attachToDesktopWindow(page, foundWin);
-      currentDeskWin = foundWin;
-      currentDetach = detach;
-      logInfo("desktop: attached to the desktop client's window");
-    } catch (e) {
-      refused.add(foundWin);
-      logError(`desktop: could not attach to the desktop client's window, and will not try it again: ${String(e)}`);
-    }
-  };
-
-  pollDesktop();
-
-  const popupManager = (
-    window as unknown as {
-      g_PopupManager?: {
-        AddPopupCreatedCallback?: (cb: () => void) => void;
-        AddPopupDestroyedCallback?: (cb: () => void) => void;
-      };
-    }
-  ).g_PopupManager;
-  for (const register of ["AddPopupCreatedCallback", "AddPopupDestroyedCallback"] as const) {
-    if (typeof popupManager?.[register] !== "function") continue;
-    try {
-      popupManager[register](pollDesktop);
-    } catch (e) {
-      logWarn(`desktop: ${register} threw, so only the 500 ms poll finds the desktop client's window: ${String(e)}`);
-    }
-  }
-
-  if (typeof window.setInterval === "function") {
-    supervisorInterval = window.setInterval(pollDesktop, 500);
-  }
-
-  const stop = () => {
-    supervisorStopped = true;
-    if (supervisorInterval !== null && typeof window.clearInterval === "function") {
-      window.clearInterval(supervisorInterval);
-      supervisorInterval = null;
-    }
-    detachCurrent();
     if (activeWatcherStop === stop) {
       activeWatcherStop = null;
     }
   };
 
   activeWatcherStop = stop;
+  reinject();
+  if (typeof deskWin.setTimeout === "function") {
+    deskWin.setTimeout(reinject, 100);
+    deskWin.setTimeout(reinject, 300);
+    deskWin.setTimeout(reinject, 600);
+  }
   return stop;
 }
 
@@ -545,9 +424,5 @@ export function stopDesktopNavigationWatcher(): void {
   if (activeWatcherStop) {
     activeWatcherStop();
     activeWatcherStop = null;
-  }
-  if (supervisorInterval !== null && typeof window.clearInterval === "function") {
-    window.clearInterval(supervisorInterval);
-    supervisorInterval = null;
   }
 }
