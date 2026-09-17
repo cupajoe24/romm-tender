@@ -173,3 +173,19 @@ interface MobxGlobals {
  * unchecked cast.
  */
 declare var __mobxGlobals: MobxGlobals | undefined;
+
+/**
+ * Minimal ambient typings for React 19's client entry point (`react-dom/client`).
+ *
+ * In React 19, `createRoot` is housed in `react-dom/client` rather than on `SP_REACTDOM`.
+ * The project avoids a direct `@types/react-dom` devDependency to prevent version and
+ * peer-dependency conflicts with `@decky/ui`'s bundled React types; this ambient
+ * declaration satisfies TypeScript for `Root` and `createRoot` during desktop UI mounting.
+ */
+declare module "react-dom/client" {
+  export interface Root {
+    render(children: React.ReactNode): void;
+    unmount(): void;
+  }
+  export function createRoot(container: Element | DocumentFragment): Root;
+}
