@@ -19,13 +19,35 @@
 
 // Cached set of RomM app IDs — updated by registerRomMAppId
 const rommAppIds = new Set<number>();
+const listeners = new Set<() => void>();
+
+export function onRomMAppIdsChanged(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 export function registerRomMAppId(appId: number) {
   rommAppIds.add(appId);
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch {
+      // Ignored
+    }
+  }
 }
 
 export function unregisterRomMAppId(appId: number) {
   rommAppIds.delete(appId);
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch {
+      // Ignored
+    }
+  }
 }
 
 export function isRomMAppId(appId: number): boolean {
