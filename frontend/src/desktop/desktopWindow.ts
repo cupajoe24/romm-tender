@@ -26,6 +26,7 @@ interface PopupManager {
 interface SteamAppStore {
   GetAppOverviewByAppID?: (appId: number) => unknown;
   GetCustomVerticalCapsuleURLs?: (overview: unknown) => string[] | undefined;
+  GetCustomHeroImageURLs?: (overview: unknown) => string[] | undefined;
 }
 
 /** Locates the desktop client window (`SP Desktop`) from Steam's popup manager. */
@@ -74,6 +75,32 @@ export function coverCandidates(appId: number): string[] {
   }
 
   const urls = store.GetCustomVerticalCapsuleURLs(ov);
+  if (!Array.isArray(urls)) {
+    return [];
+  }
+
+  return urls.map((u) => `https://steamloopback.host${u}`);
+}
+
+/**
+ * Hero banner candidate URLs for a shortcut appId.
+ *
+ * Steam's `GetCustomHeroURLs` returns a candidate list (e.g. .jpg then .png)
+ * for the wide hero image shown at the top of the game detail page. The
+ * consumer falls through candidates on load failure.
+ */
+export function heroCandidates(appId: number): string[] {
+  const store = (window as unknown as { appStore?: SteamAppStore }).appStore;
+  if (!store || typeof store.GetAppOverviewByAppID !== "function") {
+    return [];
+  }
+
+  const ov = store.GetAppOverviewByAppID(appId);
+  if (!ov || typeof store.GetCustomHeroImageURLs !== "function") {
+    return [];
+  }
+
+  const urls = store.GetCustomHeroImageURLs(ov);
   if (!Array.isArray(urls)) {
     return [];
   }
