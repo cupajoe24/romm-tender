@@ -6,8 +6,9 @@ import { coverCandidates } from "../desktopWindow";
 import { applyArtwork, cancelArtworkApply } from "../../utils/artwork";
 import { debugLog } from "../../api/backend";
 import { detach } from "../../utils/detach";
-import { AboutHeader } from "./AboutHeader";
+import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
+import { EmulationSettings } from "./EmulationSettings";
 
 export interface GameViewProps {
   appId: number;
@@ -27,6 +28,7 @@ const artworkApplied = new Map<number, number>();
 
 export const GameView: FC<GameViewProps> = ({ appId }) => {
   const detail = useGameDetail(appId);
+  const [activeTab, setActiveTab] = useState<GameViewTab>("game-info");
   const [loadedMetadata, setLoadedMetadata] = useState<RomMetadata | null>(null);
 
   useEffect(() => {
@@ -82,22 +84,34 @@ export const GameView: FC<GameViewProps> = ({ appId }) => {
         marginBottom: "24px",
       }}
     >
-      <AboutHeader />
+      <GameViewTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
       <div
-        className="tender-desktop-about-card"
+        className="tender-desktop-about-card tender-desktop-info-card"
         style={{
           padding: "24px",
-          backgroundColor: "#16202d",
-          borderRadius: "8px",
+          background:
+            "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(24, 35, 49, 0.8) 40%, rgba(13, 19, 27, 0.9) 100%)",
+          backgroundColor: "rgba(13, 19, 27, 0.85)",
+          border: "1px solid rgba(255, 255, 255, 0.09)",
+          borderTop: "1px solid rgba(255, 255, 255, 0.16)",
+          borderBottom: "1px solid rgba(0, 0, 0, 0.5)",
+          borderRadius: "4px",
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
           color: "#c7d5e0",
         }}
       >
-        <AboutDetails
-          title={title}
-          platformName={detail.platformSlug || undefined}
-          metadata={metadata}
-          covers={covers}
-        />
+        {activeTab === "game-info" ? (
+          <AboutDetails
+            title={title}
+            platformName={detail.platformSlug || undefined}
+            metadata={metadata}
+            covers={covers}
+          />
+        ) : (
+          <EmulationSettings title={title} detail={detail} />
+        )}
       </div>
     </div>
   );
