@@ -203,7 +203,7 @@ Steam's remote-debugging marker has to exist, and the backend creates it when it
 so the task's own restart is what picks up a marker that has just been created
 ([the marker](../architecture/loading-the-panel.md#steams-remote-debugging-marker)).
 
-The whole loop, the Big Picture window, and how to judge layout at the Deck's real metrics are in
+The whole loop, the Big Picture window, the desktop-client dev loop, and how to judge layout at the Deck's real metrics are in
 [Frontend dev loop](frontend-dev-loop.md); what the injector does and how it protects the Steam UI from itself is in
 [How the panel gets into Steam](../architecture/loading-the-panel.md).
 
