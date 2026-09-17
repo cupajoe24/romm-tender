@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { GameView, GameViewPage } from "./GameView";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
@@ -54,7 +54,7 @@ describe("GameView", () => {
     expect(GameViewPage).toBe(GameView);
   });
 
-  it("renders the About header and game details with loaded metadata", async () => {
+  it("renders the navigation tab bar and game details with loaded metadata", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 42,
       romName: "Mario Golf (USA)",
@@ -85,7 +85,9 @@ describe("GameView", () => {
 
     render(<GameView appId={12345} />);
 
-    expect(screen.getByText("About")).toBeInTheDocument();
+    expect(screen.queryByText("About")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Game Info" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Emulation Settings" })).toBeInTheDocument();
     expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
 
     await waitFor(() => {
@@ -125,7 +127,7 @@ describe("GameView", () => {
 
     render(<GameView appId={99999} />);
 
-    expect(screen.getByText("About")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Game Info" })).toBeInTheDocument();
     expect(screen.getByText("Fallback ROM Name")).toBeInTheDocument();
     expect(screen.getByText("snes")).toBeInTheDocument();
   });
@@ -193,7 +195,7 @@ describe("GameView", () => {
     vi.mocked(sharedReads.getRomMetadataShared).mockRejectedValue(new Error("Network failure"));
 
     render(<GameView appId={88888} />);
-    expect(screen.getByText("About")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Game Info" })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.queryByText("Mocked RPG Summary")).not.toBeInTheDocument();
@@ -236,5 +238,71 @@ describe("GameView", () => {
     unmount();
 
     expect(vi.mocked(artwork.cancelArtworkApply)).toHaveBeenCalledWith(55555);
+  });
+
+  it("switches view when clicking between Game Info and Emulator Settings tabs", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 101,
+      romName: "Star Fox 64",
+      platformSlug: "n64",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: true,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: "Mupen64Plus-Next",
+      activeCoreIsDefault: true,
+      emulators: [
+        {
+          label: "Mupen64Plus-Next",
+          kind: "libretro",
+          core_so: "mupen64plus_next",
+          emulator: "mupen64plus_next",
+          is_default: true,
+          bakeable: true,
+          reason: null,
+        },
+      ],
+      emulatorDataAvailable: true,
+      platformCoreLabel: "Mupen64Plus-Next",
+      hasGameOverride: false,
+    });
+
+    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
+
+    render(<GameView appId={101} />);
+
+    // Default tab is Game Info
+    expect(screen.getByRole("tab", { name: "Game Info" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+
+    // Click Emulation Settings tab
+    const emuTab = screen.getByRole("tab", { name: "Emulation Settings" });
+    fireEvent.click(emuTab);
+
+    expect(emuTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("N64 EMULATION")).toBeInTheDocument();
+    expect(screen.getByText("Active Core")).toBeInTheDocument();
+    expect(screen.getAllByText("Mupen64Plus-Next").length).toBeGreaterThanOrEqual(1);
+
+    // Click back to Game Info tab
+    const gameInfoTab = screen.getByRole("tab", { name: "Game Info" });
+    fireEvent.click(gameInfoTab);
+
+    expect(gameInfoTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("N64 EMULATION")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(101, 101);
+    });
   });
 });
