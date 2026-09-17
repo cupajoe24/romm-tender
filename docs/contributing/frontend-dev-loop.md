@@ -293,13 +293,46 @@ is the modify event that reloads the plugin. Every reload is a full one regardle
 restarts the backend subprocess **and** re-imports the frontend bundle. For `bin/` or `defaults/` changes, run the full
 `mise run deploy` instead.
 
+## Desktop client UI dev loop
+
+While the loop above targets the Big Picture / Game Mode gamepad surface, the desktop client surface
+(`frontend/src/desktop/`) targets Steam's desktop library window in Desktop Mode.
+
+To iterate on desktop views without altering the production bundle config:
+
+1. **Build the desktop dev bundle**:
+   ```bash
+   pnpm run build:desktop
+   ```
+   Uses `rollup.desktop.config.js`, which enables sourcemaps for CEF debugging and injects the desktop navigation
+   watcher (`startDesktopNavigationWatcher`) into the bundle at build time.
+
+2. **Deploy from your workstation to the Deck**: Push the bundle (and optional backend files) over SSH/SCP to a Steam
+   Deck running in Desktop Mode:
+   - **PowerShell (Windows)**:
+     ```powershell
+     .\scripts\dev_push_deck.ps1 -DeckHost <deck-ip>
+     ```
+     Add `-SetupDeck` on the first run to disable the tamper guard and authorize your SSH key, or `-PushBackend` to
+     transfer Python modules and `main.py` simultaneously.
+   - **Bash (Linux/macOS)**:
+     ```bash
+     ./scripts/dev_push_deck.sh <deck-ip>
+     ```
+     Accepts `--setup-deck` and `--push-backend`.
+
+3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view. Decky hot-reloads the deployed bundle
+   within 1–2 seconds. Inspect the DOM and console output via CEF DevTools at `http://<deck-ip>:8081` (see
+   [DevTools](#devtools) below).
+
 ## DevTools
 
 With `~/.steam/steam/.cef-enable-remote-debugging` present, Steam exposes the CEF DevTools protocol on
 <http://localhost:8080>:
 
 - The **SharedJSContext** target is where all plugin JS runs — console output and JS debugging live here.
-- The **Steam Big Picture Mode** target is the rendered UI — element inspection and live CSS editing.
+- The **Steam Big Picture Mode** target is the rendered UI — element inspection and live CSS editing. For desktop-mode
+  views, select the main Steam desktop client window target to inspect mounted DOM nodes.
 
 Decky's developer setting **Allow Remote CEF Debugging** forwards the same protocol to port 8081 on the LAN, for
 DevTools from a second PC. Reload activity from the loader side is visible with:

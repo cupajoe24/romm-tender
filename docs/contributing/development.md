@@ -208,7 +208,9 @@ For frontend iteration there is a much faster loop: after a one-time `mise run d
 no loader restarts at all — put it on a second monitor with a display target like `dp2`. Backend changes are pushed on
 demand with `mise run dev:push-backend`. That windowed Big Picture gives the QAM panel ~59% more vertical room than the
 Deck does, so judge layout and overflow under `mise run dev:ui-scale`, which forces Steam's display scale to Game
-Mode's. See [Frontend dev loop](frontend-dev-loop.md) for the full workflow, keyboard shortcuts, and caveats.
+Mode's. For iterating on desktop-client views (`frontend/src/desktop/`), see
+[Desktop client UI dev loop](frontend-dev-loop.md#desktop-client-ui-dev-loop) for the build target and push scripts. See
+[Frontend dev loop](frontend-dev-loop.md) for the full workflow, keyboard shortcuts, and caveats.
 
 ## Deploying to Device
 
