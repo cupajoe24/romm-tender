@@ -12,8 +12,10 @@ describe("desktop index exports", () => {
     expect(desktopIndex.coverCandidates(-1)).toEqual([]);
     expect(typeof desktopIndex.GameView).toBe("function");
     expect(desktopIndex.GameViewPage).toBe(desktopIndex.GameView);
+    expect(typeof desktopIndex.GameViewTabBar).toBe("function");
     expect(typeof desktopIndex.AboutHeader).toBe("function");
     expect(typeof desktopIndex.AboutDetails).toBe("function");
+    expect(typeof desktopIndex.EmulationSettings).toBe("function");
     expect(desktopIndex.formatReleaseDate(null)).toBeNull();
     expect(desktopIndex.TENDER_SUBSTITUTE_ID).toBe("tender-desktop-substitute");
   });
