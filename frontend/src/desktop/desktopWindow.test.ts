@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { findDesktopWindow, findReactClient, coverCandidates } from "./desktopWindow";
+import { findDesktopWindow, findReactClient, coverCandidates, heroCandidates } from "./desktopWindow";
 import * as deckyUi from "@decky/ui";
 
 describe("desktopWindow", () => {
@@ -88,6 +88,39 @@ describe("desktopWindow", () => {
       expect(coverCandidates(1234)).toEqual([
         "https://steamloopback.host/capsules/1234.jpg",
         "https://steamloopback.host/capsules/1234.png",
+      ]);
+    });
+  });
+
+  describe("heroCandidates", () => {
+    it("returns empty array when appStore is absent", () => {
+      expect(heroCandidates(1234)).toEqual([]);
+    });
+
+    it("returns empty array when app overview is absent", () => {
+      (window as unknown as { appStore?: unknown }).appStore = {
+        GetAppOverviewByAppID: vi.fn().mockReturnValue(undefined),
+        GetCustomHeroImageURLs: vi.fn(),
+      };
+      expect(heroCandidates(1234)).toEqual([]);
+    });
+
+    it("returns empty array when GetCustomHeroImageURLs returns non-array", () => {
+      (window as unknown as { appStore?: unknown }).appStore = {
+        GetAppOverviewByAppID: vi.fn().mockReturnValue({ appid: 1234 }),
+        GetCustomHeroImageURLs: vi.fn().mockReturnValue(undefined),
+      };
+      expect(heroCandidates(1234)).toEqual([]);
+    });
+
+    it("formats hero candidate URLs with steamloopback.host", () => {
+      (window as unknown as { appStore?: unknown }).appStore = {
+        GetAppOverviewByAppID: vi.fn().mockReturnValue({ appid: 1234 }),
+        GetCustomHeroImageURLs: vi.fn().mockReturnValue(["/hero/1234.jpg", "/hero/1234.png"]),
+      };
+      expect(heroCandidates(1234)).toEqual([
+        "https://steamloopback.host/hero/1234.jpg",
+        "https://steamloopback.host/hero/1234.png",
       ]);
     });
   });
