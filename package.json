@@ -6,6 +6,7 @@
   "scripts": {
     "build": "rollup -c",
     "build:dev": "rollup -c rollup.dev.config.js",
+    "build:desktop": "rollup -c rollup.desktop.config.js",
     "size": "size-limit",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
