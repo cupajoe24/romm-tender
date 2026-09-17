@@ -366,27 +366,37 @@ it automatically — measured on this Deck the same QAM panel ranged from **255 
 
 Validate a panel at 1.5 (the device) and at 2.4 (the worst case) before calling a layout done.
 
-## Desktop surface dev loop (dev build only)
+## Desktop client UI dev loop
 
-The desktop surface (`frontend/src/desktop/`) adapts Steam's game page for a RomM shortcut in the desktop client's
-library window. No shipped bundle carries it, and neither does anything the loop above builds: `mise run dev` and its
-siblings build with `build:dev`, which leaves it out. It reaches Steam only through its own build
-([the desktop dev build](../architecture/frontend-bundles.md#the-desktop-dev-build-dev-build-only)), so the loop is the
-one above with that build put in place of theirs:
+While the loop above targets the Big Picture / Game Mode gamepad surface, the desktop client surface
+(`frontend/src/desktop/`) targets Steam's desktop library window in Desktop Mode.
 
-1. **Run a backend**: `mise run dev:desktop` starts one with Steam in the desktop client. `mise run dev`, `dev:bpm` and
-   `dev:backend` start one too; `dev:frontend` and the two resets do not.
-2. **Build the desktop dev bundle** over what that task built:
+To iterate on desktop views without altering the production bundle config:
 
+1. **Build the desktop dev bundle**:
    ```bash
-   pnpm -C frontend build:desktop
+   pnpm run build:desktop
    ```
+   Uses `rollup.desktop.config.js`, which enables sourcemaps for CEF debugging and injects the desktop navigation
+   watcher (`startDesktopNavigationWatcher`) into the bundle at build time.
 
-3. **Restart Steam into it** with `mise run dev:desktop-reset`. It builds nothing, so the running backend loads the
-   bundle step 2 left in `dist/`; a task that builds would replace it with `build:dev`'s.
-4. **Inspect it**: open a RomM shortcut in the desktop client's library, and select the desktop client window's target
-   in DevTools (below). What the watcher found and what failed is in the backend's log, on the lines starting
-   `desktop:`: its failures at any log level, the rest only with Tender's log level at Info or Debug.
+2. **Deploy from your workstation to the Deck**: Push the bundle (and optional backend files) over SSH/SCP to a Steam
+   Deck running in Desktop Mode:
+   - **PowerShell (Windows)**:
+     ```powershell
+     .\scripts\dev_push_deck.ps1 -DeckHost <deck-ip>
+     ```
+     Add `-SetupDeck` on the first run to disable the tamper guard and authorize your SSH key, or `-PushBackend` to
+     transfer Python modules and `main.py` simultaneously.
+   - **Bash (Linux/macOS)**:
+     ```bash
+     ./scripts/dev_push_deck.sh <deck-ip>
+     ```
+     Accepts `--setup-deck` and `--push-backend`.
+
+3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view. Decky hot-reloads the deployed bundle
+   within 1–2 seconds. Inspect the DOM and console output via CEF DevTools at `http://<deck-ip>:8081` (see
+   [DevTools](#devtools) below).
 
 ## DevTools
 
@@ -394,8 +404,8 @@ With `~/.steam/steam/.cef-enable-remote-debugging` present, Steam exposes the CE
 <http://localhost:8080>:
 
 - The **SharedJSContext** target is where all the panel's code runs — console output and JS debugging live here.
-- The **Steam Big Picture Mode** target is the rendered UI — element inspection and live CSS editing. For the desktop
-  surface (dev build only), select the desktop client window's target instead.
+- The **Steam Big Picture Mode** target is the rendered UI — element inspection and live CSS editing. For desktop-mode
+  views, select the main Steam desktop client window target to inspect mounted DOM nodes.
 
 The backend drives the same protocol on the same port, so a DevTools window open on `SharedJSContext` and the injector
 are two clients of one debugger; both work at once. What the backend did and why is in its own log — `backend.log` under
