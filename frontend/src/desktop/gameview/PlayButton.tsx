@@ -1,0 +1,849 @@
+/**
+ * Play/Download button for the Steam Desktop game view.
+ *
+ * Replaces Steam's native static Play button on RomM shortcut detail pages.
+ * Handles the full state lifecycle mirroring Big Picture view:
+ *   - "download": ROM not installed; button displays "DOWNLOAD" (blue).
+ *   - "downloading": Active download in flight; shows progress bar, downloaded / total
+ *     bytes (or extraction percentage), cancel button, and pause/resume if resumable.
+ *   - "dl_complete": Brief "Ready!" transition.
+ *   - "play": ROM installed; button displays "PLAY" (green). Clicking runs pre-launch
+ *     save sync (if enabled), reconfirms launch options, and launches the game.
+ *   - "syncing": Pre-launch save sync in progress ("Syncing saves...").
+ *   - "launching": Launching via Steam ("Launching...").
+ *   - "running": Game actively running; displays "RESUME" with a stop option.
+ *   - "conflict": Unresolved save conflict; displays "Resolve Conflict".
+ *   - Includes an actions menu dropdown (chevron) with "Uninstall".
+ */
+
+import { useState, useEffect, useRef, type FC, type MouseEvent } from "react";
+import { addEventListener, removeEventListener } from "@decky/api";
+import {
+  startDownload,
+  cancelDownload,
+  pauseDownload,
+  resumeDownload,
+  removeRom,
+  preLaunchSync,
+  stopRunningGame,
+  debugLog,
+  invalidateCachedGameDetail,
+} from "../../api/backend";
+import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
+import { useDownloads } from "../../utils/downloadStore";
+import { getRommConnectionState, onRommConnectionChange } from "../../utils/connectionState";
+import { isSessionActive } from "../../utils/sessionManager";
+import { isAppRunning } from "../../utils/runningApps";
+import { hasAnySaveConflict } from "../../utils/saveStatus";
+import { saveSyncToastBody } from "../../utils/saveSyncToast";
+import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
+import { reconfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
+import {
+  capturePruneLeaseAdmission,
+  mountPruneLeaseOwner,
+  releasePruneLeasesByOwner,
+  withPruneLease,
+} from "../../utils/pruneLease";
+import { showToast } from "../../utils/toast";
+import { detach } from "../../utils/detach";
+import { formatBytes } from "../../utils/formatters";
+import { findDesktopWindow } from "../desktopWindow";
+import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
+
+export interface PlayButtonProps {
+  appId: number;
+}
+
+export type PlayButtonState =
+  | "loading"
+  | "download"
+  | "downloading"
+  | "dl_complete"
+  | "play"
+  | "syncing"
+  | "launching"
+  | "running"
+  | "conflict"
+  | "uninstalling";
+
+interface SteamClientStub {
+  Apps?: {
+    RunGame?: (appId: string, args: string, flags: number, unk: number) => void;
+  };
+}
+
+interface AppStoreStub {
+  GetAppOverviewByAppID?: (id: number) => { GetGameID?: () => string } | undefined;
+}
+
+// Download button blue gradient stops
+const BLUE_LEFT: [number, number, number] = [26, 159, 255]; // #1a9fff
+const BLUE_RIGHT: [number, number, number] = [0, 120, 212]; // #0078d4
+// Play button green gradient stops
+const GREEN_LEFT: [number, number, number] = [89, 191, 67]; // #59bf43
+const GREEN_RIGHT: [number, number, number] = [64, 153, 48]; // #409930
+
+function lerpColor(a: [number, number, number], b: [number, number, number], t: number): string {
+  const r = Math.round(a[0] + (b[0] - a[0]) * t);
+  const g = Math.round(a[1] + (b[1] - a[1]) * t);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
+export const PULSE_STYLE_ID = "tender-desktop-playbutton-pulse-styles";
+
+export function ensurePulseStyles(doc?: Document | null) {
+  const targetDoc =
+    doc ||
+    (typeof findDesktopWindow === "function" ? findDesktopWindow()?.document : null) ||
+    (typeof document !== "undefined" ? document : null);
+  if (!targetDoc) return;
+  if (targetDoc.getElementById(PULSE_STYLE_ID)) return;
+
+  const style = targetDoc.createElement("style");
+  style.id = PULSE_STYLE_ID;
+  style.textContent = `
+    @keyframes tender-desktop-dl-pulse {
+      0%, 100% {
+        box-shadow: 0 0 6px rgba(26, 159, 255, 0.35), 0 1px 4px rgba(0, 0, 0, 0.4);
+      }
+      50% {
+        box-shadow: 0 0 24px rgba(26, 159, 255, 0.85), 0 0 8px rgba(26, 159, 255, 0.5), 0 1px 4px rgba(0, 0, 0, 0.4);
+      }
+    }
+    .tender-desktop-dl-pulsing {
+      animation: tender-desktop-dl-pulse 2s ease-in-out infinite !important;
+      overflow: visible !important;
+    }
+    #tender-desktop-play-button-host {
+      overflow: visible !important;
+    }
+  `;
+  targetDoc.head.appendChild(style);
+}
+
+export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
+  const detail = useGameDetail(appId);
+  const downloads = useDownloads();
+
+  const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
+  const [isOffline, setIsOffline] = useState(getRommConnectionState() === "offline");
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const romId = detail.romId;
+  const leaseOwner = `desktop-play-button:${appId}`;
+
+  useEffect(() => {
+    mountPruneLeaseOwner(leaseOwner);
+    return () => {
+      detach(releasePruneLeasesByOwner(leaseOwner));
+    };
+  }, [leaseOwner]);
+
+  // Track offline status
+  useEffect(() => {
+    return onRommConnectionChange((status) => {
+      setIsOffline(status === "offline");
+    });
+  }, []);
+
+  // Ensure download pulsing keyframes are present in the target document
+  useEffect(() => {
+    const doc =
+      containerRef.current?.ownerDocument ||
+      (typeof findDesktopWindow === "function" ? findDesktopWindow()?.document : null) ||
+      (typeof document !== "undefined" ? document : null);
+    ensurePulseStyles(doc);
+  }, []);
+
+  // Close actions menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handleOutsideClick = (e: globalThis.MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [showMenu]);
+
+  // Find matching in-flight download for this ROM
+  const activeDownload = romId ? downloads.find((d) => d.rom_id === romId) : undefined;
+  const isTransferActive =
+    activeDownload &&
+    (activeDownload.status === "downloading" ||
+      activeDownload.status === "extracting" ||
+      activeDownload.status === "queued" ||
+      activeDownload.status === "paused");
+
+  // Determine current effective state
+  let effectiveState: PlayButtonState = "loading";
+
+  if (stateOverride) {
+    effectiveState = stateOverride;
+  } else if (isTransferActive) {
+    effectiveState = "downloading";
+  } else if (romId && (isSessionActive(romId) || isAppRunning(appId))) {
+    effectiveState = "running";
+  } else if (detail.installed) {
+    if (detail.saveStatus && hasAnySaveConflict(detail.saveStatus)) {
+      effectiveState = "conflict";
+    } else {
+      effectiveState = "play";
+    }
+  } else if (romId !== null) {
+    effectiveState = "download";
+  }
+
+  // Listen for download completion and failure events
+  useEffect(() => {
+    const handleComplete = (e: DownloadCompleteEvent) => {
+      if (e.rom_id === romId || e.app_id === appId) {
+        detach(setLaunchOptionsConfirmed(appId, e.launch_options).catch(() => false));
+        invalidateCachedGameDetail(appId);
+        setStateOverride("dl_complete");
+        setTimeout(() => {
+          setStateOverride(null);
+        }, 1500);
+      }
+    };
+
+    const handleFailed = (e: DownloadFailedEvent) => {
+      if (e.rom_id === romId) {
+        setStateOverride(null);
+        showToast(e.error_message || "Download failed");
+      }
+    };
+
+    addEventListener("download_complete", handleComplete);
+    addEventListener("download_failed", handleFailed);
+
+    return () => {
+      removeEventListener("download_complete", handleComplete);
+      removeEventListener("download_failed", handleFailed);
+    };
+  }, [appId, romId]);
+
+  // Handlers
+  const handleDownloadClick = async () => {
+    if (!romId || isOffline || effectiveState === "downloading") return;
+
+    setStateOverride("downloading");
+    try {
+      const result = await startDownload(romId, false, null, null, false);
+      if (!result.success) {
+        setStateOverride(null);
+        showToast(result.message || "Download failed");
+      }
+    } catch {
+      setStateOverride(null);
+      showToast("Download failed — is RomM server running?");
+    }
+  };
+
+  const handleCancelClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!romId) return;
+    detach(cancelDownload(romId).catch(() => {}));
+    setStateOverride(null);
+  };
+
+  const handlePauseResumeClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!romId || !activeDownload) return;
+    if (activeDownload.status === "paused") {
+      detach(resumeDownload(romId).catch(() => {}));
+    } else {
+      detach(pauseDownload(romId).catch(() => {}));
+    }
+  };
+
+  const handlePlayClick = async () => {
+    if (!romId || effectiveState === "syncing" || effectiveState === "launching") return;
+
+    // Already running -> bring to front
+    if (isSessionActive(romId) || isAppRunning(appId)) {
+      launchGame();
+      return;
+    }
+
+    // Pre-launch save sync if enabled
+    if (detail.saveSyncEnabled) {
+      setStateOverride("syncing");
+      try {
+        const syncResult = await preLaunchSync(romId);
+        if (!syncResult.success) {
+          detach(debugLog(`DesktopPlayButton: pre-launch sync failed: ${syncResult.message}`));
+        } else {
+          const toastBody = saveSyncToastBody(syncResult.uploaded, syncResult.downloaded);
+          if (toastBody) showToast(toastBody);
+        }
+      } catch (err) {
+        detach(debugLog(`DesktopPlayButton: pre-launch sync error: ${err}`));
+      }
+    }
+
+    // Launch game
+    setStateOverride("launching");
+    const admission = capturePruneLeaseAdmission(leaseOwner);
+    try {
+      await reconfirmLaunchOptions(romId, appId, "DesktopPlayButton", admission);
+    } catch {
+      // Best-effort
+    }
+
+    launchGame();
+    setTimeout(() => {
+      setStateOverride(null);
+    }, 2000);
+  };
+
+  const launchGame = () => {
+    const store = (window as unknown as { appStore?: AppStoreStub }).appStore;
+    const overview = store?.GetAppOverviewByAppID?.(appId);
+    const gameId = overview?.GetGameID?.() ?? String(appId);
+
+    const winClient = (window as unknown as { SteamClient?: SteamClientStub }).SteamClient;
+    const globalClient = (globalThis as unknown as { SteamClient?: SteamClientStub }).SteamClient;
+    const client = winClient || globalClient;
+
+    if (client?.Apps?.RunGame) {
+      client.Apps.RunGame(gameId, "", -1, 100);
+    }
+  };
+
+  const handleStopClick = async () => {
+    if (!romId) return;
+    try {
+      await stopRunningGame(romId);
+      setStateOverride(null);
+    } catch {
+      showToast("Could not stop game");
+    }
+  };
+
+  const handleUninstallClick = async () => {
+    if (!romId) return;
+    setShowMenu(false);
+    setStateOverride("uninstalling");
+
+    const admission = capturePruneLeaseAdmission(leaseOwner);
+    try {
+      const result = await removeRom(romId);
+      if (result.success) {
+        await withPruneLease(
+          result.prune_lease_token,
+          "ROM uninstall",
+          async (signal) => {
+            if (signal.aborted) return;
+            await setLaunchOptionsConfirmed(appId, "").catch(() => false);
+          },
+          leaseOwner,
+          admission,
+        );
+        globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
+        invalidateCachedGameDetail(appId);
+        showToast(`${detail.romName || "ROM"} uninstalled`);
+        setStateOverride(null);
+      } else {
+        showToast(result.message || "Uninstall failed");
+        setStateOverride(null);
+      }
+    } catch {
+      showToast("Uninstall failed");
+      setStateOverride(null);
+    }
+  };
+
+  // Render download progress elements
+  const downloadedBytes = activeDownload?.bytes_downloaded ?? 0;
+  const totalBytes = activeDownload?.total_bytes ?? detail.fsSizeBytes ?? 0;
+  const progressRatio = totalBytes > 0 ? Math.min(1, Math.max(0, downloadedBytes / totalBytes)) : 0;
+  const progressPercent = Math.round(progressRatio * 100);
+  const isExtracting = activeDownload?.status === "extracting";
+  const isPaused = activeDownload?.status === "paused";
+  const isResumable = activeDownload?.resumable ?? false;
+
+  // Base container style matching Steam's action bar height
+  const containerStyle: React.CSSProperties = {
+    display: "inline-flex",
+    flexDirection: "row",
+    alignItems: "center",
+    height: "48px",
+    position: "relative",
+    userSelect: "none",
+    overflow: "visible",
+  };
+
+  // Consistent 200px button container size matching default Steam desktop play/install button
+  const buttonGroupStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    width: "200px",
+    minWidth: "200px",
+    maxWidth: "200px",
+    height: "48px",
+    position: "relative",
+    borderRadius: "2px",
+    boxShadow: "0 1px 4px rgba(0, 0, 0, 0.4)",
+    overflow: "visible",
+  };
+
+  const buttonBaseStyle: React.CSSProperties = {
+    height: "100%",
+    flex: "1 1 auto",
+    padding: "0 16px",
+    border: "none",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "8px",
+    fontSize: "15px",
+    fontWeight: 700,
+    letterSpacing: "0.5px",
+    color: "#ffffff",
+    borderRadius: "2px",
+    textShadow: "0 1px 2px rgba(0, 0, 0, 0.4)",
+    transition: "filter 0.15s ease, background 0.15s ease",
+  };
+
+  const sideActionStyle: React.CSSProperties = {
+    height: "48px",
+    width: "36px",
+    minWidth: "36px",
+    maxWidth: "36px",
+    flex: "0 0 36px",
+    border: "none",
+    borderRadius: "0 2px 2px 0",
+    background: "rgba(0, 0, 0, 0.25)",
+    borderLeft: "1px solid rgba(255, 255, 255, 0.15)",
+    color: "#ffffff",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.15s ease",
+  };
+
+  const renderSpaceRequired = () => {
+    if (detail.installed || detail.fsSizeBytes == null) {
+      return null;
+    }
+    return (
+      <div
+        className="tender-desktop-space-required"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          marginLeft: "24px",
+          userSelect: "none",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "11px",
+            fontWeight: 600,
+            letterSpacing: "0.5px",
+            textTransform: "uppercase",
+            color: "#8f98a0",
+            lineHeight: 1.2,
+          }}
+        >
+          SPACE REQUIRED
+        </div>
+        <div
+          style={{
+            fontSize: "14px",
+            fontWeight: 700,
+            color: "#ffffff",
+            lineHeight: 1.4,
+          }}
+        >
+          {formatBytes(detail.fsSizeBytes)}
+        </div>
+      </div>
+    );
+  };
+
+  // 1. Downloading state
+  if (effectiveState === "downloading") {
+    let progressLabel = `${progressPercent}%`;
+    if (isExtracting) progressLabel = `Extracting… ${progressPercent}%`;
+    if (isPaused) progressLabel = `Paused (${progressPercent}%)`;
+
+    const t = Math.min(1, Math.max(0, progressRatio));
+
+    const fillGradient = isExtracting
+      ? "linear-gradient(90deg, #59bf43 0%, #409930 100%)"
+      : `linear-gradient(90deg, ${lerpColor(BLUE_LEFT, GREEN_LEFT, t)} 0%, ${lerpColor(BLUE_RIGHT, GREEN_RIGHT, t)} 100%)`;
+
+    const { boxShadow: _baseShadow, ...buttonGroupNoShadow } = buttonGroupStyle;
+
+    return (
+      <div className="tender-desktop-play-btn-container" ref={containerRef} style={containerStyle}>
+        <div
+          className={`tender-desktop-play-btn-group ${!isPaused ? "tender-desktop-dl-pulsing" : ""}`.trim()}
+          style={
+            {
+              ...buttonGroupNoShadow,
+              overflow: "visible",
+              ...(isPaused ? { boxShadow: "0 0 10px rgba(212, 167, 44, 0.7), 0 1px 4px rgba(0, 0, 0, 0.4)" } : {}),
+            } as React.CSSProperties
+          }
+        >
+          <div
+            role="progressbar"
+            aria-valuenow={progressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            style={{
+              ...buttonBaseStyle,
+              position: "relative",
+              overflow: "hidden",
+              background: "#0e1c2e",
+              borderRadius: isExtracting ? "2px" : "2px 0 0 2px",
+              padding: "0 10px",
+            }}
+          >
+            <div
+              className="tender-desktop-dl-fill"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                bottom: 0,
+                width: `${progressPercent}%`,
+                background: fillGradient,
+                transition: "width 0.25s ease-out, background 0.25s ease-out",
+              }}
+            />
+            <span
+              style={{
+                position: "relative",
+                zIndex: 1,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontSize: "13px",
+              }}
+            >
+              {progressLabel}
+            </span>
+          </div>
+
+          {/* Pause/Resume if supported */}
+          {isResumable && !isExtracting && (
+            <button
+              type="button"
+              className="tender-desktop-dl-pause"
+              title={isPaused ? "Resume download" : "Pause download"}
+              aria-label={isPaused ? "Resume download" : "Pause download"}
+              style={{
+                ...sideActionStyle,
+                width: "32px",
+                minWidth: "32px",
+                maxWidth: "32px",
+                flex: "0 0 32px",
+                borderRadius: 0,
+              }}
+              onClick={handlePauseResumeClick}
+            >
+              {isPaused ? (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M2 1.5L10 6L2 10.5V1.5Z" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+                  <rect x="2" y="2" width="3" height="8" rx="0.5" />
+                  <rect x="7" y="2" width="3" height="8" rx="0.5" />
+                </svg>
+              )}
+            </button>
+          )}
+
+          {/* Cancel button */}
+          {!isExtracting && (
+            <button
+              type="button"
+              className="tender-desktop-dl-cancel"
+              title="Cancel download"
+              aria-label="Cancel download"
+              style={{
+                ...sideActionStyle,
+                width: isResumable ? "32px" : "36px",
+                minWidth: isResumable ? "32px" : "36px",
+                maxWidth: isResumable ? "32px" : "36px",
+                flex: isResumable ? "0 0 32px" : "0 0 36px",
+              }}
+              onClick={handleCancelClick}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="2" y1="2" x2="10" y2="10" strokeLinecap="round" />
+                <line x1="10" y1="2" x2="2" y2="10" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+        </div>
+        {renderSpaceRequired()}
+      </div>
+    );
+  }
+
+  // 2. Download Complete flash
+  if (effectiveState === "dl_complete") {
+    return (
+      <div className="tender-desktop-play-btn-container" style={containerStyle}>
+        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+          <button
+            type="button"
+            disabled
+            style={{
+              ...buttonBaseStyle,
+              width: "100%",
+              borderRadius: "2px",
+              background: "linear-gradient(90deg, #70d61d 0%, #01a75b 100%)",
+              filter: "brightness(1.2)",
+            }}
+          >
+            READY!
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Running / Resume state
+  if (effectiveState === "running") {
+    return (
+      <div className="tender-desktop-play-btn-container" style={containerStyle}>
+        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+          <button
+            type="button"
+            className="tender-desktop-btn-resume"
+            style={{
+              ...buttonBaseStyle,
+              background: "linear-gradient(90deg, #59bf43 0%, #409930 100%)",
+              borderRadius: "2px 0 0 2px",
+            }}
+            onClick={() => {
+              void handlePlayClick();
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M3 2L12 7L3 12V2Z" />
+            </svg>
+            RESUME
+          </button>
+          <button
+            type="button"
+            className="tender-desktop-btn-stop"
+            title="Stop Game"
+            aria-label="Stop Game"
+            style={sideActionStyle}
+            onClick={() => {
+              void handleStopClick();
+            }}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+              <rect width="10" height="10" rx="1" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. Play state (Installed)
+  if (effectiveState === "play" || effectiveState === "syncing" || effectiveState === "launching") {
+    let playText = "PLAY";
+    if (effectiveState === "syncing") playText = "SYNCING SAVES...";
+    if (effectiveState === "launching") playText = "LAUNCHING...";
+
+    return (
+      <div className="tender-desktop-play-btn-container" style={containerStyle} ref={menuRef}>
+        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+          <button
+            type="button"
+            className="tender-desktop-btn-play"
+            disabled={effectiveState !== "play"}
+            style={{
+              ...buttonBaseStyle,
+              background: "linear-gradient(90deg, #59bf43 0%, #409930 100%)",
+              borderRadius: "2px 0 0 2px",
+            }}
+            onClick={() => {
+              void handlePlayClick();
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <path d="M3 2L12 7L3 12V2Z" />
+            </svg>
+            {playText}
+          </button>
+
+          {/* Dropdown Menu Toggle */}
+          <button
+            type="button"
+            className="tender-desktop-menu-toggle"
+            title="Game Options"
+            aria-label="Game Options"
+            style={sideActionStyle}
+            onClick={() => setShowMenu((prev) => !prev)}
+          >
+            <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
+              <path
+                d="M1 1L5 5L9 1"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+          </button>
+
+          {/* Dropdown Menu */}
+          {showMenu && (
+            <div
+              className="tender-desktop-play-menu"
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                minWidth: "160px",
+                background: "#1e2837",
+                border: "1px solid #3c4856",
+                borderRadius: "2px",
+                boxShadow: "0 8px 16px rgba(0, 0, 0, 0.5)",
+                zIndex: 1000,
+                padding: "4px 0",
+              }}
+            >
+              <button
+                type="button"
+                className="tender-desktop-menu-item-uninstall"
+                style={{
+                  width: "100%",
+                  padding: "8px 16px",
+                  textAlign: "left",
+                  background: "transparent",
+                  border: "none",
+                  color: "#ff6b6b",
+                  fontSize: "13px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+                onClick={() => {
+                  void handleUninstallClick();
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M1.5 3H10.5M4 3V1.5H8V3M4.5 5.5V9.5M7.5 5.5V9.5" strokeLinecap="round" />
+                  <path d="M2.5 3L3.2 10.2C3.25 10.65 3.65 11 4.1 11H7.9C8.35 11 8.75 10.65 8.8 10.2L9.5 3" />
+                </svg>
+                Uninstall
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 5. Conflict state
+  if (effectiveState === "conflict") {
+    return (
+      <div className="tender-desktop-play-btn-container" style={containerStyle}>
+        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+          <button
+            type="button"
+            className="tender-desktop-btn-conflict"
+            style={{
+              ...buttonBaseStyle,
+              width: "100%",
+              borderRadius: "2px",
+              background: "linear-gradient(90deg, #d4a017 0%, #b8860b 100%)",
+              fontSize: "13px",
+            }}
+            onClick={() => {
+              showToast("Resolve save conflict before playing");
+              if (romId) void refreshSaveStatus(appId);
+            }}
+          >
+            RESOLVE CONFLICT
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 6. Uninstalling state
+  if (effectiveState === "uninstalling") {
+    return (
+      <div className="tender-desktop-play-btn-container" style={containerStyle}>
+        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+          <button
+            type="button"
+            disabled
+            style={{
+              ...buttonBaseStyle,
+              width: "100%",
+              borderRadius: "2px",
+              background: "#2a3f5a",
+              color: "#8fa3b8",
+            }}
+          >
+            UNINSTALLING...
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 7. Default: Download state (Uninstalled)
+  return (
+    <div className="tender-desktop-play-btn-container" style={containerStyle}>
+      <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+        <button
+          type="button"
+          className="tender-desktop-btn-download"
+          disabled={isOffline}
+          style={{
+            ...buttonBaseStyle,
+            width: "100%",
+            borderRadius: "2px",
+            background: isOffline
+              ? "linear-gradient(90deg, #4a5968 0%, #3a4754 100%)"
+              : "linear-gradient(90deg, #1a9fff 0%, #0078d4 100%)",
+            cursor: isOffline ? "not-allowed" : "pointer",
+            opacity: isOffline ? 0.7 : 1,
+          }}
+          onClick={() => {
+            void handleDownloadClick();
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+            <path
+              d="M7 1V9M7 9L3.5 5.5M7 9L10.5 5.5M1 11H13M1 13H13"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+          {isOffline ? "OFFLINE" : "DOWNLOAD"}
+        </button>
+      </div>
+      {renderSpaceRequired()}
+    </div>
+  );
+};

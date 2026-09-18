@@ -9,9 +9,11 @@ import { detach } from "../../utils/detach";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { EmulationSettings } from "./EmulationSettings";
+import { PlayButton } from "./PlayButton";
 
 export interface GameViewProps {
   appId: number;
+  showPlayButton?: boolean;
 }
 
 export type GameViewPageProps = GameViewProps;
@@ -26,7 +28,7 @@ interface AppStoreStub {
 
 const artworkApplied = new Map<number, number>();
 
-export const GameView: FC<GameViewProps> = ({ appId }) => {
+export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
   const [activeTab, setActiveTab] = useState<GameViewTab>("game-info");
   const [loadedMetadata, setLoadedMetadata] = useState<RomMetadata | null>(null);
@@ -84,6 +86,11 @@ export const GameView: FC<GameViewProps> = ({ appId }) => {
         marginBottom: "24px",
       }}
     >
+      {showPlayButton && (
+        <div style={{ marginBottom: "16px" }}>
+          <PlayButton appId={appId} />
+        </div>
+      )}
       <GameViewTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
       <div
         className="tender-desktop-about-card tender-desktop-info-card"
@@ -118,3 +125,4 @@ export const GameView: FC<GameViewProps> = ({ appId }) => {
 };
 
 export const GameViewPage = GameView;
+export { PlayButton } from "./PlayButton";
