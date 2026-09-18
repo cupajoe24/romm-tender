@@ -133,14 +133,14 @@ describe("formatLastPlayed", () => {
     expect(formatLastPlayed(threeDaysAgo)).toBe("3 days ago");
   });
 
-  it("returns 'DD. Mon.' for same-year dates older than a week", () => {
+  it("returns 'DD Mon' for same-year dates older than a week", () => {
     const twoMonthsAgo = Math.floor(new Date("2025-04-10T10:00:00Z").getTime() / 1000);
-    expect(formatLastPlayed(twoMonthsAgo)).toBe("10. Apr.");
+    expect(formatLastPlayed(twoMonthsAgo)).toBe("10 Apr");
   });
 
-  it("returns 'DD. Mon. YYYY' for prior-year dates", () => {
+  it("returns 'DD Mon YYYY' for prior-year dates", () => {
     const lastYear = Math.floor(new Date("2024-08-20T10:00:00Z").getTime() / 1000);
-    expect(formatLastPlayed(lastYear)).toBe("20. Aug. 2024");
+    expect(formatLastPlayed(lastYear)).toBe("20 Aug 2024");
   });
 });
 
