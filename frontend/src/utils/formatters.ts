@@ -2,7 +2,7 @@ import type { EntryKind } from "../types";
 
 /** Format a Unix timestamp (seconds) as a coarse human-readable date.
  *  Returns "Never" for zero/negative, "Today"/"Yesterday"/"Xd ago" for recent,
- *  and "DD. Mon." (or "DD. Mon. YYYY" if not the current year) for older. */
+ *  and "DD Mon" (or "DD Mon YYYY" if not the current year) for older. */
 export function formatLastPlayed(timestamp: number): string {
   if (!timestamp || timestamp <= 0) return "Never";
   const date = new Date(timestamp * 1000);
@@ -18,8 +18,8 @@ export function formatLastPlayed(timestamp: number): string {
   const day = date.getDate();
   const month = months[date.getMonth()];
   const year = date.getFullYear();
-  if (year === now.getFullYear()) return `${day}. ${month}.`;
-  return `${day}. ${month}. ${year}`;
+  if (year === now.getFullYear()) return `${day} ${month}`;
+  return `${day} ${month} ${year}`;
 }
 
 /** Format a byte count as a human-readable string (e.g. "12.4 KB", "1.23 GB"). Empty string for null. */

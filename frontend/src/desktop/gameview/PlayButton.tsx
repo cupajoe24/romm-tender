@@ -26,6 +26,7 @@ import {
   removeRom,
   preLaunchSync,
   stopRunningGame,
+  reconcilePlaytime,
   debugLog,
   invalidateCachedGameDetail,
 } from "../../api/backend";
@@ -46,7 +47,8 @@ import {
 } from "../../utils/pruneLease";
 import { showToast } from "../../utils/toast";
 import { detach } from "../../utils/detach";
-import { formatBytes } from "../../utils/formatters";
+import { formatBytes, formatLastPlayed, formatPlaytime } from "../../utils/formatters";
+import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
 import { findDesktopWindow } from "../desktopWindow";
 import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
 
@@ -72,8 +74,51 @@ interface SteamClientStub {
   };
 }
 
+interface SteamAppOverviewStub {
+  GetGameID?: () => string;
+  rt_last_time_played?: number;
+  minutes_playtime_forever?: number;
+}
+
 interface AppStoreStub {
-  GetAppOverviewByAppID?: (id: number) => { GetGameID?: () => string } | undefined;
+  GetAppOverviewByAppID?: (id: number) => SteamAppOverviewStub | undefined;
+}
+
+interface PlaytimeState {
+  lastPlayed: string;
+  restoredLastPlayed: string | null;
+  playtime: string;
+}
+
+function resolveLastPlayed(restoredIso: string | null, steamUnixSeconds: number): string {
+  if (restoredIso) {
+    const ms = Date.parse(restoredIso);
+    if (!Number.isNaN(ms)) return formatLastPlayed(Math.floor(ms / 1000));
+  }
+  return formatLastPlayed(steamUnixSeconds);
+}
+
+function getOverview(appId: number): SteamAppOverviewStub | null {
+  try {
+    const winStore = (window as unknown as { appStore?: AppStoreStub }).appStore;
+    if (winStore?.GetAppOverviewByAppID) {
+      return winStore.GetAppOverviewByAppID(appId) ?? null;
+    }
+    const globalStore = (globalThis as unknown as { appStore?: AppStoreStub }).appStore;
+    if (globalStore?.GetAppOverviewByAppID) {
+      return globalStore.GetAppOverviewByAppID(appId) ?? null;
+    }
+    const deskWin = typeof findDesktopWindow === "function" ? findDesktopWindow() : undefined;
+    if (deskWin) {
+      const deskStore = (deskWin as unknown as { appStore?: AppStoreStub }).appStore;
+      if (deskStore?.GetAppOverviewByAppID) {
+        return deskStore.GetAppOverviewByAppID(appId) ?? null;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 // Download button blue gradient stops
@@ -125,6 +170,16 @@ export function ensurePulseStyles(doc?: Document | null) {
 export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   const detail = useGameDetail(appId);
   const downloads = useDownloads();
+
+  const overview = getOverview(appId);
+  const initialLastPlayed = formatLastPlayed(overview?.rt_last_time_played ?? 0);
+  const initialPlaytime = formatPlaytime(overview?.minutes_playtime_forever ?? 0);
+
+  const [playtimeInfo, setPlaytimeInfo] = useState<PlaytimeState>({
+    lastPlayed: initialLastPlayed,
+    restoredLastPlayed: null,
+    playtime: initialPlaytime,
+  });
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
   const [isOffline, setIsOffline] = useState(getRommConnectionState() === "offline");
@@ -229,6 +284,59 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     };
   }, [appId, romId]);
 
+  // Reconcile-on-view: folds RomM's play-session history into local total
+  useEffect(() => {
+    if (!romId) return;
+    let cancelled = false;
+
+    async function doReconcilePlaytime(rid: number, isCancelled: () => boolean) {
+      try {
+        const result = await reconcilePlaytime(rid);
+        if (isCancelled()) return;
+        if ("success" in result) {
+          detach(debugLog(`DesktopPlayButton: playtime reconcile deferred: ${result.message}`));
+          return;
+        }
+        if (!result.server_query_failed) {
+          const ov = getOverview(appId);
+          const steamSecs = ov?.rt_last_time_played ?? 0;
+          setPlaytimeInfo((prev) => ({
+            ...prev,
+            restoredLastPlayed: result.last_played,
+            lastPlayed: resolveLastPlayed(result.last_played, steamSecs),
+          }));
+        }
+        updatePlaytimeDisplay(appId, result.total_seconds, false);
+      } catch (e) {
+        detach(debugLog(`DesktopPlayButton: playtime reconcile error: ${e}`));
+      }
+    }
+
+    detach(doReconcilePlaytime(romId, () => cancelled));
+    return () => {
+      cancelled = true;
+    };
+  }, [romId, appId]);
+
+  // Reactive PLAYTIME display: re-read Steam's overview on romm_playtime_changed
+  useEffect(() => {
+    const onPlaytimeChanged = (e: Event) => {
+      const payload = (e as CustomEvent<{ appId?: number } | null>).detail;
+      if (payload?.appId !== appId) return;
+      const ov = getOverview(appId);
+      if (!ov) return;
+      setPlaytimeInfo((prev) => ({
+        ...prev,
+        playtime: formatPlaytime(ov.minutes_playtime_forever ?? 0),
+        lastPlayed: resolveLastPlayed(prev.restoredLastPlayed, ov.rt_last_time_played ?? 0),
+      }));
+    };
+    globalThis.addEventListener("romm_playtime_changed", onPlaytimeChanged);
+    return () => {
+      globalThis.removeEventListener("romm_playtime_changed", onPlaytimeChanged);
+    };
+  }, [appId]);
+
   // Handlers
   const handleDownloadClick = async () => {
     if (!romId || isOffline || effectiveState === "downloading") return;
@@ -304,8 +412,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   };
 
   const launchGame = () => {
-    const store = (window as unknown as { appStore?: AppStoreStub }).appStore;
-    const overview = store?.GetAppOverviewByAppID?.(appId);
+    const overview = getOverview(appId);
     const gameId = overview?.GetGameID?.() ?? String(appId);
 
     const winClient = (window as unknown as { SteamClient?: SteamClientStub }).SteamClient;
@@ -432,43 +539,80 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     transition: "background 0.15s ease",
   };
 
-  const renderSpaceRequired = () => {
-    if (detail.installed || detail.fsSizeBytes == null) {
-      return null;
-    }
+  const renderBadges = () => {
+    const badgeColumnStyle: React.CSSProperties = {
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      marginLeft: "24px",
+      userSelect: "none",
+      whiteSpace: "nowrap",
+    };
+
+    const badgeHeaderStyle: React.CSSProperties = {
+      fontSize: "11px",
+      fontWeight: 600,
+      letterSpacing: "0.5px",
+      textTransform: "uppercase",
+      color: "#8f98a0",
+      lineHeight: 1.2,
+    };
+
+    const badgeValueStyle: React.CSSProperties = {
+      fontSize: "14px",
+      fontWeight: 700,
+      color: "#ffffff",
+      lineHeight: 1.4,
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+    };
+
+    const hasAchievements = Boolean(detail.raId || detail.achievementTotal > 0);
+    const countLabel =
+      detail.achievementTotal > 0
+        ? `${detail.achievementEarned}/${detail.achievementTotal}`
+        : `${detail.achievementEarned}`;
+
     return (
-      <div
-        className="tender-desktop-space-required"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          marginLeft: "24px",
-          userSelect: "none",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "11px",
-            fontWeight: 600,
-            letterSpacing: "0.5px",
-            textTransform: "uppercase",
-            color: "#8f98a0",
-            lineHeight: 1.2,
-          }}
-        >
-          SPACE REQUIRED
-        </div>
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: 700,
-            color: "#ffffff",
-            lineHeight: 1.4,
-          }}
-        >
-          {formatBytes(detail.fsSizeBytes)}
-        </div>
+      <div className="tender-desktop-badges" style={{ display: "flex", flexDirection: "row", alignItems: "center" }}>
+        {!detail.installed && detail.fsSizeBytes != null && (
+          <div className="tender-desktop-badge-item tender-desktop-space-required" style={badgeColumnStyle}>
+            <div style={badgeHeaderStyle}>SPACE REQUIRED</div>
+            <div style={badgeValueStyle}>{formatBytes(detail.fsSizeBytes)}</div>
+          </div>
+        )}
+
+        {playtimeInfo.lastPlayed ? (
+          <div className="tender-desktop-badge-item tender-desktop-last-played" style={badgeColumnStyle}>
+            <div style={badgeHeaderStyle}>LAST PLAYED</div>
+            <div style={badgeValueStyle}>{playtimeInfo.lastPlayed}</div>
+          </div>
+        ) : null}
+
+        {playtimeInfo.playtime ? (
+          <div className="tender-desktop-badge-item tender-desktop-playtime" style={badgeColumnStyle}>
+            <div style={badgeHeaderStyle}>PLAYTIME</div>
+            <div style={badgeValueStyle}>{playtimeInfo.playtime}</div>
+          </div>
+        ) : null}
+
+        {hasAchievements && (
+          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer shortcut to achievements tab
+          <div
+            className="tender-desktop-badge-item tender-desktop-achievements"
+            style={{ ...badgeColumnStyle, cursor: "pointer" }}
+            onClick={() => {
+              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "achievements" } }));
+            }}
+          >
+            <div style={badgeHeaderStyle}>ACHIEVEMENTS</div>
+            <div style={badgeValueStyle}>
+              <span style={{ fontSize: "13px" }}>{"\uD83C\uDFC6"}</span>
+              <span>{countLabel}</span>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -592,7 +736,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </button>
           )}
         </div>
-        {renderSpaceRequired()}
+        {renderBadges()}
       </div>
     );
   }
@@ -616,6 +760,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             READY!
           </button>
         </div>
+        {renderBadges()}
       </div>
     );
   }
@@ -657,6 +802,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </svg>
           </button>
         </div>
+        {renderBadges()}
       </div>
     );
   }
@@ -756,6 +902,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </div>
           )}
         </div>
+        {renderBadges()}
       </div>
     );
   }
@@ -783,6 +930,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             RESOLVE CONFLICT
           </button>
         </div>
+        {renderBadges()}
       </div>
     );
   }
@@ -806,6 +954,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             UNINSTALLING...
           </button>
         </div>
+        {renderBadges()}
       </div>
     );
   }
@@ -843,7 +992,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
           {isOffline ? "OFFLINE" : "DOWNLOAD"}
         </button>
       </div>
-      {renderSpaceRequired()}
+      {renderBadges()}
     </div>
   );
 };
