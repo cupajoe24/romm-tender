@@ -8,6 +8,7 @@ import * as sessionManager from "../../utils/sessionManager";
 import * as runningApps from "../../utils/runningApps";
 import * as backend from "../../api/backend";
 import * as steamShortcuts from "../../utils/steamShortcuts";
+import * as metadataPatches from "../../utils/metadataPatches";
 import * as toast from "../../utils/toast";
 import { emitDeckyEvent } from "../../test-utils/decky-api-mock";
 import type { DownloadItem, SyncConflict } from "../../types";
@@ -35,6 +36,10 @@ vi.mock("../../utils/runningApps", () => ({
   isAppRunning: vi.fn(() => false),
 }));
 
+vi.mock("../../utils/metadataPatches", () => ({
+  updatePlaytimeDisplay: vi.fn(),
+}));
+
 vi.mock("../../api/backend", () => ({
   startDownload: vi.fn().mockResolvedValue({ success: true }),
   cancelDownload: vi.fn().mockResolvedValue({ success: true }),
@@ -43,6 +48,7 @@ vi.mock("../../api/backend", () => ({
   removeRom: vi.fn().mockResolvedValue({ success: true, prune_lease_token: "tok" }),
   preLaunchSync: vi.fn().mockResolvedValue({ success: true, synced: 1, uploaded: 1, downloaded: 0 }),
   stopRunningGame: vi.fn().mockResolvedValue({ success: true }),
+  reconcilePlaytime: vi.fn(() => new Promise(() => {})),
   debugLog: vi.fn(),
   logError: vi.fn(),
   invalidateCachedGameDetail: vi.fn(),
@@ -65,6 +71,7 @@ describe("PlayButton", () => {
     vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
     vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
     vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
+    vi.mocked(backend.reconcilePlaytime).mockImplementation(() => new Promise(() => {}));
 
     (window as unknown as { SteamClient?: unknown }).SteamClient = {
       Apps: {
@@ -487,5 +494,274 @@ describe("PlayButton", () => {
     expect(conflictBtn).toBeInTheDocument();
     fireEvent.click(conflictBtn);
     expect(toast.showToast).toHaveBeenCalledWith("Resolve save conflict before playing");
+  });
+
+  it("renders LAST PLAYED and PLAYTIME badges and reconciles playtime on view", async () => {
+    vi.mocked(backend.reconcilePlaytime).mockResolvedValue({
+      total_seconds: 3600,
+      session_count: 5,
+      last_played: "2026-09-18T10:00:00Z",
+      server_query_failed: false,
+    });
+
+    (globalThis as unknown as { appStore?: unknown }).appStore = {
+      GetAppOverviewByAppID: vi.fn(() => ({
+        rt_last_time_played: 0,
+        minutes_playtime_forever: 0,
+      })),
+    };
+
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: false,
+      fsSizeBytes: 1024 * 1024 * 10,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+
+    expect(screen.getByText("LAST PLAYED")).toBeInTheDocument();
+    expect(screen.getByText("Never")).toBeInTheDocument();
+    expect(screen.getByText("PLAYTIME")).toBeInTheDocument();
+    expect(screen.getByText("None")).toBeInTheDocument();
+    expect(screen.getByText("SPACE REQUIRED")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(backend.reconcilePlaytime).toHaveBeenCalledWith(100);
+      expect(metadataPatches.updatePlaytimeDisplay).toHaveBeenCalledWith(123, 3600, false);
+    });
+  });
+
+  it("updates LAST PLAYED and PLAYTIME reactively on romm_playtime_changed event", async () => {
+    const mockOverview = {
+      rt_last_time_played: 0,
+      minutes_playtime_forever: 0,
+    };
+    (globalThis as unknown as { appStore?: unknown }).appStore = {
+      GetAppOverviewByAppID: vi.fn(() => mockOverview),
+    };
+
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+
+    expect(screen.getByText("None")).toBeInTheDocument();
+
+    // Now update the overview mock and dispatch the event
+    mockOverview.minutes_playtime_forever = 75; // 1h 15m
+    mockOverview.rt_last_time_played = Math.floor(Date.now() / 1000); // Today
+
+    act(() => {
+      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("1h 15m")).toBeInTheDocument();
+      expect(screen.getByText("Today")).toBeInTheDocument();
+    });
+  });
+
+  it("renders ACHIEVEMENTS badge and dispatches romm_tab_switch on click", () => {
+    const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
+
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: 456,
+      achievementEarned: 5,
+      achievementTotal: 20,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+
+    expect(screen.getByText("ACHIEVEMENTS")).toBeInTheDocument();
+    expect(screen.getByText("5/20")).toBeInTheDocument();
+
+    const cheevoBadge = screen.getByText("ACHIEVEMENTS").closest(".tender-desktop-achievements");
+    expect(cheevoBadge).toBeInTheDocument();
+    if (cheevoBadge) {
+      fireEvent.click(cheevoBadge);
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "romm_tab_switch",
+          detail: { tab: "achievements" },
+        }),
+      );
+    }
+  });
+
+  it("hides SPACE REQUIRED badge when game is installed", () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1024 * 1024 * 10,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+
+    expect(screen.queryByText("SPACE REQUIRED")).not.toBeInTheDocument();
+    expect(screen.getByText("LAST PLAYED")).toBeInTheDocument();
+    expect(screen.getByText("PLAYTIME")).toBeInTheDocument();
+  });
+
+  it("formats LAST PLAYED date adhering to bigpicture date formatting", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2025-06-15T12:00:00Z"));
+
+    const mockOverview = {
+      rt_last_time_played: 0,
+      minutes_playtime_forever: 30,
+    };
+    (globalThis as unknown as { appStore?: unknown }).appStore = {
+      GetAppOverviewByAppID: vi.fn(() => mockOverview),
+    };
+
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+    // 0 -> Never
+    expect(screen.getByText("Never")).toBeInTheDocument();
+
+    // 1. Same day -> Today
+    mockOverview.rt_last_time_played = Math.floor(new Date("2025-06-15T10:00:00Z").getTime() / 1000);
+    act(() => {
+      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
+    });
+    expect(screen.getByText("Today")).toBeInTheDocument();
+
+    // 2. 1 day ago -> Yesterday
+    mockOverview.rt_last_time_played = Math.floor(new Date("2025-06-14T10:00:00Z").getTime() / 1000);
+    act(() => {
+      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
+    });
+    expect(screen.getByText("Yesterday")).toBeInTheDocument();
+
+    // 3. 3 days ago -> 3 days ago
+    mockOverview.rt_last_time_played = Math.floor(new Date("2025-06-12T10:00:00Z").getTime() / 1000);
+    act(() => {
+      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
+    });
+    expect(screen.getByText("3 days ago")).toBeInTheDocument();
+
+    // 4. Same year, older than a week -> "10 Apr"
+    mockOverview.rt_last_time_played = Math.floor(new Date("2025-04-10T10:00:00Z").getTime() / 1000);
+    act(() => {
+      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
+    });
+    expect(screen.getByText("10 Apr")).toBeInTheDocument();
+
+    // 5. Prior year -> "20 Aug 2024"
+    mockOverview.rt_last_time_played = Math.floor(new Date("2024-08-20T10:00:00Z").getTime() / 1000);
+    act(() => {
+      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
+    });
+    expect(screen.getByText("20 Aug 2024")).toBeInTheDocument();
+
+    vi.useRealTimers();
   });
 });
