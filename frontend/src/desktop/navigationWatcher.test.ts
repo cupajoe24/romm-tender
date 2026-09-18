@@ -3,10 +3,12 @@ import {
   appIdOf,
   findSteamOverviewPanel,
   findSteamPlaySection,
+  findSteamPlayButton,
   findSteamContentSections,
   startDesktopNavigationWatcher,
   stopDesktopNavigationWatcher,
   TENDER_SUBSTITUTE_ID,
+  TENDER_PLAY_BUTTON_ID,
 } from "./navigationWatcher";
 import * as rommAppIds from "../utils/rommAppIds";
 import * as desktopWin from "./desktopWindow";
@@ -109,6 +111,43 @@ describe("navigationWatcher", () => {
       doc.body.appendChild(actionContainer);
 
       expect(findSteamPlaySection(doc)).toBe(actionContainer);
+    });
+  });
+
+  describe("findSteamPlayButton", () => {
+    it("finds play button via PlayButtonContainer class", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const pbc = doc.createElement("div");
+      pbc.className = deckyUiInternals.appActionButtonClasses?.PlayButtonContainer || "PlayButtonContainer";
+      doc.body.appendChild(pbc);
+
+      expect(findSteamPlayButton(doc)).toBe(pbc);
+    });
+
+    it("finds play button via PlayButton class", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const btn = doc.createElement("button");
+      btn.className = deckyUiInternals.appActionButtonClasses?.PlayButton || "PlayButton";
+      doc.body.appendChild(btn);
+
+      expect(findSteamPlayButton(doc)).toBe(btn);
+    });
+
+    it("returns PlayButtonContainer parent if button is wrapped in one", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const container = doc.createElement("div");
+      container.className = "custom_PlayButtonContainer_hash";
+      const btn = doc.createElement("button");
+      btn.className = "PlayButton";
+      container.appendChild(btn);
+      doc.body.appendChild(container);
+
+      expect(findSteamPlayButton(doc)).toBe(container);
+    });
+
+    it("returns null when no play button elements exist", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      expect(findSteamPlayButton(doc)).toBeNull();
     });
   });
 
@@ -568,6 +607,65 @@ describe("navigationWatcher", () => {
       expect(shortcutNotice.style.display).toBe("");
       expect(columnContainer.style.display).toBe("");
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+    });
+
+    it("replaces native play button with Tender play button and restores on unmount", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = mockDoc.createElement("div");
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+
+      const playBar = mockDoc.createElement("div");
+      playBar.className = "PlayBar";
+      const nativePlayBtn = mockDoc.createElement("button");
+      nativePlayBtn.className = deckyUiInternals.appActionButtonClasses?.PlayButton || "PlayButton";
+      playBar.appendChild(nativePlayBtn);
+
+      const contentSection = mockDoc.createElement("div");
+      contentSection.className = "AppDetailSectionList";
+
+      overviewPanel.appendChild(playBar);
+      overviewPanel.appendChild(contentSection);
+      parent.appendChild(overviewPanel);
+      mockDoc.body.appendChild(parent);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(123),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/99999" },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/99999" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // Native play button should be hidden
+      expect(nativePlayBtn.style.display).toBe("none");
+
+      // Tender play button host should be created and inserted before native button
+      const playBtnHost = mockDoc.getElementById(TENDER_PLAY_BUTTON_ID);
+      expect(playBtnHost).not.toBeNull();
+      expect(playBtnHost?.dataset.appid).toBe("99999");
+      expect(playBtnHost?.nextElementSibling).toBe(nativePlayBtn);
+
+      // Stop watcher / unmount
+      stop();
+
+      // Native play button restored and Tender host removed
+      expect(nativePlayBtn.style.display).toBe("");
+      expect(mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+      expect(mockRoot.unmount).toHaveBeenCalled();
     });
   });
 });
