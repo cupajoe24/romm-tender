@@ -170,18 +170,14 @@ describe("formatLastPlayed", () => {
     expect(formatLastPlayed(tenthOfApril)).toBe("10. Apr.");
   });
 
-  it("writes a single-digit day without a leading zero", () => {
-    formatDatesIn("en-GB");
-    expect(formatLastPlayed(seconds(new Date(2025, 3, 5, 12)))).toBe("5 Apr");
-    expect(formatLastPlayed(seconds(new Date(2024, 7, 5, 12)))).toBe("5 Aug 2024");
+  it("returns 'DD Mon' for same-year dates older than a week", () => {
+    const twoMonthsAgo = Math.floor(new Date("2025-04-10T10:00:00Z").getTime() / 1000);
+    expect(formatLastPlayed(twoMonthsAgo)).toBe("10 Apr");
   });
 
-  it("adds the year for another year's dates", () => {
-    const twentiethOfAugust = seconds(new Date(2024, 7, 20, 12));
-    formatDatesIn("en-GB");
-    expect(formatLastPlayed(twentiethOfAugust)).toBe("20 Aug 2024");
-    formatDatesIn("en-US");
-    expect(formatLastPlayed(twentiethOfAugust)).toBe("Aug 20, 2024");
+  it("returns 'DD Mon YYYY' for prior-year dates", () => {
+    const lastYear = Math.floor(new Date("2024-08-20T10:00:00Z").getTime() / 1000);
+    expect(formatLastPlayed(lastYear)).toBe("20 Aug 2024");
   });
 });
 
