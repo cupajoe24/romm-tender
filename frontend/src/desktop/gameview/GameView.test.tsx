@@ -17,6 +17,7 @@ vi.mock("../../api/sharedReads", () => ({
 
 vi.mock("../desktopWindow", () => ({
   coverCandidates: vi.fn(),
+  findDesktopWindow: vi.fn(),
 }));
 
 vi.mock("../../utils/artwork", () => ({
@@ -303,6 +304,41 @@ describe("GameView", () => {
 
     await waitFor(() => {
       expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(101, 101);
+    });
+  });
+
+  it("renders PlayButton when showPlayButton is true", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 42,
+      romName: "Mario Golf (USA)",
+      platformSlug: "gba",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
+
+    render(<GameView appId={12345} showPlayButton />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /PLAY/i })).toBeInTheDocument();
     });
   });
 });

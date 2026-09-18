@@ -9,12 +9,19 @@
 
 import { createElement } from "react";
 import type { Root } from "react-dom/client";
-import { appDetailsClasses, basicAppDetailsSectionStylerClasses, playSectionClasses } from "../utils/deckyUiInternals";
+import {
+  appActionButtonClasses,
+  appDetailsClasses,
+  basicAppDetailsSectionStylerClasses,
+  playSectionClasses,
+} from "../utils/deckyUiInternals";
 import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
 import { findDesktopWindow, findReactClient } from "./desktopWindow";
 import { GameView } from "./gameview/GameView";
+import { PlayButton, ensurePulseStyles } from "./gameview/PlayButton";
 
 export const TENDER_SUBSTITUTE_ID = "tender-desktop-substitute";
+export const TENDER_PLAY_BUTTON_ID = "tender-desktop-play-button";
 
 interface MainWindowBrowserManagerStub {
   m_lastLocation?: {
@@ -129,6 +136,37 @@ export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement 
 }
 
 /**
+ * Locate Steam's native play button or its container within the play section.
+ */
+export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement | null {
+  const pbcClass = appActionButtonClasses?.PlayButtonContainer;
+  if (pbcClass) {
+    const el = root.querySelector<HTMLElement>(`.${pbcClass}`);
+    if (el) return el;
+  }
+  const pbClass = appActionButtonClasses?.PlayButton;
+  if (pbClass) {
+    const el = root.querySelector<HTMLElement>(`.${pbClass}`);
+    if (el) {
+      if (el.parentElement && /PlayButtonContainer|AppActionButton/i.test(el.parentElement.className)) {
+        return el.parentElement;
+      }
+      return el;
+    }
+  }
+  const btn = root.querySelector<HTMLElement>(
+    '[class*="PlayButtonContainer"], [class*="playbuttoncontainer"], [class*="PlayButton"], [class*="AppActionButton"], button[class*="play" i]',
+  );
+  if (btn) {
+    if (btn.parentElement && /PlayButtonContainer/i.test(btn.parentElement.className)) {
+      return btn.parentElement;
+    }
+    return btn;
+  }
+  return null;
+}
+
+/**
  * Locate the play bar element and the common content container that holds both
  * the play bar and the content sections (dashed shortcut notice, notes, screenshots).
  */
@@ -237,6 +275,8 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   const deskWin = win;
   const d = deskWin.document;
   let activeRoot: Root | null = null;
+  let activePlayButtonRoot: Root | null = null;
+  let hiddenPlayButton: HTMLElement | null = null;
   let hiddenElements: HTMLElement[] = [];
   let lastPath: string | null = null;
 
@@ -249,10 +289,26 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
       }
       activeRoot = null;
     }
+    if (activePlayButtonRoot) {
+      try {
+        activePlayButtonRoot.unmount();
+      } catch {
+        // Ignored
+      }
+      activePlayButtonRoot = null;
+    }
     const existing = d.getElementById(TENDER_SUBSTITUTE_ID);
     if (existing) {
       existing.remove();
     }
+    const existingPlayBtn = d.getElementById(TENDER_PLAY_BUTTON_ID);
+    if (existingPlayBtn) {
+      existingPlayBtn.remove();
+    }
+    if (hiddenPlayButton && hiddenPlayButton.isConnected) {
+      hiddenPlayButton.style.display = "";
+    }
+    hiddenPlayButton = null;
     for (const el of hiddenElements) {
       if (el.isConnected) {
         el.style.display = "";
@@ -278,11 +334,14 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 
     // If not a RomM game or not on an app route, clean up any active mount
     if (!appId || !isRomMAppId(appId)) {
-      if (existing || activeRoot) {
+      if (existing || activeRoot || activePlayButtonRoot) {
         unmountCurrent();
       }
       return;
     }
+
+    // Ensure desktop styles (including download pulsing keyframes) are present in desktop document
+    ensurePulseStyles(d);
 
     // Locate Steam's native overview panel
     const steamPanel = findSteamOverviewPanel(d);
@@ -302,6 +361,64 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
     // Ensure steamPanel itself is not hidden (we preserve the play bar inside it)
     if (steamPanel.contains(playSection) && steamPanel.style.display === "none") {
       steamPanel.style.display = "";
+    }
+
+    const client = findReactClient();
+    if (!client) {
+      return;
+    }
+
+    // Replace native Play button in playSection with our PlayButton
+    const nativePlayBtn = findSteamPlayButton(playSection);
+    if (nativePlayBtn) {
+      if (hiddenPlayButton !== nativePlayBtn) {
+        if (hiddenPlayButton && hiddenPlayButton.isConnected) {
+          hiddenPlayButton.style.display = "";
+        }
+        hiddenPlayButton = nativePlayBtn;
+      }
+      if (nativePlayBtn.style.display !== "none") {
+        nativePlayBtn.style.display = "none";
+      }
+
+      let playBtnHost = d.getElementById(TENDER_PLAY_BUTTON_ID);
+      const needsPlayBtnMount =
+        !playBtnHost ||
+        !playBtnHost.isConnected ||
+        playBtnHost.dataset.appid !== String(appId) ||
+        !activePlayButtonRoot;
+
+      if (needsPlayBtnMount) {
+        if (activePlayButtonRoot) {
+          try {
+            activePlayButtonRoot.unmount();
+          } catch {
+            // Ignored
+          }
+          activePlayButtonRoot = null;
+        }
+        if (playBtnHost) {
+          playBtnHost.remove();
+        }
+
+        playBtnHost = d.createElement("div");
+        playBtnHost.id = TENDER_PLAY_BUTTON_ID;
+        playBtnHost.dataset.appid = String(appId);
+        playBtnHost.style.overflow = "visible";
+
+        if (nativePlayBtn.parentElement) {
+          nativePlayBtn.parentElement.insertBefore(playBtnHost, nativePlayBtn);
+        }
+
+        try {
+          ensurePulseStyles(d);
+          const pbRoot = client.createRoot(playBtnHost);
+          pbRoot.render(createElement(PlayButton, { appId }));
+          activePlayButtonRoot = pbRoot;
+        } catch {
+          // Handled gracefully
+        }
+      }
     }
 
     // Locate the play bar top element and its container
@@ -353,11 +470,6 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
     const host = d.createElement("div");
     host.id = TENDER_SUBSTITUTE_ID;
     host.dataset.appid = String(appId);
-
-    const client = findReactClient();
-    if (!client) {
-      return;
-    }
 
     if (insertBeforeRef && insertBeforeRef.parentElement === insertParent) {
       insertParent.insertBefore(host, insertBeforeRef);
