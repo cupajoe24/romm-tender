@@ -28,6 +28,9 @@ export default defineConfig({
     pool: "vmForks",
     environment: "happy-dom",
     globals: true,
+    env: {
+      TZ: "UTC",
+    },
     setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.test.mjs"],
     coverage: {
