@@ -36,7 +36,7 @@ import {
 } from "../../api/backend";
 import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
-import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../../utils/connectionState";
+import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { isSessionActive } from "../../utils/sessionManager";
 import { isAppRunning } from "../../utils/runningApps";
@@ -52,8 +52,17 @@ import {
 } from "../../utils/pruneLease";
 import { showToast } from "../../utils/toast";
 import { detach } from "../../utils/detach";
-import { formatBytes, formatLastPlayed, formatPlaytime, formatTimeAgo } from "../../utils/formatters";
+import {
+  formatBytes,
+  formatLastPlayed,
+  formatPlaytime,
+  formatTimeAgo,
+  resolveLastPlayed,
+} from "../../utils/formatters";
 import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
+import { overviewFor } from "../../utils/steamOverview";
+import { BIOS_MISSING_RED } from "../../utils/biosColor";
+import { markLaunchSkipped } from "../../utils/launchGate";
 import { findDesktopWindow } from "../desktopWindow";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo } from "../../types";
 
@@ -79,51 +88,10 @@ interface SteamClientStub {
   };
 }
 
-interface SteamAppOverviewStub {
-  GetGameID?: () => string;
-  rt_last_time_played?: number;
-  minutes_playtime_forever?: number;
-}
-
-interface AppStoreStub {
-  GetAppOverviewByAppID?: (id: number) => SteamAppOverviewStub | undefined;
-}
-
 interface PlaytimeState {
   lastPlayed: string;
   restoredLastPlayed: string | null;
   playtime: string;
-}
-
-function resolveLastPlayed(restoredIso: string | null, steamUnixSeconds: number): string {
-  if (restoredIso) {
-    const ms = Date.parse(restoredIso);
-    if (!Number.isNaN(ms)) return formatLastPlayed(Math.floor(ms / 1000));
-  }
-  return formatLastPlayed(steamUnixSeconds);
-}
-
-function getOverview(appId: number): SteamAppOverviewStub | null {
-  try {
-    const winStore = (window as unknown as { appStore?: AppStoreStub }).appStore;
-    if (winStore?.GetAppOverviewByAppID) {
-      return winStore.GetAppOverviewByAppID(appId) ?? null;
-    }
-    const globalStore = (globalThis as unknown as { appStore?: AppStoreStub }).appStore;
-    if (globalStore?.GetAppOverviewByAppID) {
-      return globalStore.GetAppOverviewByAppID(appId) ?? null;
-    }
-    const deskWin = typeof findDesktopWindow === "function" ? findDesktopWindow() : undefined;
-    if (deskWin) {
-      const deskStore = (deskWin as unknown as { appStore?: AppStoreStub }).appStore;
-      if (deskStore?.GetAppOverviewByAppID) {
-        return deskStore.GetAppOverviewByAppID(appId) ?? null;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return null;
 }
 
 // Download button blue gradient stops
@@ -183,7 +151,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   const detail = useGameDetail(appId);
   const downloads = useDownloads();
 
-  const overview = getOverview(appId);
+  const overview = overviewFor(appId);
   const initialLastPlayed = formatLastPlayed(overview?.rt_last_time_played ?? 0);
   const initialPlaytime = formatPlaytime(overview?.minutes_playtime_forever ?? 0);
 
@@ -194,7 +162,8 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   });
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
-  const [isOffline, setIsOffline] = useState(getRommConnectionState() === "offline");
+  const connectionState = useRommConnectionState();
+  const isOffline = connectionState === "offline";
   const [setupInfo, setSetupInfo] = useState<SaveSetupInfo | null>(null);
   const [biosAnswer, setBiosAnswer] = useState<BiosAnswer | null>(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -206,11 +175,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
   // Fetch SaveSetupInfo and BiosStatus for indicator badges
   useEffect(() => {
-    if (!romId) {
-      setSetupInfo(null);
-      setBiosAnswer(null);
-      return;
-    }
+    if (!romId) return;
 
     let cancelled = false;
 
@@ -223,8 +188,6 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
           .catch((e) => {
             detach(debugLog(`PlayButton getSaveSetupInfo error: ${e}`));
           });
-      } else {
-        setSetupInfo(null);
       }
 
       getBiosStatus(romId)
@@ -240,7 +203,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
     const handleSaveSync = (e: Event) => {
       const customEvent = e as CustomEvent<{ rom_id?: number }>;
-      if (!customEvent.detail || customEvent.detail.rom_id === romId) {
+      if (customEvent.detail.rom_id === undefined || customEvent.detail.rom_id === romId) {
         fetchStatus();
       }
     };
@@ -282,13 +245,6 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // Track offline status
-  useEffect(() => {
-    return onRommConnectionChange((status) => {
-      setIsOffline(status === "offline");
-    });
   }, []);
 
   // Ensure download pulsing keyframes are present in the target document
@@ -385,7 +341,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
           return;
         }
         if (!result.server_query_failed) {
-          const ov = getOverview(appId);
+          const ov = overviewFor(appId);
           const steamSecs = ov?.rt_last_time_played ?? 0;
           setPlaytimeInfo((prev) => ({
             ...prev,
@@ -410,7 +366,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     const onPlaytimeChanged = (e: Event) => {
       const payload = (e as CustomEvent<{ appId?: number } | null>).detail;
       if (payload?.appId !== appId) return;
-      const ov = getOverview(appId);
+      const ov = overviewFor(appId);
       if (!ov) return;
       setPlaytimeInfo((prev) => ({
         ...prev,
@@ -499,8 +455,10 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   };
 
   const launchGame = () => {
-    const overview = getOverview(appId);
+    const overview = overviewFor(appId);
     const gameId = overview?.GetGameID?.() ?? String(appId);
+
+    markLaunchSkipped(appId);
 
     const winClient = (window as unknown as { SteamClient?: SteamClientStub }).SteamClient;
     const globalClient = (globalThis as unknown as { SteamClient?: SteamClientStub }).SteamClient;
@@ -669,6 +627,9 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
         ? `${detail.achievementEarned}/${detail.achievementTotal}`
         : `${detail.achievementEarned}`;
 
+    const currentSetupInfo = romId ? setupInfo : null;
+    const currentBiosAnswer = romId ? biosAnswer : null;
+
     // Save Sync status calculation
     let saveSyncColor = "#8f98a0";
     let saveSyncText = "disabled";
@@ -677,7 +638,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       const rommAvailable = !isOffline;
       const hasLocalSave = Boolean(
         detail.installed &&
-        (setupInfo?.has_local_saves ||
+        (currentSetupInfo?.has_local_saves ||
           (detail.saveStatus?.files &&
             detail.saveStatus.files.some((f) => Boolean(f.local_path || f.local_size || f.local_mtime)))),
       );
@@ -704,13 +665,13 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
           saveSyncColor = "#d4a72c";
           saveSyncText = syncTimeText || "Not synced";
         } else {
-          saveSyncColor = "#d94126";
+          saveSyncColor = BIOS_MISSING_RED;
           saveSyncText = "RomM unavailable";
         }
       } else {
         const isConflict =
           hasLocalSave &&
-          (setupInfo?.recommended_action === "show_wizard" ||
+          (currentSetupInfo?.recommended_action === "show_wizard" ||
             detail.saveSyncStatus === "conflict" ||
             hasAnySaveConflict(detail.saveStatus));
 
@@ -730,24 +691,24 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
     const isBiosError =
       detail.biosRequiredMissing ||
-      Boolean(biosAnswer?.bios_status_unknown) ||
-      biosAnswer?.bios_level === "missing" ||
-      biosAnswer?.bios_level === "partial" ||
-      biosAnswer?.bios_level === "unknown";
+      Boolean(currentBiosAnswer?.bios_status_unknown) ||
+      currentBiosAnswer?.bios_level === "missing" ||
+      currentBiosAnswer?.bios_level === "partial" ||
+      currentBiosAnswer?.bios_level === "unknown";
 
     if (isBiosError) {
-      biosColor = "#d94126";
+      biosColor = BIOS_MISSING_RED;
       biosText = "Error, see below";
     } else if (!detail.biosNeeded) {
       biosColor = "#5ba32b";
       biosText = "Ready (no BIOS)";
     } else {
-      const requiredCount = biosAnswer?.bios_status?.required_count ?? 0;
-      const localCount = biosAnswer?.bios_status?.local_count ?? 0;
+      const requiredCount = currentBiosAnswer?.bios_status?.required_count ?? 0;
+      const localCount = currentBiosAnswer?.bios_status?.local_count ?? 0;
       const isOptionalNotInstalled =
-        biosAnswer?.bios_status?.needs_bios === true && requiredCount === 0 && localCount === 0;
+        currentBiosAnswer?.bios_status?.needs_bios === true && requiredCount === 0 && localCount === 0;
 
-      if (biosAnswer?.bios_status?.needs_bios === false || isOptionalNotInstalled) {
+      if (currentBiosAnswer?.bios_status?.needs_bios === false || isOptionalNotInstalled) {
         biosColor = "#5ba32b";
         biosText = "Ready (no BIOS)";
       } else {
@@ -790,10 +751,17 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
         )}
 
         <div
+          role="button"
+          tabIndex={0}
           className="tender-desktop-badge-item tender-desktop-save-sync"
           style={{ ...badgeColumnStyle, cursor: "pointer" }}
           onClick={() => {
             globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+            }
           }}
         >
           <div style={badgeHeaderStyle}>SAVE SYNC</div>
@@ -804,10 +772,17 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
         </div>
 
         <div
+          role="button"
+          tabIndex={0}
           className="tender-desktop-badge-item tender-desktop-bios"
           style={{ ...badgeColumnStyle, cursor: "pointer" }}
           onClick={() => {
             globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+            }
           }}
         >
           <div style={badgeHeaderStyle}>BIOS</div>

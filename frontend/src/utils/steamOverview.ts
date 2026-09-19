@@ -30,7 +30,22 @@ import { stateTransaction } from "./steamState";
  * tell them apart.
  */
 export function overviewFor(appId: number): SteamAppOverview | null {
-  return appStore.GetAppOverviewByAppID(appId);
+  try {
+    if (typeof appStore !== "undefined" && typeof appStore.GetAppOverviewByAppID === "function") {
+      return appStore.GetAppOverviewByAppID(appId) ?? null;
+    }
+    const winStore =
+      typeof window !== "undefined"
+        ? (window as unknown as { appStore?: { GetAppOverviewByAppID?: (id: number) => SteamAppOverview | null } })
+            .appStore
+        : undefined;
+    if (winStore && typeof winStore.GetAppOverviewByAppID === "function") {
+      return winStore.GetAppOverviewByAppID(appId) ?? null;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 /**
