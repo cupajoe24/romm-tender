@@ -866,7 +866,7 @@ describe("PlayButton", () => {
       expect(textEl.closest(".tender-desktop-save-sync")).toBeInTheDocument();
     });
 
-    it("displays 'ready' in green when enabled, online, and not yet synced", async () => {
+    it("displays 'Ready' in green when enabled, online, and not yet synced", async () => {
       vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
       vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
         has_local_saves: false,
@@ -886,12 +886,12 @@ describe("PlayButton", () => {
       render(<PlayButton appId={123} />);
 
       await waitFor(() => {
-        const textEl = screen.getByText("ready");
+        const textEl = screen.getByText("Ready");
         expect(textEl).toBeInTheDocument();
       });
     });
 
-    it("displays 'ready' in green for uninstalled game when online even if recommended_action is show_wizard", async () => {
+    it("displays 'Ready' in green for uninstalled game when online even if recommended_action is show_wizard", async () => {
       vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
       vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
         has_local_saves: false,
@@ -912,7 +912,7 @@ describe("PlayButton", () => {
       render(<PlayButton appId={123} />);
 
       await waitFor(() => {
-        const textEl = screen.getByText("ready");
+        const textEl = screen.getByText("Ready");
         expect(textEl).toBeInTheDocument();
       });
     });
@@ -946,7 +946,7 @@ describe("PlayButton", () => {
       });
     });
 
-    it("displays 'save conflict' in yellow when recommended_action is show_wizard", async () => {
+    it("displays 'Save Conflict' in yellow when recommended_action is show_wizard", async () => {
       vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
       vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
         has_local_saves: true,
@@ -965,7 +965,7 @@ describe("PlayButton", () => {
       render(<PlayButton appId={123} />);
 
       await waitFor(() => {
-        expect(screen.getByText("save conflict")).toBeInTheDocument();
+        expect(screen.getByText("Save Conflict")).toBeInTheDocument();
       });
     });
 
@@ -1042,7 +1042,7 @@ describe("PlayButton", () => {
       render(<PlayButton appId={123} />);
 
       await waitFor(() => {
-        expect(screen.getByText("RomM unavailable")).toBeInTheDocument();
+        expect(screen.getByText("RomM Unavailable")).toBeInTheDocument();
       });
     });
 
