@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     globals: true,
+    env: {
+      TZ: "UTC",
+    },
     setupFiles: ["./frontend/src/test-setup.ts"],
     include: ["frontend/src/**/*.{test,spec}.{ts,tsx}"],
     coverage: {
