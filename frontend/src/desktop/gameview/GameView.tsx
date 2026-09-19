@@ -6,6 +6,7 @@ import { coverCandidates } from "../desktopWindow";
 import { applyArtwork, cancelArtworkApply } from "../../utils/artwork";
 import { debugLog } from "../../api/backend";
 import { detach } from "../../utils/detach";
+import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { EmulationSettings } from "./EmulationSettings";
@@ -53,6 +54,8 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
       detach(cancelArtworkApply(appId));
     };
   }, [appId]);
+
+  useEffect(() => registerConnectionHeartbeat(), []);
 
   useEffect(() => {
     const romId = detail.romId;
