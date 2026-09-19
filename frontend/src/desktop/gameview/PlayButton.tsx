@@ -663,10 +663,10 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       if (!rommAvailable) {
         if (hasLocalSave) {
           saveSyncColor = "#d4a72c";
-          saveSyncText = syncTimeText || "Not synced";
+          saveSyncText = syncTimeText || "Not Synced";
         } else {
           saveSyncColor = BIOS_MISSING_RED;
-          saveSyncText = "RomM unavailable";
+          saveSyncText = "RomM Unavailable";
         }
       } else {
         const isConflict =
@@ -677,10 +677,10 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
         if (isConflict) {
           saveSyncColor = "#d4a72c";
-          saveSyncText = "save conflict";
+          saveSyncText = "Save Conflict";
         } else {
           saveSyncColor = "#5ba32b";
-          saveSyncText = syncTimeText || "ready";
+          saveSyncText = syncTimeText || "Ready";
         }
       }
     }
