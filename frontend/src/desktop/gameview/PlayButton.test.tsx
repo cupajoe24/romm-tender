@@ -262,6 +262,10 @@ describe("PlayButton", () => {
     expect(styleEl?.textContent).toContain("tender-desktop-dl-pulsing");
     expect(styleEl?.textContent).toContain("#tender-desktop-play-button-host");
     expect(styleEl?.textContent).toContain(".romm-status-dot");
+    expect(styleEl?.textContent).toContain("StatusAndStats");
+    expect(styleEl?.textContent).toContain("LastPlayed");
+    expect(styleEl?.textContent).toContain("RightControls");
+    expect(styleEl?.textContent).toContain("margin-left: auto");
 
     // Calling it again is a no-op
     ensurePulseStyles(customDoc);

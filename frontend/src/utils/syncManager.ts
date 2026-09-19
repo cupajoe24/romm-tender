@@ -269,14 +269,19 @@ async function applyCoverArtwork(appId: number, romId: number): Promise<void> {
  */
 async function applyShortcutIcon(appId: number, romId: number): Promise<void> {
   try {
-    const result = await getSgdbArtworkBase64(romId, 4);
-    if (result?.prune_lease_token) {
-      detach(releasePruneLease(result.prune_lease_token, "Sync shortcut icon"));
+    const result: unknown = await getSgdbArtworkBase64(romId, 4);
+    if (!result || typeof result !== "object") return;
+    const { prune_lease_token, base64 } = result as {
+      prune_lease_token?: string;
+      base64?: string | null;
+    };
+    if (prune_lease_token) {
+      detach(releasePruneLease(prune_lease_token, "Sync shortcut icon"));
     }
-    if (result?.base64) {
-      const iconResult = await saveShortcutIcon(appId, result.base64);
-      if (iconResult?.success && iconResult.icon_path) {
-        SteamClient?.Apps?.SetShortcutIcon?.(appId, iconResult.icon_path);
+    if (base64) {
+      const iconResult = await saveShortcutIcon(appId, base64);
+      if (iconResult.success && iconResult.icon_path) {
+        SteamClient.Apps.SetShortcutIcon(appId, iconResult.icon_path);
       }
     }
   } catch (e) {

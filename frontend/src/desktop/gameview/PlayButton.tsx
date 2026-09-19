@@ -133,7 +133,8 @@ export function ensurePulseStyles(doc?: Document | null) {
       animation: tender-desktop-dl-pulse 2s ease-in-out infinite !important;
       overflow: visible !important;
     }
-    #tender-desktop-play-button-host {
+    #tender-desktop-play-button-host,
+    #tender-desktop-play-button {
       overflow: visible !important;
     }
     .romm-status-dot {
@@ -142,6 +143,23 @@ export function ensurePulseStyles(doc?: Document | null) {
       height: 8px;
       border-radius: 50%;
       flex-shrink: 0;
+    }
+    /* Hide Steam's default badges when Tender's play button is active */
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="StatusAndStats"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="GameStatsSection"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="GameStat"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="LastPlayed"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="Playtime"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="CloudStatus"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="MiniAchievements"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="PlayBarDetailLabel"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
+      display: none !important;
+    }
+    /* Pin Steam's right-side controls container to the right edge */
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="RightControls"],
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtonsContainer"],
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtons"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
+      margin-left: auto !important;
     }
   `;
   targetDoc.head.appendChild(style);
