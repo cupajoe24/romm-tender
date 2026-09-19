@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { GameView, GameViewPage } from "./GameView";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
@@ -339,6 +339,52 @@ describe("GameView", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /PLAY/i })).toBeInTheDocument();
+    });
+  });
+
+  it("switches to emulation-settings tab when romm_tab_switch event is dispatched", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 42,
+      romName: "Mario Golf (USA)",
+      platformSlug: "gba",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
+
+    render(<GameView appId={12345} />);
+
+    const emuTab = screen.getByRole("tab", { name: "Emulation Settings" });
+    expect(emuTab).toHaveAttribute("aria-selected", "false");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("romm_tab_switch", {
+          detail: { tab: "emulation-settings" },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(emuTab).toHaveAttribute("aria-selected", "true");
     });
   });
 });
