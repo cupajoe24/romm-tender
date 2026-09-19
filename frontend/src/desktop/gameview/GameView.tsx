@@ -7,6 +7,7 @@ import { applyArtwork, cancelArtworkApply } from "../../utils/artwork";
 import { debugLog } from "../../api/backend";
 import { detach } from "../../utils/detach";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
+import { overviewFor } from "../../utils/steamOverview";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { EmulationSettings } from "./EmulationSettings";
@@ -19,14 +20,6 @@ export interface GameViewProps {
 
 export type GameViewPageProps = GameViewProps;
 
-interface SteamOverview {
-  display_name?: string;
-}
-
-interface AppStoreStub {
-  GetAppOverviewByAppID?: (id: number) => SteamOverview | undefined;
-}
-
 const artworkApplied = new Map<number, number>();
 
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
@@ -37,9 +30,9 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   useEffect(() => {
     const handleTabSwitch = (e: Event) => {
       const customEvent = e as CustomEvent<{ tab?: string }>;
-      if (customEvent.detail?.tab === "emulation-settings") {
+      if (customEvent.detail.tab === "emulation-settings") {
         setActiveTab("emulation-settings");
-      } else if (customEvent.detail?.tab === "game-info") {
+      } else if (customEvent.detail.tab === "game-info") {
         setActiveTab("game-info");
       }
     };
@@ -91,8 +84,7 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
 
   const metadata = detail.romId ? loadedMetadata : null;
 
-  const store = (window as unknown as { appStore?: AppStoreStub }).appStore;
-  const overview = store?.GetAppOverviewByAppID?.(appId);
+  const overview = overviewFor(appId);
   const title = overview?.display_name || detail.romName || `App ${appId}`;
   const covers = coverCandidates(appId);
 

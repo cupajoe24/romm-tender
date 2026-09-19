@@ -24,11 +24,27 @@ vi.mock("../../utils/downloadStore", () => ({
   getDownloadState: vi.fn(() => []),
 }));
 
-vi.mock("../../utils/connectionState", () => ({
-  getRommConnectionState: vi.fn(() => "connected"),
-  onRommConnectionChange: vi.fn(() => vi.fn()),
-  reportServerReachable: vi.fn(),
-}));
+vi.mock("../../utils/connectionState", async () => {
+  const React = await import("react");
+  const getRommConnectionState = vi.fn(() => "connected");
+  const listeners = new Set<(status: unknown) => void>();
+  const onRommConnectionChange = vi.fn((cb: (s: unknown) => void) => {
+    listeners.add(cb);
+    return () => {
+      listeners.delete(cb);
+    };
+  });
+  return {
+    getRommConnectionState,
+    onRommConnectionChange,
+    reportServerReachable: vi.fn(),
+    useRommConnectionState: () => {
+      const [state, setState] = React.useState(getRommConnectionState());
+      React.useEffect(() => onRommConnectionChange((s) => setState(s as string)), []);
+      return state;
+    },
+  };
+});
 
 vi.mock("../../utils/connectionHeartbeat", () => ({
   registerConnectionHeartbeat: vi.fn(() => vi.fn()),
