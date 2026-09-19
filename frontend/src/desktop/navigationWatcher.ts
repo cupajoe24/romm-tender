@@ -262,6 +262,195 @@ export function findSteamContentSections(overviewPanel: HTMLElement, playSection
   return Array.from(toHide);
 }
 
+/**
+ * Test whether an element belongs to the Tender plugin UI.
+ */
+export function isTenderElement(el: HTMLElement): boolean {
+  if (el.id === TENDER_PLAY_BUTTON_ID || el.id === TENDER_SUBSTITUTE_ID) return true;
+  if (el.closest(`#${TENDER_PLAY_BUTTON_ID}, #${TENDER_SUBSTITUTE_ID}`)) return true;
+  if (typeof el.className === "string" && el.className.includes("tender-")) return true;
+  return false;
+}
+
+/**
+ * Test whether an element represents or contains Steam's right-side control buttons
+ * (Settings gear, Controller layout, Favorite).
+ */
+export function isRightControlsElement(el: HTMLElement): boolean {
+  if (
+    (playSectionClasses?.RightControls && el.classList.contains(playSectionClasses.RightControls)) ||
+    (playSectionClasses?.AppButtonsContainer && el.classList.contains(playSectionClasses.AppButtonsContainer)) ||
+    (basicAppDetailsSectionStylerClasses?.AppButtons &&
+      el.classList.contains(basicAppDetailsSectionStylerClasses.AppButtons))
+  ) {
+    return true;
+  }
+  if (typeof el.className === "string") {
+    if (
+      /\b(RightControls|AppButtons|AppButtonsContainer|ControllerConfig|FavoriteButton|GameInfoButton)\b/i.test(
+        el.className,
+      )
+    ) {
+      return true;
+    }
+  }
+  if (
+    el.querySelector(
+      '[class*="RightControls"], [class*="AppButtons"], [class*="ControllerConfig"], [class*="FavoriteButton"]',
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Locate Steam's native status / activity / playtime / last played badges on the play bar
+ * that should be hidden in favor of Tender's custom badges.
+ */
+export function findSteamPlayBarBadges(root: HTMLElement, nativePlayBtn?: HTMLElement | null): HTMLElement[] {
+  const badges = new Set<HTMLElement>();
+
+  const isTender = (el: HTMLElement): boolean => isTenderElement(el);
+  const isRightControls = (el: HTMLElement): boolean => isRightControlsElement(el);
+  const isPlayBtn = (el: HTMLElement): boolean => {
+    if (!nativePlayBtn) return false;
+    return el === nativePlayBtn || el.contains(nativePlayBtn) || nativePlayBtn.contains(el);
+  };
+
+  const isExcluded = (el: HTMLElement): boolean => isTender(el) || isRightControls(el) || isPlayBtn(el);
+
+  // 1. Primary badge / stats container: StatusAndStats, GameStatsSection
+  const containerSelectors = [
+    playSectionClasses?.StatusAndStats ? `.${playSectionClasses.StatusAndStats}` : null,
+    playSectionClasses?.GameStatsSection ? `.${playSectionClasses.GameStatsSection}` : null,
+    '[class*="StatusAndStats"]',
+    '[class*="GameStatsSection"]',
+  ].filter(Boolean) as string[];
+
+  for (const sel of containerSelectors) {
+    const matches = root.querySelectorAll<HTMLElement>(sel);
+    for (const el of Array.from(matches)) {
+      if (!isExcluded(el)) {
+        badges.add(el);
+      }
+    }
+  }
+
+  // 2. Individual stat / badge items: LastPlayed, Playtime, CloudStatus, MiniAchievements, etc.
+  const itemSelectors = [
+    playSectionClasses?.GameStat ? `.${playSectionClasses.GameStat}` : null,
+    playSectionClasses?.LastPlayed ? `.${playSectionClasses.LastPlayed}` : null,
+    playSectionClasses?.LastPlayedInfo ? `.${playSectionClasses.LastPlayedInfo}` : null,
+    playSectionClasses?.Playtime ? `.${playSectionClasses.Playtime}` : null,
+    playSectionClasses?.CloudStatusRow ? `.${playSectionClasses.CloudStatusRow}` : null,
+    playSectionClasses?.MiniAchievements ? `.${playSectionClasses.MiniAchievements}` : null,
+    playSectionClasses?.AchievementProgressRow ? `.${playSectionClasses.AchievementProgressRow}` : null,
+    playSectionClasses?.DetailsSectionStatus ? `.${playSectionClasses.DetailsSectionStatus}` : null,
+    '[class*="GameStat"]',
+    '[class*="LastPlayed"]',
+    '[class*="Playtime"]',
+    '[class*="CloudStatus"]',
+    '[class*="MiniAchievements"]',
+    '[class*="AchievementProgress"]',
+  ].filter(Boolean) as string[];
+
+  for (const sel of itemSelectors) {
+    const matches = root.querySelectorAll<HTMLElement>(sel);
+    for (const el of Array.from(matches)) {
+      if (!isExcluded(el)) {
+        badges.add(el);
+      }
+    }
+  }
+
+  // 3. Elements labeled PlayBarDetailLabel / PlayBarLabel
+  const labelSelectors = [
+    playSectionClasses?.PlayBarDetailLabel ? `.${playSectionClasses.PlayBarDetailLabel}` : null,
+    playSectionClasses?.PlayBarLabel ? `.${playSectionClasses.PlayBarLabel}` : null,
+    '[class*="PlayBarDetailLabel"]',
+    '[class*="PlayBarLabel"]',
+  ].filter(Boolean) as string[];
+
+  for (const sel of labelSelectors) {
+    const matches = root.querySelectorAll<HTMLElement>(sel);
+    for (const el of Array.from(matches)) {
+      if (!isExcluded(el)) {
+        const parent = el.closest<HTMLElement>('[class*="GameStat"]') || el.parentElement;
+        if (parent && parent !== root && !isExcluded(parent)) {
+          badges.add(parent);
+        } else {
+          badges.add(el);
+        }
+      }
+    }
+  }
+
+  // 4. Text-matching fallback for unhashed or theme-styled badge labels
+  const allElements = root.querySelectorAll<HTMLElement>("div, span");
+  for (const el of Array.from(allElements)) {
+    if (isExcluded(el)) continue;
+    const txt = el.textContent.trim().toUpperCase();
+    if (txt === "LAST PLAYED" || txt === "PLAYTIME") {
+      const parent = el.closest<HTMLElement>('[class*="GameStat"]') || el.parentElement;
+      if (parent && parent !== root && !isExcluded(parent)) {
+        badges.add(parent);
+      } else {
+        badges.add(el);
+      }
+    }
+  }
+
+  return Array.from(badges);
+}
+
+/**
+ * Locate Steam's right-side control buttons container (Settings gear, Controller layout, Favorite)
+ * within the play bar so it can be pinned to the right edge.
+ */
+export function findSteamRightControls(root: HTMLElement): HTMLElement | null {
+  const selectors = [
+    playSectionClasses?.RightControls ? `.${playSectionClasses.RightControls}` : null,
+    playSectionClasses?.AppButtonsContainer ? `.${playSectionClasses.AppButtonsContainer}` : null,
+    basicAppDetailsSectionStylerClasses?.AppButtons ? `.${basicAppDetailsSectionStylerClasses.AppButtons}` : null,
+    '[class*="RightControls"]',
+    '[class*="AppButtonsContainer"]',
+    '[class*="AppButtons"]',
+  ].filter(Boolean) as string[];
+
+  for (const sel of selectors) {
+    const el = root.querySelector<HTMLElement>(sel);
+    if (el && !isTenderElement(el)) {
+      let topEl = el;
+      while (
+        topEl.parentElement &&
+        topEl.parentElement !== root &&
+        isRightControlsElement(topEl.parentElement) &&
+        !isTenderElement(topEl.parentElement)
+      ) {
+        topEl = topEl.parentElement;
+      }
+      return topEl;
+    }
+  }
+
+  // Fallback: look for elements containing controller config or favorite button
+  const fallbackMatch = root.querySelector<HTMLElement>('[class*="ControllerConfig"], [class*="FavoriteButton"]');
+  if (fallbackMatch && !isTenderElement(fallbackMatch)) {
+    let parent: HTMLElement = fallbackMatch;
+    while (parent.parentElement && parent.parentElement !== root && !isTenderElement(parent.parentElement)) {
+      if (isRightControlsElement(parent.parentElement)) {
+        parent = parent.parentElement;
+      } else {
+        break;
+      }
+    }
+    return parent;
+  }
+
+  return null;
+}
+
 let activeWatcherStop: (() => void) | null = null;
 
 export function startDesktopNavigationWatcher(customWin?: Window): () => void {
@@ -277,6 +466,8 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   let activeRoot: Root | null = null;
   let activePlayButtonRoot: Root | null = null;
   let hiddenPlayButton: HTMLElement | null = null;
+  let hiddenBadges: HTMLElement[] = [];
+  let styledRightControls: HTMLElement | null = null;
   let hiddenElements: HTMLElement[] = [];
   let lastPath: string | null = null;
 
@@ -309,6 +500,16 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
       hiddenPlayButton.style.display = "";
     }
     hiddenPlayButton = null;
+    for (const el of hiddenBadges) {
+      if (el.isConnected) {
+        el.style.display = "";
+      }
+    }
+    hiddenBadges = [];
+    if (styledRightControls && styledRightControls.isConnected) {
+      styledRightControls.style.marginLeft = "";
+    }
+    styledRightControls = null;
     for (const el of hiddenElements) {
       if (el.isConnected) {
         el.style.display = "";
@@ -423,6 +624,48 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 
     // Locate the play bar top element and its container
     const { playBarTop, container } = findPlayBarAndContainer(steamPanel, playSection);
+
+    // Locate and hide Steam's native play bar badges (Last Played, Playtime, etc.)
+    const badgeElements = findSteamPlayBarBadges(playBarTop, nativePlayBtn);
+    if (!playBarTop.contains(playSection)) {
+      for (const badge of findSteamPlayBarBadges(playSection, nativePlayBtn)) {
+        if (!badgeElements.includes(badge)) {
+          badgeElements.push(badge);
+        }
+      }
+    }
+
+    // Restore any previously hidden badges that are no longer targeted
+    for (const el of hiddenBadges) {
+      if (!badgeElements.includes(el) && el.isConnected) {
+        el.style.display = "";
+      }
+    }
+    hiddenBadges = badgeElements;
+
+    // Hide target badge elements
+    for (const el of hiddenBadges) {
+      if (el.style.display !== "none") {
+        el.style.display = "none";
+      }
+    }
+
+    // Pin Steam's right-side controls container to the right edge of the play bar
+    const rightControls = findSteamRightControls(playBarTop) ?? findSteamRightControls(playSection);
+    if (rightControls) {
+      if (styledRightControls !== rightControls) {
+        if (styledRightControls && styledRightControls.isConnected) {
+          styledRightControls.style.marginLeft = "";
+        }
+        styledRightControls = rightControls;
+      }
+      if (rightControls.style.marginLeft !== "auto") {
+        rightControls.style.marginLeft = "auto";
+      }
+    } else if (styledRightControls && styledRightControls.isConnected) {
+      styledRightControls.style.marginLeft = "";
+      styledRightControls = null;
+    }
 
     // Locate content sections to hide (the lower sections, non-Steam notice, notes, recordings, etc.)
     const contentSections = findSteamContentSections(steamPanel, playSection);
