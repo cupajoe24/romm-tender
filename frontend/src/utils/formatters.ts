@@ -1,5 +1,7 @@
 import type { EntryKind } from "../types";
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
 /** Format a Unix timestamp (seconds) as a coarse human-readable date.
  *  Returns "Never" for zero/negative, "Today"/"Yesterday"/"Xd ago" for recent,
  *  and "DD Mon" (or "DD Mon YYYY" if not the current year) for older. */
@@ -10,16 +12,36 @@ export function formatLastPlayed(timestamp: number): string {
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return "Today";
+  if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return `${diffDays} days ago`;
 
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const day = date.getDate();
-  const month = months[date.getMonth()];
+  const month = MONTH_NAMES[date.getMonth()];
   const year = date.getFullYear();
   if (year === now.getFullYear()) return `${day} ${month}`;
   return `${day} ${month} ${year}`;
+}
+
+/**
+ * Resolve the last-played label, preferring the restored ISO timestamp over
+ * Steam's recorded unix seconds when present.
+ */
+export function resolveLastPlayed(restoredIso: string | null, steamUnixSeconds: number): string {
+  if (restoredIso) {
+    const normalized =
+      restoredIso.endsWith("Z") || /[+-]\d{2}(?::?\d{2})?$/.test(restoredIso) ? restoredIso : `${restoredIso}Z`;
+    const ms = Date.parse(normalized);
+    if (!Number.isNaN(ms)) return formatLastPlayed(Math.floor(ms / 1000));
+  }
+  return formatLastPlayed(steamUnixSeconds);
+}
+
+/** Format a Unix timestamp (seconds) as a release date string (e.g. "15 Mar 2003"). */
+export function formatReleaseDate(timestamp: number | null): string | null {
+  if (!timestamp || timestamp <= 0) return null;
+  const date = new Date(timestamp * 1000);
+  return `${date.getDate()} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 /** Format a byte count as a human-readable string (e.g. "12.4 KB", "1.23 GB"). Empty string for null. */

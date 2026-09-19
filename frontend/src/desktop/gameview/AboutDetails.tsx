@@ -1,18 +1,14 @@
 import { useState, type FC } from "react";
 import type { RomMetadata } from "../../types";
+import { formatReleaseDate } from "../../utils/formatters";
+
+export { formatReleaseDate };
 
 export interface AboutDetailsProps {
   title: string;
   platformName?: string | undefined;
   metadata: RomMetadata | null;
   covers?: string[] | undefined;
-}
-
-export function formatReleaseDate(timestamp: number | null): string | null {
-  if (!timestamp || timestamp <= 0) return null;
-  const date = new Date(timestamp * 1000);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 export const AboutDetails: FC<AboutDetailsProps> = ({ title, platformName, metadata, covers = [] }) => {
