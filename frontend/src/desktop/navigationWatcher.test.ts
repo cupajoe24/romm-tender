@@ -5,6 +5,10 @@ import {
   findSteamPlaySection,
   findSteamPlayButton,
   findSteamContentSections,
+  findSteamPlayBarBadges,
+  findSteamRightControls,
+  isTenderElement,
+  isRightControlsElement,
   startDesktopNavigationWatcher,
   stopDesktopNavigationWatcher,
   TENDER_SUBSTITUTE_ID,
@@ -222,6 +226,188 @@ describe("navigationWatcher", () => {
       expect(sections).toContain(shortcutNotice);
       expect(sections).toContain(columnContainer);
       expect(sections).not.toContain(playBar);
+    });
+  });
+
+  describe("findSteamPlayBarBadges", () => {
+    it("identifies StatusAndStats and GameStatsSection containers", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const statusAndStats = doc.createElement("div");
+      statusAndStats.className = "playsection_StatusAndStats_hash";
+      const statsSection = doc.createElement("div");
+      statsSection.className = "GameStatsSection";
+
+      statusAndStats.appendChild(statsSection);
+      playBar.appendChild(statusAndStats);
+
+      const badges = findSteamPlayBarBadges(playBar);
+      expect(badges).toContain(statusAndStats);
+      expect(badges).toContain(statsSection);
+    });
+
+    it("identifies individual stat items like LastPlayed, Playtime, CloudStatus, MiniAchievements", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const lastPlayed = doc.createElement("div");
+      lastPlayed.className = "custom_LastPlayed_123";
+      const playtime = doc.createElement("div");
+      playtime.className = "custom_Playtime_456";
+      const cloudStatus = doc.createElement("div");
+      cloudStatus.className = "CloudStatusRow";
+      const achievements = doc.createElement("div");
+      achievements.className = "MiniAchievements";
+
+      playBar.appendChild(lastPlayed);
+      playBar.appendChild(playtime);
+      playBar.appendChild(cloudStatus);
+      playBar.appendChild(achievements);
+
+      const badges = findSteamPlayBarBadges(playBar);
+      expect(badges).toContain(lastPlayed);
+      expect(badges).toContain(playtime);
+      expect(badges).toContain(cloudStatus);
+      expect(badges).toContain(achievements);
+    });
+
+    it("identifies stat items by PlayBarDetailLabel or text fallback", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const statItem1 = doc.createElement("div");
+      statItem1.className = "game-stat-wrapper";
+      const label1 = doc.createElement("div");
+      label1.className = "PlayBarDetailLabel";
+      label1.textContent = "LAST PLAYED";
+      statItem1.appendChild(label1);
+
+      const statItem2 = doc.createElement("div");
+      statItem2.className = "custom-wrapper";
+      const label2 = doc.createElement("div");
+      label2.textContent = "Last Played";
+      statItem2.appendChild(label2);
+
+      playBar.appendChild(statItem1);
+      playBar.appendChild(statItem2);
+
+      const badges = findSteamPlayBarBadges(playBar);
+      expect(badges).toContain(statItem1);
+      expect(badges).toContain(statItem2);
+    });
+
+    it("ignores Tender elements and custom badges", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const tenderHost = doc.createElement("div");
+      tenderHost.id = TENDER_PLAY_BUTTON_ID;
+      const tenderBadge = doc.createElement("div");
+      tenderBadge.className = "tender-desktop-badge-item tender-desktop-last-played";
+      const tenderLabel = doc.createElement("div");
+      tenderLabel.textContent = "LAST PLAYED";
+      tenderBadge.appendChild(tenderLabel);
+      tenderHost.appendChild(tenderBadge);
+      playBar.appendChild(tenderHost);
+
+      const badges = findSteamPlayBarBadges(playBar);
+      expect(badges).toHaveLength(0);
+      expect(isTenderElement(tenderHost)).toBe(true);
+      expect(isTenderElement(tenderBadge)).toBe(true);
+    });
+
+    it("ignores RightControls and action buttons (gear, controller, heart)", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const rightControls = doc.createElement("div");
+      rightControls.className = "RightControls AppButtonsContainer";
+      const gearBtn = doc.createElement("button");
+      gearBtn.className = "AppActionButton";
+      rightControls.appendChild(gearBtn);
+      playBar.appendChild(rightControls);
+
+      expect(isRightControlsElement(rightControls)).toBe(true);
+      const badges = findSteamPlayBarBadges(playBar);
+      expect(badges).not.toContain(rightControls);
+      expect(badges).not.toContain(gearBtn);
+    });
+
+    it("ignores nativePlayBtn when provided", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      const playBtn = doc.createElement("button");
+      playBtn.className = "PlayButton AppActionButton";
+      playBar.appendChild(playBtn);
+
+      const badges = findSteamPlayBarBadges(playBar, playBtn);
+      expect(badges).not.toContain(playBtn);
+    });
+  });
+
+  describe("findSteamRightControls", () => {
+    it("identifies RightControls container", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const rightControls = doc.createElement("div");
+      rightControls.className = "playsection_RightControls_hash";
+      playBar.appendChild(rightControls);
+
+      expect(findSteamRightControls(playBar)).toBe(rightControls);
+    });
+
+    it("identifies AppButtonsContainer and AppButtons", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const appButtons = doc.createElement("div");
+      appButtons.className = "AppButtonsContainer AppButtons";
+      playBar.appendChild(appButtons);
+
+      expect(findSteamRightControls(playBar)).toBe(appButtons);
+    });
+
+    it("identifies parent container by controller config or favorite button", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const wrapper = doc.createElement("div");
+      wrapper.className = "custom-actions-wrapper";
+      const configBtn = doc.createElement("button");
+      configBtn.className = "ControllerConfigButton";
+      wrapper.appendChild(configBtn);
+      playBar.appendChild(wrapper);
+
+      expect(findSteamRightControls(playBar)).toBe(wrapper);
+    });
+
+    it("ignores Tender elements even if classes match", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const tenderEl = doc.createElement("div");
+      tenderEl.id = TENDER_PLAY_BUTTON_ID;
+      tenderEl.className = "RightControls";
+      playBar.appendChild(tenderEl);
+
+      expect(findSteamRightControls(playBar)).toBeNull();
+    });
+
+    it("returns null when no right-side controls exist", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      expect(findSteamRightControls(playBar)).toBeNull();
     });
   });
 
@@ -666,6 +852,75 @@ describe("navigationWatcher", () => {
       expect(nativePlayBtn.style.display).toBe("");
       expect(mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
       expect(mockRoot.unmount).toHaveBeenCalled();
+    });
+
+    it("hides Steam default play bar badges alongside native play button and restores on unmount", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = mockDoc.createElement("div");
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+
+      const playBar = mockDoc.createElement("div");
+      playBar.className = "PlayBar";
+
+      const nativePlayBtn = mockDoc.createElement("button");
+      nativePlayBtn.className = "PlayButton";
+      playBar.appendChild(nativePlayBtn);
+
+      const nativeBadges = mockDoc.createElement("div");
+      nativeBadges.className = "StatusAndStats";
+      const lastPlayedItem = mockDoc.createElement("div");
+      lastPlayedItem.className = "GameStat LastPlayed";
+      lastPlayedItem.textContent = "LAST PLAYED Today";
+      nativeBadges.appendChild(lastPlayedItem);
+      playBar.appendChild(nativeBadges);
+
+      const rightControls = mockDoc.createElement("div");
+      rightControls.className = "RightControls";
+      playBar.appendChild(rightControls);
+
+      overviewPanel.appendChild(playBar);
+      parent.appendChild(overviewPanel);
+      mockDoc.body.appendChild(parent);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(456),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/88888" },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/88888" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // Native play button AND default badges should be hidden
+      expect(nativePlayBtn.style.display).toBe("none");
+      expect(nativeBadges.style.display).toBe("none");
+      expect(lastPlayedItem.style.display).toBe("none");
+      // Right controls must remain visible and pinned to the right
+      expect(rightControls.style.display).not.toBe("none");
+      expect(rightControls.style.marginLeft).toBe("auto");
+
+      // Stop watcher / unmount
+      stop();
+
+      // Native badges, play button, and right controls margin restored
+      expect(nativePlayBtn.style.display).toBe("");
+      expect(nativeBadges.style.display).toBe("");
+      expect(lastPlayedItem.style.display).toBe("");
+      expect(rightControls.style.display).toBe("");
+      expect(rightControls.style.marginLeft).toBe("");
     });
   });
 });

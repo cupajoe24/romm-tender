@@ -267,7 +267,21 @@ async function applyCoverArtwork(appId: number, romId: number): Promise<void> {
  */
 function applyPlaceholderIcon(appId: number, iconPath: string): void {
   try {
-    SteamClient.Apps.SetShortcutIcon(appId, iconPath);
+    const result: unknown = await getSgdbArtworkBase64(romId, 4);
+    if (!result || typeof result !== "object") return;
+    const { prune_lease_token, base64 } = result as {
+      prune_lease_token?: string;
+      base64?: string | null;
+    };
+    if (prune_lease_token) {
+      detach(releasePruneLease(prune_lease_token, "Sync shortcut icon"));
+    }
+    if (base64) {
+      const iconResult = await saveShortcutIcon(appId, base64);
+      if (iconResult.success && iconResult.icon_path) {
+        SteamClient.Apps.SetShortcutIcon(appId, iconResult.icon_path);
+      }
+    }
   } catch (e) {
     logError(`Per-unit: failed to set the placeholder icon for appId ${appId}: ${e}`);
   }
