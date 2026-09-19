@@ -31,11 +31,13 @@ import {
   invalidateCachedGameDetail,
   getSaveSetupInfo,
   getBiosStatus,
+  probeReachability,
   type BiosAnswer,
 } from "../../api/backend";
 import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
-import { getRommConnectionState, onRommConnectionChange } from "../../utils/connectionState";
+import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../../utils/connectionState";
+import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { isSessionActive } from "../../utils/sessionManager";
 import { isAppRunning } from "../../utils/runningApps";
 import { hasAnySaveConflict } from "../../utils/saveStatus";
@@ -259,6 +261,28 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       detach(releasePruneLeasesByOwner(leaseOwner));
     };
   }, [leaseOwner]);
+
+  // Drive the reachability heartbeat while this game page is mounted (#1345) —
+  // probes reachability periodically (every 30s, mirroring Big Picture) so offline
+  // and recovery transitions reflect automatically without user interaction.
+  useEffect(() => registerConnectionHeartbeat(), []);
+
+  // Check reachability on mount
+  useEffect(() => {
+    let cancelled = false;
+    probeReachability()
+      .then((r) => {
+        if (!cancelled) {
+          reportServerReachable(r.online === true);
+        }
+      })
+      .catch((e) => {
+        detach(debugLog(`PlayButton reachability probe failed: ${e}`));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Track offline status
   useEffect(() => {

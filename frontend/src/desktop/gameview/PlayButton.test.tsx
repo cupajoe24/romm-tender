@@ -4,6 +4,7 @@ import { PlayButton, ensurePulseStyles, PULSE_STYLE_ID } from "./PlayButton";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as downloadStore from "../../utils/downloadStore";
 import * as connectionState from "../../utils/connectionState";
+import * as connectionHeartbeat from "../../utils/connectionHeartbeat";
 import * as sessionManager from "../../utils/sessionManager";
 import * as runningApps from "../../utils/runningApps";
 import * as backend from "../../api/backend";
@@ -26,6 +27,12 @@ vi.mock("../../utils/downloadStore", () => ({
 vi.mock("../../utils/connectionState", () => ({
   getRommConnectionState: vi.fn(() => "connected"),
   onRommConnectionChange: vi.fn(() => vi.fn()),
+  reportServerReachable: vi.fn(),
+}));
+
+vi.mock("../../utils/connectionHeartbeat", () => ({
+  registerConnectionHeartbeat: vi.fn(() => vi.fn()),
+  CONNECTION_HEARTBEAT_INTERVAL_MS: 30_000,
 }));
 
 vi.mock("../../utils/sessionManager", () => ({
@@ -54,6 +61,7 @@ vi.mock("../../api/backend", () => ({
   invalidateCachedGameDetail: vi.fn(),
   getSaveSetupInfo: vi.fn(() => new Promise(() => {})),
   getBiosStatus: vi.fn(() => new Promise(() => {})),
+  probeReachability: vi.fn().mockResolvedValue({ online: true }),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -1189,6 +1197,76 @@ describe("PlayButton", () => {
           }),
         );
       }
+    });
+  });
+
+  describe("connection heartbeat & reachability", () => {
+    it("registers connection heartbeat on mount and unregisters on unmount", () => {
+      const stopHeartbeat = vi.fn();
+      vi.mocked(connectionHeartbeat.registerConnectionHeartbeat).mockReturnValue(stopHeartbeat);
+
+      const { unmount } = render(<PlayButton appId={123} />);
+      expect(connectionHeartbeat.registerConnectionHeartbeat).toHaveBeenCalled();
+
+      unmount();
+      expect(stopHeartbeat).toHaveBeenCalled();
+    });
+
+    it("probes reachability on mount and reports to connectionState", async () => {
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(backend.probeReachability).toHaveBeenCalled();
+        expect(connectionState.reportServerReachable).toHaveBeenCalledWith(false);
+      });
+    });
+
+    it("reacts live when onRommConnectionChange notifies of offline transition", async () => {
+      let listener: ((status: connectionState.RommConnectionState) => void) | null = null;
+      vi.mocked(connectionState.onRommConnectionChange).mockImplementation((cb) => {
+        listener = cb;
+        return () => {};
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: 100,
+        romName: "Super Mario World",
+        platformSlug: "snes",
+        installed: false,
+        fsSizeBytes: null,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      expect(screen.getByRole("button", { name: /DOWNLOAD/i })).not.toBeDisabled();
+
+      act(() => {
+        listener?.("offline");
+      });
+
+      await waitFor(() => {
+        const btn = screen.getByRole("button", { name: /OFFLINE/i });
+        expect(btn).toBeDisabled();
+      });
     });
   });
 });
