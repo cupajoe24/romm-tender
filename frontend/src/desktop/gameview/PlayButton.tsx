@@ -29,6 +29,9 @@ import {
   reconcilePlaytime,
   debugLog,
   invalidateCachedGameDetail,
+  getSaveSetupInfo,
+  getBiosStatus,
+  type BiosAnswer,
 } from "../../api/backend";
 import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
@@ -47,10 +50,10 @@ import {
 } from "../../utils/pruneLease";
 import { showToast } from "../../utils/toast";
 import { detach } from "../../utils/detach";
-import { formatBytes, formatLastPlayed, formatPlaytime } from "../../utils/formatters";
+import { formatBytes, formatLastPlayed, formatPlaytime, formatTimeAgo } from "../../utils/formatters";
 import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
 import { findDesktopWindow } from "../desktopWindow";
-import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
+import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo } from "../../types";
 
 export interface PlayButtonProps {
   appId: number;
@@ -163,6 +166,13 @@ export function ensurePulseStyles(doc?: Document | null) {
     #tender-desktop-play-button-host {
       overflow: visible !important;
     }
+    .romm-status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
   `;
   targetDoc.head.appendChild(style);
 }
@@ -183,12 +193,65 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
   const [isOffline, setIsOffline] = useState(getRommConnectionState() === "offline");
+  const [setupInfo, setSetupInfo] = useState<SaveSetupInfo | null>(null);
+  const [biosAnswer, setBiosAnswer] = useState<BiosAnswer | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const romId = detail.romId;
   const leaseOwner = `desktop-play-button:${appId}`;
+
+  // Fetch SaveSetupInfo and BiosStatus for indicator badges
+  useEffect(() => {
+    if (!romId) {
+      setSetupInfo(null);
+      setBiosAnswer(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchStatus = () => {
+      if (detail.saveSyncEnabled) {
+        getSaveSetupInfo(romId)
+          .then((info) => {
+            if (!cancelled) setSetupInfo(info);
+          })
+          .catch((e) => {
+            detach(debugLog(`PlayButton getSaveSetupInfo error: ${e}`));
+          });
+      } else {
+        setSetupInfo(null);
+      }
+
+      getBiosStatus(romId)
+        .then((ans) => {
+          if (!cancelled) setBiosAnswer(ans);
+        })
+        .catch((e) => {
+          detach(debugLog(`PlayButton getBiosStatus error: ${e}`));
+        });
+    };
+
+    fetchStatus();
+
+    const handleSaveSync = (e: Event) => {
+      const customEvent = e as CustomEvent<{ rom_id?: number }>;
+      if (!customEvent.detail || customEvent.detail.rom_id === romId) {
+        fetchStatus();
+      }
+    };
+
+    globalThis.addEventListener("romm_save_sync", handleSaveSync);
+    globalThis.addEventListener("romm_data_changed", fetchStatus);
+
+    return () => {
+      cancelled = true;
+      globalThis.removeEventListener("romm_save_sync", handleSaveSync);
+      globalThis.removeEventListener("romm_data_changed", fetchStatus);
+    };
+  }, [romId, detail.saveSyncEnabled]);
 
   useEffect(() => {
     mountPruneLeaseOwner(leaseOwner);
@@ -568,11 +631,106 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       gap: "6px",
     };
 
-    const hasAchievements = Boolean(detail.raId || detail.achievementTotal > 0);
+    const statusDotStyle: React.CSSProperties = {
+      display: "inline-block",
+      width: "8px",
+      height: "8px",
+      borderRadius: "50%",
+      flexShrink: 0,
+    };
+
+    const hasAchievements = Boolean(detail.raId);
     const countLabel =
       detail.achievementTotal > 0
         ? `${detail.achievementEarned}/${detail.achievementTotal}`
         : `${detail.achievementEarned}`;
+
+    // Save Sync status calculation
+    let saveSyncColor = "#8f98a0";
+    let saveSyncText = "disabled";
+
+    if (detail.saveSyncEnabled) {
+      const rommAvailable = !isOffline;
+      const hasLocalSave = Boolean(
+        detail.installed &&
+        (setupInfo?.has_local_saves ||
+          (detail.saveStatus?.files &&
+            detail.saveStatus.files.some((f) => Boolean(f.local_path || f.local_size || f.local_mtime)))),
+      );
+
+      let lastSyncIso = detail.saveStatus?.last_sync_check_at;
+      if (!lastSyncIso && detail.saveStatus?.files) {
+        for (const f of detail.saveStatus.files) {
+          if (f.last_sync_at) {
+            if (!lastSyncIso || f.last_sync_at > lastSyncIso) {
+              lastSyncIso = f.last_sync_at;
+            }
+          }
+        }
+      }
+      const formattedSyncTime = lastSyncIso ? formatTimeAgo(lastSyncIso) : null;
+      const syncTimeText = formattedSyncTime
+        ? formattedSyncTime.toLowerCase().startsWith("just now")
+          ? "Synced just now"
+          : `Synced ${formattedSyncTime}`
+        : null;
+
+      if (!rommAvailable) {
+        if (hasLocalSave) {
+          saveSyncColor = "#d4a72c";
+          saveSyncText = syncTimeText || "Not synced";
+        } else {
+          saveSyncColor = "#d94126";
+          saveSyncText = "RomM unavailable";
+        }
+      } else {
+        const isConflict =
+          hasLocalSave &&
+          (setupInfo?.recommended_action === "show_wizard" ||
+            detail.saveSyncStatus === "conflict" ||
+            hasAnySaveConflict(detail.saveStatus));
+
+        if (isConflict) {
+          saveSyncColor = "#d4a72c";
+          saveSyncText = "save conflict";
+        } else {
+          saveSyncColor = "#5ba32b";
+          saveSyncText = syncTimeText || "ready";
+        }
+      }
+    }
+
+    // BIOS status calculation
+    let biosColor = "#5ba32b";
+    let biosText = "Ready (no BIOS)";
+
+    const isBiosError =
+      detail.biosRequiredMissing ||
+      Boolean(biosAnswer?.bios_status_unknown) ||
+      biosAnswer?.bios_level === "missing" ||
+      biosAnswer?.bios_level === "partial" ||
+      biosAnswer?.bios_level === "unknown";
+
+    if (isBiosError) {
+      biosColor = "#d94126";
+      biosText = "Error, see below";
+    } else if (!detail.biosNeeded) {
+      biosColor = "#5ba32b";
+      biosText = "Ready (no BIOS)";
+    } else {
+      const requiredCount = biosAnswer?.bios_status?.required_count ?? 0;
+      const localCount = biosAnswer?.bios_status?.local_count ?? 0;
+      const isOptionalNotInstalled =
+        biosAnswer?.bios_status?.needs_bios === true && requiredCount === 0 && localCount === 0;
+
+      if (biosAnswer?.bios_status?.needs_bios === false || isOptionalNotInstalled) {
+        biosColor = "#5ba32b";
+        biosText = "Ready (no BIOS)";
+      } else {
+        biosColor = "#5ba32b";
+        biosText = "Ready";
+      }
+    }
 
     return (
       <div className="tender-desktop-badges" style={{ display: "flex", flexDirection: "row", alignItems: "center" }}>
@@ -598,14 +756,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
         ) : null}
 
         {hasAchievements && (
-          // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- pointer shortcut to achievements tab
-          <div
-            className="tender-desktop-badge-item tender-desktop-achievements"
-            style={{ ...badgeColumnStyle, cursor: "pointer" }}
-            onClick={() => {
-              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "achievements" } }));
-            }}
-          >
+          <div className="tender-desktop-badge-item tender-desktop-achievements" style={badgeColumnStyle}>
             <div style={badgeHeaderStyle}>ACHIEVEMENTS</div>
             <div style={badgeValueStyle}>
               <span style={{ fontSize: "13px" }}>{"\uD83C\uDFC6"}</span>
@@ -613,6 +764,34 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </div>
           </div>
         )}
+
+        <div
+          className="tender-desktop-badge-item tender-desktop-save-sync"
+          style={{ ...badgeColumnStyle, cursor: "pointer" }}
+          onClick={() => {
+            globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+          }}
+        >
+          <div style={badgeHeaderStyle}>SAVE SYNC</div>
+          <div style={{ ...badgeValueStyle, color: saveSyncColor }}>
+            <span className="romm-status-dot" style={{ ...statusDotStyle, backgroundColor: saveSyncColor }} />
+            <span>{saveSyncText}</span>
+          </div>
+        </div>
+
+        <div
+          className="tender-desktop-badge-item tender-desktop-bios"
+          style={{ ...badgeColumnStyle, cursor: "pointer" }}
+          onClick={() => {
+            globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+          }}
+        >
+          <div style={badgeHeaderStyle}>BIOS</div>
+          <div style={{ ...badgeValueStyle, color: biosColor }}>
+            <span className="romm-status-dot" style={{ ...statusDotStyle, backgroundColor: biosColor }} />
+            <span>{biosText}</span>
+          </div>
+        </div>
       </div>
     );
   };

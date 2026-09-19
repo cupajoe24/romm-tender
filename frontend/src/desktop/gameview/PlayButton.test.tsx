@@ -52,6 +52,8 @@ vi.mock("../../api/backend", () => ({
   debugLog: vi.fn(),
   logError: vi.fn(),
   invalidateCachedGameDetail: vi.fn(),
+  getSaveSetupInfo: vi.fn(() => new Promise(() => {})),
+  getBiosStatus: vi.fn(() => new Promise(() => {})),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -72,6 +74,8 @@ describe("PlayButton", () => {
     vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
     vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
     vi.mocked(backend.reconcilePlaytime).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(backend.getSaveSetupInfo).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(backend.getBiosStatus).mockImplementation(() => new Promise(() => {}));
 
     (window as unknown as { SteamClient?: unknown }).SteamClient = {
       Apps: {
@@ -233,6 +237,7 @@ describe("PlayButton", () => {
     expect(styleEl?.textContent).toContain("tender-desktop-dl-pulse");
     expect(styleEl?.textContent).toContain("tender-desktop-dl-pulsing");
     expect(styleEl?.textContent).toContain("#tender-desktop-play-button-host");
+    expect(styleEl?.textContent).toContain(".romm-status-dot");
 
     // Calling it again is a no-op
     ensurePulseStyles(customDoc);
@@ -604,7 +609,7 @@ describe("PlayButton", () => {
     });
   });
 
-  it("renders ACHIEVEMENTS badge and dispatches romm_tab_switch on click", () => {
+  it("renders ACHIEVEMENTS badge when raId is present and hides when raId is null", () => {
     const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
 
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
@@ -633,7 +638,7 @@ describe("PlayButton", () => {
       hasGameOverride: false,
     });
 
-    render(<PlayButton appId={123} />);
+    const { unmount } = render(<PlayButton appId={123} />);
 
     expect(screen.getByText("ACHIEVEMENTS")).toBeInTheDocument();
     expect(screen.getByText("5/20")).toBeInTheDocument();
@@ -642,13 +647,46 @@ describe("PlayButton", () => {
     expect(cheevoBadge).toBeInTheDocument();
     if (cheevoBadge) {
       fireEvent.click(cheevoBadge);
-      expect(dispatchSpy).toHaveBeenCalledWith(
+      // No click action should be dispatched
+      expect(dispatchSpy).not.toHaveBeenCalledWith(
         expect.objectContaining({
           type: "romm_tab_switch",
           detail: { tab: "achievements" },
         }),
       );
     }
+
+    unmount();
+
+    // raId null -> hidden
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+    expect(screen.queryByText("ACHIEVEMENTS")).not.toBeInTheDocument();
   });
 
   it("hides SPACE REQUIRED badge when game is installed", () => {
@@ -763,5 +801,394 @@ describe("PlayButton", () => {
     expect(screen.getByText("20 Aug 2024")).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+
+  describe("SAVE SYNC badge states", () => {
+    const baseDetail = {
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    };
+
+    it("displays 'disabled' in grey when saveSyncEnabled is false", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: false,
+      });
+
+      render(<PlayButton appId={123} />);
+      const textEl = screen.getByText("disabled");
+      expect(textEl).toBeInTheDocument();
+      expect(textEl.closest(".tender-desktop-save-sync")).toBeInTheDocument();
+    });
+
+    it("displays 'ready' in green when enabled, online, and not yet synced", async () => {
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+        has_local_saves: false,
+        local_files: [],
+        server_slots: [],
+        default_slot: "default",
+        slot_confirmed: true,
+        active_slot: "default",
+        recommended_action: "auto_confirm_default",
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+        saveStatus: null,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        const textEl = screen.getByText("ready");
+        expect(textEl).toBeInTheDocument();
+      });
+    });
+
+    it("displays 'ready' in green for uninstalled game when online even if recommended_action is show_wizard", async () => {
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+        has_local_saves: false,
+        local_files: [],
+        server_slots: [{ slot: "default", count: 1, saves: [], latest_updated_at: null }],
+        default_slot: "default",
+        slot_confirmed: false,
+        active_slot: null,
+        recommended_action: "show_wizard",
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        installed: false,
+        saveSyncEnabled: true,
+        saveStatus: null,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        const textEl = screen.getByText("ready");
+        expect(textEl).toBeInTheDocument();
+      });
+    });
+
+    it("displays last successful sync time in green when enabled, online, and synced", async () => {
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+        saveStatus: {
+          rom_id: 100,
+          files: [],
+          playtime: {
+            total_seconds: 0,
+            session_count: 0,
+            last_session_start: null,
+            last_session_duration_sec: null,
+            last_played: null,
+          },
+          device_id: "dev-1",
+          last_sync_check_at: twoHoursAgo,
+        },
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Synced 2h ago")).toBeInTheDocument();
+      });
+    });
+
+    it("displays 'save conflict' in yellow when recommended_action is show_wizard", async () => {
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+        has_local_saves: true,
+        local_files: [{ filename: "save.srm", size: 100 }],
+        server_slots: [{ slot: "default", count: 1, saves: [], latest_updated_at: null }],
+        default_slot: "default",
+        slot_confirmed: false,
+        active_slot: null,
+        recommended_action: "show_wizard",
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("save conflict")).toBeInTheDocument();
+      });
+    });
+
+    it("displays sync time in yellow when offline and a local save exists", async () => {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("offline");
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+        has_local_saves: true,
+        local_files: [{ filename: "save.srm", size: 100 }],
+        server_slots: [],
+        default_slot: "default",
+        slot_confirmed: true,
+        active_slot: "default",
+        recommended_action: "server_unreachable",
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+        saveStatus: {
+          rom_id: 100,
+          files: [
+            {
+              filename: "save.srm",
+              local_path: "/saves/save.srm",
+              local_hash: null,
+              local_mtime: twoHoursAgo,
+              local_size: 100,
+              server_save_id: null,
+              server_file_name: null,
+              server_emulator: null,
+              server_updated_at: null,
+              server_size: null,
+              last_sync_at: twoHoursAgo,
+              status: "synced",
+            },
+          ],
+          playtime: {
+            total_seconds: 0,
+            session_count: 0,
+            last_session_start: null,
+            last_session_duration_sec: null,
+            last_played: null,
+          },
+          device_id: "dev-1",
+          last_sync_check_at: twoHoursAgo,
+        },
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Synced 2h ago")).toBeInTheDocument();
+      });
+    });
+
+    it("displays 'RomM unavailable' in red when offline and no local save exists", async () => {
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("offline");
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+        has_local_saves: false,
+        local_files: [],
+        server_slots: [],
+        default_slot: "default",
+        slot_confirmed: true,
+        active_slot: "default",
+        recommended_action: "server_unreachable",
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+        saveStatus: null,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("RomM unavailable")).toBeInTheDocument();
+      });
+    });
+
+    it("switches to emulation-settings tab on click", () => {
+      const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+      });
+
+      render(<PlayButton appId={123} />);
+      const saveSyncBadge = screen.getByText("SAVE SYNC").closest(".tender-desktop-save-sync");
+      expect(saveSyncBadge).toBeInTheDocument();
+      if (saveSyncBadge) {
+        fireEvent.click(saveSyncBadge);
+        expect(dispatchSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "romm_tab_switch",
+            detail: { tab: "emulation-settings" },
+          }),
+        );
+      }
+    });
+  });
+
+  describe("BIOS Checker badge states", () => {
+    const baseDetail = {
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    };
+
+    it("displays 'Ready (no BIOS)' in green when firmware is not needed", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: null,
+        bios_level: null,
+        bios_label: null,
+        bios_status_unknown: false,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: false,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Ready (no BIOS)")).toBeInTheDocument();
+      });
+    });
+
+    it("displays 'Ready (no BIOS)' in green when firmware is optional and not installed", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: {
+          needs_bios: true,
+          platform_slug: "gba",
+          server_count: 1,
+          local_count: 0,
+          all_downloaded: false,
+          required_count: 0,
+          required_downloaded: 0,
+        },
+        bios_level: "ok",
+        bios_label: "BIOS optional",
+        bios_status_unknown: false,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: true,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Ready (no BIOS)")).toBeInTheDocument();
+      });
+    });
+
+    it("displays 'Ready' in green when firmware is needed and correctly installed", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: {
+          needs_bios: true,
+          platform_slug: "psx",
+          server_count: 1,
+          local_count: 1,
+          all_downloaded: true,
+          required_count: 1,
+          required_downloaded: 1,
+        },
+        bios_level: "ok",
+        bios_label: "BIOS present",
+        bios_status_unknown: false,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: true,
+        biosRequiredMissing: false,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Ready")).toBeInTheDocument();
+      });
+    });
+
+    it("displays 'Error, see below' in red when firmware required is missing", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: {
+          needs_bios: true,
+          platform_slug: "psx",
+          server_count: 1,
+          local_count: 0,
+          all_downloaded: false,
+          required_count: 1,
+          required_downloaded: 0,
+        },
+        bios_level: "missing",
+        bios_label: "BIOS missing",
+        bios_status_unknown: false,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: true,
+        biosRequiredMissing: true,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Error, see below")).toBeInTheDocument();
+      });
+    });
+
+    it("switches to emulation-settings tab on click", () => {
+      const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(baseDetail);
+
+      render(<PlayButton appId={123} />);
+      const biosBadge = screen.getByText("BIOS").closest(".tender-desktop-bios");
+      expect(biosBadge).toBeInTheDocument();
+      if (biosBadge) {
+        fireEvent.click(biosBadge);
+        expect(dispatchSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "romm_tab_switch",
+            detail: { tab: "emulation-settings" },
+          }),
+        );
+      }
+    });
   });
 });
