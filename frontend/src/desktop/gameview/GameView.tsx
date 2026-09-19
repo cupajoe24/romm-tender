@@ -34,6 +34,21 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const [loadedMetadata, setLoadedMetadata] = useState<RomMetadata | null>(null);
 
   useEffect(() => {
+    const handleTabSwitch = (e: Event) => {
+      const customEvent = e as CustomEvent<{ tab?: string }>;
+      if (customEvent.detail?.tab === "emulation-settings") {
+        setActiveTab("emulation-settings");
+      } else if (customEvent.detail?.tab === "game-info") {
+        setActiveTab("game-info");
+      }
+    };
+    globalThis.addEventListener("romm_tab_switch", handleTabSwitch);
+    return () => {
+      globalThis.removeEventListener("romm_tab_switch", handleTabSwitch);
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       detach(cancelArtworkApply(appId));
     };
