@@ -5,6 +5,7 @@ import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
 import * as desktopWin from "../desktopWindow";
 import * as artwork from "../../utils/artwork";
+import * as connectionHeartbeat from "../../utils/connectionHeartbeat";
 import type { RomMetadata } from "../../types";
 
 vi.mock("../../utils/gameDetailStore", () => ({
@@ -23,6 +24,11 @@ vi.mock("../desktopWindow", () => ({
 vi.mock("../../utils/artwork", () => ({
   applyArtwork: vi.fn().mockResolvedValue(4),
   cancelArtworkApply: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../utils/connectionHeartbeat", () => ({
+  registerConnectionHeartbeat: vi.fn(() => vi.fn()),
+  CONNECTION_HEARTBEAT_INTERVAL_MS: 30_000,
 }));
 
 describe("GameView", () => {
@@ -386,5 +392,16 @@ describe("GameView", () => {
     await waitFor(() => {
       expect(emuTab).toHaveAttribute("aria-selected", "true");
     });
+  });
+
+  it("registers connection heartbeat on mount and unregisters on unmount", () => {
+    const stopHeartbeat = vi.fn();
+    vi.mocked(connectionHeartbeat.registerConnectionHeartbeat).mockReturnValue(stopHeartbeat);
+
+    const { unmount } = render(<GameView appId={12345} />);
+    expect(connectionHeartbeat.registerConnectionHeartbeat).toHaveBeenCalled();
+
+    unmount();
+    expect(stopHeartbeat).toHaveBeenCalled();
   });
 });
