@@ -1,10 +1,32 @@
-import { configure } from "./rollup.config.js";
-import { insertDesktopSurfaceStart } from "./scripts/start-desktop-surface.mjs";
+import builds from "./rollup.config.js";
 
-const GLOBALS_INPUT = "./src/boot/steamGlobals.ts";
+// Dev config with source maps enabled for CEF debugging
+// Build-time injection of desktop navigation watcher
+// This mounts the desktop UI surface without modifying frontend/src/index.tsx on disk
+const desktopWatcherPlugin = {
+  name: "inject-desktop-watcher",
+  transform(code, id) {
+    const normalized = id.replace(/\\/g, "/");
+    if (normalized.endsWith("/src/index.tsx")) {
+      let transformed = `import { startDesktopNavigationWatcher, stopDesktopNavigationWatcher } from "./desktop";\n${code}`;
+      transformed = transformed.replace(
+        "mountPruneLeasePlugin();",
+        "mountPruneLeasePlugin();\n  startDesktopNavigationWatcher();",
+      );
+      transformed = transformed.replace(
+        "collapseQamOnDismount();",
+        "collapseQamOnDismount();\n      stopDesktopNavigationWatcher();",
+      );
+      return {
+        code: transformed,
+        map: null,
+      };
+    }
+  },
+};
 
-// The desktop surface's dev build (docs/architecture/frontend-bundles.md, "The
-// desktop dev build"). Every build but the globals one is a build of the panel.
-export default configure({ sourcemap: true }).map((build) =>
-  build.input === GLOBALS_INPUT ? build : { ...build, plugins: [...build.plugins, insertDesktopSurfaceStart()] },
-);
+export default builds.map((build) => ({
+  ...build,
+  output: { ...build.output, sourcemap: true },
+  plugins: [...build.plugins, desktopWatcherPlugin],
+}));
