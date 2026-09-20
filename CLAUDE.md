@@ -7,8 +7,10 @@ settings, sync, downloads, and BIOS management.
 
 The backend runs as **its own process** and hosts the panel itself over a loopback port
 ([ADR-0036](docs/adr/0036-the-backend-hosts-itself.md)); it was a Decky Loader plugin up to 0.33. It also LOADS the
-panel, into Steam's renderer over the CEF debugger — so `mise run dev` is now "build, then run the backend", and the
-Decky-shaped deploy tasks are gone. The installer, the user unit and the XDG paths are a separate cut (#1902).
+panel, into Steam's renderer over the CEF debugger — so `mise run dev` is now "build, restart Steam, then run the
+backend", and the Decky-shaped deploy tasks are gone. **It shuts the running Steam down**, because a rebuilt bundle
+reaches Steam only in a fresh JS context; which tasks do that, and which window they come back into, is under
+Development below. The installer, the user unit and the XDG paths are a separate cut (#1902).
 
 ## What belongs in this file
 
@@ -175,7 +177,9 @@ locally with `mise run docs`.
   wherever it found one would behave differently on a machine with Decky from one without — which is the difference this
   program exists not to depend on. **The reference machine runs the loader** (measured: `plugin_loader.service` active
   and enabled, `127.0.0.1:1337` listening), so that borrowing would show up there rather than hide, which is the
-  opposite of what this note used to say.
+  opposite of what this note used to say. `definePlugin` is no longer inert beside them: `index.tsx` hands the factory
+  it answers with to `qam/quickAccessEntry.tsx`, which calls it once and mounts the panel behind Tender's own Quick
+  Access entry.
 - **A callable must be `async def`**: even where the body is synchronous. The set a caller can reach is exactly the
   public `async def` on `Plugin` — `host.dispatch.reachable_methods` resolves it off the loaded class,
   `scripts/check_callable_manifest.py` derives the same set from the source, and `tests/host/test_dispatch.py` asserts
@@ -288,11 +292,22 @@ Latest release and shipped features: see `git tag --sort=-v:refname` and GitHub 
   `.release-please-manifest.json`, because the JS manifest it used to read moved under `frontend/` and deliberately
   carries no version. The note lives here rather than beside the badge: the badge sits inside a centred HTML block, and
   `deno fmt` puts blank lines around an HTML comment, which would end that block and unalign the row.
-- **Run it**: `mise run dev` (build the panel, then run the backend, which serves `dist/` and loads the panel into
-  Steam). Needs `~/.steam/steam/.cef-enable-remote-debugging`. **There is no hot reload** — a rebuilt bundle reaches
-  Steam when its JS context is rebuilt; `mise run dev:bpm-reset [display]` gives a fresh one. `mise run dev:bpm` opens
-  windowed Big Picture on a display; `mise run dev:ui-scale` forces the Deck's metrics. Guide:
-  `docs/contributing/frontend-dev-loop.md`
+- **Run it**: `mise run dev` (build the panel, restart Steam into the window and display last chosen, then run the
+  backend, which serves `dist/` and loads the panel into Steam). Needs `~/.steam/steam/.cef-enable-remote-debugging`.
+  **There is no hot reload, and every deploy is a full one** — a rebuilt bundle reaches Steam only in a fresh JS
+  context, and a new backend process strands the panel the old one loaded — so a rebuilt panel needs a Steam restart,
+  which is what all but the two tasks named below do. `mise run dev:bpm [display]` / `mise run dev:desktop [display]` do
+  what `dev` does into windowed Big Picture or the desktop client and remember that choice for `dev`;
+  `mise run dev:bpm-reset [display]` / `mise run dev:desktop-reset [display]` only restart Steam (no build, the running
+  backend loads the panel) and remember too. `mise run dev:backend` and `mise run dev:frontend [display]` are `dev`
+  split in two: the first runs a backend against the Steam already there and restarts nothing, the second restarts Steam
+  and leaves the running backend alone, so a rebuilt panel reaches a fresh context without a sync in flight being killed
+  to get it there. `mise run dev:ui-scale` forces the Deck's metrics onto the window that is open. **Those five building
+  tasks first ask who holds the single-instance lock**, and refuse before Steam is touched on the wrong answer: a
+  backend already running for the four that start one (the restart would otherwise go ahead and the second backend exit
+  one line later, leaving a fresh Steam with no panel), and no backend at all for `dev:frontend`, which starts none and
+  would restart Steam into nothing. The two resets ask nothing — they are the way out when a refusal is in your way.
+  Guide: `docs/contributing/frontend-dev-loop.md`
 - **Tooling**: mise manages node, pnpm, python, uv; venv auto-creates at `.venv`. Python deps are pinned in two
   lock/source pairs — `requirements-dev.lock` at the root, for `backend/`, `tests/` and `scripts/`, and
   `docs/requirements.lock` beside the documentation it builds — each compiled from the `.txt` next to it by
@@ -592,6 +607,47 @@ Format: **invariant** — tier — enforced by.
   Tender's version, the bundle bytes, Steam's client build — drops the count on its own, and `TENDER_INJECT=force` is
   the switch the refusal line names
 
+- **Tender's Quick Access entry composes with Decky's rather than going through it, and everything it binds to the Quick
+  Access window is bound from inside that window's React tree** — test + prompt-only —
+  `frontend/src/qam/quickAccessEntry.test.ts` pins what a render pass does to a tab array (added once, added again to
+  the replacement array a remount builds, moved to the end whenever a pass finds it higher up, and recognised by its
+  marker alone in an array this module has never seen), each case mutation-checked. **Everything above that line is
+  device-only**: whether the two renderers are found, patched and hand back a tree the resolver can walk was measured in
+  #1897 and nothing here re-measures it — a suite that faked it would assert against a tree it wrote itself. The rule
+  spans the frontend entry and the backend injector, and nothing joins them. **Three halves fail green.** (1) The entry
+  carries `tender` as its marker and its key and never `decky`, and nothing writes `window.__TABS_HOOK_INSTANCE` or
+  calls `__TABS_HOOK_INSTANCE.add()`: Decky's own render counts its `decky`-marked entries against its list length, so a
+  foreign entry there desynchronises that guard into re-pushing every tab with no convergence, and its constructor calls
+  `deinit()` on whatever it finds in that global. **Both are read off Decky's source rather than measured** — the
+  `add()` route was deliberately never taken, so its runaway was never observed, and observing the `deinit()` would mean
+  breaking Decky's boot on purpose. Neither is a presence check and neither may become one; which bundle is loaded was
+  already decided from the machine (`backend/host/inject/machine.py`). (2) **No tab array is held anywhere**, which is
+  available only because there is no unpatch: the injector refuses to load the panel into a context already carrying
+  `window.__tender_panel__` (`backend/host/inject/bootstrap.py`), and what clears that marker is a JS-context rebuild,
+  which takes the module, its patches and every array with it. Re-adding an unpatch is therefore also re-adding a reason
+  to retain arrays, and the spike's shape — a `Set` of every array ever pushed into — leaks one dead array per Quick
+  Access remount, with the strip's entries and their React elements, for the life of the process. (3) The placement is
+  re-asserted on EVERY pass rather than set at creation, because `afterPatch` runs the previous handler first: whoever
+  patches last lands lowest, measured both ways, and install order is a property of which program starts first. A
+  handler that pushed once and trusted the order goes green here and comes out above Decky on exactly the machines where
+  TENDER started first — it pushes first and Decky pushes under it. Where Decky started first the single push already
+  lands lowest, which is the case re-assertion does not have to fix and the one a developer is most likely to test. The
+  third rule's own half — **nothing binds to the Quick Access window at module scope** — is unmechanized and unpinned:
+  that window is replaced by every remount, so a listener, observer or stylesheet held across one is bound to a document
+  nothing renders. What holds today was measured rather than assumed — an unfiltered grep over `frontend/src` (tests
+  aside) for `addEventListener(`, `ResizeObserver`, `MutationObserver`, `ownerDocument`, `defaultView` and
+  `createElement(`, with the enclosing function of every hit read. **Neither observer term is prefixed with `new`**, and
+  that is what makes it find anything: this repo's realm rule takes the constructor off the node's own view, so every
+  observer here is spelled `new view.ResizeObserver` or `new panelView.MutationObserver`, and a pattern anchored on
+  `new ResizeObserver` matches nothing in `frontend/src` at all. The sweep's own boundary is worth stating, because a
+  reader re-deriving it meets the other kind first: a `globalThis` listener binds SharedJSContext's window, which the
+  menu's remount does not touch, so those are out of scope however many of them there are. Every binding into the MENU's
+  window sits inside an effect or an event handler of a component the menu mounts: `utils/qamExpansion.ts`'s stylesheet
+  and `MutationObserver`, `utils/entryFocus.ts`'s focus listeners, `bigpicture/layout/WidePage.tsx`'s `ResizeObserver`,
+  and `bigpicture/layout/ScrollRegion.tsx`, which reads the view per event and retains nothing. The glyph binds nothing
+  at all — it is static and reads no state. (`utils/styleInjector.ts` writes into `findSP()`'s document, which is the
+  game page's and not the menu's.) One added at module scope would work perfectly until the first Gaming-Mode-to-Desktop
+  switch and then do nothing, silently. Detail: `docs/architecture/qam-panel.md` → The entry
 - **Aggregate state mutated only via verb-named methods (no field assignment)** — check —
   `scripts/check_aggregate_field_assignment.py`
 - **No UoW-opening seam (ActiveCoreResolver, RelaunchOptionsResolver, uow_factory) is called while a UoW is open on the
@@ -772,16 +828,16 @@ Format: **invariant** — tier — enforced by.
   reworded answer. What bounds that cost is only that the glyph's absence costs appearance, so it never brings the page
   up alone and `describeSurvivedMiss` prints its sentence into the log whenever it is the whole of the miss. **It is NOT
   bounded to the company of a global**: beside a blocking `@decky/ui` name the verdict is `mixed` and the glyph is that
-  answer's unnamed rest, with no global anywhere in the miss — `steamModules.test.ts`'s "leaves the glyph in the unnamed
-  rest with no global anywhere in the miss" is that case. Four quiet ways back: a runtime probe instead of the stamp
-  (`typeof DFL !== "undefined"` is true of a standalone bundle loaded beside a running Decky), asking `in DFL` about a
-  name `@decky/ui` never exported (`SP_*`, `ControllerGlyph` — a package disagreement reported on every miss, which is
-  what `SteamLookup.deckyUiExport` and its sweep-derived lock exist to prevent), reading an unreadable `DFL` as an
-  absence rather than as nothing established, and letting the reading THROW at all — `definePlugin`'s factory reads it
-  before it returns anything, so an unguarded `window.DFL` or `name in DFL` costs the page AND the log line and leaves
-  the blank panel the check exists to tell apart from a dead backend. The version beside the name is an enrichment only
-  — `_versionInfo.current` is internal, guarded, and every sentence is complete without it; `remote` beside it is the
-  PUBLISHED version and is never consulted
+  answer's unnamed rest, asking for a report rather than naming an update, with no global anywhere in the miss —
+  `steamModules.test.ts`'s "leaves the glyph in the unnamed rest with no global anywhere in the miss" is that case. Four
+  quiet ways back: a runtime probe instead of the stamp (`typeof DFL !== "undefined"` is true of a standalone bundle
+  loaded beside a running Decky), asking `in DFL` about a name `@decky/ui` never exported (`SP_*`, `ControllerGlyph` — a
+  package disagreement reported on every miss, which is what `SteamLookup.deckyUiExport` and its sweep-derived lock
+  exist to prevent), reading an unreadable `DFL` as an absence rather than as nothing established, and letting the
+  reading THROW at all — `definePlugin`'s factory reads it before it returns anything, so an unguarded `window.DFL` or
+  `name in DFL` costs the page AND the log line and leaves the blank panel the check exists to tell apart from a dead
+  backend. The version beside the name is an enrichment only — `_versionInfo.current` is internal, guarded, and every
+  sentence is complete without it; `remote` beside it is the PUBLISHED version and is never consulted
 - **A coverage exclusion names a property of the code, never a place: every frontend-scoped entry stands in BOTH
   `frontend/vitest.config.ts`'s `coverage.exclude` and `sonar-project.properties`' `sonar.coverage.exclusions`, every
   file entry carries its reason as a `// coverage-exempt:` marker in the file's own first lines, and every marked file
