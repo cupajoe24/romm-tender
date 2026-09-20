@@ -66,13 +66,16 @@ export function getDirectChild(parent: HTMLElement, descendant: HTMLElement): HT
 
 export function isPlayBarElement(el: HTMLElement): boolean {
   if (playSectionClasses?.PlayBar && el.classList.contains(playSectionClasses.PlayBar)) return true;
+  if (playSectionClasses?.InPage && el.classList.contains(playSectionClasses.InPage)) return true;
+  if (playSectionClasses?.Container && el.classList.contains(playSectionClasses.Container)) return true;
   if (appDetailsClasses?.PlayBar && el.classList.contains(appDetailsClasses.PlayBar)) return true;
   if (
     basicAppDetailsSectionStylerClasses?.PlaySection &&
     el.classList.contains(basicAppDetailsSectionStylerClasses.PlaySection)
   )
     return true;
-  if (el.className && typeof el.className === "string" && /\b(PlayBar|PlaySection)\b/i.test(el.className)) return true;
+  if (el.className && typeof el.className === "string" && /\b(PlayBar|PlaySection|InPage)\b/i.test(el.className))
+    return true;
   return false;
 }
 
@@ -81,6 +84,15 @@ export function isPlayBarElement(el: HTMLElement): boolean {
  * Checks @decky/ui classes, common class substrings, and button fallbacks.
  */
 export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement | null {
+  const playBtn = findSteamPlayButton(root);
+  if (playBtn) {
+    const section =
+      (playBtn.closest(
+        '[class*="PlaySection"], [class*="PlayBar"], [class*="playsection"], [class*="playbar"], [class*="ActionButtonAndStatusPanel"]',
+      ) as HTMLElement | null) ?? playBtn.parentElement;
+    if (section) return section;
+  }
+
   const psClass = basicAppDetailsSectionStylerClasses?.PlaySection;
   if (psClass) {
     const el = root.querySelector<HTMLElement>(`.${psClass}`);
@@ -167,6 +179,25 @@ export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement |
 }
 
 /**
+ * Helper to check if an element or its descendants contain Steam's content sections.
+ */
+export function containsContentSections(el: HTMLElement): boolean {
+  if (!el) return false;
+  const explicitSelectors = [
+    '[class*="ColumnContainer"]',
+    '[class*="RightColumn"]',
+    '[class*="ShortcutContainer"]',
+    '[class*="Shortcut"]',
+    '[class*="AppDetailSectionList"]',
+    '[class*="AppDetailsContent"]',
+  ];
+  for (const sel of explicitSelectors) {
+    if (el.matches?.(sel) || el.querySelector?.(sel)) return true;
+  }
+  return false;
+}
+
+/**
  * Locate the play bar element and the common content container that holds both
  * the play bar and the content sections (dashed shortcut notice, notes, screenshots).
  */
@@ -187,6 +218,24 @@ export function findPlayBarAndContainer(
       recognizedPlayBar = curr;
     }
     curr = curr.parentElement;
+  }
+
+  // If recognizedPlayBar is wrapped in an inner play section container (e.g. playSectionClasses.Container / InPage)
+  // that sits within an outer content container alongside subsequent content sections (ColumnContainer, etc.),
+  // elevate recognizedPlayBar to that wrapper so that Tender's substitute is mounted as a sibling of the play section
+  // in the scrollable content container, rather than trapped inside the in-page play bar wrapper which Steam fades
+  // out (opacity: 0) when the play bar reaches the sticky header position on scroll.
+  while (
+    recognizedPlayBar?.parentElement &&
+    recognizedPlayBar.parentElement !== overviewPanel &&
+    overviewPanel.contains(recognizedPlayBar.parentElement) &&
+    (isPlayBarElement(recognizedPlayBar.parentElement) ||
+      (!containsContentSections(recognizedPlayBar.parentElement) &&
+        recognizedPlayBar.parentElement.parentElement &&
+        overviewPanel.contains(recognizedPlayBar.parentElement.parentElement) &&
+        containsContentSections(recognizedPlayBar.parentElement.parentElement)))
+  ) {
+    recognizedPlayBar = recognizedPlayBar.parentElement;
   }
 
   if (recognizedPlayBar?.parentElement && overviewPanel.contains(recognizedPlayBar.parentElement)) {
@@ -230,7 +279,7 @@ export function findSteamContentSections(overviewPanel: HTMLElement, playSection
   // 1. Collect all siblings of playBarTop that come after playBarTop in the container
   let next = playBarTop.nextElementSibling as HTMLElement | null;
   while (next) {
-    if (next.id !== TENDER_SUBSTITUTE_ID) {
+    if (next.id !== TENDER_SUBSTITUTE_ID && !isTenderElement(next)) {
       toHide.add(next);
     }
     next = next.nextElementSibling as HTMLElement | null;
@@ -248,7 +297,13 @@ export function findSteamContentSections(overviewPanel: HTMLElement, playSection
   for (const selector of explicitSelectors) {
     const matches = overviewPanel.querySelectorAll<HTMLElement>(selector);
     for (const el of Array.from(matches)) {
-      if (el.id !== TENDER_SUBSTITUTE_ID && !el.contains(playSection) && !el.contains(playBarTop)) {
+      if (
+        el.id !== TENDER_SUBSTITUTE_ID &&
+        !isTenderElement(el) &&
+        !el.contains(playSection) &&
+        !el.contains(playBarTop) &&
+        !playBarTop.contains(el)
+      ) {
         toHide.add(el);
       }
     }
@@ -468,6 +523,20 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   let hiddenPlayButton: HTMLElement | null = null;
   let hiddenBadges: HTMLElement[] = [];
   let styledRightControls: HTMLElement | null = null;
+  let styledPlayBar: HTMLElement | null = null;
+  let originalPlayBarStyles: {
+    position: string;
+    top: string;
+    zIndex: string;
+    opacity: string;
+    pointerEvents: string;
+    backgroundColor: string;
+    paddingBottom: string;
+  } | null = null;
+  let styledPlaySection: HTMLElement | null = null;
+  let originalPlaySectionBg: string | null = null;
+  let hiddenStickyDuplicate: HTMLElement | null = null;
+  let styledHeroElement: HTMLElement | null = null;
   let hiddenElements: HTMLElement[] = [];
   let lastPath: string | null = null;
 
@@ -510,6 +579,30 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
       styledRightControls.style.marginLeft = "";
     }
     styledRightControls = null;
+    if (styledPlayBar && styledPlayBar.isConnected && originalPlayBarStyles) {
+      styledPlayBar.style.position = originalPlayBarStyles.position;
+      styledPlayBar.style.top = originalPlayBarStyles.top;
+      styledPlayBar.style.zIndex = originalPlayBarStyles.zIndex;
+      styledPlayBar.style.opacity = originalPlayBarStyles.opacity;
+      styledPlayBar.style.pointerEvents = originalPlayBarStyles.pointerEvents;
+      styledPlayBar.style.backgroundColor = originalPlayBarStyles.backgroundColor;
+      styledPlayBar.style.paddingBottom = originalPlayBarStyles.paddingBottom;
+    }
+    styledPlayBar = null;
+    originalPlayBarStyles = null;
+    if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionBg !== null) {
+      styledPlaySection.style.backgroundColor = originalPlaySectionBg;
+    }
+    styledPlaySection = null;
+    originalPlaySectionBg = null;
+    if (hiddenStickyDuplicate && hiddenStickyDuplicate.isConnected) {
+      hiddenStickyDuplicate.style.display = "";
+    }
+    hiddenStickyDuplicate = null;
+    if (styledHeroElement && styledHeroElement.isConnected) {
+      styledHeroElement.style.overflow = "";
+    }
+    styledHeroElement = null;
     for (const el of hiddenElements) {
       if (el.isConnected) {
         el.style.display = "";
@@ -606,6 +699,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
         playBtnHost.id = TENDER_PLAY_BUTTON_ID;
         playBtnHost.dataset.appid = String(appId);
         playBtnHost.style.overflow = "visible";
+        playBtnHost.style.paddingBottom = "2px";
 
         if (nativePlayBtn.parentElement) {
           nativePlayBtn.parentElement.insertBefore(playBtnHost, nativePlayBtn);
@@ -619,11 +713,113 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
         } catch {
           // Handled gracefully
         }
+      } else if (playBtnHost && playBtnHost.style.paddingBottom !== "2px") {
+        playBtnHost.style.paddingBottom = "2px";
       }
     }
 
     // Locate the play bar top element and its container
     const { playBarTop, container } = findPlayBarAndContainer(steamPanel, playSection);
+
+    // Isolate play bar as its own container: freeze at top so cards can scroll independently
+    if (styledPlayBar !== playBarTop) {
+      if (styledPlayBar && styledPlayBar.isConnected && originalPlayBarStyles) {
+        styledPlayBar.style.position = originalPlayBarStyles.position;
+        styledPlayBar.style.top = originalPlayBarStyles.top;
+        styledPlayBar.style.zIndex = originalPlayBarStyles.zIndex;
+        styledPlayBar.style.opacity = originalPlayBarStyles.opacity;
+        styledPlayBar.style.pointerEvents = originalPlayBarStyles.pointerEvents;
+      }
+      styledPlayBar = playBarTop;
+      originalPlayBarStyles = {
+        position: playBarTop.style.position,
+        top: playBarTop.style.top,
+        zIndex: playBarTop.style.zIndex,
+        opacity: playBarTop.style.opacity,
+        pointerEvents: playBarTop.style.pointerEvents,
+        backgroundColor: playBarTop.style.backgroundColor,
+        paddingBottom: playBarTop.style.paddingBottom,
+      };
+    }
+    if (playBarTop.style.position !== "sticky") {
+      playBarTop.style.position = "sticky";
+    }
+    if (playBarTop.style.top !== "0px") {
+      playBarTop.style.top = "0px";
+    }
+    if (playBarTop.style.zIndex !== "10") {
+      playBarTop.style.zIndex = "10";
+    }
+    if (playBarTop.style.opacity !== "1") {
+      playBarTop.style.opacity = "1";
+    }
+    if (playBarTop.style.pointerEvents !== "auto") {
+      playBarTop.style.pointerEvents = "auto";
+    }
+    const SOLID_PLAY_BAR_BG = "rgb(39, 44, 53)";
+    if (playBarTop.style.backgroundColor !== SOLID_PLAY_BAR_BG) {
+      playBarTop.style.backgroundColor = SOLID_PLAY_BAR_BG;
+    }
+    if (playBarTop.style.paddingBottom !== "2px") {
+      playBarTop.style.paddingBottom = "2px";
+    }
+    if (playSection && playSection !== playBarTop) {
+      if (styledPlaySection !== playSection) {
+        if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionBg !== null) {
+          styledPlaySection.style.backgroundColor = originalPlaySectionBg;
+        }
+        styledPlaySection = playSection;
+        originalPlaySectionBg = playSection.style.backgroundColor;
+      }
+      if (playSection.style.backgroundColor !== SOLID_PLAY_BAR_BG) {
+        playSection.style.backgroundColor = SOLID_PLAY_BAR_BG;
+      }
+    }
+
+    // Hide Steam's duplicate sticky header so it doesn't collide with our in-page sticky play bar
+    let duplicateSticky: HTMLElement | null = null;
+    const stickyClass = appDetailsClasses?.PlayBar;
+    if (stickyClass) {
+      const cand = steamPanel.querySelector<HTMLElement>(`.${stickyClass}`);
+      if (cand && cand !== playBarTop && !playBarTop.contains(cand)) {
+        duplicateSticky = cand;
+      }
+    }
+    if (!duplicateSticky) {
+      const candidates = steamPanel.querySelectorAll<HTMLElement>('div[class*="PlayBar"]');
+      for (const cand of Array.from(candidates)) {
+        if (cand !== playBarTop && !playBarTop.contains(cand) && !cand.contains(playBarTop)) {
+          duplicateSticky = cand;
+          break;
+        }
+      }
+    }
+    if (hiddenStickyDuplicate !== duplicateSticky) {
+      if (hiddenStickyDuplicate && hiddenStickyDuplicate.isConnected) {
+        hiddenStickyDuplicate.style.display = "";
+      }
+      hiddenStickyDuplicate = duplicateSticky;
+    }
+    if (duplicateSticky && duplicateSticky.style.display !== "none") {
+      duplicateSticky.style.display = "none";
+    }
+
+    // Contain hero wrapper's canvas from inflating scroller height and creating a large empty gap at bottom
+    const heroWrapper = steamPanel.firstElementChild as HTMLElement | null;
+    if (
+      heroWrapper &&
+      heroWrapper !== playBarTop &&
+      !heroWrapper.contains(playBarTop) &&
+      heroWrapper.style.overflow !== "hidden"
+    ) {
+      if (styledHeroElement !== heroWrapper) {
+        if (styledHeroElement && styledHeroElement.isConnected) {
+          styledHeroElement.style.overflow = "";
+        }
+        styledHeroElement = heroWrapper;
+      }
+      heroWrapper.style.overflow = "hidden";
+    }
 
     // Locate and hide Steam's native play bar badges (Last Played, Playtime, etc.)
     const badgeElements = findSteamPlayBarBadges(playBarTop, nativePlayBtn);
@@ -712,6 +908,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 
     const host = d.createElement("div");
     host.id = TENDER_SUBSTITUTE_ID;
+    host.className = "tender-desktop-cards-container";
     host.dataset.appid = String(appId);
 
     if (insertBeforeRef && insertBeforeRef.parentElement === insertParent) {

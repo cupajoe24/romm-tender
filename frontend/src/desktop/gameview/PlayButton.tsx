@@ -546,6 +546,8 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     alignItems: "center",
     height: "48px",
     position: "relative",
+    paddingBottom: "2px",
+    boxSizing: "border-box",
     userSelect: "none",
     overflow: "visible",
   };
