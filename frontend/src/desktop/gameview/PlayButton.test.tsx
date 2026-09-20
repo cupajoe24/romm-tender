@@ -11,8 +11,8 @@ import * as backend from "../../api/backend";
 import * as steamShortcuts from "../../utils/steamShortcuts";
 import * as metadataPatches from "../../utils/metadataPatches";
 import * as toast from "../../utils/toast";
-import { emitDeckyEvent } from "../../test-utils/decky-api-mock";
-import type { DownloadItem, SyncConflict } from "../../types";
+import { emitHostEvent } from "../../test-utils/host-event-bus";
+import type { DownloadCompleteEvent, DownloadItem, SyncConflict } from "../../types";
 
 vi.mock("../../utils/gameDetailStore", () => ({
   useGameDetail: vi.fn(),
@@ -352,7 +352,7 @@ describe("PlayButton", () => {
     render(<PlayButton appId={123} />);
 
     act(() => {
-      emitDeckyEvent("download_complete", {
+      emitHostEvent<[DownloadCompleteEvent]>("download_complete", {
         rom_id: 100,
         rom_name: "Super Mario World",
         platform_name: "snes",
