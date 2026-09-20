@@ -84,6 +84,15 @@ def configure_logging(log_dir: str, token: str, level: int = logging.INFO) -> lo
     Call once, from the entry point. Existing root handlers are removed first so
     a second call replaces rather than doubles — a doubled handler writes every
     line twice and rotates at half the size it should.
+
+    *level* is the root's for the life of the process: the entry point passes
+    none and no user-facing setting reaches this call, so a DEBUG record judged
+    against the root's level is dropped rather than written.
+
+    Both handlers sit at ``NOTSET``, which is a separate axis from the root's
+    level: a record some logger's own level has already admitted is handled
+    whatever that level was, so a child levelled below the root is written here
+    rather than filtered a second time.
     """
     os.makedirs(log_dir, exist_ok=True)
 
