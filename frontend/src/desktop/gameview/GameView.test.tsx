@@ -404,4 +404,43 @@ describe("GameView", () => {
     unmount();
     expect(stopHeartbeat).toHaveBeenCalled();
   });
+
+  it("structures outer cards container, tab switcher, and tab content container", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 42,
+      romName: "Mario Golf (USA)",
+      platformSlug: "gba",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
+
+    const { container } = render(<GameView appId={12345} />);
+    await waitFor(() => {
+      expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+    });
+    const outerContainer = container.querySelector(".tender-desktop-cards-container");
+    expect(outerContainer).toBeInTheDocument();
+    const tabContainer = container.querySelector(".tender-desktop-tab-container");
+    expect(tabContainer).toBeInTheDocument();
+    expect(outerContainer?.contains(tabContainer)).toBe(true);
+  });
 });

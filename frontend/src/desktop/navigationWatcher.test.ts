@@ -227,6 +227,39 @@ describe("navigationWatcher", () => {
       expect(sections).toContain(columnContainer);
       expect(sections).not.toContain(playBar);
     });
+
+    it("elevates playBarTop to in-page play bar container when playBar is wrapped inside it", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const overviewPanel = doc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+      const innerContainer = doc.createElement("div");
+      innerContainer.className = "_27RcNu8aXKBpYkHcNNrt-X _2OOzYVWIHaKXm6_7sscT9i";
+
+      const inPageContainer = doc.createElement("div");
+      inPageContainer.className = "_3Yf8b2v5oOD8Wqsxu04ar _1U7LKpx70kEsz3jJwAFOi-";
+      const playBar = doc.createElement("div");
+      playBar.className = "_3fLo166MlaNqP8r8tTyRz _3DeO92O5aVkcdwEBCJDjWm";
+      const playBtn = doc.createElement("button");
+      playBar.appendChild(playBtn);
+      const shadow = doc.createElement("div");
+      shadow.className = "_2_86QNCjVvJTL3Qe6Xztx_";
+      inPageContainer.appendChild(playBar);
+      inPageContainer.appendChild(shadow);
+
+      const columnContainer = doc.createElement("div");
+      columnContainer.className = "OhSdLYuggDtBcWjYP0j_9";
+
+      innerContainer.appendChild(inPageContainer);
+      innerContainer.appendChild(columnContainer);
+      overviewPanel.appendChild(innerContainer);
+      doc.body.appendChild(overviewPanel);
+
+      const sections = findSteamContentSections(overviewPanel, playBtn);
+      expect(sections).toContain(columnContainer);
+      expect(sections).not.toContain(inPageContainer);
+      expect(sections).not.toContain(playBar);
+      expect(sections).not.toContain(shadow);
+    });
   });
 
   describe("findSteamPlayBarBadges", () => {
@@ -795,6 +828,69 @@ describe("navigationWatcher", () => {
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
 
+    it("mounts after inPageContainer when playBar is nested inside in-page wrapper", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = mockDoc.createElement("div");
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+      const innerContainer = mockDoc.createElement("div");
+      innerContainer.className = "_27RcNu8aXKBpYkHcNNrt-X";
+
+      const inPageContainer = mockDoc.createElement("div");
+      inPageContainer.className = "_3Yf8b2v5oOD8Wqsxu04ar _1U7LKpx70kEsz3jJwAFOi- InPage";
+      const playBar = mockDoc.createElement("div");
+      playBar.className = "_3fLo166MlaNqP8r8tTyRz PlayBar";
+      const playButton = mockDoc.createElement("button");
+      playButton.className = "PlayButton";
+      playBar.appendChild(playButton);
+      inPageContainer.appendChild(playBar);
+
+      const columnContainer = mockDoc.createElement("div");
+      columnContainer.className = "OhSdLYuggDtBcWjYP0j_9";
+
+      innerContainer.appendChild(inPageContainer);
+      innerContainer.appendChild(columnContainer);
+      overviewPanel.appendChild(innerContainer);
+      parent.appendChild(overviewPanel);
+      mockDoc.body.appendChild(parent);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(888),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/70001" },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/70001" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // PlayBar and inPageContainer are kept visible
+      expect(inPageContainer.style.display).not.toBe("none");
+      expect(columnContainer.style.display).toBe("none");
+
+      // Substitute is mounted directly inside innerContainer, right after inPageContainer (not inside inPageContainer!)
+      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
+      expect(host).not.toBeNull();
+      expect(host?.parentElement).toBe(innerContainer);
+      expect(inPageContainer.nextElementSibling).toBe(host);
+      expect(inPageContainer.contains(host)).toBe(false);
+
+      stop();
+      expect(columnContainer.style.display).toBe("");
+      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+    });
+
     it("replaces native play button with Tender play button and restores on unmount", () => {
       const mockRoot = { render: vi.fn(), unmount: vi.fn() };
       vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
@@ -843,6 +939,7 @@ describe("navigationWatcher", () => {
       const playBtnHost = mockDoc.getElementById(TENDER_PLAY_BUTTON_ID);
       expect(playBtnHost).not.toBeNull();
       expect(playBtnHost?.dataset.appid).toBe("99999");
+      expect(playBtnHost?.style.paddingBottom).toBe("2px");
       expect(playBtnHost?.nextElementSibling).toBe(nativePlayBtn);
 
       // Stop watcher / unmount
@@ -921,6 +1018,86 @@ describe("navigationWatcher", () => {
       expect(lastPlayedItem.style.display).toBe("");
       expect(rightControls.style.display).toBe("");
       expect(rightControls.style.marginLeft).toBe("");
+    });
+
+    it("isolates play bar container as sticky, hides duplicate sticky header, contains hero overflow, and restores on unmount", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = mockDoc.createElement("div");
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+
+      const heroBanner = mockDoc.createElement("div");
+      heroBanner.className = "HeroHeaderWrapper";
+      overviewPanel.appendChild(heroBanner);
+
+      const duplicateStickyPlayBar = mockDoc.createElement("div");
+      duplicateStickyPlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
+      duplicateStickyPlayBar.style.position = "absolute";
+      overviewPanel.appendChild(duplicateStickyPlayBar);
+
+      const contentContainer = mockDoc.createElement("div");
+      contentContainer.className = "_27RcNu8aXKBpYkHcNNrt-X";
+
+      const inPagePlayBar = mockDoc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBarContainer InPage";
+      const playBtn = mockDoc.createElement("button");
+      playBtn.className = "PlayButton";
+      inPagePlayBar.appendChild(playBtn);
+      contentContainer.appendChild(inPagePlayBar);
+
+      overviewPanel.appendChild(contentContainer);
+      parent.appendChild(overviewPanel);
+      mockDoc.body.appendChild(parent);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(777),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/55555" },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/55555" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // PlayBar container is sticky at top so cards scroll independently
+      expect(inPagePlayBar.style.position).toBe("sticky");
+      expect(inPagePlayBar.style.top).toBe("0px");
+      expect(inPagePlayBar.style.zIndex).toBe("10");
+      expect(inPagePlayBar.style.backgroundColor).toBe("rgb(39, 44, 53)");
+      expect(inPagePlayBar.style.paddingBottom).toBe("2px");
+
+      // Hero banner overflow is set to hidden to eliminate bottom empty gap
+      expect(heroBanner.style.overflow).toBe("hidden");
+
+      // Duplicate sticky header is hidden
+      expect(duplicateStickyPlayBar.style.display).toBe("none");
+
+      // Cards container has class tender-desktop-cards-container
+      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
+      expect(host).not.toBeNull();
+      expect(host?.className).toContain("tender-desktop-cards-container");
+
+      // Stop watcher / unmount restores original properties
+      stop();
+
+      expect(inPagePlayBar.style.position).toBe("");
+      expect(inPagePlayBar.style.top).toBe("");
+      expect(inPagePlayBar.style.backgroundColor).toBe("");
+      expect(inPagePlayBar.style.paddingBottom).toBe("");
+      expect(heroBanner.style.overflow).toBe("");
+      expect(duplicateStickyPlayBar.style.display).toBe("");
+      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
   });
 });

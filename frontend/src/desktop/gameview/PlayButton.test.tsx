@@ -149,6 +149,11 @@ describe("PlayButton", () => {
     expect(screen.getByText("SPACE REQUIRED")).toBeInTheDocument();
     expect(screen.getByText("2.0 MB")).toBeInTheDocument();
 
+    const container = screen
+      .getByRole("button", { name: /DOWNLOAD/i })
+      .closest(".tender-desktop-play-btn-container") as HTMLElement;
+    expect(container.style.paddingBottom).toBe("2px");
+
     fireEvent.click(btn);
 
     await waitFor(() => {
