@@ -1,11 +1,11 @@
 /**
- * Pure formatters and selectors for the save rows and the slot lists: anything
- * that takes inputs and returns outputs without touching component state or
- * React. Rendering stays with the components; the slot surfaces' feedback,
- * failure and confirmation sentences are `saveSlotWording.ts`'s.
+ * Pure formatters and selectors for save sync UI across Big Picture and Desktop.
+ * Anything that takes inputs and returns outputs without touching component state
+ * or React belongs here.
  */
 
-import type { DeviceSyncInfo, SaveStatus, SyncConflict, SaveSlotSummary } from "../types";
+import type { EndpointFailure } from "../api/backend";
+import type { DeviceSyncInfo, RollbackStatus, SaveStatus, SyncConflict } from "../types";
 
 export const MUTED_COLOR = "#8f98a0";
 
@@ -17,13 +17,8 @@ export function displaySlot(slot: string | null | undefined): string {
   return slot;
 }
 
-/**
- * A save-sync time as the Saves tab and its toasts show it — a save's, a
- * version's, or the last sync's: "just now", "5m ago", "2h ago", then a date
- * ("5 Oct"); "" for no time or a bad one. Elsewhere, `formatTimeAgo`
- * (`formatters.ts`).
- */
-export function formatSaveTimeAgo(isoStr: string | null): string {
+/** Format a relative time string (e.g. "5m ago", "2h ago") from an ISO string */
+export function formatRelativeTime(isoStr: string | null): string {
   if (!isoStr) return "";
   const date = new Date(isoStr);
   if (Number.isNaN(date.getTime())) return "";
@@ -66,8 +61,8 @@ export function attributionLabel(uploadedByUs: boolean | null | undefined): stri
  *
  * Combines device name, attribution label, and an optional trailing checkmark
  * into one ready-to-render string, or null when nothing meaningful can be shown.
- * Reused between `renderSaveFileRow` and `renderVersionRow`. The checkmark marks
- * an actually-synced file, so `renderSaveFileRow` passes `showCheck=false` for a
+ * Reused between save rows and version rows. The checkmark marks
+ * an actually-synced file, so save rows pass `showCheck=false` for a
  * file with pending upload/download work — a failed post-exit sync must not
  * render a ✓ (#1334). Version rows keep the default (`showCheck=true`): the ✓
  * there is the per-version attribution marker, not a live sync verdict.
@@ -91,6 +86,25 @@ export function formatAttributionSegment(
     return showCheck ? "✓" : null;
   }
   return null;
+}
+
+/** The toast for a failed `get_slot_delete_info`. */
+export function slotDeleteFailureToast(info: EndpointFailure): string {
+  if (info.reason === "active_slot") {
+    return "Cannot delete the active slot. Switch to a different slot first.";
+  }
+  return info.message;
+}
+
+/** The toast for a restore refused as unsupported — the backend's own explanation where it gave one. */
+export function unsupportedRestoreMessage(result: Extract<RollbackStatus, { status: "unsupported" }>): string {
+  if (result.reason === "savefiles_in_content_dir") {
+    return "Save sync is off for this game: its saves are written beside the game file.";
+  }
+  if (result.reason === "save_shape_unsupported" && result.message) {
+    return result.message;
+  }
+  return "Restoring isn't available for multi-file saves yet.";
 }
 
 /** Map a save file status to color and label */
@@ -155,48 +169,8 @@ export function computeSyncSummary(
     return { syncSummaryText: "Server newer", syncSummaryColor: "#1a9fff" };
   }
   if (saveStatus.last_sync_check_at) {
-    const rel = formatSaveTimeAgo(saveStatus.last_sync_check_at);
+    const rel = formatRelativeTime(saveStatus.last_sync_check_at);
     return { syncSummaryText: rel === "just now" ? "Synced just now" : `Synced ${rel}`, syncSummaryColor: "#5ba32b" };
   }
   return { syncSummaryText: "Not synced", syncSummaryColor: MUTED_COLOR };
-}
-
-/**
- * Sort save slots: active slot first, named slots alphabetically, legacy "" bucket last.
- * Synthesizes an entry for a known active slot missing from the list.
- */
-export function sortSaveSlots(
-  slots: SaveSlotSummary[],
-  activeSlot: string | null | undefined,
-  activeSlotKnown: boolean,
-): SaveSlotSummary[] {
-  const slotRank = (s: SaveSlotSummary): number => {
-    if (s.slot === activeSlot) return 0;
-    if (s.slot === "") return 2;
-    return 1;
-  };
-  const sorted = [...slots].sort((a, b) => {
-    const rankDiff = slotRank(a) - slotRank(b);
-    if (rankDiff !== 0) return rankDiff;
-    return a.slot.localeCompare(b.slot);
-  });
-  // An active slot the list doesn't carry still gets a panel — it is a slot the
-  // user is on. Only for a slot something ANSWERED, though: synthesised off the
-  // panel's placeholder it puts a slot name on screen that nothing ever said
-  // (#1747), and `default` is a real name here, so it reads as a fact.
-  if (activeSlot && activeSlotKnown && !sorted.some((s) => s.slot === activeSlot)) {
-    sorted.unshift({ slot: activeSlot, source: "local", count: 0, latest_updated_at: null });
-  }
-  return sorted;
-}
-
-/**
- * Filter slots for panel display: in legacy mode (activeSlot === null),
- * omit the redundant legacy "" panel.
- */
-export function filterSaveSlotsForDisplay(
-  slots: SaveSlotSummary[],
-  activeSlot: string | null | undefined,
-): SaveSlotSummary[] {
-  return slots.filter((s) => activeSlot !== null || s.slot !== "");
 }
