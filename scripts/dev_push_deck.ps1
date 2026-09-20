@@ -114,9 +114,9 @@ if (-not $SkipBuild) {
     
     # Try pnpm directly, fall back to npx pnpm
     if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-        pnpm run build:desktop
+        pnpm -C frontend run build:desktop
     } else {
-        npx pnpm run build:desktop
+        npx pnpm -C frontend run build:desktop
     }
 
     if ($LASTEXITCODE -ne 0) {
@@ -154,9 +154,15 @@ if ($PushBackend) {
     scp -r $stageItems "${DeckUser}@${DeckHost}:${PluginDest}/"
     Remove-Item $stageDir -Recurse -Force
 } else {
-    # Single SCP copy with both index.js.map and index.js
+    # Single SCP copy with dist files
     # (index.js lands last so Decky detects modification and hot-reloads)
     $distFiles = @()
+    if (Test-Path "dist/globals.js") {
+        $distFiles += "dist/globals.js"
+    }
+    if (Test-Path "dist/globals.js.map") {
+        $distFiles += "dist/globals.js.map"
+    }
     if (Test-Path "dist/index.js.map") {
         $distFiles += "dist/index.js.map"
     }
