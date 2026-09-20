@@ -11,6 +11,7 @@ import { overviewFor } from "../../utils/steamOverview";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { EmulationSettings } from "./EmulationSettings";
+import { SaveManagementCard } from "./SaveManagementCard";
 import { PlayButton } from "./PlayButton";
 
 export interface GameViewProps {
@@ -21,6 +22,21 @@ export interface GameViewProps {
 export type GameViewPageProps = GameViewProps;
 
 const artworkApplied = new Map<number, number>();
+
+const CARD_STYLE: React.CSSProperties = {
+  padding: "24px",
+  background:
+    "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(24, 35, 49, 0.8) 40%, rgba(13, 19, 27, 0.9) 100%)",
+  backgroundColor: "rgba(13, 19, 27, 0.85)",
+  border: "1px solid rgba(255, 255, 255, 0.09)",
+  borderTop: "1px solid rgba(255, 255, 255, 0.16)",
+  borderBottom: "1px solid rgba(0, 0, 0, 0.5)",
+  borderRadius: "4px",
+  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
+  backdropFilter: "blur(12px)",
+  WebkitBackdropFilter: "blur(12px)",
+  color: "#c7d5e0",
+};
 
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
@@ -102,34 +118,23 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
         </div>
       )}
       <GameViewTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
-      <div
-        className="tender-desktop-about-card tender-desktop-info-card"
-        style={{
-          padding: "24px",
-          background:
-            "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(24, 35, 49, 0.8) 40%, rgba(13, 19, 27, 0.9) 100%)",
-          backgroundColor: "rgba(13, 19, 27, 0.85)",
-          border: "1px solid rgba(255, 255, 255, 0.09)",
-          borderTop: "1px solid rgba(255, 255, 255, 0.16)",
-          borderBottom: "1px solid rgba(0, 0, 0, 0.5)",
-          borderRadius: "4px",
-          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          color: "#c7d5e0",
-        }}
-      >
-        {activeTab === "game-info" ? (
+      {activeTab === "game-info" ? (
+        <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
           <AboutDetails
             title={title}
             platformName={detail.platformSlug || undefined}
             metadata={metadata}
             covers={covers}
           />
-        ) : (
-          <EmulationSettings title={title} detail={detail} />
-        )}
-      </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
+          <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
+            <EmulationSettings title={title} detail={detail} />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
