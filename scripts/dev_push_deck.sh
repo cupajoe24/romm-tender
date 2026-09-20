@@ -53,14 +53,20 @@ fi
 if [[ "$SKIP_BUILD" = false ]]; then
   echo "==> Building desktop dev bundle (rollup.desktop.config.js)..."
   if command -v pnpm >/dev/null 2>&1; then
-    pnpm run build:desktop
+    pnpm -C frontend run build:desktop
   else
-    npx pnpm run build:desktop
+    npx pnpm -C frontend run build:desktop
   fi
 fi
 
 echo "==> Pushing bundle to Steam Deck (${DECK_USER}@${DECK_HOST})..."
 DIST_FILES=()
+if [[ -f "dist/globals.js" ]]; then
+  DIST_FILES+=("dist/globals.js")
+fi
+if [[ -f "dist/globals.js.map" ]]; then
+  DIST_FILES+=("dist/globals.js.map")
+fi
 if [[ -f "dist/index.js.map" ]]; then
   DIST_FILES+=("dist/index.js.map")
 fi
