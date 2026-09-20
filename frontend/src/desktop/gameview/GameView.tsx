@@ -106,7 +106,7 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
 
   return (
     <div
-      className="tender-desktop-game-view"
+      className="tender-desktop-game-view tender-desktop-cards-container"
       style={{
         marginTop: "16px",
         marginBottom: "24px",
@@ -118,23 +118,28 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
         </div>
       )}
       <GameViewTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
-      {activeTab === "game-info" ? (
-        <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
-          <AboutDetails
-            title={title}
-            platformName={detail.platformSlug || undefined}
-            metadata={metadata}
-            covers={covers}
-          />
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
-          <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
-            <EmulationSettings title={title} detail={detail} />
+      <div className="tender-desktop-tab-container" style={{ marginTop: "12px" }}>
+        {activeTab === "game-info" ? (
+          <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
+            <AboutDetails
+              title={title}
+              platformName={detail.platformSlug || undefined}
+              metadata={metadata}
+              covers={covers}
+            />
           </div>
-        </div>
-      )}
+        ) : (
+          <div
+            className="tender-desktop-emulation-tab-content"
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
+            <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
+            <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
+              <EmulationSettings title={title} detail={detail} />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
