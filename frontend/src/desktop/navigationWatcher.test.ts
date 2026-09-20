@@ -7,6 +7,7 @@ import {
   findSteamContentSections,
   findSteamPlayBarBadges,
   findSteamRightControls,
+  findSteamStickyPlayBar,
   isTenderElement,
   isRightControlsElement,
   startDesktopNavigationWatcher,
@@ -441,6 +442,109 @@ describe("navigationWatcher", () => {
       const doc = document.implementation.createHTMLDocument("Test");
       const playBar = doc.createElement("div");
       expect(findSteamRightControls(playBar)).toBeNull();
+    });
+  });
+
+  describe("findSteamStickyPlayBar", () => {
+    it("finds sticky play bar via appDetailsClasses.PlayBar across document", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBar";
+      doc.body.appendChild(inPagePlayBar);
+
+      const stickyPlayBar = doc.createElement("div");
+      stickyPlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
+      doc.body.appendChild(stickyPlayBar);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBe(stickyPlayBar);
+    });
+
+    it("finds sticky play bar when situated outside overviewPanel as a sibling under main window split", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const splitRoot = doc.createElement("div");
+      splitRoot.className = "MainWindowSplit";
+
+      const stickyPlayBar = doc.createElement("div");
+      stickyPlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
+
+      const scrollContainer = doc.createElement("div");
+      scrollContainer.className = "ScrollContainer";
+      const overviewPanel = doc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = "InPage";
+
+      overviewPanel.appendChild(inPagePlayBar);
+      scrollContainer.appendChild(overviewPanel);
+      splitRoot.appendChild(stickyPlayBar);
+      splitRoot.appendChild(scrollContainer);
+      doc.body.appendChild(splitRoot);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBe(stickyPlayBar);
+    });
+
+    it("finds sticky play bar via playSectionClasses.StickyHeader and elevates to outer sticky container", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBar";
+      doc.body.appendChild(inPagePlayBar);
+
+      const outerSticky = doc.createElement("div");
+      outerSticky.className = "custom_PlayBar_sticky_wrapper";
+      const innerSticky = doc.createElement("div");
+      innerSticky.className = deckyUiInternals.playSectionClasses?.StickyHeader || "StickyHeader";
+      outerSticky.appendChild(innerSticky);
+      doc.body.appendChild(outerSticky);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBe(outerSticky);
+    });
+
+    it("finds sticky play bar via appDetailsClasses.ShowPlayBar", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBar";
+      doc.body.appendChild(inPagePlayBar);
+
+      const stickyPlayBar = doc.createElement("div");
+      stickyPlayBar.className = "custom-sticky " + (deckyUiInternals.appDetailsClasses?.ShowPlayBar || "ShowPlayBar");
+      doc.body.appendChild(stickyPlayBar);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBe(stickyPlayBar);
+    });
+
+    it("ignores inPagePlayBar and elements inside inPagePlayBar", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
+      const inner = doc.createElement("div");
+      inner.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
+      inPagePlayBar.appendChild(inner);
+      doc.body.appendChild(inPagePlayBar);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBeNull();
+    });
+
+    it("ignores Tender elements", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBar";
+      doc.body.appendChild(inPagePlayBar);
+
+      const tenderSticky = doc.createElement("div");
+      tenderSticky.id = TENDER_PLAY_BUTTON_ID;
+      tenderSticky.className = "PlayBar";
+      doc.body.appendChild(tenderSticky);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBeNull();
+    });
+
+    it("returns null when no sticky play bar exists", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const inPagePlayBar = doc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBar";
+      doc.body.appendChild(inPagePlayBar);
+
+      expect(findSteamStickyPlayBar(doc, inPagePlayBar)).toBeNull();
     });
   });
 
@@ -1098,6 +1202,62 @@ describe("navigationWatcher", () => {
       expect(heroBanner.style.overflow).toBe("");
       expect(duplicateStickyPlayBar.style.display).toBe("");
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+    });
+
+    it("hides native duplicate sticky header when situated outside overviewPanel under main window split and restores on unmount", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+      const mainWindowSplit = mockDoc.createElement("div");
+      mainWindowSplit.className = "MainWindowSplit";
+
+      // Native sticky play bar sits outside the overview panel
+      const duplicateStickyPlayBar = mockDoc.createElement("div");
+      duplicateStickyPlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
+      mainWindowSplit.appendChild(duplicateStickyPlayBar);
+
+      const scrollContainer = mockDoc.createElement("div");
+      scrollContainer.className = "ScrollContainer";
+
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+
+      const inPagePlayBar = mockDoc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBarContainer InPage";
+      const playBtn = mockDoc.createElement("button");
+      playBtn.className = "PlayButton";
+      inPagePlayBar.appendChild(playBtn);
+      overviewPanel.appendChild(inPagePlayBar);
+
+      scrollContainer.appendChild(overviewPanel);
+      mainWindowSplit.appendChild(scrollContainer);
+      mockDoc.body.appendChild(mainWindowSplit);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(778),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/55556" },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/55556" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // Duplicate sticky header outside overviewPanel is hidden
+      expect(duplicateStickyPlayBar.style.display).toBe("none");
+
+      // Stop watcher restores original display
+      stop();
+      expect(duplicateStickyPlayBar.style.display).toBe("");
     });
   });
 });

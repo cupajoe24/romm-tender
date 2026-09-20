@@ -181,7 +181,7 @@ export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement |
 /**
  * Helper to check if an element or its descendants contain Steam's content sections.
  */
-export function containsContentSections(el: HTMLElement): boolean {
+export function containsContentSections(el: HTMLElement | null | undefined): boolean {
   if (!el) return false;
   const explicitSelectors = [
     '[class*="ColumnContainer"]',
@@ -192,7 +192,7 @@ export function containsContentSections(el: HTMLElement): boolean {
     '[class*="AppDetailsContent"]',
   ];
   for (const sel of explicitSelectors) {
-    if (el.matches?.(sel) || el.querySelector?.(sel)) return true;
+    if (el.matches(sel) || el.querySelector(sel) !== null) return true;
   }
   return false;
 }
@@ -262,6 +262,81 @@ export function findPlayBarAndContainer(
   }
 
   return { playBarTop, container };
+}
+
+/**
+ * Locate Steam's native duplicate sticky play bar / header that appears when scrolling down.
+ * In desktop Steam, this element sits outside AppDetailsOverviewPanel (under the main window split),
+ * so it must be queried across the document or ownerDocument, rather than strictly inside the overview panel.
+ */
+export function findSteamStickyPlayBar(root: Document | HTMLElement, playBarTop: HTMLElement): HTMLElement | null {
+  const doc = "ownerDocument" in root && root.ownerDocument ? root.ownerDocument : (root as Document);
+  const isCandidate = (el: HTMLElement | null): el is HTMLElement => {
+    if (!el) return false;
+    if (el === playBarTop || playBarTop.contains(el) || el.contains(playBarTop)) return false;
+    if (isTenderElement(el)) return false;
+    return true;
+  };
+
+  // 1. Check exact PlayBar class from appDetailsClasses across the document
+  const appDetailsPb = appDetailsClasses?.PlayBar;
+  if (appDetailsPb) {
+    const matches = doc.querySelectorAll<HTMLElement>(`.${appDetailsPb}`);
+    for (const el of Array.from(matches)) {
+      if (isCandidate(el)) return el;
+    }
+  }
+
+  // 2. Check StickyHeader class from playSectionClasses across the document
+  const stickyHeaderClass = playSectionClasses?.StickyHeader;
+  if (stickyHeaderClass) {
+    const matches = doc.querySelectorAll<HTMLElement>(`.${stickyHeaderClass}`);
+    for (const el of Array.from(matches)) {
+      if (isCandidate(el)) {
+        let topSticky = el;
+        while (
+          topSticky.parentElement &&
+          topSticky.parentElement !== doc.body &&
+          isCandidate(topSticky.parentElement) &&
+          (topSticky.parentElement.classList.contains(appDetailsPb || "") ||
+            /sticky|playbar/i.test(topSticky.parentElement.className))
+        ) {
+          topSticky = topSticky.parentElement;
+        }
+        return topSticky;
+      }
+    }
+  }
+
+  // 3. Check ShowPlayBar class from appDetailsClasses
+  const showPlayBarClass = appDetailsClasses?.ShowPlayBar;
+  if (showPlayBarClass) {
+    const matches = doc.querySelectorAll<HTMLElement>(`.${showPlayBarClass}`);
+    for (const el of Array.from(matches)) {
+      if (isCandidate(el)) return el;
+    }
+  }
+
+  // 4. Fallback: search for elements with PlayBar or StickyHeader in their class name
+  const candidates = doc.querySelectorAll<HTMLElement>(
+    'div[class*="PlayBar"], div[class*="playbar"], div[class*="StickyHeader"], div[class*="stickyheader"]',
+  );
+  for (const el of Array.from(candidates)) {
+    if (isCandidate(el)) {
+      let topSticky = el;
+      while (
+        topSticky.parentElement &&
+        topSticky.parentElement !== doc.body &&
+        isCandidate(topSticky.parentElement) &&
+        /sticky|playbar/i.test(topSticky.parentElement.className)
+      ) {
+        topSticky = topSticky.parentElement;
+      }
+      return topSticky;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -763,7 +838,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
     if (playBarTop.style.paddingBottom !== "2px") {
       playBarTop.style.paddingBottom = "2px";
     }
-    if (playSection && playSection !== playBarTop) {
+    if (playSection !== playBarTop) {
       if (styledPlaySection !== playSection) {
         if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionBg !== null) {
           styledPlaySection.style.backgroundColor = originalPlaySectionBg;
@@ -777,23 +852,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
     }
 
     // Hide Steam's duplicate sticky header so it doesn't collide with our in-page sticky play bar
-    let duplicateSticky: HTMLElement | null = null;
-    const stickyClass = appDetailsClasses?.PlayBar;
-    if (stickyClass) {
-      const cand = steamPanel.querySelector<HTMLElement>(`.${stickyClass}`);
-      if (cand && cand !== playBarTop && !playBarTop.contains(cand)) {
-        duplicateSticky = cand;
-      }
-    }
-    if (!duplicateSticky) {
-      const candidates = steamPanel.querySelectorAll<HTMLElement>('div[class*="PlayBar"]');
-      for (const cand of Array.from(candidates)) {
-        if (cand !== playBarTop && !playBarTop.contains(cand) && !cand.contains(playBarTop)) {
-          duplicateSticky = cand;
-          break;
-        }
-      }
-    }
+    const duplicateSticky = findSteamStickyPlayBar(d, playBarTop);
     if (hiddenStickyDuplicate !== duplicateSticky) {
       if (hiddenStickyDuplicate && hiddenStickyDuplicate.isConnected) {
         hiddenStickyDuplicate.style.display = "";
