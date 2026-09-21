@@ -11,15 +11,15 @@ them is chosen, and what happens when that goes wrong.
 
 From the debugger port answering to the panel being there:
 
-| Step               | What it is                                                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------------ |
-| List the targets   | `GET /json` on `127.0.0.1:8080`, retried until Steam has named its renderer                                  |
-| Attach             | one WebSocket to the `SharedJSContext` target's `webSocketDebuggerUrl`                                       |
-| `Page.enable`      | so `Page.domContentEventFired` arrives; subscribed to before it is enabled, so none is missed                |
-| Ask for the marker | `typeof window["__tender_panel__"] !== "undefined"` — a context that already carries the panel is left alone |
-| Wait until ready   | Steam's module registry, and beside Decky its copy of `@decky/ui` as well                                    |
-| Evaluate           | one expression that claims the marker and imports the chosen bundles in order                                |
-| Ask again, later   | is Steam's interface still there? — see [the crash watchdog](#the-crash-watchdog)                            |
+| Step               | What it is                                                                                                                                                                       |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| List the targets   | `GET /json` on `127.0.0.1:8080`, retried until Steam has named its renderer                                                                                                      |
+| Attach             | one WebSocket to the `SharedJSContext` target's `webSocketDebuggerUrl`                                                                                                           |
+| `Page.enable`      | so `Page.domContentEventFired` arrives; subscribed to before it is enabled, so none is missed                                                                                    |
+| Ask for the marker | `typeof window["__tender_panel__"] !== "undefined"` — a context that already carries the panel is left alone                                                                     |
+| Wait until ready   | Steam's module registry, and beside Decky its copy of `@decky/ui` as well                                                                                                        |
+| Evaluate           | one expression that claims the marker, imports the chosen bundles in order, and calls the globals installer between importing the bundle that defines it and importing the panel |
+| Ask again, later   | is Steam's interface still there? — see [the crash watchdog](#the-crash-watchdog)                                                                                                |
 
 After that the loop waits on two subscriptions and nothing else — `Page.domContentEventFired`, which says the marker has
 been wiped, and `Runtime.bindingCalled`, which is [the card's one button](#one-button-and-an-address-in-plain-text). It
@@ -45,6 +45,15 @@ So there are two answers and they are not two spellings of one thing:
 | --------------------------- | ----------------------------- | ------------------------------------------------------------------------ |
 | Decky Loader is not serving | `globals.js`, then `index.js` | nothing else is loading into Steam, so Tender installs the React globals |
 | Decky Loader is serving     | `index-coexistence.js` alone  | the loader has installed those globals and holds a loaded `@decky/ui`    |
+
+**Importing the React bootstrap installs nothing — calling it does.** That bundle only defines `installGlobals` and
+leaves it on the window; the expression calls it by name between importing the bundle that defines it and importing the
+panel, and imports the panel **only** where the report it answers with says every global it names is installed. The
+panel reads those globals while its own modules evaluate, so importing it with one missing throws there, before any code
+of ours can notice — which is why a missing one is refused before the panel is imported, and the sentence it is refused
+with is what [the card](#the-load-failure-card) shows and what the injector logs. Which of the loaded files carries the
+installer is the bundle choice's own answer, so the expression counts nothing out for itself; where the choice carries
+no such file — beside a serving Decky, where the panel is the only import — nothing is called at all.
 
 **The answer comes from the machine, never from the window.** At the earliest moment an injection is possible, every
 marker Decky eventually sets — `DFL`, `DeckyPluginLoader`, `DeckyBackend`, `deckyAuthToken`, `deckyHasLoaded` — is still
@@ -184,14 +193,20 @@ when it starts — so the task's own restart is what picks the file up. See
 ## What the tests here can and cannot see
 
 `tests/host/inject/` drives the real client against a fake debugger on a real loopback port: real HTTP, real RFC 6455
-frames through `lib/websocket_frames.py` in both directions. What is faked is the page — there is no JavaScript engine
-in the suite, so `Runtime.evaluate` is answered by a stand-in that recognises the three expressions the injector sends.
+frames through `lib/websocket_frames.py` in both directions. What is faked there is the page — that tier runs no
+JavaScript, so `Runtime.evaluate` is answered by a stand-in that recognises the three expressions the injector sends.
 
 So the suite holds the framing, the reconnection, the discovery rule, the watchdog's state machine, the bundle choice
-and what the evaluated source carries — and it can say nothing at all about whether that source RUNS. `node --check`
-parses it, which is the one mechanical check available for a language this repo does not compile here. Everything else
-is a device test: whether the panel appears, whether a forced context rebuild brings it back, and whether the card draws
-where a broken bundle is served.
+and what the evaluated source carries. It also RUNS that source: node parses it, and a harness evaluates it against a
+stub `window` with just enough of a document for the card, and with the bundle addresses as `data:` modules that record
+having been imported and that leave the installer on the window where the real bundle leaves one. So the order (import,
+install, import), the refusals that keep the panel out, and the sentence each refusal carries are exercised rather than
+read off the text.
+
+What that harness cannot see is Steam. It stands in for the page, so nothing in it says whether `@decky/ui`'s searches
+find anything, what the real installer answers against a real module registry, or whether the card is legible on a
+handheld. Those stay device tests: whether the panel appears, whether a forced context rebuild brings it back, and
+whether the card draws where a broken bundle is served.
 
 ## Related
 

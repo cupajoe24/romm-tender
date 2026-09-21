@@ -16,6 +16,13 @@ fallback page here (CONTEXT.md → Load-failure card): that one is a React
 component rendered inside a panel that DID mount, when a search into Steam's own
 interface came back empty.
 
+**The globals installer is called between importing the bundle that defines it
+and importing the panel, and the panel is not imported unless the report says
+every global it names is installed.** Evaluating that bundle only DEFINES the
+installer and leaves it on the window; it installs nothing until it is called.
+Why the refusal sits here rather than at the panel:
+``docs/architecture/loading-the-panel.md``.
+
 **It never takes the machine over.** Whether Steam's controller focus can reach
 a node appended to its document from outside its own React tree is not
 established here, and the card is built so that the answer does not matter: it is
@@ -56,6 +63,12 @@ MARKER = "__tender_panel__"
 STOP_BINDING = "__tender_stop_loading__"
 STOP_PAYLOAD = "stop"
 
+# The window property the React bootstrap leaves its installer on
+# (``frontend/src/boot/steamGlobals.ts``), and the name the source below calls it
+# by. Spelled in two languages, with nothing but
+# ``tests/host/inject/test_bootstrap.py`` holding the two against each other.
+GLOBALS_INSTALLER = "__TENDER_INSTALL_GLOBALS"
+
 _FACTS_PLACEHOLDER = "__TENDER_FACTS__"
 
 # Where the facts placeholder is filled from. Everything the evaluated source
@@ -75,9 +88,31 @@ _SOURCE = """
     return T.token ? text.split(T.token).join("<token>") : text;
   };
 
+  const installTheGlobals = async () => {
+    const install = win[T.installer];
+    if (typeof install !== "function") {
+      throw new Error(`${T.no_installer} ${T.installer}`);
+    }
+    const report = await install();
+    const installed = (report && report.installed) || {};
+    const names = Object.keys(installed);
+    if (names.length === 0) {
+      throw new Error(T.globals_unreported);
+    }
+    const missing = names.filter((name) => !installed[name]);
+    if (missing.length > 0) {
+      throw new Error(
+        `${T.globals_missing} ${missing.join(", ")}. ${report.steamReady ? T.steam_ready : T.steam_not_ready}`
+      );
+    }
+  };
+
   const loadAll = async () => {
     for (let i = 0; i < T.urls.length; i += 1) {
       await import(T.urls[i]);
+      if (i === T.globals_at) {
+        await installTheGlobals();
+      }
     }
   };
 
@@ -186,6 +221,8 @@ class BootstrapFacts:
     steam_build: str
     log_path: str
     urls: tuple[str, ...]
+    globals_at: int | None
+    installer: str
     token: str
     binding: str
     stop_payload: str
@@ -194,6 +231,11 @@ class BootstrapFacts:
     updates: str
     stop: str
     stop_note: str
+    globals_missing: str
+    globals_unreported: str
+    steam_ready: str
+    steam_not_ready: str
+    no_installer: str
 
 
 TITLE = "Tender could not load its panel"
@@ -218,6 +260,19 @@ STOP = "Stop trying until Tender restarts"
 # has, for the same reason: the way out of a state Steam is in cannot be inside
 # Steam.
 STOP_NOTE = "That is Tender's own backend process. The panel is loaded again the next time it starts."
+# The names are not spelled here: they come back in the installer's own report,
+# so this backend states no list it would have to keep in step with the frontend.
+GLOBALS_MISSING = "The panel was not loaded: the globals it renders through could not all be installed. Missing:"
+# Thrown on its own rather than folded into the sentence above, because an
+# answer naming nothing names no missing global either — and an answer this
+# unreadable is no evidence about Steam's registry, so it claims none.
+GLOBALS_UNREPORTED = "The panel was not loaded: the installer answered without saying what it installed."
+STEAM_READY = "Steam's module registry had reported itself ready."
+STEAM_NOT_READY = "Steam's module registry had not reported itself ready, so a search may have read an incomplete one."
+# The globals bundle was imported and left nothing to call. A panel imported
+# after it would throw on its first read of a global — the fault this path
+# exists to report rather than reproduce.
+NO_INSTALLER = "The panel was not loaded: the globals bundle left no installer on the window under the name"
 
 
 def build_facts(
@@ -227,10 +282,15 @@ def build_facts(
     steam_build: str,
     log_path: str,
     urls: tuple[str, ...],
+    globals_at: int | None,
     token: str,
     binding: str = "",
 ) -> BootstrapFacts:
     """Assemble what the evaluated source is given.
+
+    *globals_at* is which of *urls* leaves the globals installer on the window,
+    as ``bundles.BundleChoice`` answers it, or ``None`` where the choice carries
+    no such bundle and nothing is installed.
 
     *binding* is the name of the callback the debugger installed, or the empty
     string when it could not be installed. The card draws its one button only
@@ -245,6 +305,8 @@ def build_facts(
         steam_build=steam_build or "unknown",
         log_path=log_path,
         urls=urls,
+        globals_at=globals_at,
+        installer=GLOBALS_INSTALLER,
         token=token,
         binding=binding,
         stop_payload=STOP_PAYLOAD,
@@ -253,6 +315,11 @@ def build_facts(
         updates=UPDATES_AT,
         stop=STOP,
         stop_note=STOP_NOTE,
+        globals_missing=GLOBALS_MISSING,
+        globals_unreported=GLOBALS_UNREPORTED,
+        steam_ready=STEAM_READY,
+        steam_not_ready=STEAM_NOT_READY,
+        no_installer=NO_INSTALLER,
     )
 
 

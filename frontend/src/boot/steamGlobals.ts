@@ -142,7 +142,12 @@ export interface GlobalsReport {
   source: "decky" | "tender" | "unknown";
   /** Did Steam report itself initialised before the deadline? */
   steamReady: boolean;
-  /** Which of the three are set now. */
+  /**
+   * Which of the three are set now. Every key of it must be true or the panel
+   * is not imported — the injector's bootstrap gates on the keys this object
+   * carries rather than on a list of its own, so a fourth one added here is a
+   * fourth one that has to be installed.
+   */
   installed: { SP_REACT: boolean; SP_REACTDOM: boolean; SP_JSX: boolean };
   /** Steam's React version, when it could be read. */
   reactVersion: string | null;
@@ -184,15 +189,13 @@ export async function installGlobals(): Promise<GlobalsReport> {
     // which is a perfectly truthy object — so `installed.SP_JSX` would say true
     // when nothing was found.
     //
-    // **That report is the whole of what this buys**: it is there for the
-    // injector to read out of THIS bundle before it decides whether to load the
-    // panel (#1900). Nothing reads it yet — until something does, the honesty
-    // below buys nothing at all. The panel itself gets no chance to notice: a
+    // **That report is the whole of what this buys**: the injector's bootstrap
+    // reads it out of THIS bundle and imports the panel only where every global
+    // the report names is installed. The panel itself gets no chance to notice: a
     // module-scope `SP_JSX.jsx` sits in its import graph (`dist/index.js:4892`,
     // from `PlatformDetail.tsx`), so with `SP_JSX` unset it throws while being
     // evaluated — before `definePlugin`'s factory exists, and long before any
-    // check inside it could run. An honest `false` here is what would keep that
-    // bundle from being loaded at all.
+    // check inside it could run.
     //
     // `SP_REACT` and `SP_REACTDOM` have no such hole: a miss leaves them unset.
     // Decky has none either — its block reads `jsxModule.jsxs` bare and throws
@@ -222,10 +225,10 @@ export async function installGlobals(): Promise<GlobalsReport> {
   };
 }
 
-// The injector (#1900) will evaluate this bundle and then call the function. It
-// is reachable by name as well, so the same bundle can be driven by hand from
-// the CEF debugger — which is how the spike measured it and how a device test
-// reproduces one.
+// The injector's bootstrap calls this by name after importing the bundle and
+// before importing the panel, and imports the panel only where the report says
+// every global it names is installed. The same name is what drives this bundle
+// by hand from the CEF debugger.
 w.__TENDER_INSTALL_GLOBALS = installGlobals;
 
 export default installGlobals;
