@@ -222,10 +222,26 @@ const transpileTypeScript = ({ sourcemap }) => {
   };
 };
 
+const patchDeckyUi = () => ({
+  name: "patch-decky-ui",
+  transform(code) {
+    if (code.includes("__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE")) {
+      return {
+        code: code.replaceAll(
+          "Object.values(window.SP_REACT?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE)",
+          "Object.values(window.SP_REACT?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE || {})",
+        ),
+        map: null,
+      };
+    }
+  },
+});
+
 const plugins = ({ sourcemap }) => [
   transpileTypeScript({ sourcemap }),
   commonjs(),
   nodeResolve({ browser: true }),
+  patchDeckyUi(),
   externalGlobals(STEAM_REACT_GLOBALS),
 ];
 
