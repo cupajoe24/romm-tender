@@ -17,7 +17,7 @@
  */
 
 import { useState, useEffect, useRef, type FC, type MouseEvent } from "react";
-import { addEventListener, removeEventListener } from "@decky/api";
+import { addEventListener, removeEventListener } from "../../api/host";
 import {
   startDownload,
   cancelDownload,
