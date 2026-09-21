@@ -54,18 +54,18 @@ push scripts allow iterating on the desktop UI:
   (`startDesktopNavigationWatcher` / `stopDesktopNavigationWatcher`) into the bundle at build time, without modifying
   `frontend/src/index.tsx` on disk.
 
-- **Deploy to Steam Deck**: Push the bundle to a Steam Deck in Desktop Mode over SSH:
+- **Deploy to Remote Host / Steam Deck**: Push the bundle and backend over SSH:
   - **PowerShell (Windows)**:
     ```powershell
-    .\scripts\dev_push_deck.ps1 -DeckHost <deck-ip>
-    # One-time setup: .\scripts\dev_push_deck.ps1 -DeckHost <deck-ip> -SetupDeck
-    # Push backend:   .\scripts\dev_push_deck.ps1 -DeckHost <deck-ip> -PushBackend
+    .\scripts\dev_push_remote.ps1 <remote-ip>
+    # Frontend only: .\scripts\dev_push_remote.ps1 <remote-ip> -Frontend
+    # Backend only:  .\scripts\dev_push_remote.ps1 <remote-ip> -Backend
     ```
   - **Bash (Linux/macOS)**:
     ```bash
-    ./scripts/dev_push_deck.sh <deck-ip>
-    # One-time setup: ./scripts/dev_push_deck.sh <deck-ip> --setup-deck
-    # Push backend:   ./scripts/dev_push_deck.sh <deck-ip> --push-backend
+    ./scripts/dev_push_remote.sh <remote-ip>
+    # Frontend only: ./scripts/dev_push_remote.sh <remote-ip> --frontend
+    # Backend only:  ./scripts/dev_push_remote.sh <remote-ip> --backend
     ```
 
 - **Remote debugging**: With remote CEF debugging enabled on the Deck, open `http://<deck-ip>:8081` in Chrome or Edge:

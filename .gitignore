@@ -62,3 +62,6 @@ coverage.json
 # Frontend test coverage
 coverage/
 deno.lock
+
+# Deployment staging
+.dev_stage/

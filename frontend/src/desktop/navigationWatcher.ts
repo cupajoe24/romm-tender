@@ -50,7 +50,19 @@ export function findSteamOverviewPanel(doc: Document): HTMLElement | null {
     const el = doc.querySelector(`.${ovClass}:not(#${TENDER_SUBSTITUTE_ID})`);
     if (el) return el as HTMLElement;
   }
-  return doc.querySelector(`[class*="AppDetailsOverviewPanel"]:not(#${TENDER_SUBSTITUTE_ID})`) as HTMLElement | null;
+  const bpMatch = doc.querySelector(
+    `[class*="AppDetailsOverviewPanel"]:not(#${TENDER_SUBSTITUTE_ID})`,
+  ) as HTMLElement | null;
+  if (bpMatch) return bpMatch;
+
+  // Desktop client fallback: Right panel container
+  const desktopMatch = doc.querySelector(`[class*="RightPanel"]:not(#${TENDER_SUBSTITUTE_ID})`) as HTMLElement | null;
+  if (desktopMatch) {
+    const detailChild = desktopMatch.querySelector<HTMLElement>(":scope > div:first-child");
+    return detailChild || desktopMatch;
+  }
+
+  return null;
 }
 
 /**
@@ -76,6 +88,12 @@ export function isPlayBarElement(el: HTMLElement): boolean {
     return true;
   if (el.className && typeof el.className === "string" && /\b(PlayBar|PlaySection|InPage)\b/i.test(el.className))
     return true;
+  if (
+    el.classList.contains("_3fLo166MlaNqP8r8tTyRz") ||
+    el.classList.contains("_3Yf8b2v5oOD8Wqsxu04ar") ||
+    el.classList.contains("_2L3s2nzh7yCnNESfI5_dN1")
+  )
+    return true;
   return false;
 }
 
@@ -86,11 +104,21 @@ export function isPlayBarElement(el: HTMLElement): boolean {
 export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement | null {
   const playBtn = findSteamPlayButton(root);
   if (playBtn) {
-    const section =
-      (playBtn.closest(
-        '[class*="PlaySection"], [class*="PlayBar"], [class*="playsection"], [class*="playbar"], [class*="ActionButtonAndStatusPanel"]',
-      ) as HTMLElement | null) ?? playBtn.parentElement;
+    const section = playBtn.closest(
+      '[class*="PlaySection"], [class*="PlayBar"], [class*="playsection"], [class*="playbar"], [class*="ActionButtonAndStatusPanel"]',
+    ) as HTMLElement | null;
     if (section) return section;
+
+    // Desktop fallback: walk up from playBtn until reaching a container with sibling action controls (options, etc.)
+    const docBody = "ownerDocument" in root && root.ownerDocument ? root.ownerDocument.body : (root as Document).body;
+    let curr: HTMLElement = playBtn;
+    while (curr.parentElement && curr.parentElement !== root && curr.parentElement !== docBody) {
+      if (curr.parentElement.children.length > 1 || /play|action/i.test(curr.parentElement.className)) {
+        return curr.parentElement;
+      }
+      curr = curr.parentElement;
+    }
+    return curr;
   }
 
   const psClass = basicAppDetailsSectionStylerClasses?.PlaySection;
@@ -175,6 +203,18 @@ export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement |
     }
     return btn;
   }
+
+  // Desktop client fallback: find element whose direct text is "Play" (case-insensitive)
+  const doc = "ownerDocument" in root && root.ownerDocument ? root.ownerDocument : (root as Document);
+  const searchRoot = "querySelectorAll" in root ? root : doc;
+  const candidates = searchRoot.querySelectorAll<HTMLElement>("div, button");
+  for (const candidate of Array.from(candidates)) {
+    if (candidate.children.length === 0 && candidate.textContent?.trim().toUpperCase() === "PLAY") {
+      const focusable = candidate.closest<HTMLElement>('[class*="Focusable"], [class*="Panel"]') ?? candidate;
+      return focusable;
+    }
+  }
+
   return null;
 }
 
@@ -582,16 +622,9 @@ export function findSteamRightControls(root: HTMLElement): HTMLElement | null {
 }
 
 let activeWatcherStop: (() => void) | null = null;
+let supervisorInterval: number | null = null;
 
-export function startDesktopNavigationWatcher(customWin?: Window): () => void {
-  stopDesktopNavigationWatcher();
-
-  const win = customWin || findDesktopWindow();
-  if (!win || typeof win.setInterval !== "function") {
-    return () => {};
-  }
-
-  const deskWin = win;
+function attachToDesktopWindow(deskWin: Window): () => void {
   const d = deskWin.document;
   let activeRoot: Root | null = null;
   let activePlayButtonRoot: Root | null = null;
@@ -986,11 +1019,21 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   }
 
   const checkNav = () => {
+    if (deskWin.closed) {
+      return;
+    }
     const manager =
       (deskWin as unknown as WindowWithManager).MainWindowBrowserManager ||
       (window as unknown as WindowWithManager).MainWindowBrowserManager;
     const p = manager?.m_lastLocation?.pathname || deskWin.location.pathname;
-    if (p !== lastPath) {
+    const appId = appIdOf(p);
+    const isRomM = appId ? isRomMAppId(appId) : false;
+    const substitute = d.getElementById(TENDER_SUBSTITUTE_ID);
+    const playBtn = d.getElementById(TENDER_PLAY_BUTTON_ID);
+    const isMountedForCurrent =
+      substitute && substitute.dataset.appid === String(appId) && playBtn && playBtn.dataset.appid === String(appId);
+
+    if (p !== lastPath || (isRomM && !isMountedForCurrent)) {
       lastPath = p || null;
       reinject();
       if (typeof deskWin.setTimeout === "function") {
@@ -1012,16 +1055,14 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   });
 
   const stop = () => {
-    win.clearInterval(iv);
+    if (typeof deskWin.clearInterval === "function") {
+      deskWin.clearInterval(iv);
+    }
     mo.disconnect();
     unlistenAppIds();
     unmountCurrent();
-    if (activeWatcherStop === stop) {
-      activeWatcherStop = null;
-    }
   };
 
-  activeWatcherStop = stop;
   reinject();
   if (typeof deskWin.setTimeout === "function") {
     deskWin.setTimeout(reinject, 100);
@@ -1031,9 +1072,105 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   return stop;
 }
 
+export function startDesktopNavigationWatcher(customWin?: Window): () => void {
+  stopDesktopNavigationWatcher();
+
+  // Test mode: if customWin is passed, attach directly and return
+  if (customWin) {
+    if (typeof customWin.setInterval !== "function") {
+      return () => {};
+    }
+    const stop = attachToDesktopWindow(customWin);
+    activeWatcherStop = stop;
+    return () => {
+      stop();
+      if (activeWatcherStop === stop) {
+        activeWatcherStop = null;
+      }
+    };
+  }
+
+  // Runtime mode: supervisor in window (SharedJSContext)
+  let currentDeskWin: Window | null = null;
+  let currentDetach: (() => void) | null = null;
+
+  const detachCurrent = () => {
+    if (currentDetach) {
+      try {
+        currentDetach();
+      } catch {
+        // Ignored
+      }
+      currentDetach = null;
+    }
+    currentDeskWin = null;
+  };
+
+  const pollDesktop = () => {
+    const foundWin = findDesktopWindow();
+
+    if (currentDeskWin && (currentDeskWin.closed || currentDeskWin !== foundWin)) {
+      detachCurrent();
+    }
+
+    if (foundWin && !foundWin.closed && currentDeskWin !== foundWin) {
+      currentDeskWin = foundWin;
+      currentDetach = attachToDesktopWindow(foundWin);
+    }
+  };
+
+  // Immediate check
+  pollDesktop();
+
+  const popupManager = (
+    window as unknown as {
+      g_PopupManager?: {
+        AddPopupCreatedCallback?: (cb: () => void) => void;
+        AddPopupDestroyedCallback?: (cb: () => void) => void;
+      };
+    }
+  ).g_PopupManager;
+  if (typeof popupManager?.AddPopupCreatedCallback === "function") {
+    try {
+      popupManager.AddPopupCreatedCallback(pollDesktop);
+    } catch {
+      // Ignored
+    }
+  }
+  if (typeof popupManager?.AddPopupDestroyedCallback === "function") {
+    try {
+      popupManager.AddPopupDestroyedCallback(pollDesktop);
+    } catch {
+      // Ignored
+    }
+  }
+
+  if (typeof window.setInterval === "function") {
+    supervisorInterval = window.setInterval(pollDesktop, 500);
+  }
+
+  const stop = () => {
+    if (supervisorInterval !== null && typeof window.clearInterval === "function") {
+      window.clearInterval(supervisorInterval);
+      supervisorInterval = null;
+    }
+    detachCurrent();
+    if (activeWatcherStop === stop) {
+      activeWatcherStop = null;
+    }
+  };
+
+  activeWatcherStop = stop;
+  return stop;
+}
+
 export function stopDesktopNavigationWatcher(): void {
   if (activeWatcherStop) {
     activeWatcherStop();
     activeWatcherStop = null;
+  }
+  if (supervisorInterval !== null && typeof window.clearInterval === "function") {
+    window.clearInterval(supervisorInterval);
+    supervisorInterval = null;
   }
 }

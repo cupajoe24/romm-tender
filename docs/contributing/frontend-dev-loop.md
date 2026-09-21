@@ -371,23 +371,21 @@ To iterate on desktop views without altering the production bundle config:
    Uses `rollup.desktop.config.js`, which enables sourcemaps for CEF debugging and injects the desktop navigation
    watcher (`startDesktopNavigationWatcher`) into the bundle at build time.
 
-2. **Deploy from your workstation to the Deck**: Push the bundle (and optional backend files) over SSH/SCP to a Steam
-   Deck running in Desktop Mode:
+2. **Deploy from your workstation to the Deck or remote Linux PC**: Push the bundle (and optional backend files) over
+   SSH/SCP:
    - **PowerShell (Windows)**:
      ```powershell
-     .\scripts\dev_push_deck.ps1 -DeckHost <deck-ip>
+     .\scripts\dev_push_remote.ps1 <remote-ip>
      ```
-     Add `-SetupDeck` on the first run to disable the tamper guard and authorize your SSH key, or `-PushBackend` to
-     transfer Python modules and `main.py` simultaneously.
+     Use `-Frontend` or `-Backend` to push specific components, or `-Dest` to customize the remote target directory.
    - **Bash (Linux/macOS)**:
      ```bash
-     ./scripts/dev_push_deck.sh <deck-ip>
+     ./scripts/dev_push_remote.sh <remote-ip>
      ```
-     Accepts `--setup-deck` and `--push-backend`.
+     Accepts `--frontend`, `--backend`, and `--dest`.
 
-3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view. Decky hot-reloads the deployed bundle
-   within 1–2 seconds. Inspect the DOM and console output via CEF DevTools at `http://<deck-ip>:8081` (see
-   [DevTools](#devtools) below).
+3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view. Inspect the DOM and console output via
+   CEF DevTools at `http://<remote-ip>:8080` (or `8081` beside Decky).
 
 ## DevTools
 

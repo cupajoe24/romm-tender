@@ -128,10 +128,26 @@ const stampBundleKind = (kind) => ({
   load: (id) => (id === `\0${BUNDLE_KIND_MODULE}` ? `export const BUNDLE_KIND = ${JSON.stringify(kind)};` : null),
 });
 
+const patchDeckyUi = () => ({
+  name: "patch-decky-ui",
+  transform(code) {
+    if (code.includes("__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE")) {
+      return {
+        code: code.replaceAll(
+          "Object.values(window.SP_REACT?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE)",
+          "Object.values(window.SP_REACT?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE || {})",
+        ),
+        map: null,
+      };
+    }
+  },
+});
+
 const plugins = () => [
   typescript({ tsconfig: "./tsconfig.json" }),
   commonjs(),
   nodeResolve({ browser: true }),
+  patchDeckyUi(),
   externalGlobals(STEAM_REACT_GLOBALS),
 ];
 
