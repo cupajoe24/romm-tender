@@ -122,11 +122,10 @@ which is what happened in the desktop client, measured on the device (#1945). So
 and its two consumers in `utils/styleInjector.ts` ask it when the play button mounts and unmounts on a game page, and do
 nothing when it answers nothing.
 
-That is also why no mode question arises in the check at all. Twenty-eight of the twenty-nine entries were answered by
-something that does not differ between Steam's two modes; `findSP` was the only one that did, and it has left the list.
-(Measured in the desktop client, where twenty-eight of twenty-nine answered and `findSP` alone missed. The desktop
-client's own surface is [#831](https://github.com/danielcopper/decky-romm-sync/issues/831), and nothing here branches on
-a mode.)
+That is also why no mode question arises in the check at all. Every entry is answered by something that does not differ
+between Steam's two modes; `findSP` was the only one that did, and it has left the list. (Measured in the desktop client
+over the list as it then stood: twenty-eight of twenty-nine answered and `findSP` alone missed. The desktop client's own
+surface is [#831](https://github.com/danielcopper/decky-romm-sync/issues/831), and nothing here branches on a mode.)
 
 **Whether every search answered and whether the panel may mount are two questions**, and each entry states which one it
 bears on through what its absence costs: the `panel`, a whole `feature` outside it, only its `appearance`, or only a
@@ -137,7 +136,9 @@ optional, leaving a toast that says everything it says in an unstyled box. `play
 one read in the program is inside `gameDetailPatch.tsx`'s one-shot `dumpTree`, which already prints `UNDEFINED` where
 the class name would go, so nothing a user can see changes at all. `ToastRenderer`, `NotificationStore` and
 `ErrorBoundary` cost a feature: without any one of them no toast appears at all, and every page, every sync and every
-download is untouched — the result a toast would have announced is on the page it belongs to.
+download is untouched — the result a toast would have announced is on the page it belongs to. `AppDetailsRoute` and
+`appDetailsClasses` cost a feature for the same shape of reason on the other surface: the panel renders whole and
+[Steam's game page](#tenders-section-on-steams-game-page) carries no Tender section.
 
 **Only one of the four costs is read by anything.** `checkSteamModules`'s `!== "panel"` decides whether the panel
 mounts; `feature`, `appearance` and `diagnostic` are told apart by nothing in the program, so all three record why a
@@ -164,10 +165,11 @@ the page names no update at all: nothing that missed is a `@decky/ui` export, so
 makes itself, and a newer Tender is the repair. The page asks for a report there instead because the three `SP_*`
 globals reach its `none` (below); they cannot reach the log line, because their absence costs the panel. **That is the
 property `steamModules.test.ts` locks** — a non-blocking name `@decky/ui` does not export must be one Tender resolves
-for itself, either a `find(?:Module|ClassModule)\w*` call or a direct read of a global off `window` — rather than the
-short set of names it produces today, which would go stale the moment a second name moved. `mixed` is the other place
-they differ: the log line names a repair covering both programs, where the page names Decky's and asks for a report
-about the rest, for the same reason.
+for itself, in one of the three shapes such a lookup is written in: a `find(?:Module|ClassModule)\w*` call, a direct
+read of a global off `window`, or a `searchSteamFactories` scan over Steam's module factories — rather than the short
+set of names it produces today, which would go stale the moment a second name moved. `mixed` is the other place they
+differ: the log line names a repair covering both programs, where the page names Decky's and asks for a report about the
+rest, for the same reason.
 
 The page names every search that came back empty, and distinguishes **some** of them missing from **all** of them. All
 means something more basic than a stale predicate: the React bootstrap never ran, or Steam's module registry was read
@@ -211,11 +213,14 @@ belongs to no copy and has no update to name, so the page names Decky's and asks
 party for it: that rest can be `ControllerGlyph`, whose predicate is ours, or a global, which in the coexistence bundle
 — the only one `mixed` arises in — Decky Loader has installed.
 
-The `none` row is asked first and is about neither copy. Four of the names checked are not `@decky/ui` lookups at all —
-the three `SP_*` globals, which a React bootstrap installs, and `ControllerGlyph`, which `utils/deckyUiInternals.ts`
-reaches with a `findModule` predicate of its own — so a miss confined to those belongs to no copy of the package, and
-the row names none. For the globals that is also what stops a sentence sending the user after a program that did
-nothing: in the coexistence bundle the copy it would name is Decky's, and Decky's copy ran none of these searches.
+The `none` row is asked first and is about neither copy. Several of the names checked are not `@decky/ui` lookups at
+all, and they come in three kinds: the three `SP_*` globals, which a React bootstrap installs; a global Steam installs
+itself (`NotificationStore`); and the searches Tender runs for itself — `utils/deckyUiInternals.ts`'s `findModule`,
+`findModuleExport` and `findClassModule` probes, and the scan over Steam's module factories behind the game page's
+route. Which names those are is not a list kept here: they are `STEAM_LOOKUPS`'s `truthyUnexported` entries, and the
+flag on each is what the row reads. A miss confined to them belongs to no copy of the package, and the row names none.
+For the globals that is also what stops a sentence sending the user after a program that did nothing: in the coexistence
+bundle the copy it would name is Decky's, and Decky's copy ran none of these searches.
 
 **The row names no update either, and the two kinds of name behind that are not in the same position.** For the globals
 there is no repair to offer. Which program installed them on a machine running both now HAS an answer — the injector
@@ -292,14 +297,16 @@ Decky's copy carries a name whose value this check never reads.
 
 ## Talking to the backend
 
-`frontend/src/api/host.ts` is what the panel imports for everything `@decky/api` used to give it, under the same six
-names — `callable`, `addEventListener`, `removeEventListener`, `toaster`, `routerHook`, `definePlugin` — so a call site
-reads the same as before. `@decky/api` itself is gone from the package.
+`frontend/src/api/host.ts` is what the panel imports for everything `@decky/api` used to give it, under five of the same
+names — `callable`, `addEventListener`, `removeEventListener`, `toaster`, `definePlugin` — so a call site reads the same
+as before. `@decky/api` itself is gone from the package, and so is the sixth name it forwarded: `routerHook` was Decky
+Loader's route installer, and Tender's section reaches Steam's game page through a seam of its own instead
+([below](#tenders-section-on-steams-game-page)).
 
-**Four of the six are the wire.** They go through `frontend/src/api/hostSocket.ts`, one WebSocket per bundle instance,
-on the protocol defined once on the other side in `backend/host/protocol.py`. The port and the token are read off the
-URL this bundle was loaded from: the host mints exactly that address, so they arrive with the code that needs them and
-cannot be stale.
+**Three of the five are the wire.** `callable`, `addEventListener` and `removeEventListener` go through
+`frontend/src/api/hostSocket.ts`, one WebSocket per bundle instance, on the protocol defined once on the other side in
+`backend/host/protocol.py`. The port and the token are read off the URL this bundle was loaded from: the host mints
+exactly that address, so they arrive with the code that needs them and cannot be stale.
 
 Three properties are worth knowing before changing anything there:
 
@@ -314,18 +321,17 @@ Three properties are worth knowing before changing anything there:
 - **A dropped connection fails the calls that were already sent, and only those.** A frame still queued never left, so
   re-sending it is safe; one already on the wire may have run, and retrying it would repeat whatever it did.
 
-**The sixth is not the wire either, and it is the one the panel reaches the screen through.** `definePlugin` answers
-with the factory unchanged; `index.tsx` hands that factory to `frontend/src/qam/quickAccessEntry.tsx`, which calls it
-exactly once and mounts what it answers with behind Tender's own Quick Access entry ([qam-panel.md](qam-panel.md) → The
-entry). The seam is arranged that way so this module stays the wire and reaches no view — the name is upstream's
-contract and the declaration is all of it that belongs here. Under Decky Loader the call was Decky's; nothing else in
-the tree makes it, so without that line the panel is built for nobody.
+**A fourth opens no socket and is the one the panel reaches the screen through.** `definePlugin` answers with the
+factory unchanged; `index.tsx` hands that factory to `frontend/src/qam/installEntry.tsx`, which calls it exactly once
+and mounts what it answers with behind Tender's own Quick Access entry ([qam-panel.md](qam-panel.md) → The entry). The
+seam is arranged that way so this module stays the wire and reaches no view — the name is upstream's contract and the
+declaration is all of it that belongs here. Under Decky Loader the call was Decky's; nothing else in the tree makes it,
+so without that line the panel is built for nobody.
 
-**Two of the six are not the wire at all.** `toaster` and `routerHook` were Decky Loader's own, and `@decky/api` only
-forwarded them, so each needs a replacement of Tender's rather than a backend route. `toaster` has one:
-`utils/steamToaster.tsx` pushes a notification into Steam's own `NotificationStore`, which then owns the popup window
-and its animation, the queue behind it, the sound, and the entry left in the Quick Access notifications tab.
-`routerHook` is still a **declared placeholder that does nothing**: Steam's game page carries no Tender section.
+**The fifth reaches Steam instead.** `toaster` was Decky Loader's own, and `@decky/api` only forwarded it, so it needs a
+replacement of Tender's rather than a backend route: `utils/steamToaster.tsx` pushes a notification into Steam's own
+`NotificationStore`, which then owns the popup window and its animation, the queue behind it, the sound, and the entry
+left in the Quick Access notifications tab.
 
 The toaster is two halves and the push is useless without the other one. Steam's renderer has no `case` for the type
 these notifications carry; its `default` arm resolves to Steam's server-notification component, which reads fields our
@@ -359,12 +365,85 @@ rule for the line ends it after one line, or two with `Multiline`, and a reason 
 was chosen to avoid. The entry grows with it — Steam's template is a fixed 50 px, which a wrapped subtext would run out
 of over the next row.
 
-Neither of the two reaches Decky's loader API when one happens to be present, and what decides that is not purity: both
-were the loader's own, and one that borrowed wherever it found one would behave differently on a machine running Decky
-from one without — the difference this program exists not to depend on. Tender's own marker on a notification is
-deliberately not Decky's `decky`, for the same reason read the other way: two programs marking their entries with one
-name would each draw the other's. What Decky Loader does here is read from its own source, `frontend/src/toaster.tsx` on
-upstream `main`.
+The toaster does not reach Decky's loader API when one happens to be present, and what decides that is not purity: it
+was the loader's own, and one that borrowed wherever it found one would behave differently on a machine running Decky
+from one without — the difference this program exists not to depend on. The game-page seam below is the same rule
+applied to the other name the loader used to answer for. Tender's own marker on a notification is deliberately not
+Decky's `decky`, for the same reason read the other way: two programs marking their entries with one name would each
+draw the other's. What Decky Loader does here is read from its own source, `frontend/src/toaster.tsx` on upstream
+`main`.
+
+## Tender's section on Steam's game page
+
+Steam's game page is not ours to compose: `bigpicture/patches/gameDetailPatch.tsx` swaps Steam's own app-details
+overview panel for Tender's play section and game-info panel, on RomM shortcuts only. Where that patch is INSTALLED is
+`bigpicture/patches/installGamePagePatch.ts`, and the seam it uses is the one thing about it worth reading twice.
+
+**The seam is the route component's `renderFunc`, never the page component's own `type`.** Steam's gamepad router
+renders the library route inline —
+`<Route path="/library/app/:appid">{<RouteComponent renderFunc={renderPage} />}</Route>` — so the page is reached
+through a prop rather than through a module export. The install puts a `beforePatch` on the route component's memo
+`type`, reads the props React is about to render it with, and wraps `renderFunc` on each props object it has not seen.
+
+Patching the PAGE component instead looks simpler and does not work beside Decky Loader. `@decky/ui`'s tree patcher
+caches the wrapped component per ORIGINAL type (`dist/utils/react/treepatcher.js`, `handleStep`), and every later render
+goes through that cached copy — whose chain bottoms out at whatever the page component's `type` was when the first
+plugin wrapped it. So a patch installed on that `type` afterwards is never entered again, which is exactly the ordinary
+case: Tender's backend starts after Steam has been running, so Decky's plugins have already wrapped the page. On the
+`renderFunc` seam the two compose the way Decky's plugins compose among themselves — each side wraps whatever it finds
+and caches its own copy — and the order the wrappers end up in follows from which program installed first.
+
+**The props object is the identity.** Decky Loader's router hook clones a route's child as
+`(props) => createElement(originalType, props)`, so beside a Decky the route component is handed a fresh props object on
+every render; a guard kept per component, or per `renderFunc`, would wrap the first render and no other. Nothing is
+retained per props object either: the tree patcher's own cache bounds the work to one wrap per original component type,
+and a props object dies with the element it was made for. What the teardown takes back is the patch on the memo.
+
+**The module is found by three property names in a factory's source.** Steam's webpack `require` is obtained the way
+`@decky/ui` obtains it — pushing a chunk keyed by a fresh Symbol, whose factory is handed it — and a module factory's
+source text is read from `require.m`. The factory carrying all three of `renderFunc`, `AppDetailsOverviewPanel` and
+`InnerContainer` is the one; its exports come from `@decky/ui`'s `modules` map, which is Decky's copy of the registry in
+the coexistence bundle and ours in the standalone one. Property names survive Steam's minification and local identifiers
+and module ids do not, which is why the predicate reads names and never a number — matching a number also matches SVG
+path coordinates. Every memo export of that module whose `type` is a function is patched, rather than the route picked
+out of them: nothing on an export says which one it is, and on any other export the handler finds no `renderFunc` and
+does nothing. Two matching factories are treated as no match at all, because a second match means the predicate no
+longer names one module.
+
+**Whose sources are read is decided first, by shape.** Reading the source text of every module Steam ships is not free,
+and this answer is wanted before the panel mounts — the start-up check asks for it. So a cheap pass goes first: over the
+values already in `modules`, it collects the modules whose exports are ALL patchable memos and number more than one,
+which is what the route's module looks like, and only those factories' sources are read. The full scan over `require.m`
+stands behind it and runs only when the cheap pass names nothing — for the day Steam gives that module an export of
+another kind, or splits it.
+
+**The two passes can disagree, and where they do the shape pass is the one to believe.** The refusal a second match
+earns is taken per pass, and the shape pass reads a subset, so where two modules carry all three property names and only
+one of them has the shape, the shape pass answers and the full scan alone would refuse. That refusal exists because the
+names no longer name one module; a shape only one of the two has settles exactly that, and the module it answers with
+has satisfied both predicates where the others satisfied one. So the answer rests on more evidence than the refusal it
+replaces, not less. What it costs is the case where the shape is the misleading half — a second module carrying those
+names while the real one has lost the shape, which one split of that module could produce on its own. Then a module that
+draws no route is patched: its memos are never rendered with a `renderFunc`, so nothing is wrapped and the game page
+carries no Tender section, exactly as a refusal would leave it — and the start-up check reports the route as found
+rather than missing, which is the one thing a refusal would have said out loud.
+
+**The desktop client needs no gate.** Its library router renders the same route component with no `renderFunc` at all,
+so the handler wraps nothing there — the same parity the old route patch had, since that one only ever ran on the
+gamepad route. The in-game overlay routes render a different component again.
+
+**A page that is already open is adopted.** React resolves a `memo` when it mounts and carries the resolved function on
+the fiber, so replacing the export afterwards reaches nothing on screen. The install therefore walks the live fiber tree
+from the host root's `current` fiber — not the fiber hanging off the container element, which can be the twin React is
+not rendering — and, for every fiber whose `elementType` is one of the patched memos, points `type` back at the memo's
+own (on the alternate too). The adopted fiber picks the patch up at its next render, which in practice is the next
+navigation.
+
+**A miss costs a feature, not the panel.** The start-up check asks this search under the name `AppDetailsRoute` and it
+is one of Tender's own in both bundles, since `@decky/ui` has no reader of factory sources. With it missing every page
+of the panel renders and works and Steam's game page carries no Tender section; `appDetailsClasses` costs the same
+thing, because every read of it is in that same patch. The registration in `gameDetailPatch.tsx` logs a line of its own
+naming the game page, for whoever reads the log with the game page in mind.
 
 ## What the tests here can and cannot see
 
