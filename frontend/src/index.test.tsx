@@ -182,6 +182,12 @@ vi.mock("./utils/launcherRelocation", () => ({
 
 import { applyAllPlaytime, registerMetadataPatches, applyAllMetadata } from "./utils/metadataPatches";
 import { getLauncherState, setLauncherRelocated } from "./utils/launcherStore";
+import {
+  notificationsUnavailable,
+  resetNotificationsHealthForTests,
+  setNotificationsUnavailable,
+} from "./utils/notificationsHealth";
+import { steamToaster } from "./utils/steamToaster";
 import { registerRomMAppId, unregisterRomMAppId } from "./utils/rommAppIds";
 import definePluginResult from "./index";
 
@@ -317,6 +323,49 @@ describe("index.tsx — what the factory does when only a decoration was not fou
     expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("Missing: ControllerGlyph"));
     expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("a newer Tender is the repair"));
     plugin.onDismount();
+  });
+});
+
+describe("index.tsx — what the factory records about the toasts", () => {
+  // The notice on Main is rendered off a module store rather than a probe, so
+  // the factory is the one place the start-up check's answer reaches it. Both
+  // directions, because a flag that was never written reads as "all well" and
+  // the notice would simply never appear.
+  afterEach(() => {
+    startupAnswer = everythingResolved();
+    resetNotificationsHealthForTests();
+  });
+
+  it("records that the notice is owed when a lookup a toast is raised through missed", () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    startupAnswer = {
+      everySearchAnswered: false,
+      panelMayMount: true,
+      missing: ["ToastRenderer"],
+      missingPackageNames: [],
+      checked: 27,
+    };
+    const plugin = pluginFactory();
+    expect(notificationsUnavailable()).toBe(true);
+    expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("Tender's notifications are off"));
+    plugin.onDismount();
+    consoleWarn.mockRestore();
+  });
+
+  it("records nothing owed when every search answered", () => {
+    setNotificationsUnavailable(true);
+    const plugin = pluginFactory();
+    expect(notificationsUnavailable()).toBe(false);
+    plugin.onDismount();
+  });
+
+  it("hands Steam's toast renderer back at dismount", () => {
+    const teardown = vi.spyOn(steamToaster, "teardown");
+    const plugin = pluginFactory();
+    expect(teardown).not.toHaveBeenCalled();
+    plugin.onDismount();
+    expect(teardown).toHaveBeenCalledTimes(1);
+    teardown.mockRestore();
   });
 });
 

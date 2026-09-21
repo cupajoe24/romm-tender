@@ -210,8 +210,13 @@ vi.mock("@decky/ui", () => {
     // vacuously untestable. Other FooterLegend-only props (flow-children,
     // actionDescriptionMap, the on…ActionDescription labels Steam draws in its
     // footer legend, …) are dropped — they have no DOM effect under happy-dom.
+    // className is forwarded for the same reason DialogButton's is: the real
+    // Focusable spreads what it does not destructure onto the element it
+    // renders, so a caller that styles itself through Steam's own class names
+    // (`utils/steamToast.tsx`) has nothing else a test could look at.
     Focusable: ({
       children,
+      className,
       style,
       onButtonDown,
       onCancelButton,
@@ -221,6 +226,7 @@ vi.mock("@decky/ui", () => {
       tabIndex,
       "aria-label": ariaLabel,
     }: AnyProps & {
+      className?: string;
       style?: unknown;
       onButtonDown?: (evt: unknown) => void;
       onCancelButton?: (evt: unknown) => void;
@@ -232,6 +238,7 @@ vi.mock("@decky/ui", () => {
         {
           "data-testid": "focusable",
           "data-activate": onActivate ? "true" : undefined,
+          className,
           style,
           role,
           tabIndex: tabIndex ?? (onActivate ? 0 : undefined),
@@ -335,6 +342,17 @@ vi.mock("@decky/ui", () => {
     // fallback is what the suite exercises — which is the point: the fallback
     // is what a Steam build that renamed the module would render.
     findModule: vi.fn(() => undefined),
+    findModuleExport: vi.fn(() => undefined),
+    findClassModule: vi.fn(() => undefined),
+    // Steam's own React is not here either, and the real trampoline reads the
+    // `SP_*` globals. Every test that cares about the toast renderer's patch
+    // chain supplies its own install seam (`utils/steamToaster.tsx`), so this
+    // only has to exist.
+    injectFCTrampoline: vi.fn(() => ({ component: () => null })),
+    // Steam's own boundary, which @decky/ui finds with a predicate — so it is
+    // `undefined` here like every other probe, and the toaster's own tests pass
+    // one in.
+    ErrorBoundary: undefined,
     // The QAM is open for any test that renders a wide page; the hook's
     // clear-on-close path is exercised in
     // frontend/src/utils/qamExpansion.test.tsx.

@@ -170,16 +170,16 @@ locally with `mise run docs`.
   measured. The sync writes the name in place too (`rewriteShortcutIdentity`), and nothing has established what that
   does to the appId; do not read the exe measurement as covering it.
 - **Frontend API**: `@decky/ui` for Steam's components, and `frontend/src/api/host.ts` for everything `@decky/api` used
-  to give us — same six export names, so a call site reads the same. Four of the six go over the backend's WebSocket;
-  **`toaster` and `routerHook` are declared placeholders that do nothing** until #1901, so no toast appears and Steam's
-  game page carries no Tender section. Neither reaches Decky's loader API when one is present, and what decides that is
-  not purity: those two are the loader's own, #1901 replaces them with Tender's, and a placeholder that borrowed one
-  wherever it found one would behave differently on a machine with Decky from one without — which is the difference this
-  program exists not to depend on. **The reference machine runs the loader** (measured: `plugin_loader.service` active
-  and enabled, `127.0.0.1:1337` listening), so that borrowing would show up there rather than hide, which is the
-  opposite of what this note used to say. `definePlugin` is no longer inert beside them: `index.tsx` hands the factory
-  it answers with to `qam/quickAccessEntry.tsx`, which calls it once and mounts the panel behind Tender's own Quick
-  Access entry.
+  to give us — same six export names, so a call site reads the same. Four of the six go over the backend's WebSocket.
+  `toaster` pushes into Steam's own notification store and draws its entries itself, chained behind whatever already
+  patches Steam's toast renderer (`docs/architecture/frontend-bundles.md`, "Talking to the backend"). **`routerHook` is
+  a declared placeholder that does nothing** until #1944, so Steam's game page carries no Tender section. Neither
+  reaches Decky's loader API when one is present, and what decides that is not purity: those two were the loader's own,
+  and one that borrowed the loader's wherever it found it would behave differently on a machine with Decky from one
+  without — which is the difference this program exists not to depend on. **The reference machine runs the loader**
+  (measured: `plugin_loader.service` active and enabled, `127.0.0.1:1337` listening), so that borrowing would show up
+  there rather than hide. `definePlugin` is no longer inert beside them: `index.tsx` hands the factory it answers with
+  to `qam/quickAccessEntry.tsx`, which calls it once and mounts the panel behind Tender's own Quick Access entry.
 - **A callable must be `async def`**: even where the body is synchronous. The set a caller can reach is exactly the
   public `async def` on `Plugin` — `host.dispatch.reachable_methods` resolves it off the loaded class,
   `scripts/check_callable_manifest.py` derives the same set from the source, and `tests/host/test_dispatch.py` asserts
@@ -799,23 +799,34 @@ Format: **invariant** — tier — enforced by.
   not do it is on the docs page
 - **Whether every search answered and whether the panel may MOUNT are two questions, and a miss that costs less than the
   panel never takes the interface off the air** — check + test + prompt-only — the type carries the first half:
-  `SteamLookup.absenceCost` is required, so a new entry does not compile until it states which of the three its absence
-  costs — the `panel`, only its `appearance` (`ControllerGlyph`, whose only consumer `layout/WidePage.tsx` already draws
-  `‹ Back` in its place), or only a `diagnostic` (`playSectionClasses`, read nowhere but `gameDetailPatch.tsx`'s
-  one-shot `dumpTree`, which already prints `UNDEFINED` in its place) — and there is no default to arrive in.
-  `frontend/src/index.test.tsx` pins both factory branches — the panel mounts with everything registered, and the miss
-  reaches the log. **Blocking is the status quo and staying there costs no evidence: nothing here is a claim that every
-  other name was judged**, only that moving one OUT needs its every consumer read, one name at a time. **The join is
-  prompt-only and spans three places**: `checkSteamModules` derives `panelMayMount` from the costs, `index.tsx` gates
-  the fallback page on it and logs `describeSurvivedMiss` on the other side, and that sentence answers whose COPY of
-  `@decky/ui` ran the missed searches rather than naming a repair of its own — it used to say "a newer Tender"
-  unconditionally, which held only while nothing reaching it was a name the package exports, and `playSectionClasses` is
-  one. What `frontend/src/boot/steamModules.test.ts` locks is the property the line's remaining own answer rests on — a
-  non-blocking name `@decky/ui` does NOT export must be one Tender probes for itself (`findModule`, swept from the
-  source) — so the three `SP_*` globals, which the frontend cannot attribute to a program from inside the page, fail
-  there the moment one is made non-blocking, instead of shipping a repair aimed at whichever program did not install
-  them. Both directions fail quietly: call a real dependency cosmetic and the panel mounts and renders a hole, which is
-  the fault the whole check exists to tell apart from a backend that is not running; call a decoration blocking and one
+  `SteamLookup.absenceCost` is required, so a new entry does not compile until it states which of the four its absence
+  costs — the `panel`; a whole `feature` outside it (`ToastRenderer`, `NotificationStore` and `ErrorBoundary`, without
+  any one of which no toast appears at all and every page, sync and download is untouched); only its `appearance`
+  (`ControllerGlyph`, whose only consumer `layout/WidePage.tsx` already draws `‹ Back` in its place, and `toastClasses`,
+  whose every read is optional so the toast says what it says in an unstyled box); or only a `diagnostic`
+  (`playSectionClasses`, read nowhere but `gameDetailPatch.tsx`'s one-shot `dumpTree`, which already prints `UNDEFINED`
+  in its place) — and there is no default to arrive in. `frontend/src/index.test.tsx` pins both factory branches — the
+  panel mounts with everything registered, and the miss reaches the log. **Blocking is the status quo and staying there
+  costs no evidence: nothing here is a claim that every other name was judged**, only that moving one OUT needs its
+  every consumer read, one name at a time. **The join is prompt-only and spans three places**: `checkSteamModules`
+  derives `panelMayMount` from the costs, `index.tsx` gates the fallback page on it and logs `describeSurvivedMiss` on
+  the other side, and that sentence answers whose COPY of `@decky/ui` ran the missed searches rather than naming a
+  repair of its own — it used to say "a newer Tender" unconditionally, which held only while nothing reaching it was a
+  name the package exports, and `playSectionClasses` is one. What `frontend/src/boot/steamModules.test.ts` locks is the
+  property the line's remaining own answer rests on — a non-blocking name `@decky/ui` does NOT export must be one Tender
+  resolves for itself, swept from the source in the two shapes one is written in (a `find(?:Module|ClassModule)\w*`
+  call, and a direct cast of `window` whose exported name equals the property read) — so the three `SP_*` globals, which
+  the frontend cannot attribute to a program from inside the page, fail there the moment one is made non-blocking,
+  instead of shipping a repair aimed at whichever program did not install them. **`!== "panel"` is the only reading of
+  `absenceCost` there is**, so `feature`, `appearance` and `diagnostic` record why a name is off blocking and decide
+  nothing. The two things that DO answer for the toasts are prompt-only and read NAMES: `notificationsMissing` over
+  `NOTIFICATION_LOOKUPS` puts the notice on Main, and `describeSurvivedMiss` puts the same fact in the log as a sentence
+  stating the loss and naming NO repair of its own — the verdict sentence beside it names one that is right under every
+  answer, which it has to be, since `ErrorBoundary` is a `@decky/ui` export and a miss of it alone in the coexistence
+  bundle is `decky`. So a `feature` entry added for something else cannot make either claim the notifications are what
+  went missing, and a second spelling of any of the three cannot leave them answering for a lookup nobody asked about.
+  Both directions fail quietly: call a real dependency cosmetic and the panel mounts and renders a hole, which is the
+  fault the whole check exists to tell apart from a backend that is not running; call a decoration blocking and one
   missing glyph costs the user their entire interface, which is what this entry removed
 - **The start-up failure page names the copy of `@decky/ui` that actually ran the search that missed, and the repair
   that follows from it** — check + test + prompt-only — the artefact's stamp is checked
@@ -827,12 +838,12 @@ Format: **invariant** — tier — enforced by.
   `boot/steamModules.ts` words it, and `index.tsx` resolves it ONCE for the log line and the page — two resolutions
   could disagree with each other. The predicates belong to `@decky/ui` and the coexistence bundle runs DECKY's copy, so
   a page that blamed Tender in both would send a user after the wrong program while Decky's own interface and its other
-  plugins broke beside it. **A miss confined to the four names `@decky/ui` does not export names NO copy and offers NO
-  repair** — `SP_REACTDOM` is the only one that reaches that state alone, `ControllerGlyph` only ever beside a global
-  (on its own it is cosmetic and brings no page up at all, per the entry above), and `describeFailure` answers it before
-  it asks whose copy ran anything. Naming a copy would blame Decky for a predicate of ours; the silence about a repair
-  is right for the three globals and a real loss for the glyph, and only the second half of that is easy to forget. For
-  the globals no repair follows: who installed them on a machine running both now HAS an answer — the injector loads
+  plugins broke beside it. **A miss confined to names `@decky/ui` does not export names NO copy and offers NO repair** —
+  `SP_REACTDOM` is the only one that reaches that state alone, `ControllerGlyph` only ever beside a global (on its own
+  it is cosmetic and brings no page up at all, per the entry above), and `describeFailure` answers it before it asks
+  whose copy ran anything. Naming a copy would blame Decky for a predicate of ours; the silence about a repair is right
+  for the three globals and a real loss for the glyph, and only the second half of that is easy to forget. For the
+  globals no repair follows: who installed them on a machine running both now HAS an answer — the injector loads
   `globals.js` only where Decky Loader is not serving, so beside a serving Decky they are Decky's — and **this branch
   does not read it**, because it keys on whose COPY ran the search rather than on which program installed a global. In
   the standalone bundle the answer would not settle it anyway: a missing `SP_REACTDOM` there is `globals.js` not having

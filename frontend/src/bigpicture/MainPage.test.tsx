@@ -59,6 +59,11 @@ import { resetPendingPreviewStoreForTests, adoptPreview, clearPendingPreview } f
 import * as syncManager from "../utils/syncManager";
 import * as connectionState from "../utils/connectionState";
 import { firstBodyStop, pageEntryStop, placeEntryFocus } from "../utils/entryFocus";
+import {
+  NOTIFICATIONS_UNAVAILABLE_NOTICE,
+  resetNotificationsHealthForTests,
+  setNotificationsUnavailable,
+} from "../utils/notificationsHealth";
 import type {
   MigrationStatus,
   SaveSortMigrationStatus,
@@ -3148,6 +3153,30 @@ describe("MainPage", () => {
       expect(queryByText("RetroDECK configuration unreadable")).toBeNull();
       expect(queryByText("RetroDECK library not found")).toBeNull();
       expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to query RetroDECK status"));
+    });
+  });
+
+  describe("the notice for a Steam that answers for no notifications", () => {
+    // Written once by the plugin factory out of the start-up check's report,
+    // which is why this sets the module store rather than a probe answer: what
+    // the check itself reads is pinned in `boot/steamModules.test.ts`.
+    afterEach(() => resetNotificationsHealthForTests());
+
+    it("names the condition and offers no action, because the repair is outside the panel", async () => {
+      setNotificationsUnavailable(true);
+      const { findByText } = render(<MainPage onNavigate={vi.fn()} />);
+      await flushAsync();
+      expect(await findByText(NOTIFICATIONS_UNAVAILABLE_NOTICE.title)).toBeInTheDocument();
+      expect(await findByText(/Syncs and downloads still work/)).toBeInTheDocument();
+      expect(await findByText(/An update should fix it/)).toBeInTheDocument();
+    });
+
+    it("says nothing at all when every lookup behind a toast answered", async () => {
+      resetNotificationsHealthForTests();
+      const { queryByText } = render(<MainPage onNavigate={vi.fn()} />);
+      await flushAsync();
+      expect(queryByText(NOTIFICATIONS_UNAVAILABLE_NOTICE.title)).toBeNull();
+      expect(queryByText(/An update should fix it/)).toBeNull();
     });
   });
 

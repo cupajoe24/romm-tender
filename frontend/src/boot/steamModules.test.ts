@@ -28,6 +28,7 @@ import { declaredFunctions, divisionSlashes } from "../test-utils/jsFunctionScan
 import { type SearchingCopy, readSearchingCopy } from "./searchingCopy";
 import {
   ASKED_LIVE,
+  NOTIFICATION_LOOKUPS,
   PACKAGE_OWN,
   SEARCH_OWNERS,
   STEAM_LOOKUPS,
@@ -38,6 +39,7 @@ import {
   checkSteamModules,
   describeFailure,
   describeSurvivedMiss,
+  notificationsMissing,
   searchOwner,
   sentenceAsksForAReport,
 } from "./steamModules";
@@ -81,19 +83,28 @@ function importedValueNames(): string[] {
 }
 
 /**
- * Every `export const X = findModule…(` in shipped source — the shape a probe
- * of Tender's OWN is written in today.
+ * Every name shipped source resolves off Steam FOR ITSELF, in the two shapes
+ * one is written in today.
  *
- * `findModule` and its siblings are `@decky/ui`'s readers of Steam's module
- * cache, but the predicate handed to one is ours and runs in both bundles —
- * which is the whole of what "Tender runs this search itself" means, and the
- * only thing that makes a repair Tender's to name.
+ * The first is `export const X = findModule…(`. `findModule` and its siblings
+ * are `@decky/ui`'s readers of Steam's module cache, but the predicate handed
+ * to one is ours and runs in both bundles — which is the whole of what "Tender
+ * runs this search itself" means, and the only thing that makes a repair
+ * Tender's to name.
  *
- * **What the regex sees is narrower than that sentence**: a probe behind a
- * wrapper, one assigned to a non-exported const, and one re-exported from
- * another module are all invisible to it. That costs nothing here, because the
- * only reader below treats an unseen name as NOT Tender's own and fails — so a
- * probe written in a shape this misses is reported, never waved through.
+ * The second is `export const X = (window as …).X`, a global STEAM installs
+ * that nothing in `@decky/ui` reaches at all. No copy of the package can be
+ * asked about such a name and no copy searched for it, so the repair is
+ * Tender's for exactly the same reason: Steam moved it, and this version of
+ * Tender is what reads the old place. The exported name must match the
+ * property read, or the entry is about a different global than it claims.
+ *
+ * **What the regexes see is narrower than those sentences**: a probe behind a
+ * wrapper, one assigned to a non-exported const, one re-exported from another
+ * module, and a global read through anything but a direct cast of `window` are
+ * all invisible to them. That costs nothing here, because the only reader below
+ * treats an unseen name as NOT Tender's own and fails — so a lookup written in
+ * a shape this misses is reported, never waved through.
  *
  * Swept rather than listed, for the reason {@link importedValueNames} gives.
  */
@@ -105,6 +116,9 @@ function tenderOwnSearchNames(): string[] {
       /export\s+const\s+(\w+)\s*(?::[^=]*?)?=\s*find(?:Module|ClassModule)\w*\s*\(/g,
     )) {
       names.add(match[1]!);
+    }
+    for (const match of source.matchAll(/export\s+const\s+(\w+)\s*:[^=]*?=\s*\(\s*window\s+as[^)]*\)\s*\.\s*(\w+)/g)) {
+      if (match[1] === match[2]) names.add(match[1]!);
     }
   }
   return [...names].sort();
@@ -274,17 +288,19 @@ describe("the start-up check's coverage of what the panel imports", () => {
 
   it("keeps a search neither copy of @decky/ui owns off the mount-anyway path", () => {
     // What `describeSurvivedMiss` says when nothing that missed is a @decky/ui
-    // export: Tender runs these searches itself, so a newer Tender is the
-    // repair. True of `ControllerGlyph`, which `utils/deckyUiInternals.ts`
-    // reaches with a `findModule` predicate of ours in both bundles — and false
-    // of the three `SP_*` globals, which a React bootstrap installs and whose
-    // owner on a machine running both programs is #1900's open question.
+    // export: Tender looks these up itself, so a newer Tender is the repair.
+    // True of `ControllerGlyph`, which `utils/deckyUiInternals.ts` reaches with
+    // a `findModule` predicate of ours in both bundles, and of
+    // `NotificationStore`, a global Steam itself installs that no copy of the
+    // package reaches — and false of the `SP_*` globals, which a React
+    // bootstrap installs and which the frontend cannot attribute to a program
+    // from inside the page.
     //
-    // What keeps those three out of the sentence is their COST, not their
-    // names: the panel does not mount without them, so they never reach the
-    // line this stands behind. That is the property, and asserting it rather
-    // than the short set it produces is what makes a name added tomorrow fail
-    // here instead of shipping a repair aimed at the wrong program.
+    // What keeps those out of the sentence is their COST, not their names: the
+    // panel does not mount without them, so they never reach the line this
+    // stands behind. That is the property, and asserting it rather than the
+    // short set it produces is what makes a name added tomorrow fail here
+    // instead of shipping a repair aimed at the wrong program.
     const ownSearches = new Set(tenderOwnSearchNames());
     expect(ownSearches.size).toBeGreaterThan(0);
     const wrong = STEAM_LOOKUPS.filter(
@@ -293,17 +309,48 @@ describe("the start-up check's coverage of what the panel imports", () => {
     expect(wrong.map((lookup) => lookup.name)).toEqual([]);
   });
 
-  it("has a name at every absence cost, so none of the three is a value nothing uses", () => {
+  it("sweeps both shapes a lookup of Tender's own is written in, so neither can stop matching in silence", () => {
+    // The guard the sweep above needs for itself: it answers a set, and an
+    // empty one passes that filter for every name there is. One name per shape,
+    // because the two regexes fail independently — a probe read and a global
+    // read.
+    const ownSearches = new Set(tenderOwnSearchNames());
+    expect(ownSearches).toContain("ControllerGlyph");
+    expect(ownSearches).toContain("NotificationStore");
+  });
+
+  it("has a name at every absence cost, so none of the four is a value nothing uses", () => {
     // `panel` is the status quo and costs no evidence to stay at; moving a name
     // off it is a decision taken per name, against each of its consumers. This
-    // says only that all three answers are live — a cost nothing carries is a
+    // says only that all four answers are live — a cost nothing carries is a
     // branch no reader exercises, and the diagnostic one arrived with exactly
     // one name behind it.
     expect([...new Set(STEAM_LOOKUPS.map((lookup) => lookup.absenceCost))].sort()).toEqual([
       "appearance",
       "diagnostic",
+      "feature",
       "panel",
     ]);
+  });
+
+  it("asks about every lookup a toast is raised through, at the cost that keeps the panel up", () => {
+    // The notice on Main and the entries here spell the names from one place
+    // (`NOTIFICATION_LOOKUPS`), so this says the check actually carries an
+    // entry per name: a notice keyed on a lookup nobody asks about would never
+    // appear, whatever Steam did.
+    const raisedThrough: readonly string[] = Object.values(NOTIFICATION_LOOKUPS);
+    const entries = STEAM_LOOKUPS.filter((lookup) => raisedThrough.includes(lookup.name));
+    expect(entries.map((lookup) => lookup.name).sort()).toEqual([...raisedThrough].sort());
+    expect(entries.map((lookup) => lookup.absenceCost)).toEqual(raisedThrough.map(() => "feature"));
+  });
+
+  it("asks about the toast class map, at the cost an unstyled toast is worth", () => {
+    // It is the one lookup behind a toast that does NOT stop the push: every
+    // read of it in `utils/steamToast.tsx` is optional, so a miss costs the
+    // layout and the toast still says what it says.
+    const classes = STEAM_LOOKUPS.find((lookup) => lookup.name === "toastClasses");
+    expect(classes?.absenceCost).toBe("appearance");
+    expect(Object.values(NOTIFICATION_LOOKUPS)).not.toContain("toastClasses");
   });
 
   it("asks a real question of every search it lists", () => {
@@ -388,6 +435,22 @@ describe("what a miss costs the panel", () => {
     deckyUiExport: true,
     absenceCost: "diagnostic",
   });
+  // The fourth cost, not a `@decky/ui` export — like two of the three real
+  // entries.
+  const feature = (name: string, present: boolean): SteamLookup => ({
+    name,
+    found: () => present,
+    deckyUiExport: false,
+    absenceCost: "feature",
+  });
+  // The third: `ErrorBoundary` IS a `@decky/ui` export, so in the coexistence
+  // bundle a miss of it alone is DECKY's search and the verdict is `decky`.
+  const exportedFeature = (name: string, present: boolean): SteamLookup => ({
+    name,
+    found: () => present,
+    deckyUiExport: true,
+    absenceCost: "feature",
+  });
   const ours: SearchingCopy = { owner: "tender" };
   const theirs = (report: StartupReport): SearchingCopy =>
     readSearchingCopy(report, "coexistence", () => ({ carries: () => true, version: "v3.2.8" }));
@@ -407,7 +470,7 @@ describe("what a miss costs the panel", () => {
     const sentence = describeSurvivedMiss(report, ours);
     expect(sentence).toContain("1 of 2 searches into Steam's interface found nothing");
     expect(sentence).toContain("Nothing that missed is needed to render the panel");
-    expect(sentence).toContain("Tender runs these searches itself, so a newer Tender is the repair.");
+    expect(sentence).toContain("Tender looks these up itself, so a newer Tender is the repair.");
     expect(describeFailure(report, ours)).toBe("");
   });
 
@@ -481,7 +544,7 @@ describe("what a miss costs the panel", () => {
     // every name asked of it and its search still came back empty, and a probe
     // Tender runs itself missed beside it. The line used to call that unsettled.
     expect(sentence).toContain(
-      "so both went stale: a probe of Tender's own missed, and so did a search Decky's copy ran",
+      "so both went stale: a lookup of Tender's own missed, and so did a search Decky's copy ran",
     );
     expect(sentence).toContain("Bringing both Tender and Decky Loader to their current versions is the repair.");
     expect(sentence).not.toContain("ran them, not Tender's own");
@@ -530,6 +593,108 @@ describe("what a miss costs the panel", () => {
     expect(sentence).toContain("Decky Loader v3.2.8's copy of @decky/ui does not carry some of the names");
     expect(sentence).toContain("Bringing both Tender and Decky Loader to their current versions is the repair.");
     expect(sentence).not.toContain("ran them, not Tender's own");
+  });
+
+  it("lets the panel mount when all that missed was a whole feature, and says so in the log", () => {
+    // The fourth cost: the panel renders entirely well and something outside it
+    // is gone, so the mount is right and this line is the only thing anywhere
+    // that reports the loss.
+    const report = checkSteamModules([blocking("Focusable", true), feature("ToastRenderer", false)]);
+    expect(report.panelMayMount).toBe(true);
+    expect(describeFailure(report, ours)).toBe("");
+    const sentence = describeSurvivedMiss(report, ours);
+    expect(sentence).toContain("Nothing that missed is needed to render the panel");
+    expect(sentence).toContain("Tender's notifications are off.");
+    expect(sentence).toContain("Tender looks these up itself, so a newer Tender is the repair.");
+  });
+
+  it("says nothing about the notifications over a feature that is not one of theirs", () => {
+    // The mirror of Main's own rule: the sentence reads the names, so a
+    // `feature` entry added for something else does not put it in the log.
+    const report = checkSteamModules([blocking("Focusable", true), feature("SomeOtherFeature", false)]);
+    expect(report.panelMayMount).toBe(true);
+    expect(describeSurvivedMiss(report, ours)).not.toContain("notifications are off");
+  });
+
+  it("names no repair of its own for the lost notifications, under every verdict", () => {
+    // One of the three lookups behind the sentence IS a `@decky/ui` export — so
+    // a miss of that one in the coexistence bundle is Decky's search, and a
+    // sentence saying "until Tender is updated" would sit beside "a newer Decky
+    // Loader is the repair". It states the loss and leaves the repair to the
+    // verdict.
+    const fixtures: Record<SearchOwner, () => { report: StartupReport; copy: SearchingCopy }> = {
+      none: () => {
+        const report = checkSteamModules([blocking("Focusable", true), feature("NotificationStore", false)]);
+        return { report, copy: theirs(report) };
+      },
+      tender: () => {
+        const report = checkSteamModules([blocking("Focusable", true), exportedFeature("ErrorBoundary", false)]);
+        return { report, copy: readSearchingCopy(report, "standalone") };
+      },
+      disagreement: () => {
+        const report = checkSteamModules([blocking("Focusable", true), exportedFeature("ErrorBoundary", false)]);
+        return {
+          report,
+          copy: readSearchingCopy(report, "coexistence", () => ({ carries: () => false, version: "v3.2.8" })),
+        };
+      },
+      mixed: () => {
+        const report = checkSteamModules([
+          blocking("Focusable", true),
+          feature("NotificationStore", false),
+          exportedFeature("ErrorBoundary", false),
+        ]);
+        return { report, copy: theirs(report) };
+      },
+      decky: () => {
+        const report = checkSteamModules([blocking("Focusable", true), exportedFeature("ErrorBoundary", false)]);
+        return { report, copy: theirs(report) };
+      },
+    };
+
+    for (const owner of SEARCH_OWNERS) {
+      const { report, copy } = fixtures[owner]();
+      expect(searchOwner(report, copy)).toBe(owner);
+      expect(report.panelMayMount).toBe(true);
+      const sentence = describeSurvivedMiss(report, copy);
+      expect(sentence).toContain("Tender's notifications are off.");
+      expect(sentence).not.toContain("notifications are off until");
+    }
+    // And the one verdict that would have contradicted it names Decky alone.
+    const { report, copy } = fixtures.decky();
+    expect(describeSurvivedMiss(report, copy)).toContain("a newer Decky Loader is the repair");
+    expect(describeSurvivedMiss(report, copy)).not.toContain("newer Tender");
+  });
+
+  it("leaves that sentence out when nothing a toast is raised through missed", () => {
+    // Without this the sentence could be unconditional and every test above
+    // would still pass, telling a reader their notifications are off over a
+    // missing glyph.
+    const report = checkSteamModules([blocking("Focusable", true), cosmetic("ControllerGlyph", false)]);
+    expect(describeSurvivedMiss(report, ours)).not.toContain("notifications are off");
+  });
+
+  it("keeps the panel off when a feature search missed beside a blocking one", () => {
+    const report = checkSteamModules([blocking("Focusable", false), feature("ToastRenderer", false)]);
+    expect(report.panelMayMount).toBe(false);
+    // The fallback page is doing the reporting; the log's mounted line must not
+    // appear beside it claiming Tender has started.
+    expect(describeSurvivedMiss(report, ours)).toBe("");
+  });
+
+  it("reads the notice on Main off any one of the lookups a toast is raised through", () => {
+    for (const name of Object.values(NOTIFICATION_LOOKUPS)) {
+      expect(notificationsMissing(checkSteamModules([blocking("Focusable", true), feature(name, false)]))).toBe(true);
+    }
+    const neither = checkSteamModules([blocking("Focusable", true), cosmetic("ControllerGlyph", false)]);
+    expect(notificationsMissing(neither)).toBe(false);
+  });
+
+  it("does not claim the notifications went missing over some other feature", () => {
+    // It reads the names rather than the cost, so a `feature` entry added for
+    // something else cannot put this notice on Main.
+    const other = checkSteamModules([blocking("Focusable", true), feature("SomeOtherFeature", false)]);
+    expect(notificationsMissing(other)).toBe(false);
   });
 
   it("still reaches the bootstrap answer when everything missed, cosmetic names included", () => {
