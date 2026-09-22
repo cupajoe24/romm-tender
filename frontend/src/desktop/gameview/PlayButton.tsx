@@ -61,7 +61,7 @@ import {
 } from "../../utils/formatters";
 import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
 import { overviewFor } from "../../utils/steamOverview";
-import { BIOS_MISSING_RED } from "../../utils/biosColor";
+import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
 import { markLaunchSkipped } from "../../utils/launchGate";
 import { findDesktopWindow } from "../desktopWindow";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo } from "../../types";
@@ -706,33 +706,36 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     }
 
     // BIOS status calculation
-    let biosColor = "#5ba32b";
+    let biosColor = biosColorForLevel("ok");
     let biosText = "Ready (no BIOS)";
 
-    const isBiosError =
-      detail.biosRequiredMissing ||
-      Boolean(currentBiosAnswer?.bios_status_unknown) ||
-      currentBiosAnswer?.bios_level === "missing" ||
-      currentBiosAnswer?.bios_level === "partial" ||
-      currentBiosAnswer?.bios_level === "unknown";
+    const isBiosError = detail.biosRequiredMissing || currentBiosAnswer?.bios_level === "missing";
+    const isUnknown = currentBiosAnswer?.bios_level === "unknown" || Boolean(currentBiosAnswer?.bios_status_unknown);
 
     if (isBiosError) {
-      biosColor = BIOS_MISSING_RED;
+      biosColor = biosColorForLevel("missing");
       biosText = "Error, see below";
+    } else if (isUnknown) {
+      biosColor = biosColorForLevel("unknown");
+      biosText = "Unknown";
     } else if (!detail.biosNeeded) {
-      biosColor = "#5ba32b";
+      biosColor = biosColorForLevel("ok");
       biosText = "Ready (no BIOS)";
     } else {
+      const level = currentBiosAnswer?.bios_level ?? null;
       const requiredCount = currentBiosAnswer?.bios_status?.required_count ?? 0;
       const localCount = currentBiosAnswer?.bios_status?.local_count ?? 0;
       const isOptionalNotInstalled =
         currentBiosAnswer?.bios_status?.needs_bios === true && requiredCount === 0 && localCount === 0;
 
       if (currentBiosAnswer?.bios_status?.needs_bios === false || isOptionalNotInstalled) {
-        biosColor = "#5ba32b";
+        biosColor = biosColorForLevel("ok");
         biosText = "Ready (no BIOS)";
+      } else if (level === "partial") {
+        biosColor = biosColorForLevel("partial");
+        biosText = detail.biosLabel || "Partial";
       } else {
-        biosColor = "#5ba32b";
+        biosColor = biosColorForLevel(level ?? "ok");
         biosText = "Ready";
       }
     }

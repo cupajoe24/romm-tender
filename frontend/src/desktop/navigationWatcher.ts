@@ -209,7 +209,7 @@ export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement |
   const searchRoot = "querySelectorAll" in root ? root : doc;
   const candidates = searchRoot.querySelectorAll<HTMLElement>("div, button");
   for (const candidate of Array.from(candidates)) {
-    if (candidate.children.length === 0 && candidate.textContent?.trim().toUpperCase() === "PLAY") {
+    if (candidate.children.length === 0 && candidate.textContent.trim().toUpperCase() === "PLAY") {
       const focusable = candidate.closest<HTMLElement>('[class*="Focusable"], [class*="Panel"]') ?? candidate;
       return focusable;
     }
