@@ -3,9 +3,9 @@
 Everything the launcher's installation touches on the filesystem lives here:
 reading the copy this release ships, deciding whether the one already at the
 destination is it, and writing a replacement through a staging file that is
-renamed into place. Where the destination IS is not decided here —
-``domain.user_data_location.launcher_path`` owns that, and the composition root
-hands the answer in.
+renamed into place. Where the source and the destination ARE is not decided here
+— ``domain/user_data_location.py`` composes both, and the composition root hands
+the two answers in.
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ if TYPE_CHECKING:
 _STAGING_SUFFIX = ".installing"
 
 # Owner-only, and executable because Steam runs it as the shortcut's exe.
-# Nothing outside the owner has any business with it: it sits under the user's
-# own data root and is executed by the account that owns that root, so group and
-# other are granted nothing (python:S2612).
+# Nothing outside the owner has any business with it: it sits in the user's own
+# bin directory and is executed by the account that owns it, so group and other
+# are granted nothing (python:S2612).
 _LAUNCHER_MODE = 0o700
 
 
 class LauncherInstallAdapter:
-    """Keeps this release's shortcut launcher at its home under the data root.
+    """Keeps this release's shortcut launcher at its installed home.
 
     Run on every start rather than once, so the launcher a shortcut executes is
     always the one this release ships: installed a single time it would freeze
@@ -113,12 +113,16 @@ class LauncherInstallAdapter:
         ``os.open``'s mode argument is masked by the process umask, which is not
         ours to assume, so the mode is set explicitly afterwards.
 
-        The directory is created owner-only for the same reason. An existing one
-        keeps whatever mode it has — ``exist_ok`` does not restate it, and this
-        adapter owns the launcher rather than the tree around it.
+        The DIRECTORY is a different question, and gets the opposite answer. It
+        is the user's own bin directory, shared with every other program they
+        installed for themselves, so this adapter states no mode for it at all
+        and lets the umask decide — creating it owner-only would narrow a shared
+        directory on behalf of everything else that puts a file there. An
+        existing one keeps whatever mode it has: ``exist_ok`` does not restate
+        it, and this adapter owns the launcher rather than the tree around it.
         """
         staging = self._destination + _STAGING_SUFFIX
-        os.makedirs(os.path.dirname(self._destination), mode=_LAUNCHER_MODE, exist_ok=True)
+        os.makedirs(os.path.dirname(self._destination), exist_ok=True)
         try:
             handle = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, _LAUNCHER_MODE)
             with os.fdopen(handle, "wb") as launcher:

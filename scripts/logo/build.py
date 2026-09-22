@@ -12,6 +12,7 @@ Both must be on PATH.
     build.py --static             only the static SVG + PNGs and the lockup
     build.py --gif                only the animated GIF
     build.py --tab-icon           only the Quick Access strip glyph
+    build.py --terminal           only the installer's terminal mark
     build.py --size <px>          master raster size (default 512)
 
 `--install` is the one to run after changing the mark: it writes every shipped
@@ -34,6 +35,7 @@ import anim
 import gen
 import lockup
 import tabicon
+import terminal
 
 HERE = pathlib.Path(__file__).parent
 PNG_SIZES = (1024, 512, 256, 128, 64, 32)
@@ -229,6 +231,40 @@ INSTALL = {
 STORE_IMAGE = ("logo-1024.png", "assets/store_image.png")
 
 
+def build_terminal(out: pathlib.Path) -> None:
+    """The mark as terminal text, which `install.sh` prints before it does anything.
+
+    Draws the mark itself — `gen.standalone` in the terminal's own pose, through
+    `rsvg-convert` — rather than reading a shipped raster, so it needs no other
+    build step to have run first and a change to the mark reaches it directly.
+    Written here as well as installed so the drawings can be looked at without
+    opening the script that carries them.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    block = out / "installer-logo.sh"
+    block.write_text(terminal.bash_block())
+    print(f"  {block.name}  ({block.stat().st_size:,}b)")
+    for destination, render in terminal.WORDMARK_FILES:
+        copy = out / destination.name
+        copy.write_text(render())
+        print(f"  {copy.name}  ({copy.stat().st_size:,}b)")
+
+
+def install_terminal() -> None:
+    """Splice today's terminal mark into `install.sh`, and write the wordmark beside it.
+
+    The mark is the one installed thing that is not a copy: the art lives inside
+    a script that is otherwise hand-written, so it replaces a block rather than
+    a file. The wordmark is two ordinary files, and nothing reads them yet.
+    """
+    script = REPO / "install.sh"
+    script.write_text(terminal.replace_in(script.read_text()))
+    print(f"  {script.relative_to(REPO)}  (the mark's block)")
+    for destination, render in terminal.WORDMARK_FILES:
+        destination.write_text(render())
+        print(f"  {destination.relative_to(REPO)}  ({destination.stat().st_size:,}b)")
+
+
 def install(out: pathlib.Path, names: set[str]) -> None:
     """Copy the freshly built files over the ones the repo ships.
 
@@ -263,8 +299,9 @@ if __name__ == "__main__":
     size = int(argv[argv.index("--size") + 1]) if "--size" in argv else 512
     pal = gen.BY_NAME[name]
     only_static, only_gif, only_tab = "--static" in argv, "--gif" in argv, "--tab-icon" in argv
+    only_terminal = "--terminal" in argv
     # Each --only flag narrows to itself; none of them means everything.
-    everything = not (only_static or only_gif or only_tab)
+    everything = not (only_static or only_gif or only_tab or only_terminal)
 
     print(f"palette: {pal.name}   out: {out}")
     built: set[str] = set()
@@ -280,6 +317,10 @@ if __name__ == "__main__":
     if everything or only_tab:
         build_tab_icon(out)
         built.add("tab-icon-art.ts")
+    if everything or only_terminal:
+        build_terminal(out)
     if "--install" in argv:
         print("installing:")
         install(out, built)
+        if everything or only_terminal:
+            install_terminal()

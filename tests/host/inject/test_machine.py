@@ -1,13 +1,15 @@
-"""The two readings taken from the machine rather than from the page."""
+"""What this module asks the machine rather than the page, and the one thing it puts back."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 
 import pytest
 
+from host.inject import machine
 from host.inject.machine import decky_loader_is_serving, read_steam_build
 from tests.host.conftest import free_port
 
@@ -119,3 +121,121 @@ class TestAskingWhetherDeckyIsServing:
             ticking.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await ticking
+
+
+class TestEnsuringSteamsDebuggerMarker:
+    """The one thing this module puts back rather than reads.
+
+    Without the marker Steam opens no debugger, so no panel can ever be loaded.
+    Why it has to be re-created on every start rather than once is
+    ``docs/architecture/loading-the-panel.md``.
+    """
+
+    @staticmethod
+    def _steam_root(tmp_path, parts: tuple[str, ...]):
+        root = tmp_path.joinpath(*parts)
+        root.mkdir(parents=True)
+        return root
+
+    def test_it_creates_the_marker_where_there_is_none(self, tmp_path, caplog):
+        root = self._steam_root(tmp_path, (".local", "share", "Steam"))
+
+        with caplog.at_level(logging.WARNING):
+            answer = machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+
+        assert answer is True
+        assert (root / ".cef-enable-remote-debugging").is_file()
+        assert "Steam has to be restarted once" in caplog.text
+
+    def test_it_writes_the_note_the_uninstaller_reads(self, tmp_path):
+        root = self._steam_root(tmp_path, (".local", "share", "Steam"))
+
+        machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+
+        note = tmp_path / "state" / machine.DEBUGGER_MARKER_NOTE
+        first, second = note.read_text(encoding="utf-8").splitlines()
+        assert first == str(root / ".cef-enable-remote-debugging")
+        assert second.startswith("created by the backend ")
+
+    def test_the_note_names_the_marker_that_was_created(self, tmp_path):
+        """``install.sh --uninstall`` unlinks that line, so it names one file rather than a name."""
+        root = self._steam_root(tmp_path, (".steam", "steam"))
+
+        machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+
+        note = tmp_path / "state" / machine.DEBUGGER_MARKER_NOTE
+        assert note.read_text(encoding="utf-8").splitlines()[0] == str(root / ".cef-enable-remote-debugging")
+
+    def test_a_note_that_could_not_be_written_does_not_unmake_the_marker(self, tmp_path, caplog):
+        """The marker is what Steam reads; the note is only what the uninstaller reads.
+
+        A state directory that cannot be written costs the uninstaller its
+        authority over one file. Reporting the created marker as a failure
+        because of it would be a worse answer than the one thing that went
+        wrong — and it is the answer a single try block gives.
+        """
+        root = self._steam_root(tmp_path, (".local", "share", "Steam"))
+        blocked = tmp_path / "state"
+        blocked.mkdir()
+        blocked.chmod(0o500)
+        try:
+            with caplog.at_level(logging.WARNING):
+                answer = machine.ensure_debugger_marker(str(tmp_path), str(blocked), logging.getLogger("test"))
+        finally:
+            blocked.chmod(0o700)
+
+        assert answer is True
+        assert (root / ".cef-enable-remote-debugging").is_file()
+        assert "could not record it at" in caplog.text
+        assert "Steam has to be restarted once" in caplog.text
+
+    def test_the_first_existing_steam_root_wins(self, tmp_path):
+        """Same order as every other reading here; on this machine one is a symlink to the other."""
+        first = self._steam_root(tmp_path, (".local", "share", "Steam"))
+        second = self._steam_root(tmp_path, (".steam", "steam"))
+
+        machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+
+        assert (first / ".cef-enable-remote-debugging").exists()
+        assert not (second / ".cef-enable-remote-debugging").exists()
+
+    def test_the_other_spelling_is_used_when_it_is_the_only_one(self, tmp_path):
+        root = self._steam_root(tmp_path, (".steam", "steam"))
+
+        assert machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+        assert (root / ".cef-enable-remote-debugging").is_file()
+
+    def test_a_marker_already_there_is_left_alone_and_says_nothing(self, tmp_path, caplog):
+        root = self._steam_root(tmp_path, (".local", "share", "Steam"))
+        marker = root / ".cef-enable-remote-debugging"
+        marker.write_text("someone else's", encoding="utf-8")
+
+        with caplog.at_level(logging.DEBUG):
+            answer = machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+
+        assert answer is True
+        assert marker.read_text(encoding="utf-8") == "someone else's"
+        assert not (tmp_path / "state" / machine.DEBUGGER_MARKER_NOTE).exists()
+        assert caplog.text == ""
+
+    def test_no_steam_directory_at_all_is_reported_not_raised(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING):
+            answer = machine.ensure_debugger_marker(str(tmp_path), str(tmp_path / "state"), logging.getLogger("test"))
+
+        assert answer is False
+        assert "no Steam directory" in caplog.text
+
+    def test_a_write_that_cannot_happen_is_logged_and_swallowed(self, tmp_path, caplog):
+        """Bad path: a read-only Steam directory must not take the backend down."""
+        root = self._steam_root(tmp_path, (".local", "share", "Steam"))
+        root.chmod(0o500)
+        try:
+            with caplog.at_level(logging.WARNING):
+                answer = machine.ensure_debugger_marker(
+                    str(tmp_path), str(tmp_path / "state"), logging.getLogger("test")
+                )
+        finally:
+            root.chmod(0o700)
+
+        assert answer is False
+        assert "could not create Steam's remote-debugging marker" in caplog.text

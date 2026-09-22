@@ -6,9 +6,10 @@ Guide for setting up a development environment and contributing to Tender.
 
 - [mise](https://mise.jdx.dev/) — manages Node, pnpm, and Python versions
 - Git
-- A Steam Deck or Linux PC running Steam, with CEF remote debugging enabled
-  (`~/.steam/steam/.cef-enable-remote-debugging`, then restart Steam) — that is what the backend loads the panel
-  through. [Decky Loader](https://decky.xyz/) is no longer needed, and the panel coexists with one that is installed.
+- A Steam Deck or Linux PC running Steam, with CEF remote debugging enabled — that is what the backend loads the panel
+  through, and it creates the marker itself when one is missing
+  ([How the panel gets into Steam](../architecture/loading-the-panel.md#steams-remote-debugging-marker)).
+  [Decky Loader](https://decky.xyz/) is no longer needed, and the panel coexists with one that is installed.
 
 > **On Windows, develop inside [WSL2](https://learn.microsoft.com/windows/wsl/install).** The plugin targets Linux —
 > some adapters import Unix-only modules (e.g. `fcntl`), a few dev dependencies have no Windows wheel, and CI runs on
@@ -195,8 +196,9 @@ reload, so a rebuilt bundle reaches Steam only in a fresh JS context, and a new 
 old one loaded. Steam comes back into the window and display a `dev:bpm*` / `dev:desktop*` task last chose — the desktop
 client, placed nowhere, if none has. A Steam that is not running is simply started.
 
-It needs `~/.steam/steam/.cef-enable-remote-debugging` to exist, which Steam reads when it starts — so the task's own
-restart is what picks the file up.
+Steam's remote-debugging marker has to exist, and the backend creates it when it does not. Steam reads it at start-up,
+so the task's own restart is what picks up a marker that has just been created
+([the marker](../architecture/loading-the-panel.md#steams-remote-debugging-marker)).
 
 The whole loop, the Big Picture window, and how to judge layout at the Deck's real metrics are in
 [Frontend dev loop](frontend-dev-loop.md); what the injector does and how it protects the Steam UI from itself is in
@@ -205,8 +207,37 @@ The whole loop, the Big Picture window, and how to judge layout at the Deck's re
 Two switches exist, both read from the environment at start-up: `TENDER_INJECT=off` serves the panel and loads it
 nowhere, and `TENDER_INJECT=force` loads it even where the crash watchdog has stopped.
 
-Installing this as a service, with its own unit and XDG paths, is separate work
-([#1902](https://github.com/danielcopper/romm-tender/issues/1902)).
+### Running an installed one
+
+`mise run dev` is the development loop. What a user gets instead is a systemd **user** unit,
+`~/.config/systemd/user/romm-tender.service`, written by `install.sh`:
+
+```bash
+systemctl --user status romm-tender     # what it is doing
+systemctl --user restart romm-tender    # after replacing the code by hand
+systemctl --user cat romm-tender        # the roots this install resolved
+journalctl --user -u romm-tender        # what it wrote to stderr
+```
+
+Its own log is `~/.local/state/romm-tender/backend.log`, and the journal carries the same lines plus the one start-up
+address with the token UNREDACTED. The log file has that line too, with the token replaced — the redaction is the file
+handler's own formatter, so the two differ deliberately rather than by accident.
+
+**Tender runs as a service, and the Quick Access entry is something it PUTS there.** The entry is not a file Steam reads
+at start-up — it is code this backend loads into Steam's renderer — so a unit that is not running when Steam starts
+means a Steam with no Tender entry in it, and starting the unit puts one there without restarting Steam. A backend that
+stops after it has loaded the panel leaves the entry where it is: the code is already in Steam, and what it loses is the
+backend to talk to.
+
+To install a build of your own rather than a release:
+
+```bash
+mise run package                              # builds the frontend, writes build/romm-tender-<V>.tar.gz
+bash install.sh --from build/romm-tender-<V>.tar.gz
+```
+
+That is the same path a release takes, with the download skipped — `install.sh --uninstall` takes it back out, and
+leaves the database, the settings and the launcher where they are.
 
 ## Linting
 
@@ -271,6 +302,33 @@ reason for each: `main.py` grows with the callable surface by design, `_vendor/`
 a large file under `tests/` is the one-file-per-source-module rule working, `scripts/` never ships, and `frontend/src/`
 needs a per-scope glob before it can be added. There is deliberately no `--update` flag — re-baselining should be a
 reviewable diff, never a command someone runs to get back to green.
+
+`mise run lint` (and CI) also runs `scripts/check_generated_installer_logo.py`, which holds `install.sh`'s greeter to
+the mark. The installer draws the logo before it does anything, and it cannot render an image, so the art is text
+embedded in the script between two markers — drawn and rasterised by `scripts/logo/terminal.py` (so it needs librsvg,
+which CI installs for the check). There are two drawings: a half-block icon, where each cell's two colours ARE the
+picture, for a terminal in a UTF-8 locale that takes colour, and a class-drawn ASCII one for a terminal that is not. A
+run that may write no colour gets no icon at all, because half-blocks in one tone are a slab rather than a mark. A
+drawing kept by hand is the one that drifts away from the mark it is a picture of, so the check regenerates both, and
+the wordmark beside them, and fails on any difference; re-run `python3 scripts/logo/build.py --install --terminal` and
+commit the result. What the two drawings are and why they differ is `scripts/logo/README.md`.
+
+`mise run lint` (and CI) also runs `scripts/check_shell_answer_functions.py`, which holds the repository's shell to one
+rule: **a function whose value is taken with `$(...)` never reaches `exit`.** `exit` inside a command substitution ends
+that subshell and nothing else, so a function that answers with a value and aborts on a bad input does neither — it
+prints its message, and the caller carries on with an empty answer, complaining a second time about the emptiness or
+building a request out of it. Both end up non-zero, which is why the shape survives a test that only reads the status.
+The answer is that such a function RETURNS non-zero and its caller aborts.
+
+Which helper ends the run is derived rather than listed: a function "reaches exit" if it runs `exit` itself or calls one
+of the same file's functions that does, so a second abort helper is covered the day it is written. What the gate scans
+is `install.sh`, `scripts/package.sh`, `bin/tender-rom-launcher` — named because it carries no extension the glob would
+find — and every `*.sh` under `scripts/` and `bin/`, through a hand-written lexer that knows quotes, comments, heredocs
+and nesting — not a bash parser. Its blind spots are listed in the script's docstring, which is their one home; the two
+worth knowing at this distance are that a function reached through a variable is invisible to it — `install.sh`'s own
+`step` is the live example — and that `( f )` and `f | cmd` swallow an `exit` the same way without being checked.
+Because the lexer is hand-written rather than bash, a construct it misreads drops real code in silence, so the shapes it
+gets right are pinned one by one in its test file.
 
 The frontend has no size gate — deliberately, because a threshold only works when something else forbids the cheap way
 of getting under it, and `frontend/src/` has no equivalent of `service-independence`. What it has instead is direction
@@ -403,7 +461,7 @@ frontend/src/                        # Frontend TypeScript
   api/backend.ts                     # callable() wrappers (typed)
   types/                             # TypeScript interfaces and Steam API declarations
   utils/                             # Shortcut CRUD, sync, downloads, collections, session manager, store patches
-bin/rom-launcher                     # Pure exec wrapper — installed to <data root>/bin at every start, and run from there
+bin/tender-rom-launcher              # Pure exec wrapper — installed to <bin root> at every start, and run from there
 defaults/config.json                 # platform_map: 153 platform slug -> RetroDECK system mappings
 tests/                               # Backend unit tests, mirroring backend/ layout
 ```

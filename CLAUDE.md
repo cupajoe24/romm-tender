@@ -10,7 +10,9 @@ The backend runs as **its own process** and hosts the panel itself over a loopba
 panel, into Steam's renderer over the CEF debugger — so `mise run dev` is now "build, restart Steam, then run the
 backend", and the Decky-shaped deploy tasks are gone. **It shuts the running Steam down**, because a rebuilt bundle
 reaches Steam only in a fresh JS context; which tasks do that, and which window they come back into, is under
-Development below. The installer, the user unit and the XDG paths are a separate cut (#1902).
+Development below. A user installs it with `install.sh`, which writes a systemd **user** unit and resolves every root
+once into it; the launcher every Steam shortcut starts through lives at `~/.local/bin/tender-rom-launcher` and is not
+under any root this program owns.
 
 ## What belongs in this file
 
@@ -279,6 +281,10 @@ Latest release and shipped features: see `git tag --sort=-v:refname` and GitHub 
   inside `mise run gate`.
 - **Gate**: `mise run gate` (the full CI battery in one command — mirrors every PR check; slow. Run before pushing.)
 - **Setup**: `mise run setup` (installs JS + Python dependencies)
+- **Package**: `mise run package` (production frontend build, then `scripts/package.sh` → `build/romm-tender-<V>.tar.gz`
+  plus its `.sha256`). `bash install.sh --from build/romm-tender-<V>.tar.gz` installs that build the way a release is
+  installed; `install.sh --uninstall` takes it back out. **Neither is ever run against your own machine from a test** —
+  every execution in `tests/scripts/` happens under a `tmp_path` HOME with a stub `PATH`.
 - **Release**: release-please, configured as `release-type: simple` (`release-please-config.json`). What it proposes is
   normally computed from `.release-please-manifest.json` plus the commits since — but **not today**:
   `release-as: "1.0.0"` overrides that computation on every run, so every release PR proposes 1.0.0 until the key is
@@ -368,18 +374,22 @@ Format: **invariant** — tier — enforced by.
   — it used to carry two, and that is how a question about a plugin loader's own layout came to sit beside a question
   about the user's data as two plain `str` fields on structs the composition root passes around. **Counting rule** (an
   AST walk for an attribute in `{config_dir, data_dir, cache_dir, state_dir, runtime_dir,
-  code_dir}` whose base ends
-  in `directories`): **20 reads over three modules**, `main.py` and `bootstrap/`'s two — `code_dir` 6, `data_dir` 6,
-  `cache_dir` 4, `state_dir` 2, and one each for `config_dir` and `runtime_dir`. Re-derive it rather than trusting the
-  number. **Two fields are read in `main.py` alone** and nowhere else: `state_dir`, which the logging setup opens and
-  which the injection's crash record lives under, and `runtime_dir`, which the port file lives in. `config_dir` has
-  exactly one reader, `PersistenceAdapter`. The pairing that matters is `cache_dir` against `data_dir` — covers, artwork
-  and the SGDB artwork cache on the first because they are re-derivable from the server, the database and the launcher
-  on the second because they are not; a system that clears caches must be able to clear one and not the other. The
-  launcher's home is the read whose mix-up a user would see rather than the next start only, since
-  `launcher_path(directories.data_dir)` is carried on as `ShortcutLauncher.path` and baked into every shortcut's `exe`.
-  Nothing mechanical tells the six apart: they are six `str` fields on one frozen struct, so a read of the wrong one is
-  a rename away and fails silently in whichever direction it happened to point
+  code_dir, bin_dir}` whose
+  base ends in `directories`): **19 reads over three modules**, `main.py` and `bootstrap/`'s two — `code_dir` 6,
+  `cache_dir` 4, `data_dir` 4, `state_dir` 2, and one each for `config_dir`, `runtime_dir` and `bin_dir`. Re-derive it
+  rather than trusting the number. **Two fields are read in `main.py` alone** and nowhere else: `state_dir`, which the
+  logging setup opens and which the injection's crash record lives under, and `runtime_dir`, which the port file lives
+  in. `config_dir` has exactly one reader, `PersistenceAdapter`, and `bin_dir` exactly one, the launcher install in
+  `bootstrap/adapters.py`. The pairing that matters is `cache_dir` against `data_dir` — covers, artwork and the SGDB
+  artwork cache on the first because they are re-derivable from the server and the database on the second because it is
+  not; a system that clears caches must be able to clear one and not the other. The launcher's home is the read whose
+  mix-up a user would see rather than the next start only, since `launcher_in_bin_dir(directories.bin_dir)` is carried
+  on as `ShortcutLauncher.path` and baked into every shortcut's `exe`. `bin_dir` is one of the two fields not named
+  after this program (the other is `code_dir`, wherever the program was installed; CONTEXT.md's "The program's
+  directories" is the home of that split) — it is the directory every program a user installs for themselves puts a
+  binary in, which is why nothing under it may be treated as ours to remove. Nothing mechanical tells the seven apart:
+  they are seven `str` fields on one frozen struct, so a read of the wrong one is a rename away and fails silently in
+  whichever direction it happened to point
 - **The identifier's three homes are never derived from one another — in particular `APP_DIR_NAME`
   (`domain/user_data_location.py`) is never read from `PACKAGE_NAME` (`domain/identity.py`)** — test + prompt-only — the
   three homes and the question each answers are enumerated in `backend/domain/identity.py`'s module docstring.
@@ -755,6 +765,29 @@ Format: **invariant** — tier — enforced by.
   file, and the entry earns its place because that one call can land inside a UoW. One `# pragma: no uow-check` covers
   both families — it suppresses the line, and no seam is in both lists, so where a line does name two seams it silences
   both
+- **A shell function whose value is taken with `$(...)` never reaches `exit` — it answers, and its caller aborts** —
+  check — `scripts/check_shell_answer_functions.py` over `install.sh`, `scripts/package.sh`, `bin/tender-rom-launcher`
+  and every `*.sh` under `scripts/` and `bin/` (the launcher is named because it carries no extension for the glob to
+  find). `exit` inside a command substitution ends that subshell and nothing else, so such a function prints its message
+  and the CALLER runs on with an empty answer — a second complaint about the emptiness, or a request built out of it,
+  and non-zero either way, which is why the shape survives a test that reads only the status. Which helper ends the run
+  is DERIVED (a function reaches `exit` if it runs one or calls a same-file function that does), so a second abort
+  helper is covered the day it is written; the check follows the chain and names it. Its reading is a hand-written lexer
+  — quotes, comments, heredocs, arithmetic, expansions, `$( )` and backtick nesting — rather than a bash parser, **so a
+  construct it misreads drops real code in silence**: the failure is a function never collected or a body that ends
+  early, and the `exit` below it is then simply not there. Eleven such shapes are read for by name — a closing `}`
+  judged by what FOLLOWS it (an unquoted `${x}` or a `find … -exec rm {} \;` ended the enclosing function), a `}`
+  written as an ARGUMENT (`echo }`) and a brace group opened after `!` (`if ! { exec 3< /dev/tty; }`, where the `{` was
+  not a block's while its `}` was), `$(( 1 << 3 ))` read as a heredoc (which blanked the rest of the file) and a
+  `$(( … ))` span ending one parenthesis short, a parameter expansion naming a function read as a call to it, a `case`
+  arm's `)` ending the substitution it sits in, the POSIX arm written `(a)` whose leading parenthesis groups nothing,
+  the fallthrough terminators `;&` and `;;&`, a `( … )` subshell inside a substitution whose closing parenthesis would
+  otherwise end it, and a backtick substitution inside double quotes read as string text. The enumeration is the
+  script's docstring; this is its summary, and the two are re-derived together. **The blind spots left are the list in
+  the script's own docstring**, which is their one home; it names, among others, a function reached through a variable
+  (`install.sh`'s own `step` is the live example), `( f )` and `f | cmd`, and a function defined twice at the top level.
+  A call written inside `$( )` is deliberately NOT an edge in the graph — an `exit` there ends the subshell — so a
+  nested pair is reported once, at the inner site
 - **Services never call clocks / sleep / uuid / random directly (inject the Protocol)** — check —
   `scripts/check_cosmic_call_bans.sh`
 - **No module in `services/`, `bootstrap/`, `adapters/`, `domain/`, `lib/` or `models/` crosses the ~1000-LOC

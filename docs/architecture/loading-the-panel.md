@@ -7,6 +7,26 @@ finds the renderer, and evaluates one expression into it.
 [Frontend bundles](frontend-bundles.md) owns what the files ARE. This page owns how one of them reaches Steam, which of
 them is chosen, and what happens when that goes wrong.
 
+## Steam's remote-debugging marker
+
+There is no debugger to open unless `<steam root>/.cef-enable-remote-debugging` exists — Steam reads it at start-up and
+opens the port only for it. So the backend creates it when it is missing, on every start that is loading the panel
+(`ensure_debugger_marker`, `backend/host/inject/machine.py`), logs at WARNING that Steam has to be restarted once, and
+writes a note named `debugger-marker` under the state root recording that the file is ours. `TENDER_INJECT=off` writes
+nothing: a switch that says to leave Steam alone may not put a file in Steam's directory.
+
+It is re-created on every start rather than once because something else takes it away. Decky Loader's installer creates
+the marker unconditionally and its uninstaller removes it unconditionally (`SteamDeckHomebrew/decky-installer`,
+`cli/install_release.sh` and `cli/uninstall.sh`), and the loader itself never touches it — so a user who removes Decky
+from a machine that also runs Tender removes Tender's only way into Steam with it, and the symptom is a panel that stops
+appearing with nothing said. Nothing on that side can be changed, which is why this side re-creates it.
+
+The note is what `install.sh --uninstall` reads to decide whether the marker is its to remove, and its FIRST LINE is the
+marker's absolute path — the uninstaller unlinks exactly that path and nothing else, because a note that named only a
+filename would send it looking, and looking is what it must not do. It takes the marker away only where such a note
+exists AND no Decky Loader is installed, so a marker somebody else needs is left where it is. Both sides spell the
+note's filename as a literal, and the suite holds the two spellings equal.
+
 ## The sequence
 
 From the debugger port answering to the panel being there:
@@ -186,8 +206,8 @@ comes back to the backend — any error text has the token replaced with `<token
 
 `mise run dev` builds the panel, **restarts the running Steam**, and runs the backend, which serves `dist/` and loads
 it. The restart is the task's own — a rebuilt bundle reaches Steam only in a fresh JS context — so whatever is open in
-Steam when the task starts is closed. It needs `~/.steam/steam/.cef-enable-remote-debugging` to exist, which Steam reads
-when it starts — so the task's own restart is what picks the file up. See
+Steam when the task starts is closed. The marker above has to exist, and this backend creates it when it does not — so
+the task's own restart is what picks up a marker that has just been created. See
 [the dev loop](../contributing/frontend-dev-loop.md).
 
 ## What the tests here can and cannot see

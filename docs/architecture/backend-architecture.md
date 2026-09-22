@@ -342,9 +342,9 @@ collection stamps; platform stamps are deliberately preserved
 ([removed-game-cleanup.md](removed-game-cleanup.md#discovery)).
 
 Frontend Steam events use a claim/complete protocol. A claim checks the run, token, discriminant, appId, target, exact
-single-binding group, and current binding before the frontend rechecks the live `rom-launcher` executable and mutates
-Steam. The lease is monotonic-clock bounded and rechecked after asynchronous validation; an identical repeat claim is
-idempotent, while mismatched or expired claims cannot authorize a mutation. Repoint commits through the normal
+single-binding group, and current binding before the frontend rechecks the live `tender-rom-launcher` executable and
+mutates Steam. The lease is monotonic-clock bounded and rechecked after asynchronous validation; an identical repeat
+claim is idempotent, while mismatched or expired claims cannot authorize a mutation. Repoint commits through the normal
 version-switch authority first; shortcut removal is immediately reconciled to an unbound local row after Steam confirms
 absence. A claimed action whose completion is lost, or a `RemoveShortcut`/launch-options write that was attempted but
 could not be confirmed, is an explicit ambiguous partial. A pre-mutation refusal remains an ordinary failure. A later
@@ -1555,8 +1555,8 @@ fires so the UI doesn't hang on "downloading". Firmware downloads surface the sa
 Beyond the disk-prune and orphaned-`SyncRun` reconciliation, this service owns the **startup launch-options reconcile**
 (#1043). `launch_options` (the full Steam-shortcut launch command) is written only event-driven — at sync, at
 download-complete, and on RetroDECK-home migration (ADR-0009) — so any path that misses its bake leaves an installed
-shortcut stuck on the `""` placeholder, and `bin/rom-launcher` then runs with no args and exits non-zero. There was no
-backstop short of a Force Full Sync or uninstall/reinstall.
+shortcut stuck on the `""` placeholder, and `bin/tender-rom-launcher` then runs with no args and exits non-zero. There
+was no backstop short of a Force Full Sync or uninstall/reinstall.
 
 `get_installed_relaunch_options()` is the read half of the fix: a 0-arg read that returns `[{app_id, launch_options}]`
 for every ROM that is both **installed** (has a `rom_installs` row) and **bound** (its `roms.shortcut_app_id` is set).
@@ -2211,20 +2211,26 @@ that is installed rather than migrated into.
 
 ### The launcher's home
 
-`<data root>/bin/rom-launcher` is the file every Steam shortcut's `exe` names, and `bootstrap()` puts this release's
-copy there on **every** start ([ADR-0032](../adr/0032-shortcuts-are-rewritten-in-place.md)).
-`adapters/launcher_install.py` owns the write; `domain/user_data_location.py::launcher_path` owns where it goes, and
-answers for the shipped copy under the plugin folder as well, so the two components that make up `/bin/rom-launcher`
-have one spelling — the suffix ownership detection matches is derived from that same tuple.
+`<bin root>/tender-rom-launcher` — `~/.local/bin/tender-rom-launcher` by default — is the file every Steam shortcut's
+`exe` names, and `bootstrap()` puts this release's copy there on **every** start
+([ADR-0038](../adr/0038-the-launcher-lives-in-local-bin.md)). `adapters/launcher_install.py` owns the write;
+`domain/user_data_location.py` owns where it goes, through two composers over one tuple — `launcher_in_bin_dir` for the
+installed copy and `launcher_path` for the one the release ships beside the program — so the components that make up
+`/bin/tender-rom-launcher` have one spelling, and the suffix ownership detection matches is derived from that same
+tuple.
 
-The reason it left the plugin folder is that Decky deletes that folder whole before unpacking an update. The reason it
-is written on every start rather than once is that a launcher installed once would freeze at whatever version the day of
-the move brought. The reason it is written through a staging file that is renamed on — never in place — is that a game
-running right now is executing that file, and bash reads a script as it runs it.
+The bin root is the one directory on `AppDirectories` not named after this program: it is shared with every other
+program the user installed for themselves, which is why the install creates it at the umask's mode rather than
+owner-only, and why an uninstaller leaves it alone. The reason the launcher is there rather than beside the code is that
+an update replaces the code directory, and a shortcut's `exe` must not name a file inside something that gets replaced.
+The reason it is not under the data root is that the data root holds the only copy of the user's library and nothing
+executable. The reason it is written on every start rather than once is that a launcher installed once would freeze at
+whatever version the day of the move brought. The reason it is written through a staging file that is renamed on — never
+in place — is that a game running right now is executing that file, and bash reads a script as it runs it.
 
 **It is unconditional.** There was once an ordering to respect here — the install had to wait for a start-up migration's
 data half to land, because writing into an empty data root would have settled that migration's first rung for the life
-of the install. Nothing migrates now and the data root is simply where this run was told it is, so the install runs on
+of the install. Nothing migrates now and the bin root is simply where this run was told it is, so the install runs on
 every start and the only question left is whether the write succeeded. A start whose write failed creates nothing, and
 `ShortcutLauncher.path` is then the copy that ships beside the program: a real file, so a sync in that state still
 produces shortcuts that launch.
@@ -2233,18 +2239,20 @@ produces shortcuts that launch.
 the INSTALL rather than the intent: the home where this start actually got the launcher into it, the shipped copy
 otherwise — including the start whose write failed, whose home is empty. The one case where even the shipped copy is not
 a real file is a package shipped without its launcher, which is the same reason the install failed. `at_home` is the
-narrower question — `path` is the home under the data root, with this release's launcher in it — and it is what
-repointing an EXISTING shortcut turns on: pointing one at a launcher nothing put there stops its game from starting, and
-no part of this plugin could put it back.
+narrower question — `path` is the home in the bin root (`launcher_in_bin_dir(directories.bin_dir)`), with this release's
+launcher in it — and it is what repointing an EXISTING shortcut turns on: pointing one at a launcher nothing put there
+stops its game from starting, and no part of this plugin could put it back.
 
 ### Repointing the shortcuts that already exist
 
-`services/shortcut_relocation.py` answers which of Steam's non-Steam shortcuts still name a launcher inside a plugin
-folder. It reads them out of `shortcuts.vdf` through `SteamConfigStore.read_shortcut_exes` — one parse for all of them,
-where the frontend's own route to the same fact is a `RegisterForAppDetails` per shortcut — and hands the frontend a
-list of app IDs plus the `exe` and `start_dir` to write. Two shapes in that file are matched carefully because both fail
-quietly: the keys case-insensitively (Steam has written more than one case), and the app id converted out of the
-**signed** int32 form the file stores, since every `SteamClient` API takes the unsigned one.
+`services/shortcut_relocation.py` answers which of Steam's non-Steam shortcuts are OURS and are not at the launcher's
+home. Ownership is one ending, `/bin/tender-rom-launcher`, and nothing else — a shortcut naming any other launcher,
+including one an earlier version of this program wrote, is foreign here and is left where it is. It reads them out of
+`shortcuts.vdf` through `SteamConfigStore.read_shortcut_exes` — one parse for all of them, where the frontend's own
+route to the same fact is a `RegisterForAppDetails` per shortcut — and hands the frontend a list of app IDs plus the
+`exe` and `start_dir` to write. Two shapes in that file are matched carefully because both fail quietly: the keys
+case-insensitively (Steam has written more than one case), and the app id converted out of the **signed** int32 form the
+file stores, since every `SteamClient` API takes the unsigned one.
 
 It is a one-time transition with a recorded completion (`kv_config`, `shortcut_launcher_relocated`), and the reading is
 its only writer: a call that finds nothing of ours outside the launcher's home stamps it, and no later start reads the
@@ -2252,9 +2260,9 @@ file again. The frontend writes and reports; it records nothing, so a completed 
 start — Steam writes its in-memory shortcuts to the file when it chooses, and the file is what the stamp rests on. Every
 uncertainty answers `blocked` instead — the launcher is not at its home, or the file could not be read — and a blocked
 answer is never stamped, so the next start asks again. The gap that leaves is named at `get_shortcut_relocation`:
-nothing clears the stamp, so a shortcut that turns up later on the old path keeps launching while the backend reports
-`done`. The card that used to read the stamp is gone with the plugin loader; the stamp itself still decides whether a
-later start re-reads Steam's file at all.
+nothing clears the stamp, so a shortcut of ours that turns up later away from the home stays there while the backend
+reports `done`. The card that used to read the stamp is gone with the plugin loader; the stamp itself still decides
+whether a later start re-reads Steam's file at all.
 
 ## Composition Root (`bootstrap/`)
 
@@ -2266,10 +2274,10 @@ only — consumers write `from bootstrap import …` and never deep-import a sub
    one-time legacy `save_sync_state.json` settings) so the settings persister binds the live mutable `settings` dict at
    construction. Returns a typed `BootstrapResult` carrying four bundles (`adapters`, `stores`, `callbacks`,
    `runtime_adapters`), a small `handles` struct for Plugin-only outputs, `directories` — the `AppDirectories` this run
-   was handed, six fields — `launcher`, where the shortcut launcher lives beneath the data root and whether this start
-   got it there, and `user_agent`, `<package name>/<version>` from the one read of the manifest that the outgoing
-   User-Agent comes from, which is also the identity the host answers under. The bundle dataclasses are defined here too
-   — they are the vocabulary the second half consumes.
+   was handed, seven fields — `launcher`, where the shortcut launcher lives in the bin root and whether this start got
+   it there, and `user_agent`, `<package name>/<version>` from the one read of the manifest that the outgoing User-Agent
+   comes from, which is also the identity the host answers under. The bundle dataclasses are defined here too — they are
+   the vocabulary the second half consumes.
 
 2. **`services.py`** — owns `WiringConfig` and `wire_services()`, which takes the four bundles plus
    `min_required_version`, `directories` and `launcher`, and constructs every service, injecting each one's

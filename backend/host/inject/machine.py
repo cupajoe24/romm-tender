@@ -1,9 +1,11 @@
-"""What the injector asks the MACHINE, because the window cannot answer it.
+"""What the injector asks the MACHINE, and the one thing it puts back.
 
 Contract: the readings taken from this computer rather than from the page — who
-else is loading code into Steam, and which Steam build is running. Both are
-questions the injector has to have answered before it evaluates anything, and
-neither can be put to the page at the moment it has to be answered.
+else is loading code into Steam, which Steam build is running, and whether Steam
+will open its debugger at all. The first two are questions the injector has to
+have answered before it evaluates anything, and neither can be put to the page at
+the moment it has to be answered; the third is a file under the Steam root, which
+is why it is answered here too.
 
 **Why not the window.** Measured on the device: at the earliest moment an
 injection is possible, every marker Decky Loader eventually sets — ``DFL``,
@@ -18,8 +20,13 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from host.single_instance import someone_listening
+
+if TYPE_CHECKING:
+    import logging
 
 # Decky Loader's own HTTP port — the address it serves its interface to Steam
 # from. Its systemd unit is ``plugin_loader.service``, running
@@ -32,6 +39,19 @@ DECKY_LOADER_PORT = 1337
 # directory — on this machine the second is a symlink to the first, and neither
 # is guaranteed to be.
 _STEAM_ROOTS = ((".local", "share", "Steam"), (".steam", "steam"))
+
+# The file Steam looks for at start-up to decide whether to open its CEF
+# debugger. Without it there is no port to attach to and no panel can be loaded.
+_DEBUGGER_MARKER = ".cef-enable-remote-debugging"
+
+# Our note that the marker is ours, written beside the log. Its FIRST LINE is
+# the absolute path of the marker that was created: the installer's
+# ``--uninstall`` removes exactly the path the note names, so the note has to
+# name the one file rather than a name to go looking for. ``install.sh`` writes
+# the same two-line shape under the same filename — the marker's path, then
+# which program wrote it and when — and names this constant;
+# ``tests/scripts/test_install_sh.py`` holds the two spellings equal.
+DEBUGGER_MARKER_NOTE = "debugger-marker"
 _PACKAGE_DIR = "package"
 _BRANCH_FILE = "beta"
 _MANIFEST_GLOB_PREFIX = "steam_client_"
@@ -142,3 +162,72 @@ def _read_branch(package_dir: str) -> str:
             return handle.read().strip()
     except OSError:
         return ""
+
+
+def ensure_debugger_marker(user_home: str, state_dir: str, logger: logging.Logger) -> bool:
+    """Make sure Steam's remote-debugging marker exists, and say whether it does.
+
+    Answers ``True`` where the marker is there — already, or because this call
+    created it — and ``False`` where it could not be. Never raises.
+
+    It is created rather than only reported, and on every start rather than
+    once, because another program on the same machine takes it away — which
+    program and why is ``docs/architecture/loading-the-panel.md``. Creating it
+    is not enough on its own, since Steam reads it at start-up, so the line this
+    writes says a restart is due.
+
+    The note beside it records that the marker is ours, which is the only
+    evidence ``install.sh --uninstall`` has for whether it may take the marker
+    away again.
+    """
+    root = _find_steam_root(user_home)
+    if root is None:
+        logger.warning("inject: no Steam directory found, so Steam's remote-debugging marker cannot be created")
+        return False
+    marker = os.path.join(root, _DEBUGGER_MARKER)
+    if os.path.exists(marker):
+        return True
+    try:
+        # Exclusive: a create that loses the race against the check above has to
+        # fail rather than succeed, or the note below would claim a marker some
+        # other program had just put there.
+        os.close(os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
+    except OSError as e:
+        logger.warning(f"inject: could not create Steam's remote-debugging marker at {marker}: {e}")
+        return False
+    logger.warning(
+        f"inject: created Steam's remote-debugging marker at {marker}; "
+        "Steam has to be restarted once before the panel can load"
+    )
+    # After the answer is settled, and never able to unsettle it: the marker is
+    # what Steam reads, and a note that could not be written costs the
+    # uninstaller its authority over one file rather than costing this start its
+    # debugger. Reporting the created marker as a failure would be a worse
+    # answer than the one thing that actually went wrong.
+    _write_marker_note(state_dir, marker, logger)
+    return True
+
+
+def _find_steam_root(user_home: str) -> str | None:
+    """The first Steam root that exists under *user_home*, in the order tried everywhere here."""
+    for parts in _STEAM_ROOTS:
+        candidate = os.path.join(user_home, *parts)
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def _write_marker_note(state_dir: str, marker: str, logger: logging.Logger) -> None:
+    """Record which marker this program created, for the uninstaller to read.
+
+    The path comes first because that is the line the uninstaller acts on.
+    Never raises: a note that could not be written is its own failure and not
+    the caller's.
+    """
+    note = os.path.join(state_dir, DEBUGGER_MARKER_NOTE)
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        with open(note, "w", encoding="utf-8") as handle:
+            handle.write(f"{marker}\ncreated by the backend {datetime.now(UTC).date().isoformat()}\n")
+    except OSError as e:
+        logger.warning(f"inject: created the marker but could not record it at {note}: {e}")

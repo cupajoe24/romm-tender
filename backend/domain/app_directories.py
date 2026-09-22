@@ -1,7 +1,7 @@
 """Where this program's directories are, computed from an environment.
 
-Contract: the pure mapping from an environment and a home directory to the six
-places this backend reads and writes. Nothing here touches the filesystem or
+Contract: the pure mapping from an environment and a home directory to the
+seven places this backend reads and writes. Nothing here touches the filesystem or
 reads ``os.environ`` itself — the environment arrives as an argument, which is
 what makes the whole ladder checkable against a table.
 
@@ -38,6 +38,7 @@ ENV_DATA_DIR = "TENDER_DATA_DIR"
 ENV_CACHE_DIR = "TENDER_CACHE_DIR"
 ENV_STATE_DIR = "TENDER_STATE_DIR"
 ENV_CODE_DIR = "TENDER_CODE_DIR"
+ENV_BIN_DIR = "TENDER_BIN_DIR"
 
 # Second rung. ``XDG_RUNTIME_DIR`` is the only one of these that is reliably set
 # on the reference machine; the other four were measured unset in both the login
@@ -49,16 +50,22 @@ XDG_CACHE_HOME = "XDG_CACHE_HOME"
 XDG_STATE_HOME = "XDG_STATE_HOME"
 XDG_RUNTIME_DIR = "XDG_RUNTIME_DIR"
 
+# Third rung, and the one directory more than one default sits under: the XDG
+# basedir spec puts two of its four built-in defaults here (`share` and
+# `state`, while config and cache are their own dotted names), and `~/.local/bin`
+# — which has no variable at all — is the third use of it.
+_LOCAL = ".local"
+
 
 @dataclass(frozen=True)
 class AppDirectories:
-    """The six places this backend uses, each already named after the program."""
+    """The seven places this backend uses, five of them named after the program."""
 
     config_dir: str
     """User intent — ``settings.json`` and nothing else."""
 
     data_dir: str
-    """The database. The one thing here that cannot be fetched again."""
+    """What cannot be fetched again. CONTEXT.md names what is in it."""
 
     cache_dir: str
     """Covers and artwork: everything re-derivable from the server."""
@@ -71,6 +78,18 @@ class AppDirectories:
 
     code_dir: str
     """The program itself — the launcher it ships is copied out of here."""
+
+    bin_dir: str
+    """Where a user's own executables go — the launcher is installed here.
+
+    One of the TWO roots not named after this program — the other is
+    :attr:`code_dir`, which is wherever the program was installed. This one is a
+    directory shared with every other program the user installed for themselves,
+    so a name of ours in it would be wrong. XDG names no variable for it either
+    — the basedir spec names the path itself — so the ladder here is
+    :data:`ENV_BIN_DIR` and then the built-in default, with no XDG rung between
+    them.
+    """
 
 
 def resolve_directories(environ: Mapping[str, str], user_home: str, code_fallback: str) -> AppDirectories:
@@ -87,9 +106,9 @@ def resolve_directories(environ: Mapping[str, str], user_home: str, code_fallbac
     nobody who checks.
     """
     config_home = _first(environ, XDG_CONFIG_HOME, os.path.join(user_home, ".config"))
-    data_home = _first(environ, XDG_DATA_HOME, os.path.join(user_home, ".local", "share"))
+    data_home = _first(environ, XDG_DATA_HOME, os.path.join(user_home, _LOCAL, "share"))
     cache_home = _first(environ, XDG_CACHE_HOME, os.path.join(user_home, ".cache"))
-    state_home = _first(environ, XDG_STATE_HOME, os.path.join(user_home, ".local", "state"))
+    state_home = _first(environ, XDG_STATE_HOME, os.path.join(user_home, _LOCAL, "state"))
 
     state_dir = _first(environ, ENV_STATE_DIR, os.path.join(state_home, APP_DIR_NAME))
     runtime_home = environ.get(XDG_RUNTIME_DIR, "").strip()
@@ -101,6 +120,7 @@ def resolve_directories(environ: Mapping[str, str], user_home: str, code_fallbac
         state_dir=state_dir,
         runtime_dir=os.path.join(runtime_home, APP_DIR_NAME) if runtime_home else state_dir,
         code_dir=_first(environ, ENV_CODE_DIR, code_fallback),
+        bin_dir=_first(environ, ENV_BIN_DIR, os.path.join(user_home, _LOCAL, "bin")),
     )
 
 

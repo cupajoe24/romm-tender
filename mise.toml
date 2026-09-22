@@ -83,6 +83,12 @@ run = [
     "cd backend/native && sha256sum -c libgavel-x86_64-linux.so.sha256",
     "python scripts/check_vendored_trees.py",
     "python scripts/check_generated_tab_icon.py",
+    # The two scripts a user runs outside this repository — the installer and
+    # the packager whose tarball it takes. The rest are developer tooling and
+    # stay out of scope.
+    "shellcheck install.sh scripts/package.sh",
+    "python scripts/check_shell_answer_functions.py",
+    "python scripts/check_generated_installer_logo.py",
 ]
 
 [tasks.gate]
@@ -135,6 +141,15 @@ mise run build
 bash scripts/dev_steam.sh restart
 exec python backend/main.py
 '''
+
+[tasks.package]
+description = "Build the frontend and assemble the release tarball under build/ (the artifact install.sh --from takes)"
+# The production build, not build:dev: a release carries no source maps. The
+# packager drops any it finds, so this is what keeps them out of the tarball
+# rather than what would notice them. Two steps rather than one because the
+# packager takes a directory and builds nothing itself, so the release workflow
+# can run the same script and leave one layout with one producer (#1904).
+run = ["pnpm -C frontend build", "bash scripts/package.sh --source . --out build"]
 
 [tasks.docs]
 description = "Serve the documentation site locally with live reload"
