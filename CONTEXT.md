@@ -434,7 +434,7 @@ display names resolve live from RomM; sync exclusion is the user-intent `enabled
 not per-platform local state. A `Platform` aggregate is reintroduced only when a concrete need lands (the
 standalone-emulator roadmap), not speculatively.
 
-### Emulator override vs default core vs active core
+### Emulator override vs default core vs launching emulator
 
 Three distinct notions in core selection, kept separate because they have different owners and lifetimes:
 
@@ -445,9 +445,17 @@ Three distinct notions in core selection, kept separate because they have differ
   scope. The plugin owns the override and stores **only the deviation**; the absence of an override means "follow the
   default." A core the user picks inside ES-DE's own UI is _not_ an emulator override in this sense — it is ES-DE's
   state, which the plugin does not own.
-- **Active core** — the core a ROM actually launches with: the override when one exists, the default otherwise. One
-  resolver answers it for both the launch and every read consumer (BIOS requirement, save path, game-detail badge), so
-  the launched core never diverges from what those reads assume.
+- **Launching emulator** — the one emulator a ROM actually launches with: the per-game **emulator override** when one
+  exists, else the **platform pick**, else the **default core** — and **whatever kind it is**, a RetroArch core or a
+  standalone emulator, which is why it is not named after either. One resolver answers it for both the launch and every
+  read consumer (BIOS requirement, save path, game-detail badge), so the launched emulator never diverges from what
+  those reads assume. On the wire the pair is still spelled `active_core` / `active_core_label`, and `active_core` there
+  is the **emulator identity** rather than a core file: `core_so` is absent for every standalone emulator, so a reader
+  reaching for it answers `None` for one and falls back to every declaring emulator — the degradation the identity work
+  removed. _Avoid_: **active core** for this, and "required by active core" for the row axis, which is **required by the
+  launching emulator** — the field it expands is spelled `required_by_active` and carries no "core" at all, so the
+  expansion added the one word that is wrong over a standalone pick. The identifiers `active_core`, `active_core_label`
+  and `required_by_active` keep their spellings; the prose around them does not expand them into a core.
 - **Platform pick** — the same resolution asked of a PLATFORM rather than a ROM, so with no per-game layer to apply: the
   per-platform override when its label still names a bakeable emulator, else the default emulator. It is one pick with
   two projections — the name a surface displays, and the **emulator identity** its BIOS answers key on — and resolving
@@ -473,9 +481,9 @@ and this launch does not use never makes the answer doubtful.
 Keeping the last two apart is the whole point of the vocabulary — "nothing wants this" is a finished answer and "nothing
 could be established" is the absence of one, and a single boolean called both _not required_. **Wanted** is a property
 of the platform's own emulators and does not move with which of them the user picked; the launch-scoped question is
-**required by active core**, which is what the missing-BIOS badge counts — beside **system image**, the console's own
-demand, which no count carries and which raises that same badge. The foil to **BIOS level** (the platform-wide readiness
-verdict: unknown / ok / partial / missing).
+**required by the launching emulator**, which is what the missing-BIOS badge counts — beside **system image**, the
+console's own demand, which no count carries and which raises that same badge. The foil to **BIOS level** (the
+platform-wide readiness verdict: unknown / ok / partial / missing).
 
 A wanted file need not be one the RomM library holds — the two sets overlap without either containing the other, and a
 platform's list is their **union**. A row the library does not hold is marked **not on server**: it counts towards
@@ -487,9 +495,9 @@ because nothing in the plugin can fetch it.
 Whether one row's requirement is met, and the axis the **readiness** counts key off. It is **not** whether something is
 at the destination: for a **folder declaration** the two come apart completely, since what satisfies the core is a file
 _inside_ the folder and RetroDECK links LRPS2's `pcsx2/bios` onto the BIOS root, so the folder is there on every
-install. Every statement below is scoped to a **required by active core** row first — a row the launching core does not
-require moves no count whatever its verdict — and the library's own held/offered ratio is a third axis again, counting
-what the RomM library holds rather than what is met.
+install. Every statement below is scoped to a **required by the launching emulator** row first — a row that emulator
+does not require moves no count whatever its verdict — and the library's own held/offered ratio is a third axis again,
+counting what the RomM library holds rather than what is met.
 
 - **met** — raises `required_downloaded`. For a declared folder, the resolver listed it and an image inside passes the
   core's own content check. For a declared file it is presence at the destination, answered by the resolver wherever it
@@ -548,14 +556,14 @@ table of it, per system.
 
 It is a **disjunction**, and that is what keeps it out of the counts. The console asks for _one_ of the images the core
 declares, not for each of them, so it is a single requirement over the whole list rather than one requirement per file.
-Folded into **required by active core** it would report every image the core declares as required —
+Folded into **required by the launching emulator** it would report every image the core declares as required —
 `0 / 5 required files ready` under SwanStation, which declares five; carried as its own axis it is worded "at least one"
 and never as a ratio, nor as a pointer at the file list, most of whose rows cannot answer it. The twenty in the same
 page's `(0/20 RomM library files)` is a different set again: the **library inventory** below.
 
 - **held** — one of the images is at its destination. Which one is not asked: any of them answers the whole requirement.
-- **absent** — the console needs one and every row the launching core declares was established to be absent. The **BIOS
-  level** goes to `missing`, tested ahead of the declines so a demonstration outranks a platform nothing could be
+- **absent** — the console needs one and every row the launching emulator declares was established to be absent. The
+  **BIOS level** goes to `missing`, tested ahead of the declines so a demonstration outranks a platform nothing could be
   established for. A withheld required row cannot hold with it: that row is one of the rows the disjunction is read
   over, so it leaves the answer **unsettled** instead.
 - **unsettled** — the console needs one and whether it is there could not be established. It can turn a green verdict
@@ -575,19 +583,20 @@ and neither half is ever rewritten into the other.
 
 A core states the demand as a disjunction only where it marks **nothing** required: that is the one shape in which "one
 of these" is the whole of what the core says. A core whose console needs an image and that does mark files required —
-Beetle PSX marks three of the same five — says what it has to say through those rows' **required by active core**, so
-its entries carry no count and its rows are not marked. The **system image candidate** flag is the same answer read for
-the launching core onto the row: this row is one of the images that would start the console on its own.
+Beetle PSX marks three of the same five — says what it has to say through those rows being **required by the launching
+emulator**, so its entries carry no count and its rows are not marked. The **system image candidate** flag is the same
+answer read for the launching emulator onto the row: this row is one of the images that would start the console on its
+own.
 
 That candidate set is deliberately **narrower** than the set the **system image** value is read over, which is every
-image the launching core declares whatever the core called it. The two answer different questions — one is the console's
+image the launching emulator declares whatever it called it. The two answer different questions — one is the console's
 verdict, the other is which rows a surface may mark as ways to reach it — so widening the flag to every image-demanding
 core would put a second mark on a requirement already stated, and narrowing the verdict to the marked rows would stop
 answering for the cores that state required files.
 
-Scoped to the **active core**, like **required by active core** and unlike **wanted**: one unchanged PlayStation reads
-`absent` under SwanStation, whose five declared images the console needs one of, and `not demanded` under PCSX ReARMed,
-which carries its own substitute.
+Scoped to the **launching emulator** — the scope **required by the launching emulator** shares and **wanted** does not:
+one unchanged PlayStation reads `absent` under SwanStation, whose five declared images the console needs one of, and
+`not demanded` under PCSX ReARMed, which carries its own substitute.
 
 ### Declaration register (firmware): read / packaged
 
@@ -608,11 +617,10 @@ its own file name.
 ### Library inventory (firmware): offered / held
 
 What the RomM library has for a platform, and how much of it is on this machine — the third counted set beside the
-launching emulator's **required by active core** files and the console's own **system image** demand. **offered**
-(`server_count`) is every firmware file the library holds for the platform; **held** (`local_count`) is how many of
-those the plugin found at their destination. Both are counted over the library's files alone, so a row the library does
-not have — **not on server** — is in neither, however required it is. The code calls the pair the **held/offered
-ratio**.
+**required by the launching emulator** files and the console's own **system image** demand. **offered** (`server_count`)
+is every firmware file the library holds for the platform; **held** (`local_count`) is how many of those the plugin
+found at their destination. Both are counted over the library's files alone, so a row the library does not have — **not
+on server** — is in neither, however required it is. The code calls the pair the **held/offered ratio**.
 
 It is a progress bar over a set the user can finish, not a readiness claim, which is why nothing about it keys off a
 **row verdict**: `held` answers whether something is at the destination, and for a **folder declaration** that is
