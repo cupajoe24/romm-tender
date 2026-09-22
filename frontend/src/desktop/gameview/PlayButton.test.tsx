@@ -1206,6 +1206,87 @@ describe("PlayButton", () => {
       });
     });
 
+    it("displays 'Unknown' in grey when bios_level is unknown and no required files are missing", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: {
+          needs_bios: true,
+          platform_slug: "ps2",
+          server_count: 2,
+          local_count: 2,
+          all_downloaded: true,
+          required_count: 0,
+          required_downloaded: 0,
+        },
+        bios_level: "unknown",
+        bios_label: "Unknown",
+        bios_status_unknown: false,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: true,
+        biosRequiredMissing: false,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        const textEl = screen.getByText("Unknown");
+        expect(textEl).toBeInTheDocument();
+        expect(textEl.closest(".tender-desktop-bios")).toHaveTextContent("Unknown");
+      });
+    });
+
+    it("displays 'unknown' in grey when bios_status_unknown is true", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: null,
+        bios_level: null,
+        bios_label: "",
+        bios_status_unknown: true,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: false,
+        biosRequiredMissing: false,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        const textEl = screen.getByText("Unknown");
+        expect(textEl).toBeInTheDocument();
+        expect(textEl.closest(".tender-desktop-bios")).toHaveTextContent("Unknown");
+      });
+    });
+
+    it("displays 'Partial' in amber when bios_level is partial and no required files are missing", async () => {
+      vi.mocked(backend.getBiosStatus).mockResolvedValue({
+        bios_status: {
+          needs_bios: true,
+          platform_slug: "ps2",
+          server_count: 2,
+          local_count: 1,
+          all_downloaded: false,
+          required_count: 0,
+          required_downloaded: 0,
+        },
+        bios_level: "partial",
+        bios_label: "Partial",
+        bios_status_unknown: false,
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: true,
+        biosRequiredMissing: false,
+        biosLabel: "Partial",
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Partial")).toBeInTheDocument();
+      });
+    });
+
     it("switches to emulation-settings tab on click", () => {
       const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(baseDetail);
