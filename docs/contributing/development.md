@@ -239,6 +239,15 @@ bash install.sh --from build/romm-tender-<V>.tar.gz
 That is the same path a release takes, with the download skipped — `install.sh --uninstall` takes it back out, and
 leaves the database, the settings and the launcher where they are.
 
+Literally the same path: the release workflow's second job runs those same two steps on the tagged tree and attaches
+what comes out, so there is one producer for a local build and a published one. What it attaches is held to
+`scripts/check_release_tarball.py`, which opens the archive and asserts what the installer relies on — one top-level
+`romm-tender/` directory, the files an install starts from together with the version file and the licence texts a
+distributed copy carries, nothing the packager prunes, and a sidecar `sha256sum -c` accepts. That check is not first run
+at the tag: CI's build job packs a tarball from every pull request's own build and runs it there too, for the reason
+[ADR-0039](../adr/0039-the-release-ships-the-packagers-tarball.md) gives. What no run of it can say is whether the code
+inside works — the script's own docstring states the blind spot.
+
 ## Linting
 
 ```bash
