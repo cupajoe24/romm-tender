@@ -407,14 +407,14 @@ does not say it owns its regions. A tabbed body gets none from the frame, and ne
 
 ## Pages
 
-| Page            | Width | Holds                                                                                                         | Today                                                                             |
-| --------------- | ----- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Main            | 348   | notices, status, the conditional slot, the download summary, the menu                                         | as described                                                                      |
-| Sync            | 854   | preview as a table, the run as a plan, Skip preview, Force Full Sync, Steam memory, session budget, last runs | as described; the import choice (#1364) is the one thing still to come            |
-| Library         | 854   | Platforms as list and detail (sync, core, BIOS files, removal); Collections as filter and list                | Platforms is built; Collections still carries the narrow page's controls and list |
-| Settings        | 854   | five sections, list and detail                                                                                | as described; RetroAchievements has no sign-in to hold yet (#1627)                |
-| Data Management | 854   | six populations as list and detail — what this device holds, and what can be taken back                       | as described                                                                      |
-| Downloads       | 348   | the queue with its controls                                                                                   | unchanged                                                                         |
+| Page            | Width | Holds                                                                                                                                          | Today                                                                             |
+| --------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Main            | 348   | notices, status, the conditional slot, the download summary, the menu                                                                          | as described                                                                      |
+| Sync            | 854   | preview as a table, the run as a plan, Skip preview, Force Full Sync, Steam memory, session budget, last runs                                  | as described; the import choice (#1364) is the one thing still to come            |
+| Library         | 854   | Platforms as list and detail (sync, core, BIOS files, removal); Collections as list and detail — the kinds, each kind's collections as a table | Platforms is built; Collections still carries the narrow page's controls and list |
+| Settings        | 854   | five sections, list and detail                                                                                                                 | as described; RetroAchievements has no sign-in to hold yet (#1627)                |
+| Data Management | 854   | six populations as list and detail — what this device holds, and what can be taken back                                                        | as described                                                                      |
+| Downloads       | 348   | the queue with its controls                                                                                                                    | unchanged                                                                         |
 
 `Page` is `"main" | "sync" | "library" | "settings" | "data" | "downloads"`. **System is gone** — its core picker and
 BIOS files are in Library › Platforms, and the value, the router branch and the menu entry left with it.
@@ -645,8 +645,8 @@ own to.
 ### Tables
 
 Anything with more than two facts per row is a table with a header row: BIOS files (File, On disk, Contents), the
-preview (a row per platform; New, Updated, Removed), registered devices, cleanup candidates, collections. Those facts
-were once folded into a field's label and description, which is why #1803's third axis had no slot on the rows the
+preview (a row per platform; New, Updated, Removed), registered devices, cleanup candidates, a kind's collections. Those
+facts were once folded into a field's label and description, which is why #1803's third axis had no slot on the rows the
 System page drew; the platform detail's BIOS table is where that column now sits.
 
 **There is one table, and a page passes the register it is set in** (`PaneTableHeader` / `PaneTableRow` in
@@ -1432,18 +1432,96 @@ that failure forgets the slug, so re-selecting the platform asks again, which is
 failure on this pane that does not need the page reopened. It is asked again after a delete, so the button stops
 offering saves that are gone.
 
-**Collections** has no per-entry detail, so it is one wide list: the favorites toggle and the Mine / All owner scope on
-top, the kind filter (Standard, Smart, Virtual — with the Franchise / IGDB Collection split inside Virtual), the fuzzy
-search with its 50-row render cap, Enable all / Disable all with today's semantics, and rows with name, kind, a **mine**
-marker (the payload carries `is_own`, not an owner name), ROM count and the toggle. The collections tab's permanent
-brick on one transient failure (#1020) is fixed as part of the rewrite.
+**Collections** is list and detail too, and **the list holds the kinds, not the collections**: kind is where a reader
+already navigates, so it becomes the list, and a collection is a row in its kind's pane. The layout study the shape was
+chosen from is [collections-layouts.html](../assets/collections-layouts.html). From the top, the list column carries:
 
-**Already shipped on the tab as it stands, and unchanged by that rewrite:** its four writes — a row's toggle, the
-whole-kind Enable all / Disable all, the batch write a search or filter narrows them to, and the Mine / All owner scope
-— are optimistic in the way the Platforms list is, and answer a refusal the same way. The control goes back where it was
-and a line under Enable all / Disable all says why, taken back by the next collection write that succeeds and by leaving
-the view it is about: entering the tab and switching sub-tab both reset the search and the filter, so the line resets
-with them.
+- **Other users' collections**, a toggle in the list header — the slot Platforms gives Enable all / Disable all —
+  described as "Their public ones, shown and synced". It is the owner scope (CONTEXT.md → Collection owner-scope) and
+  takes the place of the Mine / All pair with the behaviour unchanged: on is All, off is Mine. It is a switch at the
+  head of the column rather than a segmented control beside the search because it is a sync setting that applies to two
+  of the kinds, and a control shaped like a filter said otherwise.
+- **Favorites**, a row with its sync switch in it, as a platform row has. Its count is the favorites collection's ROM
+  count. With no favorites collection the row stays, greyed, with a dash for the count.
+- **Collections** — the standard kind, the favorites collection left out — and **Smart collections**.
+- **Autogenerated**, a group heading over two rows, **Franchises** and **IGDB collections**.
+
+Collections, Smart collections and Autogenerated follow RomM's own headings — "Collections", "Smart Collections" and
+"Autogenerated collections"; Favorites, Franchises and IGDB collections are this page's.
+
+A kind row states "N of M on": how many of its collections are switched on. Every one of those counts comes from the one
+`get_collections` answer, so no row costs a read, and focus selecting holds nothing back behind a press here.
+
+A kind's pane holds, in order:
+
+1. the kind's name with a short description;
+2. **one sentence, worded for that kind, on what turning one of its collections on does**: it adds all of that
+   collection's games to Steam, **including games on platforms the reader does not sync**, and groups them in a Steam
+   collection named after it (`RomM: [name] (host)`, with the kind's suffix, none on Collections or Favorites, when the
+   Steam Library setting distinguishes collection types). The narrow tab says neither;
+3. one line with the fuzzy search and Enable all / Disable all;
+4. a table drawn with § Tables' shared one — Collection, Owner, ROMs, In Steam, Sync on Collections and Smart
+   collections, and Collection, ROMs, In Steam, Sync on Franchises and IGDB collections, which have no owner. Owner
+   reads _you_ or the owner's RomM user name. Collections that are on sit above those that are off, and the order is
+   frozen while the page is open, as on Platforms. The 50-row render cap stays; in practice only the autogenerated kinds
+   reach it.
+
+The Favorites pane has no table: the sentence and the game count. What the Favorites row does when the listing holds
+more than one favorites collection is left for the build: today the tab then disables its favorites toggle and lists
+them all under Standard, and another user's public favorites collection is enough to cause it.
+
+**In Steam counts how many of a collection's games already have a shortcut**, so its distance from ROMs is roughly what
+turning the collection on adds. It costs no request. RomM's collection listings carry each collection's member ROM ids,
+on all three kinds, and the count is those ids looked up against the shortcuts Tender made (`roms.shortcut_app_id`). It
+is approximate where several versions of one game share a shortcut. The same listings carry the owner's user name on
+standard and smart collections, which is what the Owner column shows. The backend computes the count and forwards it
+with the owner's name; the member ids do not cross the wire. `get_collections` receives the member ids and the owner's
+name today and forwards neither, and the page still costs the four RomM requests `get_collections` makes: one each for
+standard and smart, and one for each of the two virtual types the plugin syncs.
+
+**Those two columns are why a kind is the pane and a collection a row.** A pane per collection would show the owner and
+how many of its games are already in Steam, and both fit as a column of the kind's table, so such a pane spends the
+whole detail on what one row already says.
+
+**Enable all / Disable all ask first whenever no search narrows the list, on every kind** — Franchises and IGDB
+collections included, which a confirmation reserved for a whole RomM kind would otherwise leave unasked now that each is
+half of the virtual kind. Where a search narrows the list they write every collection the search leaves, those past the
+50-row render cap included, in one batch. The standard write leaves the favorites collection out, and with Other users'
+collections off no write reaches a collection of another user. On Franchises and on IGDB collections they write that
+type alone.
+
+**The kinds' names come from the words listed above wherever a reader meets them** — this page, the Steam names the
+`by_label` naming mode builds (CONTEXT.md → Collection naming mode), the description of the Steam Library setting that
+turns that mode on, and the user guide. Under `by_label` a standard collection carries no suffix; a smart collection
+carries `(Smart)`, a franchise `(Franchise)` and an IGDB collection `(IGDB Collection)`, each a short singular of its
+row's name; a virtual collection of no known type carries `(Autogenerated)`, its group heading's word as it stands.
+`(IGDB Collection)` keeps its capital because Steam tells collections apart without regard to case, and Tender finds an
+existing one the same way, so a change of case alone would not rename a collection that already exists. Today the
+suffixes read `(Standard)`, `(Smart)`, `(Franchise)`, `(IGDB Collection)` and `(Virtual)`.
+[steam-non-steam-shortcuts.md](steam-non-steam-shortcuts.md) § Collection naming mode lists the four a known type gets
+and requires them to match the frontend's collection-type words, and the code and tests around
+`domain/collection_label.py` say the same; against the page's new plural words a singular suffix, or none, cannot meet
+that requirement, so the build replaces it wherever it is stated with the rule stated here. It also rewords the
+"different types stay separate" claim wherever it is made, since it no longer holds without exception: CONTEXT.md →
+Collection naming mode, the user guide, the Steam Library setting's description, and the backend and frontend comments,
+docstrings and test docstrings that repeat it. They word it more than one way ("stay separate", "land in separate Steam
+collections", one split across a line), so a single phrase search does not find them all. Because a standard collection
+carries no suffix, a standard collection named "Foo (Smart)" and a smart one named "Foo" end up with the same Steam name
+and merge into one; that is accepted, since it takes a name spelling out another kind's suffix. Dropping `(Standard)`
+and replacing `(Virtual)` renames those Steam collections in a `by_label` library; that is accepted, and the old-named
+ones must not be left behind. The keys on the wire and in `settings.json` stay `standard` / `smart` / `virtual`.
+
+**A failed read is answered, and asked again** (#1020). Today the tab marks its collections read as done before the
+fetch and never clears the mark, so one transient failure leaves the error card up for as long as the page is open, and
+the card says "Check your connection" whatever the backend answered. The card states the backend's message, and leaving
+the tab and coming back asks again.
+
+**The four writes are optimistic, and this is already so on the tab as it stands.** A row's toggle, the whole-kind
+Enable all / Disable all, the batch write a search narrows them to, and the owner scope each answer a refusal the way
+the Platforms list does. The control goes back where it was and a line says why, taken back by the next collection write
+that succeeds and by leaving the view it is about. On the narrow tab that line sits under Enable all / Disable all, and
+entering the tab and switching kind both reset it along with the search and the filter; where it sits on the new page,
+and what resets it there, the build decides.
 
 ## Settings
 
@@ -1642,7 +1720,8 @@ The pages land in this order under #1808, each with the open work that already s
    and the Data Management platform modal retire. Carries #164, #1803's column, #1016's frontend half, #1020's
    collections fix. Lands as two PRs, Platforms then Collections. Second on purpose: the emu-atlas work under #1735
    renders its BIOS and core changes into the new Platforms detail instead of the retired System page. **Platforms has
-   landed**; Collections keeps the narrow page's controls and list until its own PR.
+   landed**; Collections keeps the narrow page's controls and list until its own PR
+   ([#1833](https://github.com/danielcopper/romm-tender/issues/1833)), which makes it list and detail over the kinds.
 3. **Sync** ([#1814](https://github.com/danielcopper/romm-tender/issues/1814)) — the new page, Main's reduction to
    status rows and one conditional slot, Skip preview persisted, the run-list read, the per-platform preview breakdown.
    Carries #886's presentation half. **Landed**, in two PRs: the backend half, then the page and Main's reduction. The
@@ -1674,6 +1753,13 @@ store screenshots (#830) are taken after.
   also carries the settled part every shape shared — the review as a dialog — and a table of which numbers exist today,
   which is what ruled the disk walk out; the study leaves the size as counts-or-a-scan, and the server's own figure
   replaced it afterwards. Like the studies below it is a record of a choice, not a description of the page.
+- The layout study the Collections tab's shape was chosen from:
+  [collections-layouts.html](../assets/collections-layouts.html) — today's tab drawn at the new width, then three
+  layouts at the Deck's real size: one wide table under a strip of filters, a collection per pane (the Platforms shape),
+  and the kinds as the list with each kind's collections as a table in its pane. The third is what this page describes,
+  and the section above says why the second lost. Its closing list settles what that section states: the owner toggle's
+  wording, the kind names, the In Steam and Owner columns, when Enable all asks first, the order and #1020's fix. Like
+  the studies below it is a record of a choice, not a description of the page.
 - The layout study Main's navigation was chosen from: [main-layouts.html](../assets/main-layouts.html) — four layouts at
   the panel's real 348 px (status as the card, the menu as the card, menu first, and the chosen one), each drawn quiet
   and with a preview waiting; a closing **Heute** section shows Main as it stood when the study was drawn, and its own

@@ -837,32 +837,40 @@ play row's PLAYTIME / LAST PLAYED pair, which nothing else reads and which stays
 ### Collection kind (Standard / Smart / Virtual)
 
 The axis on which a RomM collection is classified for syncing — the internal literal `standard` / `smart` / `virtual`
-(the `enabled_collections` bucket keys, `WorkUnit.collection_kind`, and `CollectionSyncState.collection_kind`), matching
-RomM's own UI vocabulary. **Standard** is a manually-created collection (RomM's ownership-carrying kind — its ROM
-membership is hand-picked; the auto-managed favorites collection is a Standard one); **Smart** is a saved-search whose
-membership resolves at query time; **Virtual** is an ownerless grouping RomM derives from IGDB metadata (franchise /
-series). Only Standard and Smart are stampable for the incremental skip. Internal-name history: the first kind was
-called `user` until #1539 renamed it `standard` (display "My" → "Standard").
+(the `enabled_collections` bucket keys, `WorkUnit.collection_kind`, and `CollectionSyncState.collection_kind`), whose
+values match RomM's own kind labels (Standard / Smart / Virtual); RomM's code calls the first kind `regular`.
+**Standard** is a manually-created collection (one of RomM's two owned kinds — its ROM membership is hand-picked; the
+auto-managed favorites collection is a Standard one); **Smart** is a saved-search whose membership resolves at query
+time, and the other owned kind; **Virtual** is an ownerless grouping RomM derives from game metadata, of which the
+plugin syncs two `virtual_type`s — `franchise` and `collection` (an IGDB collection). Only Standard and Smart are
+stampable for the incremental skip. Internal-name history: the first kind was called `user` until #1539 renamed it
+`standard` (display "My" → "Standard"). What the QAM calls the kinds is decided in `docs/architecture/qam-panel.md` §
+Library, not here, and the literals stay as they are whatever it calls them.
 
-### Collection owner-scope (Mine / All)
+### Collection owner-scope
 
-The ownership filter over the collection list on a shared RomM server — the `collection_owner_scope` setting valued
-`all` (every collection the server lists, including other users' public ones) or `own` (only the signed-in user's own
-collections). Orthogonal to the collection kind axis: it filters by owner (`is_own` / `user_id` vs `romm_user_id`), not
-by kind, and virtual collections have no owner so they always survive. The stored value stays `own` / `all`; only the
-QAM label is **Mine** / **All** (the value was left `own` to avoid a settings migration, #1539).
+Whether other users' collections on a shared RomM server are part of this device's sync — the `collection_owner_scope`
+setting valued `all` (every collection RomM lists to the signed-in user: their own, and other users' public ones) or
+`own` (only their own). **A sync scope, not a filter**: under `own`, a foreign standard or smart collection is hidden
+from the list **and** left out of the sync, even one switched on earlier — once the signed-in user's id is known, since
+until then no collection counts as foreign. Orthogonal to the collection kind axis: it decides by owner (`is_own` /
+`user_id` vs `romm_user_id`), not by kind, and virtual collections have no owner so it never touches them. The stored
+values are `own` / `all` whatever the QAM calls them. How the QAM presents it is decided in
+`docs/architecture/qam-panel.md` § Library. _Avoid_ calling it a filter.
 
 ### Collection naming mode (merge / by_label)
 
 How the Steam-collection **name** is formed when RomM collections share a display name across kinds — the
 `collection_naming_mode` setting valued `merge` (default) or `by_label`. Under **`merge`**, same-named collections union
-into one `RomM: [<name>] (<host>)` Steam collection (#1503). Under **`by_label`**, each name carries its **fine type
-label** so distinct groupings stay separate: `RomM: [<name> (Franchise)]`, `RomM: [<name> (IGDB Collection)]`,
-`RomM: [<name> (Smart)]`, `RomM: [<name> (Standard)]`. The label is the fine label, not the coarse kind — franchise and
-IGDB-collection are both `kind="virtual"`, distinguished by `virtual_type` (see the **Collection kind** entry above).
-Computed backend-side at the reporter's union key (`domain/collection_label.py`), so the wire payload stays name→appIds
-and the frontend needs no change; the mode flip is applied by the ordinary complete-set reconcile on the next normal
-sync (no Force Full Sync). Same-name-**within-one-label** still unions.
+into one `RomM: [<name>] (<host>)` Steam collection (#1503). Under **`by_label`**, same-named collections of different
+types stay separate Steam collections, told apart by a **type label** appended to the name, and the type label follows
+what the QAM calls the kind; the labels a known type gets are listed in `docs/architecture/steam-non-steam-shortcuts.md`
+§ Collection naming mode. For a virtual collection the type label names its virtual type rather than the kind —
+franchise and IGDB-collection are both `kind="virtual"`, distinguished by `virtual_type` (see the **Collection kind**
+entry above) — except one of no known type, which gets the kind's label. Computed backend-side at the reporter's union
+key (`domain/collection_label.py`), so the wire payload stays name→appIds and the frontend needs no change; the mode
+flip is applied by the ordinary complete-set reconcile on the next normal sync (no Force Full Sync). Same-named
+collections that share a type label still union.
 
 ### Surface (bigpicture / desktop)
 
