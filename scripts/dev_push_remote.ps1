@@ -171,7 +171,7 @@ try {
         New-Item -ItemType Directory -Path $stageBackend -Force | Out-Null
         Copy-Item (Join-Path $repoRoot "backend/*") -Destination $stageBackend -Recurse -Force
 
-        # Bin directory (rom-launcher)
+        # Bin directory (tender-rom-launcher)
         if (Test-Path (Join-Path $repoRoot "bin")) {
             $stageBin = Join-Path $stageDir "bin"
             New-Item -ItemType Directory -Path $stageBin -Force | Out-Null
@@ -218,7 +218,7 @@ try {
 
     if ($PushBackend) {
         # Ensure executable permissions on launcher
-        ssh -p $Port "${RemoteUser}@${RemoteHost}" "chmod +x $Dest/bin/rom-launcher 2>/dev/null || true"
+        ssh -p $Port "${RemoteUser}@${RemoteHost}" "chmod +x $Dest/bin/* 2>/dev/null || true"
     }
 
     if ($RestartSteam) {

@@ -194,7 +194,7 @@ echo "==> Pushing files to ${REMOTE_USER}@${REMOTE_HOST}:${DEST}/..."
 scp -P "$PORT" -r "$STAGE_DIR"/* "${REMOTE_USER}@${REMOTE_HOST}:${DEST}/"
 
 if [[ "$PUSH_BACKEND" = true ]]; then
-  ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "chmod +x $DEST/bin/rom-launcher 2>/dev/null || true"
+  ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "chmod +x $DEST/bin/* 2>/dev/null || true"
 fi
 
 if [[ "$RESTART_STEAM" = true ]]; then
