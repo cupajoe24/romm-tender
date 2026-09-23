@@ -23,17 +23,28 @@ whether this script still has a stderr afterwards — is invisible without one.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import os
 import pty
 import re
 import selectors
 import shutil
+import struct
 import subprocess
+import sys
 import tarfile
+import termios
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
+
+from host.single_instance import LOCK_FILENAME
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _REPO = Path(__file__).resolve().parents[2]
 _INSTALL = _REPO / "install.sh"
@@ -70,6 +81,7 @@ case "$*" in
         exit 0
         ;;
     *"is-active"*) exit "${STUB_UNIT_ACTIVE:-3}" ;;
+    *"MainPID"*) printf '%s\\n' "${STUB_UNIT_MAIN_PID:-0}" ;;
     *"enable"*) [ -z "${STUB_ENABLE_DELAY:-}" ] || sleep "$STUB_ENABLE_DELAY" ;;
 esac
 exit 0
@@ -79,29 +91,85 @@ _CURL_STUB = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$STUB_CURL_ARGV_LOG"
 out=""
 url=""
+bar="no"
+write_out=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -o) out="$2"; shift 2 ;;
+        -w) write_out="$2"; shift 2 ;;
         --max-time) shift 2 ;;
+        --progress-bar) bar="yes"; shift ;;
         -*) shift ;;
         *) url="$1"; shift ;;
     esac
 done
 printf '%s\\n' "$url" >> "$STUB_CURL_LOG"
+# What the bar would be sized from: with no COLUMNS exported, curl 8.21 asks its
+# stdin for the window size.
+if [ -t 0 ]; then stdin="terminal"; else stdin="not a terminal"; fi
+printf '%s %s\\n' "$url" "$stdin" >> "$STUB_CURL_STDIN_LOG"
+# `-w '%{http_code}'` is answered the way curl answers it: the final status
+# alone on stdout, with no newline, whether the transfer succeeded or not.
+write_status() {
+    [ -n "$write_out" ] || return 0
+    if [ "$write_out" != "%{http_code}" ]; then
+        printf 'stub curl: no answer for -w %s\\n' "$write_out" >&2
+        exit 2
+    fi
+    printf '%s' "$1"
+}
 if [ "$url" = "$STUB_DEBUGGER_URL" ]; then
     [ "${STUB_DEBUGGER:-silent}" = "answer" ] || exit 22
     echo '{"Browser":"stub"}'
     exit 0
 fi
+if [ "$bar" = "yes" ] && [ -n "${STUB_CURL_DIES_MIDWAY:-}" ]; then
+    # A transfer the server cut short, in the shape curl leaves behind: the bar
+    # stops where it stopped, the reason is written onto that same line, and a
+    # blank line follows it. The server had answered 200 before it stopped.
+    printf '\\r############ 15.0%%curl: (18) end of response with 340000 bytes missing\\n\\n' >&2
+    write_status 200
+    exit 18
+fi
 source="$STUB_SERVE/${url##*/}"
-[ -f "$source" ] || exit 22
+status=200
+case "$url" in
+    *.tar.gz) status="${STUB_CURL_TARBALL_STATUS:-200}" ;;
+    *.sha256) status="${STUB_CURL_SIDECAR_STATUS:-200}" ;;
+esac
+[ -f "$source" ] || status=404
+if [ "$status" -ge 400 ]; then
+    # What `curl -f` leaves behind on an error answer: no file, curl's reason on
+    # a line of its own, and exit 22. Where it would have drawn a bar, it draws
+    # none and a blank line follows the reason.
+    write_status "$status"
+    printf 'curl: (22) The requested URL returned error: %s\\n' "$status" >&2
+    [ "$bar" = "no" ] || printf '\\n' >&2
+    exit 22
+fi
+if [ -n "${STUB_CURL_SIDECAR_DROPS:-}" ] && [ "${url%.sha256}" != "$url" ]; then
+    # A connection that fails before any answer: curl's reason, status 000, exit 7.
+    printf 'curl: (7) Failed to connect to stub: Connection refused\\n' >&2
+    write_status 000
+    exit 7
+fi
+# A transfer that reached the end, drawn the way curl draws one: rewritten in
+# place from the start of the line, and ended with a newline of its own.
+[ "$bar" = "no" ] || printf '\\r######################## 100.0%%\\n' >&2
 if [ -n "$out" ]; then cp "$source" "$out"; else cat "$source"; fi
+write_status 200
 """
 
 _PGREP_STUB = """#!/usr/bin/env bash
-# Answers for `steam` only, and only when the test says it is up.
-[ "${STUB_STEAM_RUNNING:-no}" = "yes" ] || exit 1
-printf '4242\\n'
+# Answers for `steam` only, and only when the test says it is up — told apart by
+# its flag, so a pgrep asked anything else answers nothing here.
+case "$1" in
+    -x)
+        [ "${STUB_STEAM_RUNNING:-no}" = "yes" ] || exit 1
+        printf '4242\\n'
+        ;;
+    *) exit 1 ;;
+esac
 """
 
 _PYTHON_STUB = """#!/usr/bin/env bash
@@ -128,6 +196,7 @@ class Install:
         self.systemctl_log = tmp_path / "systemctl.log"
         self.curl_log = tmp_path / "curl.log"
         self.curl_argv_log = tmp_path / "curl-argv.log"
+        self.curl_stdin_log = tmp_path / "curl-stdin.log"
         self.python = self.stubs / "stub-python3"
 
         for directory in (self.home, self.stubs, self.serve, self.runtime):
@@ -135,6 +204,7 @@ class Install:
         self.systemctl_log.touch()
         self.curl_log.touch()
         self.curl_argv_log.touch()
+        self.curl_stdin_log.touch()
         _write_executable(self.stubs / "systemctl", _SYSTEMCTL_STUB)
         _write_executable(self.stubs / "curl", _CURL_STUB)
         _write_executable(self.python, _PYTHON_STUB)
@@ -146,6 +216,10 @@ class Install:
     @property
     def unit(self) -> Path:
         return self.home / ".config" / "systemd" / "user" / "romm-tender.service"
+
+    @property
+    def lock(self) -> Path:
+        return self.data / LOCK_FILENAME
 
     @property
     def marker(self) -> Path:
@@ -163,6 +237,10 @@ class Install:
             # whether the mark and the row marks are drawn as glyphs. The cases
             # that test the other answer override it.
             "LANG": "C.UTF-8",
+            # A real terminal says which one it is, and `tput` answers nothing
+            # at all without it — so a run that asks how wide the terminal is
+            # would be answered by the fallback rather than by the terminal.
+            "TERM": "xterm-256color",
             "XDG_RUNTIME_DIR": str(self.runtime),
             "TENDER_PYTHON": str(self.python),
             "TENDER_CODE_DIR": str(self.code),
@@ -176,6 +254,7 @@ class Install:
             "STUB_SYSTEMCTL_LOG": str(self.systemctl_log),
             "STUB_CURL_LOG": str(self.curl_log),
             "STUB_CURL_ARGV_LOG": str(self.curl_argv_log),
+            "STUB_CURL_STDIN_LOG": str(self.curl_stdin_log),
             "STUB_SERVE": str(self.serve),
             "STUB_DEBUGGER_URL": _DEBUGGER_PROBE,
         }
@@ -209,7 +288,14 @@ class Install:
             start_new_session=True,
         )
 
-    def on_a_terminal(self, *args: str, answer: str = "yes", **extra: str) -> tuple[int, str]:
+    def on_a_terminal(
+        self,
+        *args: str,
+        answer: str = "yes",
+        stdin_pipe: bool = False,
+        width: int | None = None,
+        **extra: str,
+    ) -> tuple[int, str]:
         """Run the installer with a controlling terminal, and type *answer* at its prompt.
 
         ``pty.fork`` rather than a pipe: the acknowledgement opens ``/dev/tty``,
@@ -217,16 +303,35 @@ class Install:
         pipe on stdin does not give it one. The child becomes a session leader
         with the pty attached, which is what a user running this in a shell has.
 
+        *stdin_pipe* puts a pipe on the child's fd 0 and leaves the pty on the
+        other two, which is the shape ``curl … | bash`` has: a terminal to draw
+        on, a terminal to ask on, and the script itself on stdin. The answer
+        still goes through the pty, because that is where ``/dev/tty`` reads.
+
+        *width* is the terminal's own width, in columns. It is set from the
+        CHILD on the pty's slave end before the script is exec'd, so there is no
+        window in which the script could ask and be answered by the default.
+
         Answers with the exit status and everything that reached the terminal —
         one stream, because a terminal is one stream.
         """
         env = self.env(**extra)
+        feed = os.pipe() if stdin_pipe else None
         pid, master = pty.fork()
         if pid == 0:  # pragma: no cover - the child execs before it can be measured
             try:
+                if width is not None:
+                    fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack("HHHH", 40, width, 0, 0))
+                if feed is not None:
+                    os.dup2(feed[0], 0)
+                    os.close(feed[0])
+                    os.close(feed[1])
                 os.execve("/bin/bash", ["bash", str(_INSTALL), *args], env)
             finally:
                 os._exit(127)
+        if feed is not None:
+            os.close(feed[0])
+            os.close(feed[1])
         os.write(master, f"{answer}\n".encode())
         return _drain(pid, master)
 
@@ -239,6 +344,10 @@ class Install:
     def curl_argv(self) -> list[str]:
         """Every curl invocation's whole argument line, for the flags the URL does not show."""
         return self.curl_argv_log.read_text(encoding="utf-8").split("\n")[:-1]
+
+    def curl_stdin(self) -> list[str]:
+        """Every curl invocation's URL, and whether its stdin was a terminal."""
+        return self.curl_stdin_log.read_text(encoding="utf-8").split("\n")[:-1]
 
     def publish_release(self, *, tag: str = _TAG, archive: str | None = None, checksum: bool = True) -> Path:
         """Put a real tarball where the stubbed curl will serve it from."""
@@ -284,6 +393,9 @@ def _drain(pid: int, master: int, timeout: float = 30.0) -> tuple[int, str]:
 
 
 _ANSI = re.compile(r"\x1b\[([\d;]*)([A-Za-z])")
+
+# A row as the replay shows it: a mark of any width, then its label.
+_ROW_SHAPE = re.compile(r"^\S+ (Checking|Installing|Service|Steam) ")
 
 
 def _screen(transcript: str) -> str:
@@ -803,6 +915,15 @@ class TestTheAcknowledgement:
         assert sidecar, "the checksum was never fetched"
         assert not any("--progress-bar" in line for line in sidecar)
 
+    def test_the_bar_is_sized_from_the_terminal_under_a_piped_script(self, machine):
+        """Under ``curl … | bash`` stdin is the script, and with no COLUMNS exported curl 8.21 sizes from it."""
+        machine.publish_release()
+
+        code, _output = machine.on_a_terminal("--version", _VERSION, answer="y", stdin_pipe=True)
+
+        assert code == 0
+        assert f"{_DOWNLOAD_BASE}/{_TAG}/{_ARCHIVE} terminal" in machine.curl_stdin()
+
     def test_a_piped_download_stays_silent(self, machine):
         machine.publish_release()
 
@@ -1060,6 +1181,7 @@ class TestWhatItDownloads:
         assert not machine.code.exists()
 
     def test_a_release_with_no_tarball_says_so(self, machine):
+        """A tarball the server answers 404 for is reported as the release carrying none."""
         machine.publish_release()
         (machine.serve / _ARCHIVE).unlink()
 
@@ -1067,6 +1189,37 @@ class TestWhatItDownloads:
 
         assert result.returncode == 1
         assert _refusals(result.stderr) == [f"install.sh: release {_TAG} carries no tarball"]
+
+    @pytest.mark.parametrize(
+        ("knob", "status", "name"),
+        [
+            ("STUB_CURL_TARBALL_STATUS", "403", _ARCHIVE),
+            ("STUB_CURL_SIDECAR_STATUS", "503", f"{_ARCHIVE}.sha256"),
+        ],
+    )
+    def test_an_error_answer_other_than_404_is_the_servers_not_the_releases(self, machine, knob, status, name):
+        """A rate limit or an outage says nothing about what the release carries."""
+        machine.publish_release()
+
+        result = machine.run("--version", _VERSION, "--yes", **{knob: status})
+
+        assert result.returncode == 1
+        assert _refusals(result.stderr) == [f"install.sh: the server answered {status} for {name}"]
+        assert "try again later" in result.stderr
+        assert "carries no" not in result.stderr
+        assert not machine.code.exists()
+
+    def test_a_checksum_that_never_arrived_is_the_networks_not_the_releases(self, machine):
+        """A connection lost on the sidecar says nothing about whether the release has one."""
+        machine.publish_release()
+
+        result = machine.run("--version", _VERSION, "--yes", STUB_CURL_SIDECAR_DROPS="yes")
+
+        assert result.returncode == 1
+        assert _refusals(result.stderr) == ["install.sh: the download was cut short"]
+        assert "check the network" in result.stderr
+        assert "carries no checksum" not in result.stderr
+        assert not machine.code.exists()
 
     def test_a_release_with_no_checksum_is_refused_rather_than_trusted(self, machine):
         machine.publish_release(checksum=False)
@@ -1253,6 +1406,194 @@ class TestUninstall:
         assert "Decky Loader is installed" in result.stdout
 
 
+class TestABackendOutsideTheService:
+    """A backend started by hand holds the lock the service's own backend needs.
+
+    A second backend gives up on the lock after five seconds, so the unit never
+    comes up while the hand-started one lives — and without the refusal the run
+    would still report the service up, because ``systemctl restart`` returns
+    once the unit's process is forked and the service row reads a port file that
+    is missing or the other backend's.
+
+    Where a test needs the lock held, a real helper process takes it with
+    ``flock``, so what the installer asks is what the kernel answers.
+    """
+
+    def test_a_backend_holding_the_lock_is_refused_by_pid_command_and_directory(self, machine):
+        machine.publish_release()
+
+        with _holding_the_lock(machine) as holder:
+            result = machine.run("--version", _VERSION, "--yes")
+
+        assert result.returncode == 1
+        assert _refusals(result.stderr) == [f"install.sh: another Tender backend is running (pid {holder.pid})"]
+        command = " ".join([sys.executable, "-c", _HOLD_THE_LOCK, str(machine.lock)])
+        assert (
+            f"  it holds {machine.lock} and runs {command} in ~/checkout — stop it with Ctrl-C"
+            f" where it was started, or kill {holder.pid}, then run this again"
+        ) in result.stderr
+        assert machine.curl_calls() == []
+        assert not machine.code.exists()
+        assert not machine.unit.exists()
+
+    def test_the_services_own_backend_holding_it_is_an_update(self, machine):
+        """The unit's own MainPID is the one holder this refusal is not about."""
+        with _holding_the_lock(machine) as holder:
+            result = machine.run(
+                "--from", str(_build_tarball(machine.tmp_path)), "--yes", STUB_UNIT_MAIN_PID=str(holder.pid)
+            )
+
+        assert result.returncode == 0, result.stderr
+        assert (machine.code / "backend" / "main.py").is_file()
+
+    def test_a_holder_through_another_name_for_the_file_is_still_named(self, machine):
+        """The question is which file a descriptor is open on, not what it is called.
+
+        The helper opens the lock through a hard link, so its descriptor's link
+        spells a different path; the file is the same one, and so is the lock.
+        """
+        machine.data.mkdir(parents=True)
+        machine.lock.touch()
+        other = machine.tmp_path / "same-file"
+        os.link(machine.lock, other)
+
+        with _holding_the_lock(machine, path=other) as holder:
+            result = machine.run("--from", str(_build_tarball(machine.tmp_path)), "--yes")
+
+        assert result.returncode == 1
+        assert _refusals(result.stderr) == [f"install.sh: another Tender backend is running (pid {holder.pid})"]
+        assert not machine.code.exists()
+
+    def test_a_holder_it_cannot_name_is_still_refused(self, machine):
+        """Naming the holder is best effort; the refusal is not.
+
+        The helper takes the lock and then keeps it only through a descriptor in
+        flight on a socket of its own, so no descriptor anywhere is open on the
+        file while the kernel still says it is held — what a holder this user
+        cannot see, such as another user's process, looks like from here.
+        """
+        with _holding_the_lock(machine, script=_HOLD_WITH_NO_DESCRIPTOR):
+            result = machine.run("--from", str(_build_tarball(machine.tmp_path)), "--yes")
+
+        assert result.returncode == 1
+        assert _refusals(result.stderr) == [
+            f"install.sh: another process holds {machine.lock}, so Tender's service cannot start"
+        ]
+        assert "  stop the Tender backend you started by hand, then run this again" in result.stderr
+        assert not machine.code.exists()
+
+    @pytest.mark.parametrize("lock_file", [False, True], ids=["no-lock-file", "lock-file-nobody-holds"])
+    def test_a_lock_nobody_holds_is_no_reason_to_stop(self, machine, lock_file):
+        if lock_file:
+            machine.data.mkdir(parents=True)
+            machine.lock.touch()
+
+        result = machine.run("--from", str(_build_tarball(machine.tmp_path)), "--yes")
+
+        assert result.returncode == 0, result.stderr
+        assert (machine.code / "backend" / "main.py").is_file()
+
+    def test_asking_creates_no_lock_file(self, machine):
+        """Asking whether the lock is held leaves no lock file behind.
+
+        The run fails after the pre-flight on purpose: a run that installed would
+        start a backend, and a backend is allowed to create its own lock.
+        """
+        machine.data.mkdir(parents=True)
+
+        result = machine.run("--from", str(machine.tmp_path / "gone.tar.gz"), "--yes")
+
+        assert _refusals(result.stderr) == [f"install.sh: no such file: {machine.tmp_path / 'gone.tar.gz'}"]
+        assert not machine.lock.exists()
+
+    def test_a_process_that_only_looks_like_a_backend_is_not_one(self, machine):
+        """A command line naming ``backend/main.py`` is not a Tender backend holding the lock."""
+        machine.data.mkdir(parents=True)
+        machine.lock.touch()
+        lookalike = [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdin.read()",
+            str(machine.home / "other" / "backend" / "main.py"),
+        ]
+
+        with _running(lookalike, cwd=machine.home):
+            result = machine.run("--from", str(_build_tarball(machine.tmp_path)), "--yes")
+
+        assert result.returncode == 0, result.stderr
+        assert (machine.code / "backend" / "main.py").is_file()
+
+    @pytest.mark.parametrize("mode", ["--uninstall", "--disable"])
+    def test_the_modes_that_start_nothing_do_not_ask(self, machine, mode):
+        with _holding_the_lock(machine):
+            result = machine.run(mode)
+
+        assert result.returncode == 0, result.stderr
+
+
+# What the helper runs: take the lock on the path it is given, say so, and hold
+# it until its stdin closes.
+_HOLD_THE_LOCK = (
+    "import fcntl, os, sys; "
+    "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT); "
+    "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); "
+    "print('held', flush=True); "
+    "sys.stdin.read()"
+)
+
+# The same, except that once it has the lock it sends its only descriptor for
+# the file down a socket nobody reads and closes it. The descriptor in flight
+# keeps the open file, and with it the lock, alive — with nothing in any fd
+# table pointing at the file.
+_HOLD_WITH_NO_DESCRIPTOR = (
+    "import fcntl, os, socket, sys; "
+    "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT); "
+    "fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); "
+    "keep, _ = socket.socketpair(); "
+    "socket.send_fds(keep, [b'x'], [fd]); "
+    "os.close(fd); "
+    "print('held', flush=True); "
+    "sys.stdin.read()"
+)
+
+
+@contextlib.contextmanager
+def _running(argv: list[str], *, cwd: Path) -> Iterator[subprocess.Popen[str]]:
+    """A process of this user's for the length of the block, ended however the block ends."""
+    process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        yield process
+    finally:
+        assert process.stdin is not None
+        process.stdin.close()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        if process.stdout is not None:
+            process.stdout.close()
+
+
+@contextlib.contextmanager
+def _holding_the_lock(
+    machine: Install, *, path: Path | None = None, script: str = _HOLD_THE_LOCK
+) -> Iterator[subprocess.Popen[str]]:
+    """A process holding *machine*'s backend lock, started from ``~/checkout``.
+
+    Started from a directory under the machine's home because a backend started
+    by hand runs from wherever its checkout is, and the refusal names it.
+    """
+    lock = path or machine.lock
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    checkout = machine.home / "checkout"
+    checkout.mkdir(parents=True, exist_ok=True)
+    with _running([sys.executable, "-c", script, str(lock)], cwd=checkout) as holder:
+        assert holder.stdout is not None
+        assert holder.stdout.readline() == "held\n"
+        yield holder
+
+
 class TestTheNoteIsSpelledOnceOnEachSide:
     def test_marker_note_filename_matches_backend(self):
         """Two literals in two languages; the uninstaller reads whichever of the two wrote it."""
@@ -1261,6 +1602,14 @@ class TestTheNoteIsSpelledOnceOnEachSide:
         script = _INSTALL.read_text(encoding="utf-8")
 
         assert f'MARKER_NOTE="{DEBUGGER_MARKER_NOTE}"' in script
+
+
+class TestTheLockIsSpelledOnceOnEachSide:
+    def test_backend_lock_filename_matches_backend(self):
+        """The installer asks about the file the backend locks, by its name on both sides."""
+        script = _INSTALL.read_text(encoding="utf-8")
+
+        assert f'BACKEND_LOCK="{LOCK_FILENAME}"' in script
 
 
 class TestHowTheRunLooks:
@@ -1301,6 +1650,42 @@ class TestHowTheRunLooks:
     def test_a_narrow_terminal_puts_the_icon_above_the_text(self, machine):
         _code, output = machine.on_a_terminal(
             "--from", str(_build_tarball(machine.tmp_path)), answer="y", COLUMNS="70", COLORTERM="truecolor"
+        )
+
+        assert _stacked(output), "the text block is beside the drawing, not under it"
+
+    @pytest.mark.parametrize("stdin_pipe", [False, True])
+    def test_the_width_comes_from_the_terminal_whatever_is_on_stdin(self, machine, stdin_pipe):
+        """``COLUMNS`` unset, so the run has to ask — and under a pipe it asked wrong.
+
+        ``tput`` takes the size from whichever of its three streams is a
+        terminal. Inside a command substitution stdout is a pipe, the script's
+        ``2> /dev/null`` disqualifies stderr, and under ``curl … | bash`` stdin
+        is the script — so none is a terminal and the answer is terminfo's 80.
+        That is narrower than the greeter needs, so a 160-column terminal laid
+        the text under the mark on every run under ``curl … | bash``.
+        """
+        _code, output = machine.on_a_terminal(
+            "--from",
+            str(_build_tarball(machine.tmp_path)),
+            answer="y",
+            width=160,
+            stdin_pipe=stdin_pipe,
+            COLORTERM="truecolor",
+        )
+
+        assert not _stacked(output), "the text block is under the drawing, not beside it"
+
+    @pytest.mark.parametrize("stdin_pipe", [False, True])
+    def test_a_terminal_too_narrow_for_both_still_stacks_them(self, machine, stdin_pipe):
+        """The other direction: a width read off the terminal is a real width, not a floor."""
+        _code, output = machine.on_a_terminal(
+            "--from",
+            str(_build_tarball(machine.tmp_path)),
+            answer="y",
+            width=70,
+            stdin_pipe=stdin_pipe,
+            COLORTERM="truecolor",
         )
 
         assert _stacked(output), "the text block is beside the drawing, not under it"
@@ -1399,6 +1784,112 @@ class TestHowTheRunLooks:
         assert "\x1b[" in output, "a terminal run writes escapes"
         for mark, label in (("✓", "Checking"), ("✓", "Installing"), ("✓", "Service"), ("✗", "Steam")):
             assert len([line for line in screen.splitlines() if line.startswith(f"{mark} {label}")]) == 1
+
+    def test_a_run_that_downloads_still_ends_in_one_row_each(self, machine):
+        """The progress bar takes a line of its own, and the block has to count it.
+
+        curl ends a bar that reached the end with a newline, so the cursor is a
+        line lower than the block's own drawing left it. A redraw that did not
+        know about that line aims the whole block one line short, and a row
+        stands on screen more than once.
+        """
+        machine.publish_release()
+
+        _code, output = machine.on_a_terminal("--version", _VERSION, answer="y", width=160, COLORTERM="truecolor")
+
+        screen = _screen(output)
+        lines = screen.splitlines()
+        for mark, label in (("✓", "Checking"), ("✓", "Installing"), ("✓", "Service"), ("✗", "Steam")):
+            assert len([line for line in lines if line.startswith(f"{mark} {label}")]) == 1, screen
+        for frame in ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"):
+            assert not [line for line in lines if line.startswith(frame)], f"a spinner frame is still there: {screen}"
+        assert "100.0%" not in screen, "the progress bar is still on screen"
+
+    @pytest.mark.parametrize(
+        ("lang", "ellipsis"),
+        [("C.UTF-8", "…"), ("C", "...")],
+        ids=["glyph-marks", "text-marks"],
+    )
+    def test_a_narrow_terminal_keeps_every_row_on_one_line(self, machine, lang, ellipsis):
+        """A row, or the line under one, wider than the terminal is cut to fit rather than wrapped.
+
+        The replay here does not wrap long lines, so a wrapped row would still
+        read as one; what it can see is the width, and a line that fits is one
+        the terminal cannot wrap. At forty columns a detail has twenty-four of
+        them, twenty-one beside a text mark — the Checking row's always runs
+        out — and the covers moved here put a line under the Installing row
+        that runs out too. Outside a
+        UTF-8 locale the marks are four columns of text rather than one glyph,
+        which is the other width the rows are cut to.
+        """
+        for name, filename in (("covers", "a.png"), ("artwork", "b.png")):
+            (machine.data / name).mkdir(parents=True, exist_ok=True)
+            (machine.data / name / filename).write_text("x", encoding="utf-8")
+
+        _code, output = machine.on_a_terminal(
+            "--from", str(_build_tarball(machine.tmp_path)), answer="y", width=40, COLORTERM="truecolor", LANG=lang
+        )
+
+        lines = _screen(output).splitlines()
+        labelled = [(found.group(1), line) for line in lines if (found := _ROW_SHAPE.match(line))]
+        assert {label for label, _line in labelled} == {"Checking", "Installing", "Service", "Steam"}
+        for _label, row in labelled:
+            assert len(row) < 40, f"a row wider than the terminal: {row!r}"
+        checking = [row for label, row in labelled if label == "Checking"]
+        assert len(checking) == 1
+        assert checking[0].endswith(ellipsis)
+        moved = [line for line in lines if line.startswith("    1 cover and")]
+        assert len(moved) == 1, "the covers' line under the Installing row is not on screen"
+        assert len(moved[0]) < 40, f"a line under a row wider than the terminal: {moved[0]!r}"
+        assert moved[0].endswith(ellipsis)
+
+    def test_a_download_that_dies_midway_keeps_curls_reason_and_says_its_own(self, machine):
+        """Two reasons, both readable: the transport's and the run's.
+
+        How many lines curl's own message took is not knowable from here, so the
+        block is not a known distance above the cursor any more and the refusal
+        draws a fresh one under that message rather than over it.
+        """
+        machine.publish_release()
+
+        code, output = machine.on_a_terminal(
+            "--version",
+            _VERSION,
+            answer="y",
+            width=160,
+            COLORTERM="truecolor",
+            STUB_CURL_DIES_MIDWAY="yes",
+        )
+
+        assert code == 1
+        screen = _screen(output)
+        assert "curl: (18) end of response" in screen, "curl's own reason was drawn over"
+        failed = [line for line in screen.splitlines() if line.startswith("✗ Installing")]
+        assert failed == ["✗ Installing   the download was cut short"], screen
+        assert "  check the network and run this again" in screen
+        assert not machine.code.exists()
+
+    def test_a_download_the_server_refuses_says_what_it_answered(self, machine):
+        """The row names the server's answer, and curl's own reason stays readable above it."""
+        machine.publish_release()
+
+        code, output = machine.on_a_terminal(
+            "--version",
+            _VERSION,
+            answer="y",
+            width=160,
+            COLORTERM="truecolor",
+            STUB_CURL_TARBALL_STATUS="503",
+        )
+
+        assert code == 1
+        screen = _screen(output)
+        assert "curl: (22) The requested URL returned error: 503" in screen, "curl's own reason was drawn over"
+        failed = [line for line in screen.splitlines() if line.startswith("✗ Installing")]
+        assert failed == [f"✗ Installing   the server answered 503 for {_ARCHIVE}"], screen
+        assert "  try again later" in screen
+        assert "carries no tarball" not in screen
+        assert not machine.code.exists()
 
     def test_the_warning_is_four_lines_and_asks_once(self, machine):
         code, output = machine.on_a_terminal("--from", str(machine.tmp_path / "gone.tar.gz"), answer="y")

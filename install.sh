@@ -72,6 +72,12 @@ UNIT_NAME="romm-tender"
 MARKER_NOTE="debugger-marker"
 MARKER_FILE=".cef-enable-remote-debugging"
 
+# The lock a running backend holds, under the data root (LOCK_FILENAME in
+# backend/host/single_instance.py). tests/scripts/test_install_sh.py holds the
+# two spellings equal: a rename on one side only would leave this run asking
+# about a file no backend takes, and every backend let through.
+BACKEND_LOCK="backend.lock"
+
 # Steam's CEF debugger. Answering means the panel can be loaded without a
 # restart; not answering is the ordinary case on a fresh install.
 DEBUGGER_PROBE="http://127.0.0.1:8080/json/version"
@@ -85,6 +91,16 @@ STEAM_ROOT=""
 TARBALL=""
 TAG_UNREACHABLE=2
 TAG_ABSENT=3
+
+# What `curl -f` exits with when the server answered 400 or above (curl(1), EXIT
+# CODES) — which answer it was is in HTTP_STATUS. Every other failure is the
+# transfer itself.
+CURL_HTTP_ERROR=22
+
+# The status the server answered the last download with, as curl's
+# `-w '%{http_code}'` prints it (curl(1), --write-out): the final response's,
+# after any redirect, and 000 where no response arrived at all.
+HTTP_STATUS=""
 
 # check_python's two refusals, which are two different things to tell a user.
 PYTHON_MISSING=2
@@ -270,9 +286,22 @@ may_animate() {
 
 # How wide the terminal is. COLUMNS is not set for a non-interactive shell, so
 # `tput` answers for a real run and the variable is what a test sets.
+#
+# The question goes to /dev/tty rather than to this process's own streams:
+# `tput` takes the size from whichever of its three streams is a terminal.
+# Inside a command substitution stdout is a pipe, `2> /dev/null` below
+# disqualifies stderr, and under `curl | bash` stdin is the script — so none is
+# a terminal and it answers terminfo's default of 80 instead of the width of the
+# terminal the run is being watched on. Where there is no /dev/tty the open
+# fails and the default stands, which is the answer that machine would have
+# given anyway.
+#
+# The order of the two redirections is load-bearing: `2> /dev/null` first means
+# a failed open loses bash's complaint about it, and it is the COMMAND's stderr
+# that goes there rather than this shell's, which `acknowledge` says more about.
 terminal_width() {
     local width="${COLUMNS:-}"
-    [ -n "$width" ] || width="$(tput cols 2> /dev/null || echo 80)"
+    [ -n "$width" ] || width="$(tput cols 2> /dev/null < /dev/tty || echo 80)"
     printf '%s\n' "$width"
 }
 
@@ -536,6 +565,11 @@ TITLE_SEPARATOR="  -  "
 ARROW="->"
 ROW_INDENT="    "
 SPINNER_FRAMES=("|" "/" "-" "\\")
+ELLIPSIS="..."
+# How many columns a row's mark takes: `[ok]` without the glyphs, one cell with.
+ROW_MARK_WIDTH=4
+# The terminal's width while the rows are drawn, 0 where they are not redrawn.
+ROW_COLUMNS=0
 
 resolve_look() {
     if [ -t 1 ]; then
@@ -555,23 +589,44 @@ resolve_look() {
     esac
     if [ "$USE_COLOUR" = "yes" ] && [ "$USE_UTF8" = "yes" ]; then
         USE_FANCY_MARKS="yes"
+        ROW_MARK_WIDTH=1
     fi
     resolve_logo_colours
     if [ "$USE_UTF8" = "yes" ]; then
         DOT_SEPARATOR=" · "
         TITLE_SEPARATOR="  ·  "
         ARROW="→"
+        ELLIPSIS="…"
         SPINNER_FRAMES=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     fi
 }
 
 rows_begin() {
     ROW_FILE="$(mktemp)"
-    : > "$ROW_FILE.height"
+    set_block_height 0
     flush_rows
     if may_animate; then
+        # Read once, here, because the spinner is forked after this and draws
+        # with what it inherited.
+        ROW_COLUMNS="$(terminal_width)"
         draw_block ""
     fi
+}
+
+# Keeps one line of a row inside the terminal, into FITTED. A line that wrapped
+# would stand on two lines of the screen and on one in the block's height, and
+# every later redraw would aim one line short of the block — the row standing
+# there again, once per frame. The last column is left free: a terminal that
+# wraps as soon as it is written to would otherwise wrap there too.
+fit_row() {
+    local line="$1" room="$2" keep
+    FITTED="$line"
+    [ "$ROW_COLUMNS" -gt 0 ] || return 0
+    room=$((room - 1))
+    [ "${#line}" -gt "$room" ] || return 0
+    keep=$((room - ${#ELLIPSIS}))
+    [ "$keep" -gt 0 ] || keep=0
+    FITTED="${line:0:keep}$ELLIPSIS"
 }
 
 # Written whole and renamed into place, so the spinner never reads half a block.
@@ -651,10 +706,8 @@ draw_block() {
 }
 
 render_block() {
-    local frame="$1" index=0 drawn=0 state detail sub sub_state on_screen=0
-    if [ -s "$ROW_FILE.height" ]; then
-        on_screen="$(cat "$ROW_FILE.height")"
-    fi
+    local frame="$1" index=0 drawn=0 state detail sub sub_state on_screen
+    on_screen="$(block_height)"
     if [ "$on_screen" -gt 0 ]; then
         printf '\033[%dA' "$on_screen"
     fi
@@ -666,7 +719,24 @@ render_block() {
         fi
         index=$((index + 1))
     done < "$ROW_FILE"
-    printf '%s\n' "$drawn" > "$ROW_FILE.height"
+    set_block_height "$drawn"
+}
+
+# How far above the cursor the block begins, and how far the next redraw has to
+# move up to reach it. Zero says the block is not a known distance above the
+# cursor at all, which is what a fresh run and an interrupted download both
+# leave behind: the next draw then writes a new block where the cursor is
+# instead of aiming at a line it cannot find.
+block_height() {
+    if [ -s "$ROW_FILE.height" ]; then
+        cat "$ROW_FILE.height"
+    else
+        printf '0\n'
+    fi
+}
+
+set_block_height() {
+    printf '%s\n' "$1" > "$ROW_FILE.height"
 }
 
 print_row() {
@@ -683,7 +753,8 @@ print_row() {
     if [ "$state" = "pending" ]; then
         style 2
     fi
-    printf '%s' "$detail"
+    fit_row "$detail" "$((ROW_COLUMNS - ROW_MARK_WIDTH - 14))"
+    printf '%s' "$FITTED"
     reset_style
     printf '\n'
     if [ -n "$sub" ]; then
@@ -693,7 +764,8 @@ print_row() {
         else
             style 2
         fi
-        printf '%s%s' "$ROW_INDENT" "$sub"
+        fit_row "$sub" "$((ROW_COLUMNS - ${#ROW_INDENT}))"
+        printf '%s%s' "$ROW_INDENT" "$FITTED"
         reset_style
         printf '\n'
     fi
@@ -871,7 +943,8 @@ parse_arguments() {
 # Every refusal below is exit 1 and names both the reason and the fix. The order
 # is the order in which the answers become useful: a Python to run anything
 # with, a manager to run it under, then Steam for it to load a panel into, then
-# the plugin that would otherwise share the database with it.
+# the plugin that would otherwise share the database with it, and last the
+# backend that would already be holding what the service's own needs.
 preflight() {
     local found status=0
     found="$(check_python)" || status=$?
@@ -889,6 +962,7 @@ preflight() {
     row_add "$CHECKING" "Steam"
     refuse_decky_plugin
     row_add "$CHECKING" "no Tender plugin in Decky"
+    refuse_foreign_backend
 }
 
 # Prints the version it found, and ANSWERS rather than aborting: its value is
@@ -944,6 +1018,91 @@ refuse_decky_plugin() {
                 "remove it in Decky first, then run this again"
         fi
     done
+}
+
+# A backend outside the unit holds the exclusive lock the unit's own takes
+# (BACKEND_LOCK above), so the unit cannot come up while one is running — and
+# this run would still report it up. `systemctl restart` of a unit with no
+# `Type=` returns as soon as its process has been forked (systemd.service(5),
+# Type=simple), before the backend has asked for the lock, and service_state()
+# then reads a port file that is either missing ("enabled and started") or the
+# hand-started backend's own. Refused rather than reported.
+#
+# The LOCK is the question rather than a process name, because only a Tender
+# backend takes it: a backend started by hand runs as `python backend/main.py`
+# from wherever it was started, and any other program may run a file of that
+# name. The one holder that is not refused is the unit's own MainPID, which is
+# an update over a running service.
+#
+# Only the modes that start the service ask: `--uninstall` and `--disable` start
+# nothing, and both stop the unit whatever else is running.
+refuse_foreign_backend() {
+    local lock="$DATA/$BACKEND_LOCK" own opener holder="" own_opens="no"
+    # No file, no holder — and asked first because the read-only open below fails
+    # on a missing file, which the `if` would take for a held lock. A descriptor
+    # rather than a path because `flock` handed a path creates the file.
+    [ -e "$lock" ] || return 0
+    if flock -n 9 2> /dev/null 9< "$lock"; then
+        return 0
+    fi
+    own="$(service_main_pid)"
+    while IFS= read -r opener; do
+        if [ "$opener" = "$own" ]; then
+            own_opens="yes"
+        else
+            holder="$opener"
+        fi
+    done < <(lock_openers "$lock")
+    if [ -z "$holder" ] && [ "$own_opens" = "yes" ]; then
+        return 0
+    fi
+    if [ -z "$holder" ]; then
+        abort "another process holds $(tilde "$lock"), so Tender's service cannot start" \
+            "stop the Tender backend you started by hand, then run this again"
+    fi
+    local directory
+    directory="$(readlink "/proc/$holder/cwd" 2> /dev/null || true)"
+    abort "another Tender backend is running (pid $holder)" \
+        "it holds $(tilde "$lock") and runs $(command_line "$holder") in $(tilde "$directory") — stop it with Ctrl-C where it was started, or kill $holder, then run this again"
+}
+
+# Every process that has *1* open through a descriptor, one pid to a line. The
+# lock is held by one of them, which is all a caller can learn: the kernel says
+# who has a file OPEN, and a second backend waiting out its retry window has it
+# open too. Read off /proc rather than asked of `fuser` or `lsof`, which are not
+# on every target — this needs no tool beyond bash.
+#
+# `-ef` stats both sides — the descriptor through its /proc link, which resolves
+# to the open file — and compares device and inode, so a holder that opened the
+# lock under another name is found as well.
+# Only this user's processes can answer: another user's fd directory cannot be
+# listed, so the glob yields nothing from it and no filter is needed. Best
+# effort: that process, one that ends mid-scan, and a lock held with no
+# descriptor open on it at all are simply not named.
+lock_openers() {
+    local fd pid last=""
+    for fd in /proc/[0-9]*/fd/*; do
+        [ "$fd" -ef "$1" ] 2> /dev/null || continue
+        pid="${fd#/proc/}"
+        pid="${pid%%/*}"
+        [ "$pid" != "$last" ] || continue
+        printf '%s\n' "$pid"
+        last="$pid"
+    done
+}
+
+# A process's command line, its arguments joined by spaces. The kernel keeps
+# them NUL-separated, and a command substitution cannot carry a NUL.
+command_line() {
+    local -a argv=()
+    mapfile -d '' argv 2> /dev/null < "/proc/$1/cmdline" || true
+    printf '%s\n' "${argv[*]}"
+}
+
+# The backend the service is running, or 0 — which is what systemd answers for a
+# unit that is running none.
+service_main_pid() {
+    systemctl --user show -p MainPID --value "$UNIT_NAME" 2> /dev/null || true
 }
 
 # --------------------------------------------------------- acknowledgement
@@ -1031,10 +1190,15 @@ obtain_tarball() {
     archive="romm-tender-$version.tar.gz"
     row_detail "$INSTALLING" "downloading $tag"
 
-    fetch_visibly "$DOWNLOAD_BASE/$tag/$archive" "$work/$archive" ||
-        abort "release $tag carries no tarball" "try --version with a release that does, or --from a local build"
-    fetch "$DOWNLOAD_BASE/$tag/$archive.sha256" "$work/$archive.sha256" ||
-        abort "release $tag carries no checksum for its tarball" "this release cannot be verified, so it is refused"
+    local fetched=0
+    fetch_visibly "$DOWNLOAD_BASE/$tag/$archive" "$work/$archive" || fetched=$?
+    [ "$fetched" -eq 0 ] ||
+        refuse_download "$fetched" "$archive" "release $tag carries no tarball" \
+            "try --version with a release that does, or --from a local build"
+    fetch "$DOWNLOAD_BASE/$tag/$archive.sha256" "$work/$archive.sha256" || fetched=$?
+    [ "$fetched" -eq 0 ] ||
+        refuse_download "$fetched" "$archive.sha256" "release $tag carries no checksum for its tarball" \
+            "this release cannot be verified, so it is refused"
 
     (cd "$work" && sha256sum -c "$archive.sha256" > /dev/null) ||
         abort "the downloaded tarball does not match its checksum" "nothing was changed; try again"
@@ -1071,8 +1235,23 @@ resolve_tag() {
     esac
 }
 
+# Ends the run over a release asset that did not arrive, with *missing* and its
+# hint only where the server said the file is not there. Any other error answer
+# — a rate limit, an outage — says nothing about the release, so it is reported
+# as the server's answer rather than as the release lacking the file.
+refuse_download() {
+    local status="$1" name="$2" missing="$3" missing_hint="$4"
+    if [ "$status" -ne "$CURL_HTTP_ERROR" ]; then
+        abort "the download was cut short" "check the network and run this again"
+    fi
+    if [ "$HTTP_STATUS" = "404" ]; then
+        abort "$missing" "$missing_hint"
+    fi
+    abort "the server answered $HTTP_STATUS for $name" "try again later"
+}
+
 fetch() {
-    curl -fsSL "$1" -o "$2"
+    HTTP_STATUS="$(curl -fsSL -w '%{http_code}' "$1" -o "$2")"
 }
 
 # The tarball is the one download worth watching — tens of megabytes over
@@ -1081,19 +1260,49 @@ fetch() {
 # and stays silent either way.
 fetch_visibly() {
     if ! on_a_terminal; then
-        curl -fsSL "$1" -o "$2"
+        fetch "$1" "$2"
         return
     fi
     # The bar draws on the line under the block, and so does the spinner's idea
     # of where the block ends — both write there and one of them moves the
-    # cursor relative to it, so the spinner stops for the length of the download
-    # and the bar's line is cleared before it starts again.
-    local status=0
+    # cursor relative to it, so the spinner stops for the length of the
+    # download. That line is the block's own while the bar is on it: curl ends a
+    # bar that reached the end with a newline, which puts the cursor one line
+    # lower than it was, and a redraw that did not count the bar's line would
+    # aim the whole block one line short of where it is.
+    local status=0 height=0
     spinner_stop
-    curl -fL --progress-bar "$1" -o "$2" || status=$?
     if may_animate; then
-        printf '\r\033[K'
+        height="$(block_height)"
+        set_block_height "$((height + 1))"
+    fi
+    # curl takes the bar's width from COLUMNS where that is exported, and
+    # otherwise from its stdin's window size (get_terminal_columns in curl's
+    # src/terminal.c; 8.22 then falls back to stdout and stderr, 8.21 does not).
+    # Under `curl | bash` stdin is the script, so an 8.21 draws the bar at its
+    # default of 79 columns whatever the terminal is, and a narrower one wraps it.
+    # /dev/tty is handed to it where it can be opened; the subshell asks first,
+    # silently, because a redirection that fails on the command itself would
+    # skip the download and complain on stderr.
+    if (: < /dev/tty) 2> /dev/null; then
+        HTTP_STATUS="$(curl -fL --progress-bar -w '%{http_code}' "$1" -o "$2" < /dev/tty)" || status=$?
+    else
+        HTTP_STATUS="$(curl -fL --progress-bar -w '%{http_code}' "$1" -o "$2")" || status=$?
+    fi
+    if ! may_animate; then
+        return "$status"
+    fi
+    if [ "$status" -eq 0 ]; then
+        printf '\033[1A\r\033[K'
+        set_block_height "$height"
         spinner_start
+    else
+        # curl wrote its reason where the bar was, over however many lines that
+        # took — so the block is no longer a known distance above the cursor,
+        # and the refusal on its way draws a fresh one under that reason rather
+        # than over it. The spinner stays stopped: at an unknown height each
+        # frame would be a new block rather than the same one again.
+        set_block_height 0
     fi
     return "$status"
 }
