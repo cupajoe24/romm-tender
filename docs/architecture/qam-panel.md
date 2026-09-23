@@ -539,6 +539,61 @@ webpack probe and nothing establishes that it forwards one, while the attribute 
 scroll is clamped to the region's own ends, so a first or last row is left where it sits rather than centred past the
 start or the end of the list, and a region whose content already fits is not scrolled at all.
 
+### Room for the focus ring
+
+**Every `ScrollRegion` keeps 4 px of room inside its own box for Steam's focus ring** (`FOCUS_RING_REACH` in
+`bigpicture/layout/ScrollRegion.tsx`). On the branch where the region is Steam's scroll panel, the ring is not drawn on
+the focused element but over it, from the panel's own focus-ring root inside the region. Measured through CEF in the dev
+window (855 px wide), in the list column of a list-and-detail page before the room existed: the region's first child is
+that root — an absolutely positioned element at the region's top left, which Steam's class map names `FocusRingRoot` —
+and the size Steam takes for a row's ring (`GetBoundingRectForFocusRing` on its nav node) is the row's own box, which
+there was the column's full width and, for the first row, started at the region's top. Read from Steam's stylesheet
+rather than measured: the ring is the `FocusRing` class of the same module that exports `FocusRingRoot` (in
+`css/chunk~2dcc5aaf7.css` for the client this was read on — the chunk name changes between Steam builds, the module's
+two class names are how to find it again), a 2 px outline at a 2 px offset, so it reaches 4 px past every edge of what
+is focused, and the region clips it at its own box. The ring itself could not be observed through CEF — Steam draws it
+only in the active navigation context. So without the room, a row spanning its column loses both side edges of its ring,
+and the first and last rows their top and bottom edges too.
+
+**The room is the region's own padding**, not something inside it and not something on the outside of it. Outside is
+ruled out by the region's sideways clip, which is deliberate (`ScrollRegion`). Inside — a padded element between the
+region and its content — is ruled out by a child that fills its region with `height: 100%`, as the Sync page's run body
+does: a percentage height inside an element whose own height is `auto` is `auto` too, and the run body's unit list would
+lose the bounded height it scrolls inside. The padding is declared with `box-sizing: border-box`, because Steam's own
+panels compute `content-box` (measured on the Quick Access tab panels), under which it would be added to the full height
+the region is given and overflow the parent. Three things the padding could have disturbed, measured in the Quick Access
+document of the same client — the first on Steam's own tab panels, the other two on a probe element standing in for a
+region, a 100 px scroller padded 4 px under `border-box`, not on a `ScrollRegion`: the ring root does not move with the
+padding, because Steam's stylesheet places it with `top: 0; left: 0` — a tab panel padded 16 px at the top holds its
+root at its own top left; a child of `height: 100%` resolved against the probe's content box (92 px); and the probe's
+block-end padding counted in its `scrollHeight` (308 px over 300 px of content), both as a block and as a column flex
+container — which is what lets scrolling to the end show the last row's bottom edge, and what `revealBottom` reads.
+
+**The fallback branch keeps the room too, for layout rather than for a ring.** Where the panel probe missed, the region
+is a plain `Focusable` with no focus-ring root of its own, so its box is not what clips a ring there, and where that
+ring is drawn and clipped has not been looked at. The room stays so that a page's content lays out the same on both
+branches — and one page depends on it: the Sync page's unit list stands in its column's room with a negative side margin
+(below), and the fallback's `overflow: auto` covers both axes, so a column without the room would scroll that list 4 px
+sideways. That consequence is read from the code, not observed.
+
+**Every region built with `ScrollRegion` gets it, and on the wide pages every region that holds a full-width focus stop
+is one**: both columns of a list-and-detail page (Settings, Data Management, Library › Platforms), both columns of the
+Sync page — the preview table's rows in the left one, the option, memory and last-run rows in the controls column — the
+run view's own unit list, and the frame's region around an untabbed body that builds none of its own, which no page uses
+today. One region sits inside another: the unit list is a region within the Sync page's run column, and on the panel
+branch its rows' rings are drawn from its own ring root and clipped at its own box, so the room it needs is its own. It
+stands in its column's room with a negative side margin of the same 4 px, so the unit table starts where the section
+title over it does rather than a second room further in. What the room moves everywhere else is the same 4 px on every
+side of a column's content, which moves a column's rows, headers, titles and button rows together; a column drawn at a
+fixed width (the list's 264 px, the Sync controls' 270 px) keeps that width for the box and gives its content 8 px less.
+Entry focus reads the DOM for stops and is untouched by it.
+
+**What is not a `ScrollRegion` gets none.** A tab that builds no region of its own sits in Steam's `ScrollingTab`
+(Library › Collections today), and the narrow pages sit in the Quick Access panel's own scroller. The removed-games
+cleanup dialog has two scrollers of its own — the dialog body and its details region
+(`bigpicture/RemovedGamesCleanup.tsx`). Whether a full-width row in any of these loses the edges of its ring has not
+been looked at.
+
 ### Columns
 
 One row of side-by-side scrolling regions, which is what every wide page whose content is more than one column is built
@@ -583,24 +638,9 @@ It spans exactly what a row spans, and that span is **not symmetric**: a row is 
 marker (a 3 px bar and a 5 px gap) and runs to the right edge of the list's content. Steam's `Field`, which every row is
 built from, adds nothing horizontally inside the QAM — it renders in its `Classic` mode there, whose only padding is 10
 px top and bottom — so there is no Steam inset to match and a symmetric padding on the header is simply narrower than
-the rows. The header and the rows sit inside one element, so they move together whatever inset that element takes.
-
-**Both panes keep 4 px of room around their content for Steam's focus ring** (`FOCUS_RING_REACH` in
-`bigpicture/layout/ListDetail.tsx`). The ring is not drawn on the focused element but over it, from Steam's own
-focus-ring root inside the scroll region. Measured through CEF in the dev window (855 px wide): the region's first child
-is that root — an absolutely positioned element at the region's top left, which Steam's class map names `FocusRingRoot`
-— and the size Steam takes for a row's ring (`GetBoundingRectForFocusRing` on its nav node) is the row's own box, which
-in the list column is the column's full width and, for the first row, starts at the region's top. Read from Steam's
-stylesheet rather than measured: the ring is the `FocusRing` class of the same module that exports `FocusRingRoot` (in
-`css/chunk~2dcc5aaf7.css` for the client this was read on — the chunk name changes between Steam builds, the module's
-two class names are how to find it again), a 2 px outline at a 2 px offset, so it reaches 4 px past every edge of what
-is focused, and the region clips it at its own box. The ring itself could not be observed — Steam draws it only in the
-active navigation context. Without the room, a row spanning the list column lost both side edges of its ring and the
-first row its top edge too; a detail pane's focusable table rows (the recovery bundles, the registered devices) span
-their pane the same way. The room goes inside the region rather than on it, because the region's sideways clip is
-deliberate (`ScrollRegion`). Measured the same way with the inset applied to the running page: a list row runs 52 → 308
-in the 48 → 312 column, and the first row starts 4 px below the region's top, so the ring's 4 px lands exactly on the
-region's edges. Device figures for this span with the inset have not been taken.
+the rows. The header and the rows sit inside one element, so they move together whatever inset it sits in — including
+the room each pane's region keeps for Steam's focus ring (§ Room for the focus ring), which this layout adds none of its
+own to.
 
 ### Tables
 
