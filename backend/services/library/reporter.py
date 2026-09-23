@@ -55,9 +55,9 @@ if TYPE_CHECKING:
 
 
 # kv_config key for the offline ``platform_slug → display_name`` cache,
-# refreshed on every sync from the live work-queue. Read by the offline
-# ``roms``-derived queries (DangerZone label, game-detail platform name) so a
-# RomM-down panel shows "Nintendo 64" rather than the bare "n64" slug.
+# refreshed on every sync from the live work-queue. Read for the game-detail
+# page's platform name, and for the name a platform removal answers with, which
+# the frontend uses to find that platform's Steam collection.
 _PLATFORM_NAMES_KEY = "platform_names"
 
 # How many of the newest sync runs ``get_sync_runs`` answers with — the run
@@ -972,7 +972,7 @@ class SyncReporter:
                 # the recorded value, so a recorded command with no shortcut is not
                 # skip authority: the next run has to mint the shortcut regardless.
                 # Requiring the binding is therefore what makes this count fall to
-                # zero after a DangerZone remove-all by construction: unbinding
+                # zero after Data Management's remove-all by construction: unbinding
                 # keeps the row and its recorded command on purpose (ADR-0007), so
                 # a count over all rows would keep offering a resume of shortcuts
                 # that no longer exist. Do not "simplify" this to every row.
