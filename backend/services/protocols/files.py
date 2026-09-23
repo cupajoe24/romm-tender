@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from models.prune import (
         MutationOutcome,
         RecoveryArtifact,
+        RecoveryBundleInventory,
         SealedSourceClaims,
         SourceClaim,
         SteamRecoverySnapshot,
@@ -742,6 +743,22 @@ class RecoveryBundleStore(Protocol):
         playtime_text: str,
         should_abort: Callable[[], bool] | None = None,
     ) -> str: ...
+
+
+class RecoveryBundleInventoryReader(Protocol):
+    """Report where the recovery bundles are, which there are and what they take.
+
+    Narrower than :class:`RecoveryBundleStore` on purpose: a reader that only
+    describes the bundles must not be able to seal or validate one.
+    """
+
+    def root(self) -> str:
+        """Return the recovery root's absolute path."""
+        ...
+
+    def bundle_inventory(self) -> RecoveryBundleInventory:
+        """Return the bundle count, their summed bytes and each bundle, empty where no root exists."""
+        ...
 
 
 class PruneArtifactStore(Protocol):

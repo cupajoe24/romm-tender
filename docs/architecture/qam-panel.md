@@ -17,28 +17,28 @@ without restating it. The width mechanism's decision record is
 
 ## Where the code lives
 
-| Module                                                                          | Responsibility                                                                                                                                                      |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `frontend/src/qam/`                                                             | The entry itself: the patch that puts it in the strip, the tab glyph, and the boundary the panel renders inside                                                     |
-| `frontend/src/index.tsx` (`QAMPanel`)                                           | The router: one `Page` value, one mounted page, a module-level `currentPage` that survives a QAM remount                                                            |
-| `frontend/src/types/navigation.ts`                                              | The `Page` union — every page the router can land on                                                                                                                |
-| `frontend/src/bigpicture/MainPage.tsx`                                          | Main                                                                                                                                                                |
-| `frontend/src/bigpicture/SyncPage.tsx`, `frontend/src/bigpicture/sync/`         | Sync — the frame and its three left-column bodies, plus `useSyncPage` (its reads and actions) and the register both its tables are set in                           |
-| `frontend/src/bigpicture/LibraryPage.tsx`                                       | Library — the frame, the two tabs and their state                                                                                                                   |
-| `frontend/src/bigpicture/SettingsPage.tsx`, `frontend/src/bigpicture/settings/` | Settings and its sections                                                                                                                                           |
-| `frontend/src/bigpicture/DangerZone.tsx`, `RemovedGamesCleanup.tsx`             | Data Management                                                                                                                                                     |
-| `frontend/src/bigpicture/DownloadQueue.tsx`                                     | Downloads                                                                                                                                                           |
-| `frontend/src/bigpicture/library/`                                              | The Library page's tabs: `usePlatformsPage` (its reads and actions), `PlatformsTab`, `PlatformDetail`                                                               |
-| `frontend/src/utils/deckyUiInternals.ts`                                        | Honest typing for `@decky/ui` values that come from a webpack probe: the frame's class names, `Tabs`, `ScrollPanel`, the controller glyph                           |
-| `frontend/src/utils/qamExpansion.ts`                                            | The panel's width: the expand and hide messages, the injected `max-width` rule, and the four paths that clear both                                                  |
-| `frontend/src/bigpicture/layout/`                                               | The wide-page frame: `WidePage` (the Back/title line, tabs, measured height, entry focus), `ScrollRegion`, `Columns`, `ListDetail`, `pane`                          |
-| `frontend/src/utils/entryFocus.ts`                                              | Which stop a body opens on, a page's declaration when that stop is not it, the rule for a body that swaps under the reader, and the `.focus()` + `gpfocus` pair     |
-| `frontend/src/utils/syncRunView.ts`                                             | `useSyncRunView` — the run in flight as a page renders it: stage label, coarse bar, position within the running unit, fine-detail line, estimate, and the run's end |
-| `frontend/src/utils/runUnitsStore.ts`                                           | The run's work queue, one row per unit: the plan's riders, how far the run has got, and what each unit's apply produced                                             |
-| `frontend/src/utils/previewState.ts`                                            | What a page asks of a pending preview: has it anything to apply, and how long is it still accepted (the half Main reads)                                            |
-| `frontend/src/utils/syncResume.ts`                                              | Whether the next sync continues a run or starts one over, and what that puts on the Sync page's start button — the name the session-budget card quotes              |
-| `frontend/src/utils/syncProgress.ts`                                            | The frame every page reads a run from, and the one rule it enforces on its writers: a run that has ended stays ended                                                |
-| `frontend/src/utils/` module stores                                             | State that must outlive a page: sync progress, pending preview, downloads, prune, the game-detail caches                                                            |
+| Module                                                                               | Responsibility                                                                                                                                                      |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/qam/`                                                                  | The entry itself: the patch that puts it in the strip, the tab glyph, and the boundary the panel renders inside                                                     |
+| `frontend/src/index.tsx` (`QAMPanel`)                                                | The router: one `Page` value, one mounted page, a module-level `currentPage` that survives a QAM remount                                                            |
+| `frontend/src/types/navigation.ts`                                                   | The `Page` union — every page the router can land on                                                                                                                |
+| `frontend/src/bigpicture/MainPage.tsx`                                               | Main                                                                                                                                                                |
+| `frontend/src/bigpicture/SyncPage.tsx`, `frontend/src/bigpicture/sync/`              | Sync — the frame and its three left-column bodies, plus `useSyncPage` (its reads and actions) and the register both its tables are set in                           |
+| `frontend/src/bigpicture/LibraryPage.tsx`                                            | Library — the frame, the two tabs and their state                                                                                                                   |
+| `frontend/src/bigpicture/SettingsPage.tsx`, `frontend/src/bigpicture/settings/`      | Settings and its sections                                                                                                                                           |
+| `frontend/src/bigpicture/DataManagementPage.tsx`, `data/`, `RemovedGamesCleanup.tsx` | Data Management — the inventory rows, their panes and the page's state                                                                                              |
+| `frontend/src/bigpicture/DownloadQueue.tsx`                                          | Downloads                                                                                                                                                           |
+| `frontend/src/bigpicture/library/`                                                   | The Library page's tabs: `usePlatformsPage` (its reads and actions), `PlatformsTab`, `PlatformDetail`                                                               |
+| `frontend/src/utils/deckyUiInternals.ts`                                             | Honest typing for `@decky/ui` values that come from a webpack probe: the frame's class names, `Tabs`, `ScrollPanel`, the controller glyph                           |
+| `frontend/src/utils/qamExpansion.ts`                                                 | The panel's width: the expand and hide messages, the injected `max-width` rule, and the four paths that clear both                                                  |
+| `frontend/src/bigpicture/layout/`                                                    | The wide-page frame: `WidePage` (the Back/title line, tabs, measured height, entry focus), `ScrollRegion`, `Columns`, `ListDetail`, `pane`                          |
+| `frontend/src/utils/entryFocus.ts`                                                   | Which stop a body opens on, a page's declaration when that stop is not it, the rule for a body that swaps under the reader, and the `.focus()` + `gpfocus` pair     |
+| `frontend/src/utils/syncRunView.ts`                                                  | `useSyncRunView` — the run in flight as a page renders it: stage label, coarse bar, position within the running unit, fine-detail line, estimate, and the run's end |
+| `frontend/src/utils/runUnitsStore.ts`                                                | The run's work queue, one row per unit: the plan's riders, how far the run has got, and what each unit's apply produced                                             |
+| `frontend/src/utils/previewState.ts`                                                 | What a page asks of a pending preview: has it anything to apply, and how long is it still accepted (the half Main reads)                                            |
+| `frontend/src/utils/syncResume.ts`                                                   | Whether the next sync continues a run or starts one over, and what that puts on the Sync page's start button — the name the session-budget card quotes              |
+| `frontend/src/utils/syncProgress.ts`                                                 | The frame every page reads a run from, and the one rule it enforces on its writers: a run that has ended stays ended                                                |
+| `frontend/src/utils/` module stores                                                  | State that must outlive a page: sync progress, pending preview, downloads, prune, the game-detail caches                                                            |
 
 ## The entry
 
@@ -580,11 +580,27 @@ and inside the same scrolling region. It sits outside every row on purpose: focu
 selection, because a page may do real work on one.
 
 It spans exactly what a row spans, and that span is **not symmetric**: a row is inset on the left by its own selection
-marker (a 3 px bar and a 5 px gap) and runs flush to the column's right edge. Steam's `Field`, which every row is built
-from, adds nothing horizontally inside the QAM — it renders in its `Classic` mode there, whose only padding is 10 px top
-and bottom — so there is no Steam inset to match and a symmetric padding on the header is simply narrower than the rows.
-Measured on the device through CEF at the Deck's 854 px: rows run 79.6 → 335.9 in a 264 px list column, and the header's
-pair now runs 79.9 → 335.9.
+marker (a 3 px bar and a 5 px gap) and runs to the right edge of the list's content. Steam's `Field`, which every row is
+built from, adds nothing horizontally inside the QAM — it renders in its `Classic` mode there, whose only padding is 10
+px top and bottom — so there is no Steam inset to match and a symmetric padding on the header is simply narrower than
+the rows. The header and the rows sit inside one element, so they move together whatever inset that element takes.
+
+**Both panes keep 4 px of room around their content for Steam's focus ring** (`FOCUS_RING_REACH` in
+`bigpicture/layout/ListDetail.tsx`). The ring is not drawn on the focused element but over it, from Steam's own
+focus-ring root inside the scroll region. Measured through CEF in the dev window (855 px wide): the region's first child
+is that root — an absolutely positioned element at the region's top left, which Steam's class map names `FocusRingRoot`
+— and the size Steam takes for a row's ring (`GetBoundingRectForFocusRing` on its nav node) is the row's own box, which
+in the list column is the column's full width and, for the first row, starts at the region's top. Read from Steam's
+stylesheet rather than measured: the ring is the `FocusRing` class of the same module that exports `FocusRingRoot` (in
+`css/chunk~2dcc5aaf7.css` for the client this was read on — the chunk name changes between Steam builds, the module's
+two class names are how to find it again), a 2 px outline at a 2 px offset, so it reaches 4 px past every edge of what
+is focused, and the region clips it at its own box. The ring itself could not be observed — Steam draws it only in the
+active navigation context. Without the room, a row spanning the list column lost both side edges of its ring and the
+first row its top edge too; a detail pane's focusable table rows (the recovery bundles, the registered devices) span
+their pane the same way. The room goes inside the region rather than on it, because the region's sideways clip is
+deliberate (`ScrollRegion`). Measured the same way with the inset applied to the running page: a list row runs 52 → 308
+in the 48 → 312 column, and the first row starts 4 px below the region's top, so the ring's 4 px lands exactly on the
+region's edges. Device figures for this span with the inset have not been taken.
 
 ### Tables
 
@@ -1424,9 +1440,8 @@ button, because a disabled control still reports a press on the device, and the 
 
 Wide, list and detail — and the rows are **not the operations**. A row names a population, something this device holds,
 and states its numbers; the pane says what that population is, gives its numbers in full, and offers what can be done
-with it. Six rows, flat and ungrouped: Tender's shortcuts, Downloaded ROM files, Grid images, Other non-Steam games,
-Gone from RomM, Recovery bundles. The per-platform actions have left for Library › Platforms, and the platform modal
-with them.
+with it. Six rows, flat and ungrouped: Tender's shortcuts, Installed ROMs, Grid images, Other non-Steam games, Gone from
+RomM, Recovery bundles. The per-platform actions have left for Library › Platforms, and the platform modal with them.
 
 **That the rows are populations is a finding, not a preference.** Arranging the five operations as a menu needs a name
 for the group they fall into, and every grouping of these five needs a category that exists only on screen. A category
@@ -1439,25 +1454,47 @@ reason Settings needs none: six rows that each name a thing are their own order.
 | Row                   | What it says on arrival                                         | What the pane offers                            |
 | --------------------- | --------------------------------------------------------------- | ----------------------------------------------- |
 | Tender's shortcuts    | `total_shortcuts` — the bound shortcuts Main counts every visit | Remove all shortcuts                            |
-| Downloaded ROM files  | a count and a `≈` size, from one read over the installed rows   | Uninstall all ROM files                         |
+| Installed ROMs        | one count per install — two kept versions count twice           | Uninstall all ROM files                         |
 | Grid images           | `scan` until asked — then how many are orphaned                 | Remove the orphaned images                      |
-| Other non-Steam games | a scan of Steam's own shortcut store, in the frontend           | the whitelist, the removal, the RetroDECK guard |
+| Other non-Steam games | Steam's own store less this plugin's entries                    | the whitelist, the removal, the RetroDECK guard |
 | Gone from RomM        | `scan` until asked — the server round trip                      | Review, which opens the dialog below            |
-| Recovery bundles      | how many are sealed and what they take                          | nothing — this page does not delete them        |
+| Recovery bundles      | how many are sealed and what they take                          | the bundles one by one, and nothing to press    |
+
+**Every figure is reading, failed or answered, and its row's count slot shows which**: a spinner while it is being read,
+a dash where the read failed, the number once it is answered. The two scan rows add a fourth state before those three,
+not asked, shown as `scan`. A pane never borrows one state's words for another: under a read still in flight it says
+`Reading…` (a scan's own button says it is scanning and cannot be pressed again), and under a failed one it says what
+could not be read and how to try again — reopening the page for a figure read on arrival, pressing the scan button again
+for a scan.
 
 **A number that costs a round trip or a backend scan sits behind a press.** Focus selects on this layout, so a reading
 that rode on the selection would fire under every row the stick passes — a local scan of the grid directory for one row,
 a RomM round trip for the other. Grid images and Gone from RomM therefore read `scan` until they are asked, and keep the
-answer for the rest of the visit. The whitelist's search opens a modal, for the reason Settings gives for its four
-inputs rather than by convention: the on-screen keyboard needs the room, and a detail pane has none to give.
+answer until something makes it wrong — a finished cleanup puts Gone from RomM back to `scan`, because a stale number
+about what the server no longer has is worse than no number. **The whitelist's search is the one text input left on a
+detail pane** — Collections carries one too, on the narrow body it keeps until its own cut, and it is a known exception
+rather than a decision: the panel's rule puts text input in a modal, for the reason Settings gives for its four inputs
+rather than by convention — the on-screen keyboard needs the room, and a detail pane has none to give. It moves with the
+review, in the cut that redraws both.
+
+**Two rows would overlap if either were read naively, and the one that gives way is the foreign one.** Tender's
+shortcuts are themselves non-Steam shortcuts, so a row counting Steam's store whole would report this plugin's own
+library a second time, under a heading saying _Other_ — and its removal would take that library with it, since the
+whitelist protects by NAME and a synced library carries game names. So the foreign row is Steam's store **less what this
+plugin created**, told apart by what a shortcut launches rather than by what it is called, and the foreign row never
+removes ours: row 1 is where they go wholesale, the Gone-from-RomM cleanup takes the individual vanished ones, and a
+platform's own removal in Library takes a platform's. That reading is a per-shortcut sweep rather than a field: it takes
+time, so the row shows a spinner until it lands, and **what it cannot establish it never offers** — neither a store it
+could not read at all, nor an entry whose own reading did not arrive. The pane says which of the two happened. An
+unproven entry left alone is a row that under-reports; an unproven entry offered is a library deleted.
 
 **The size is the server's figure and never a walk of the disk.** `Rom.fs_size_bytes` is what RomM reported for a ROM
 (#1395), summed over the installed rows, so the page opens with a number instead of measuring for one — and it is
-written with a `≈` for two reasons: a multi-file game, an unpacked archive, a patch beside the original or extras in the
-same folder are not the size the server named — and the field is NULL for a row that predates its migration or belongs
-to a wholesale-skipped platform nobody has re-applied, so the sum understates rather than fails. The cleanup goes on
-measuring the disk for itself, because its free-space line has to hold for a bundle it is about to write rather than for
-a figure a server once reported.
+written with a `≈` for two reasons: an unpacked archive, a patch beside the original or extras in the same folder are
+not the size the server named — a multi-file game is, which is why it is not on that list — and the field is NULL for a
+row that predates its migration or belongs to a wholesale-skipped platform nobody has re-applied, so the sum understates
+rather than fails. The cleanup goes on measuring the disk for itself, because its free-space line has to hold for a
+bundle it is about to write rather than for a figure a server once reported.
 
 **The removed-games review stays a dialog, and the reason is geometry rather than inertia.** A dialog may take up to 720
 × 406 on the Deck — `maxWidth: 720` against `maxHeight: 76vh` of the 534 px viewport, which is the right denominator
@@ -1474,9 +1511,13 @@ the bottom** instead of standing after every candidate row, which is what a stic
 rules do not change; they live in [removed-game-cleanup.md](removed-game-cleanup.md).
 
 **Recovery bundles are listed and nothing here removes them.** The row states how many are sealed and what they cost, so
-the disk they take stops being invisible; deleting one is the reader's own business in a file manager until a cut gives
-that action a home. A row that shows something and offers nothing is still a row this page owes, because the page's
-claim is what this device holds.
+the disk they take stops being invisible, and the pane lists them under that total as a table — Game, Sealed, Size —
+newest first. Game and day (UTC) are read off the folder's name alone — no file's contents and no seal are read for them
+— so the game is spelled the way the folder spells it (`Shenmue-II`), and a folder not in the shape Tender writes — one
+renamed by hand, or one ending `.durability-uncertain` because its seal could not be confirmed — is listed under its own
+name with no day, after every dated one. Each row is a focus stop with nothing to press, because the pane scrolls only
+by focus. Deleting one is the reader's own business in a file manager until a cut gives that action a home. A row that
+shows something and offers nothing is still a row this page owes, because the page's claim is what this device holds.
 
 ## Downloads
 

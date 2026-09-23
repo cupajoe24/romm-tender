@@ -286,6 +286,14 @@ IO_SEAM_METHODS: frozenset[str] = frozenset(
         "saves_path",
         "states_path",
         "retrodeck_home",
+        # RecoveryBundleInventoryReader (services/protocols/files.py) — lists the
+        # recovery root and measures every bundle under it, one descriptor walk
+        # per bundle. Object-shaped, so the method name is the whole entry.
+        # **Listing it changes nothing at its only call site**: the service
+        # reaches it through run_in_executor as a bound method, the blind spot
+        # documented above, so the entry states the rule rather than enforcing
+        # it — and is here for the call site that writes it plainly.
+        "bundle_inventory",
     }
 )
 

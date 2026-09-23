@@ -871,3 +871,130 @@ class TestCooperativeAbort:
 
         assert sealed.is_dir()
         assert adapter.validate_sources(str(sealed)) is True
+
+
+class TestBundleInventory:
+    """What the recovery root holds, counted without reading a file's contents or a seal."""
+
+    def test_a_root_that_was_never_created_is_an_empty_inventory(self, tmp_path):
+        adapter = _adapter(tmp_path)
+
+        assert adapter.bundle_inventory() == {"count": 0, "total_bytes": 0, "bundles": []}
+        assert not Path(adapter.root()).exists()
+
+    def test_a_created_but_empty_layout_holds_no_bundles(self, tmp_path):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+
+        assert adapter.bundle_inventory() == {"count": 0, "total_bytes": 0, "bundles": []}
+
+    def test_it_counts_each_sealed_bundle_and_sums_the_bytes_it_holds(self, tmp_path):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+        bundles = Path(adapter.root()) / "bundles"
+        (bundles / "One_2026-07-24_aaaa").mkdir()
+        (bundles / "One_2026-07-24_aaaa" / "README.txt").write_bytes(b"x" * 10)
+        (bundles / "Two_2026-07-24_bbbb" / "nested").mkdir(parents=True)
+        (bundles / "Two_2026-07-24_bbbb" / "nested" / "rom.chd").write_bytes(b"y" * 32)
+
+        inventory = adapter.bundle_inventory()
+
+        assert (inventory["count"], inventory["total_bytes"]) == (2, 42)
+        assert sorted(inventory["bundles"], key=lambda bundle: bundle["name"]) == [
+            {"name": "One", "day": "2026-07-24", "bytes": 10},
+            {"name": "Two", "day": "2026-07-24", "bytes": 32},
+        ]
+
+    def test_a_folder_it_did_not_name_is_listed_under_its_own_name_with_no_day(self, tmp_path):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+        renamed = Path(adapter.root()) / "bundles" / "Shenmue keep this"
+        renamed.mkdir()
+        (renamed / "README.txt").write_bytes(b"k" * 7)
+
+        assert adapter.bundle_inventory() == {
+            "count": 1,
+            "total_bytes": 7,
+            "bundles": [{"name": "Shenmue keep this", "day": None, "bytes": 7}],
+        }
+
+    def test_a_bundle_that_cannot_be_measured_is_listed_without_a_size(self, tmp_path, monkeypatch):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+        bundles = Path(adapter.root()) / "bundles"
+        (bundles / "One_2026-07-24_aaaa").mkdir()
+        (bundles / "Two_2026-07-24_bbbb").mkdir()
+        (bundles / "Two_2026-07-24_bbbb" / "README.txt").write_bytes(b"t" * 3)
+
+        real_measure = recovery_bundle.measure_tree
+
+        def measure(path: str, safe_root: str) -> int:
+            if path.endswith("One_2026-07-24_aaaa"):
+                raise OSError("unreadable")
+            return real_measure(path, safe_root)
+
+        monkeypatch.setattr(recovery_bundle, "measure_tree", measure)
+
+        inventory = adapter.bundle_inventory()
+
+        assert (inventory["count"], inventory["total_bytes"]) == (2, 3)
+        assert sorted(inventory["bundles"], key=lambda bundle: bundle["name"]) == [
+            {"name": "One", "day": "2026-07-24", "bytes": None},
+            {"name": "Two", "day": "2026-07-24", "bytes": 3},
+        ]
+
+    def test_a_bundle_whose_durability_is_uncertain_still_counts(self, tmp_path):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+        bundles = Path(adapter.root()) / "bundles"
+        marked = bundles / "One_2026-07-24_aaaa.durability-uncertain"
+        marked.mkdir()
+        (marked / "SEAL.json").write_bytes(b"z" * 5)
+
+        # The mark renames a bundle that was sealed; its data and the disk it
+        # takes are unchanged, and the row exists to make that disk visible.
+        assert adapter.bundle_inventory() == {
+            "count": 1,
+            "total_bytes": 5,
+            "bundles": [{"name": "One_2026-07-24_aaaa.durability-uncertain", "day": None, "bytes": 5}],
+        }
+
+    def test_a_loose_file_beside_the_bundles_is_not_one(self, tmp_path):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+        bundles = Path(adapter.root()) / "bundles"
+        (bundles / "stray-note.txt").write_bytes(b"q" * 99)
+
+        assert adapter.bundle_inventory() == {"count": 0, "total_bytes": 0, "bundles": []}
+
+    def test_a_symlinked_entry_is_not_a_bundle_and_is_not_counted(self, tmp_path):
+        adapter = _adapter(tmp_path)
+        _create_layout(adapter)
+        bundles = Path(adapter.root()) / "bundles"
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "big.bin").write_bytes(b"w" * 1000)
+        (bundles / "One_2026-07-24_aaaa").symlink_to(outside, target_is_directory=True)
+
+        # os.lstat does not follow the link, so the entry is not a directory
+        # here and never reaches the measurement at all.
+        assert adapter.bundle_inventory() == {"count": 0, "total_bytes": 0, "bundles": []}
+
+    def test_it_reads_no_seal_and_leaves_the_bundle_untouched(self, tmp_path):
+        source_root = tmp_path / "sources"
+        source_root.mkdir()
+        (source_root / "rom.chd").write_bytes(b"c" * 64)
+        adapter = _adapter(tmp_path)
+        artifacts: list[RecoveryArtifact] = [
+            {"source_path": str(source_root / "rom.chd"), "safe_root": str(source_root), "kind": "rom", "rom_id": 7}
+        ]
+        sealed = Path(adapter.seal_bundle("TestGame_2026-07-24_abc123", _snapshot(), artifacts, _readme_context(), "n"))
+        before = sorted(p.name for p in sealed.iterdir())
+
+        inventory = adapter.bundle_inventory()
+
+        assert inventory["count"] == 1
+        assert inventory["total_bytes"] > 0
+        assert inventory["bundles"] == [{"name": "TestGame", "day": "2026-07-24", "bytes": inventory["total_bytes"]}]
+        assert adapter.validate_sources(str(sealed)) is True
+        assert sorted(p.name for p in sealed.iterdir()) == before

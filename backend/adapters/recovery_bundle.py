@@ -20,13 +20,15 @@ from adapters.descriptor_paths import (
     remove_current,
 )
 from domain.identity import DISPLAY_NAME
-from domain.prune import render_bundle_readme, sanitize_package_name
+from domain.prune import parse_recovery_bundle_id, render_bundle_readme, sanitize_package_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from models.prune import (
         RecoveryArtifact,
+        RecoveryBundleEntry,
+        RecoveryBundleInventory,
         SealedSourceClaims,
         SourceClaim,
         SourceEntry,
@@ -99,6 +101,52 @@ class RecoveryBundleAdapter:
     def measure_path(self, path: str, safe_root: str) -> int:
         """Sum the recursive byte size of one source without reading its content."""
         return measure_tree(path, safe_root)
+
+    def bundle_inventory(self) -> RecoveryBundleInventory:
+        """Count the bundles under the recovery root and sum the bytes they hold.
+
+        A root that was never created is an empty inventory rather than an
+        error: sealing is what creates the layout, so "no bundles" and "no
+        recovery folder" are the same answer to the same question.
+
+        Every directory under ``bundles/`` counts, and no file's contents and no
+        seal are read — the measurement only sizes each file. A bundle whose
+        durability could not be confirmed is marked by a rename and still holds
+        its data, so excluding it would hide disk from the one reader who asked
+        what the bundles take. An entry that cannot be
+        measured is counted and listed without a size, and contributes nothing
+        to the total, because its presence is the more reliable of the two
+        facts. Each listed bundle is named from its folder name alone.
+        """
+        bundles_dir = os.path.join(self._root, "bundles")
+        try:
+            names = os.listdir(bundles_dir)
+        except OSError:
+            return {"count": 0, "total_bytes": 0, "bundles": []}
+        bundles: list[RecoveryBundleEntry] = []
+        for name in names:
+            path = os.path.join(bundles_dir, name)
+            entry = self._lstat_or_none(path)
+            if entry is None or not stat.S_ISDIR(entry.st_mode):
+                continue
+            try:
+                size: int | None = measure_tree(path, bundles_dir)
+            except (OSError, ValueError):
+                size = None
+            game, day = parse_recovery_bundle_id(name)
+            bundles.append({"name": game, "day": day, "bytes": size})
+        return {
+            "count": len(bundles),
+            "total_bytes": sum(bundle["bytes"] or 0 for bundle in bundles),
+            "bundles": bundles,
+        }
+
+    @staticmethod
+    def _lstat_or_none(path: str) -> os.stat_result | None:
+        try:
+            return os.lstat(path)
+        except OSError:
+            return None
 
     def validate_sources(self, bundle_path: str, bundle_digest: str | None = None) -> bool:
         """Verify that every sealed source set and source byte stream is unchanged."""
