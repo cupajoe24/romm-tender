@@ -1510,11 +1510,21 @@ for a scan.
 **A number that costs a round trip or a backend scan sits behind a press.** Focus selects on this layout, so a reading
 that rode on the selection would fire under every row the stick passes — a local scan of the grid directory for one row,
 a RomM round trip for the other. Grid images and Gone from RomM therefore read `scan` until they are asked, and keep the
-answer until something makes it wrong — a finished cleanup puts Gone from RomM back to `scan`, because a stale number
-about what the server no longer has is worse than no number. **The whitelist's search is the one text input left on a
-detail pane** — Collections carries one too, on the narrow body it keeps until its own cut, and it is a known exception
-rather than a decision: the panel's rule puts text input in a modal, for the reason Settings gives for its four inputs
-rather than by convention — the on-screen keyboard needs the room, and a detail pane has none to give. It moves with the
+answer until something makes it wrong, because a stale number is worse than no number. A finished cleanup puts Gone from
+RomM back to `scan`. Grid images goes back to `scan` after any removal of shortcuts from this page — Tender's shortcuts
+once the backend has accepted, other non-Steam games, and a finished Gone from RomM cleanup — because each can leave
+images the scan did not count: a Tender shortcut the plugin had no record of, or one whose removal report did not
+complete (that report is what deletes a bound shortcut's images), a foreign entry whose art nothing here deletes, or a
+cleanup run without recovery, which leaves its shortcuts' images in place. A grid-image removal re-derives its
+candidates rather than taking the scan's, and answers how many it found beside how many it removed; the row reads `0`
+only when the two match, since then nothing orphaned at the moment of the removal is left. Fewer removed than found
+means files that would not delete, and the row goes back to `scan` with the pane's status line saying how many; so does
+an answer missing either count or removing more than it found, or no answer at all. A refused removal deleted nothing,
+so the scanned count stands. The grid removal holds the page's busy state like the other removals, so no removal button
+— its own included — can start another while it runs. **The whitelist's search is the one text input left on a detail
+pane** — Collections carries one too, on the narrow body it keeps until its own cut, and it is a known exception rather
+than a decision: the panel's rule puts text input in a modal, for the reason Settings gives for its four inputs rather
+than by convention — the on-screen keyboard needs the room, and a detail pane has none to give. It moves with the
 review, in the cut that redraws both.
 
 **Two rows would overlap if either were read naively, and the one that gives way is the foreign one.** Tender's
