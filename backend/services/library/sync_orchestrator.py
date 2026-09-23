@@ -436,13 +436,12 @@ class SyncOrchestrator:
 
             return answer
         except SyncCancelled:
-            # sync_preview is a Decky callable — the frontend awaits its return.
-            # Re-raising leaves that promise unsettled, so a user-initiated
-            # cancel mid-preview returns the canonical failure shape instead of
-            # propagating the cooperative cancel out of the callable (#1035).
-            # SyncCancelled is a BaseException (not Exception), so it skips the
-            # generic ``except Exception`` below and lands here as a distinct
-            # cooperative signal — never conflated with a real asyncio cancel.
+            # sync_preview is a callable, and a user's cancel is its own
+            # outcome, not a transport failure: re-raising would reach the
+            # frontend as a ``backend_exception`` error (host/dispatch.py) where
+            # the canonical failure shape belongs. The clause order is what
+            # routes it here — SyncCancelled is an Exception, so it must stay
+            # above the generic ``except Exception`` below.
             box.discard_preview()
             await self._finish_sync(_SYNC_CANCELLED)
             return {"success": False, "reason": "cancelled", "message": _SYNC_CANCELLED}
@@ -783,9 +782,11 @@ class SyncOrchestrator:
                 # is_cancelling() checkpoints. Route it into the same graceful
                 # finalize the checkpoint break uses, so the SyncRun is marked
                 # cancelled and sync_state is restored to IDLE instead of wedging
-                # until a plugin reload (#1035). SyncCancelled is a BaseException,
-                # so a REAL asyncio.CancelledError raised mid-fetch is NOT caught
-                # here — it propagates out, never swallowed into the finalize.
+                # until the backend restarts (#1035). This clause names
+                # SyncCancelled alone, and a REAL asyncio.CancelledError raised
+                # mid-fetch is a BaseException outside it, so that one is NOT
+                # caught here — it propagates out, never swallowed into the
+                # finalize.
                 cancelled = True
 
             # Final phase: stale cleanup + Steam collections + sync_complete.
