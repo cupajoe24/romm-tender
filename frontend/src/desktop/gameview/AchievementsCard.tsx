@@ -1,16 +1,5 @@
 /**
  * AchievementsCard — achievements overview card for the Desktop game view.
- *
- * Rendered in the "Game Info" tab beneath the AboutDetails card. Matches the
- * visual layout of Steam Desktop's achievements card (Image 1) and the theming
- * of existing cards (CARD_STYLE):
- * - Header with uppercase "ACHIEVEMENTS", completion summary "X of Y · Z hardcore",
- *   and right-aligned "Show all Y" action button.
- * - Horizontal golden-amber progress bar.
- * - 4-item preview list: recent unlocks first, then locked achievements.
- * - Each row displays badge, title, description, player count, unlock date, HC tag,
- *   and points.
- * - Clicking "Show all Y" or any row opens the Steam-styled AchievementsModal.
  */
 
 import { useState, useEffect, useRef, useMemo, type FC } from "react";
