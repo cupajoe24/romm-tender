@@ -97,11 +97,33 @@ export function isPlayBarElement(el: HTMLElement): boolean {
   return false;
 }
 
+export function getDocument(root: HTMLElement | Document): Document {
+  return "ownerDocument" in root && root.ownerDocument ? root.ownerDocument : (root as Document);
+}
+
+function findActionContainerFromButton(
+  btn: HTMLElement,
+  root: HTMLElement | Document,
+  docBody: HTMLElement,
+): HTMLElement {
+  let curr: HTMLElement = btn;
+  while (curr.parentElement && curr.parentElement !== root && curr.parentElement !== docBody) {
+    if (curr.parentElement.children.length > 1 || /play|action/i.test(curr.parentElement.className)) {
+      return curr.parentElement;
+    }
+    curr = curr.parentElement;
+  }
+  return curr;
+}
+
 /**
  * Locate Steam's native play section / action bar (middle bar).
  * Checks @decky/ui classes, common class substrings, and button fallbacks.
  */
 export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement | null {
+  const doc = getDocument(root);
+  const docBody = doc.body;
+
   const playBtn = findSteamPlayButton(root);
   if (playBtn) {
     const section = playBtn.closest(
@@ -110,15 +132,7 @@ export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement 
     if (section) return section;
 
     // Desktop fallback: walk up from playBtn until reaching a container with sibling action controls (options, etc.)
-    const docBody = "ownerDocument" in root && root.ownerDocument ? root.ownerDocument.body : (root as Document).body;
-    let curr: HTMLElement = playBtn;
-    while (curr.parentElement && curr.parentElement !== root && curr.parentElement !== docBody) {
-      if (curr.parentElement.children.length > 1 || /play|action/i.test(curr.parentElement.className)) {
-        return curr.parentElement;
-      }
-      curr = curr.parentElement;
-    }
-    return curr;
+    return findActionContainerFromButton(playBtn, root, docBody);
   }
 
   const psClass = basicAppDetailsSectionStylerClasses?.PlaySection;
@@ -156,15 +170,7 @@ export function findSteamPlaySection(root: HTMLElement | Document): HTMLElement 
     '[class*="AppActionButton"], [class*="PlayButton"], button[class*="play" i]',
   );
   if (btn) {
-    const docBody = root.ownerDocument ? root.ownerDocument.body : (root as Document).body;
-    let curr = btn;
-    while (curr.parentElement && curr.parentElement !== root && curr.parentElement !== docBody) {
-      if (curr.parentElement.children.length > 1 || /play|action/i.test(curr.parentElement.className)) {
-        return curr.parentElement;
-      }
-      curr = curr.parentElement;
-    }
-    return curr;
+    return findActionContainerFromButton(btn, root, docBody);
   }
 
   // Final fallback: if root is an HTMLElement with multiple children, the first child is the top action bar
@@ -205,7 +211,7 @@ export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement |
   }
 
   // Desktop client fallback: find element whose direct text is "Play" (case-insensitive)
-  const doc = "ownerDocument" in root && root.ownerDocument ? root.ownerDocument : (root as Document);
+  const doc = getDocument(root);
   const searchRoot = "querySelectorAll" in root ? root : doc;
   const candidates = searchRoot.querySelectorAll<HTMLElement>("div, button");
   for (const candidate of Array.from(candidates)) {
@@ -310,7 +316,7 @@ export function findPlayBarAndContainer(
  * so it must be queried across the document or ownerDocument, rather than strictly inside the overview panel.
  */
 export function findSteamStickyPlayBar(root: Document | HTMLElement, playBarTop: HTMLElement): HTMLElement | null {
-  const doc = "ownerDocument" in root && root.ownerDocument ? root.ownerDocument : (root as Document);
+  const doc = getDocument(root);
   const isCandidate = (el: HTMLElement | null): el is HTMLElement => {
     if (!el) return false;
     if (el === playBarTop || playBarTop.contains(el) || el.contains(playBarTop)) return false;

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 import {
   logError,
   releaseOrphanedPruneLeases,
@@ -8,12 +9,14 @@ import {
 import {
   capturePruneLeaseAdmission,
   disownStrandedPruneLeases,
+  isPruneLeaseAdmissionCurrent,
   isPruneLeaseCancellation,
   maintainPruneLease,
   mountPruneLeaseOwner,
   PruneLeaseAdmissionCancelled,
   releasePruneLease,
   releasePruneLeasesByOwner,
+  usePruneLeaseOwner,
   withPruneLease,
 } from "./pruneLease";
 
@@ -286,4 +289,14 @@ it("logs a disown that fails instead of leaving it unhandled", async () => {
   await Promise.resolve();
 
   expect(logError).toHaveBeenCalledWith(expect.stringContaining("could not disown stranded leases"));
+});
+
+it("mounts and disowns prune lease owner via usePruneLeaseOwner hook", async () => {
+  const { unmount } = renderHook(() => usePruneLeaseOwner("hook-owner-1", "hook-owner-2"));
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-1"))).toBe(true);
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-2"))).toBe(true);
+
+  unmount();
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-1"))).toBe(false);
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-2"))).toBe(false);
 });

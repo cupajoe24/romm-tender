@@ -57,6 +57,28 @@ export function findReactClient(): ReactClientModule | undefined {
   }) as ReactClientModule | undefined;
 }
 
+function getSteamAssetCandidates(
+  appId: number,
+  extractor: (store: SteamAppStore, ov: unknown) => string[] | undefined,
+): string[] {
+  const store = (window as unknown as { appStore?: SteamAppStore }).appStore;
+  if (!store || typeof store.GetAppOverviewByAppID !== "function") {
+    return [];
+  }
+
+  const ov = store.GetAppOverviewByAppID(appId);
+  if (!ov) {
+    return [];
+  }
+
+  const urls = extractor(store, ov);
+  if (!Array.isArray(urls)) {
+    return [];
+  }
+
+  return urls.map((u) => `https://steamloopback.host${u}`);
+}
+
 /**
  * Cover candidate URLs for a shortcut appId.
  *
@@ -64,22 +86,9 @@ export function findReactClient(): ReactClientModule | undefined {
  * then .png). The consumer falls through candidates on load failure.
  */
 export function coverCandidates(appId: number): string[] {
-  const store = (window as unknown as { appStore?: SteamAppStore }).appStore;
-  if (!store || typeof store.GetAppOverviewByAppID !== "function") {
-    return [];
-  }
-
-  const ov = store.GetAppOverviewByAppID(appId);
-  if (!ov || typeof store.GetCustomVerticalCapsuleURLs !== "function") {
-    return [];
-  }
-
-  const urls = store.GetCustomVerticalCapsuleURLs(ov);
-  if (!Array.isArray(urls)) {
-    return [];
-  }
-
-  return urls.map((u) => `https://steamloopback.host${u}`);
+  return getSteamAssetCandidates(appId, (store, ov) =>
+    typeof store.GetCustomVerticalCapsuleURLs === "function" ? store.GetCustomVerticalCapsuleURLs(ov) : undefined,
+  );
 }
 
 /**
@@ -90,20 +99,7 @@ export function coverCandidates(appId: number): string[] {
  * consumer falls through candidates on load failure.
  */
 export function heroCandidates(appId: number): string[] {
-  const store = (window as unknown as { appStore?: SteamAppStore }).appStore;
-  if (!store || typeof store.GetAppOverviewByAppID !== "function") {
-    return [];
-  }
-
-  const ov = store.GetAppOverviewByAppID(appId);
-  if (!ov || typeof store.GetCustomHeroImageURLs !== "function") {
-    return [];
-  }
-
-  const urls = store.GetCustomHeroImageURLs(ov);
-  if (!Array.isArray(urls)) {
-    return [];
-  }
-
-  return urls.map((u) => `https://steamloopback.host${u}`);
+  return getSteamAssetCandidates(appId, (store, ov) =>
+    typeof store.GetCustomHeroImageURLs === "function" ? store.GetCustomHeroImageURLs(ov) : undefined,
+  );
 }
