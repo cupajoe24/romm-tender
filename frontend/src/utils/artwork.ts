@@ -10,6 +10,7 @@
  */
 
 import {
+  getArtworkBase64,
   getSgdbArtworkBase64,
   getSgdbSlotArtwork,
   isEndpointFailure,
@@ -437,4 +438,22 @@ export async function setJobSlotArtwork(
 export async function cancelArtworkApply(appId: number): Promise<void> {
   artworkGenerations.set(appId, (artworkGenerations.get(appId) ?? 0) + 1);
   await releasePruneLeasesByOwner(`artwork:${appId}`);
+}
+
+/**
+ * The game's RomM cover as a data URL, or `null` when there is none. Not the
+ * SteamGridDB icon: the backend writes that straight into Steam's grid
+ * directory and hands no bytes back for it.
+ */
+export async function getGameIconUrl(romId: number): Promise<string | null> {
+  try {
+    const coverResult = await getArtworkBase64(romId);
+    if (coverResult.base64) {
+      return `data:image/png;base64,${coverResult.base64}`;
+    }
+  } catch (e) {
+    detach(debugLog(`getGameIconUrl: failed to get the cover for rom ${romId}: ${e}`));
+  }
+
+  return null;
 }

@@ -21,3 +21,10 @@ export { GameViewTabBar, type GameViewTabBarProps, type GameViewTab } from "./ga
 export { AboutHeader, type AboutHeaderProps } from "./gameview/AboutHeader";
 export { AboutDetails, formatReleaseDate, type AboutDetailsProps } from "./gameview/AboutDetails";
 export { EmulationSettings, type EmulationSettingsProps } from "./gameview/EmulationSettings";
+export {
+  AchievementsCard,
+  requestOpenAchievementsModal,
+  consumeOpenAchievementsModal,
+  type AchievementsCardProps,
+} from "./gameview/AchievementsCard";
+export { AchievementsModal, type AchievementsModalProps } from "./gameview/AchievementsModal";
