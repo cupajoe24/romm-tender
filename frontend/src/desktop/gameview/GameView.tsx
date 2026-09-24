@@ -146,3 +146,4 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
 
 export const GameViewPage = GameView;
 export { PlayButton } from "./PlayButton";
+export { DiscSelector } from "./DiscSelector";
