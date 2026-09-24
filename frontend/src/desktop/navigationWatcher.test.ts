@@ -8,6 +8,8 @@ import {
   findSteamPlayBarBadges,
   findSteamRightControls,
   findSteamStickyPlayBar,
+  findScrollContainer,
+  isPlayBarPinned,
   isTenderElement,
   isRightControlsElement,
   startDesktopNavigationWatcher,
@@ -15,6 +17,12 @@ import {
   TENDER_SUBSTITUTE_ID,
   TENDER_PLAY_BUTTON_ID,
 } from "./navigationWatcher";
+import {
+  GLASS_PLAY_BAR_BG,
+  GLASS_PLAY_BAR_GRADIENT,
+  PINNED_PLAY_BAR_SHADOW,
+  SOLID_PLAY_BAR_BG,
+} from "./gameview/styles";
 import * as rommAppIds from "../utils/rommAppIds";
 import * as desktopWin from "./desktopWindow";
 import * as deckyUiInternals from "../utils/deckyUiInternals";
@@ -1258,6 +1266,209 @@ describe("navigationWatcher", () => {
       // Stop watcher restores original display
       stop();
       expect(duplicateStickyPlayBar.style.display).toBe("");
+    });
+
+    describe("findScrollContainer", () => {
+      it("finds ancestor with overflowY: auto or scroll", () => {
+        const doc = document.implementation.createHTMLDocument("Scroll Test");
+        const scroller = doc.createElement("div");
+        scroller.style.overflowY = "auto";
+
+        const child = doc.createElement("div");
+        const target = doc.createElement("div");
+
+        child.appendChild(target);
+        scroller.appendChild(child);
+        doc.body.appendChild(scroller);
+
+        expect(findScrollContainer(target)).toBe(scroller);
+      });
+
+      it("falls back to window/defaultView when no scrollable ancestor exists", () => {
+        const doc = document.implementation.createHTMLDocument("Scroll Test");
+        const target = doc.createElement("div");
+        doc.body.appendChild(target);
+
+        expect(findScrollContainer(target)).toBe(window);
+      });
+    });
+
+    describe("isPlayBarPinned", () => {
+      it("returns false when play bar top is below scroller top", () => {
+        const playBar = document.createElement("div");
+        const scroller = document.createElement("div");
+
+        vi.spyOn(playBar, "getBoundingClientRect").mockReturnValue({
+          top: 300,
+          bottom: 350,
+          left: 0,
+          right: 100,
+          width: 100,
+          height: 50,
+        } as DOMRect);
+
+        vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({
+          top: 50,
+          bottom: 500,
+          left: 0,
+          right: 100,
+          width: 100,
+          height: 450,
+        } as DOMRect);
+
+        expect(isPlayBarPinned(playBar, scroller)).toBe(false);
+      });
+
+      it("returns true when play bar is pinned at scroller top", () => {
+        const playBar = document.createElement("div");
+        const scroller = document.createElement("div");
+
+        vi.spyOn(playBar, "getBoundingClientRect").mockReturnValue({
+          top: 50,
+          bottom: 100,
+          left: 0,
+          right: 100,
+          width: 100,
+          height: 50,
+        } as DOMRect);
+
+        vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue({
+          top: 50,
+          bottom: 500,
+          left: 0,
+          right: 100,
+          width: 100,
+          height: 450,
+        } as DOMRect);
+
+        expect(isPlayBarPinned(playBar, scroller)).toBe(true);
+      });
+
+      it("handles window as scroller", () => {
+        const playBar = document.createElement("div");
+        vi.spyOn(playBar, "getBoundingClientRect").mockReturnValue({
+          top: 0,
+          bottom: 50,
+          left: 0,
+          right: 100,
+          width: 100,
+          height: 50,
+        } as DOMRect);
+
+        expect(isPlayBarPinned(playBar, window)).toBe(true);
+      });
+    });
+
+    describe("dynamic play bar glass and solid pinning", () => {
+      it("applies grey glass styling when unpinned and transitions to solid grey when pinned", () => {
+        const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+        vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+          createRoot: vi.fn().mockReturnValue(mockRoot),
+        });
+
+        const mockDoc = document.implementation.createHTMLDocument("Steam Desktop Dynamic Pinned");
+        const scroller = mockDoc.createElement("div");
+        scroller.style.overflowY = "scroll";
+
+        const overviewPanel = mockDoc.createElement("div");
+        overviewPanel.className = "AppDetailsOverviewPanel";
+
+        const inPagePlayBar = mockDoc.createElement("div");
+        inPagePlayBar.className = "InPagePlayBarContainer InPage";
+
+        const playSection = mockDoc.createElement("div");
+        playSection.className = "PlaySection";
+        const playBtn = mockDoc.createElement("button");
+        playBtn.className = "PlayButton";
+        playSection.appendChild(playBtn);
+        inPagePlayBar.appendChild(playSection);
+
+        overviewPanel.appendChild(inPagePlayBar);
+        scroller.appendChild(overviewPanel);
+        mockDoc.body.appendChild(scroller);
+
+        let pbTop = 300;
+        const scTop = 50;
+
+        vi.spyOn(inPagePlayBar, "getBoundingClientRect").mockImplementation(
+          () =>
+            ({
+              top: pbTop,
+              bottom: pbTop + 50,
+              left: 0,
+              right: 1000,
+              width: 1000,
+              height: 50,
+            }) as DOMRect,
+        );
+
+        vi.spyOn(scroller, "getBoundingClientRect").mockImplementation(
+          () =>
+            ({
+              top: scTop,
+              bottom: scTop + 600,
+              left: 0,
+              right: 1000,
+              width: 1000,
+              height: 600,
+            }) as DOMRect,
+        );
+
+        const mockWin = {
+          document: mockDoc,
+          setInterval: vi.fn().mockReturnValue(779),
+          clearInterval: vi.fn(),
+          setTimeout: vi.fn(),
+          MutationObserver: window.MutationObserver,
+          location: { pathname: "/library/app/55557" },
+        } as unknown as Window;
+
+        (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+          m_lastLocation: { pathname: "/library/app/55557" },
+        };
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+        const stop = startDesktopNavigationWatcher(mockWin);
+
+        // Initially unpinned: grey glass styling
+        expect(inPagePlayBar.style.position).toBe("sticky");
+        expect(inPagePlayBar.style.top).toBe("0px");
+        expect(inPagePlayBar.style.backgroundImage).toBe(GLASS_PLAY_BAR_GRADIENT);
+        expect(inPagePlayBar.style.backgroundColor).toBe(GLASS_PLAY_BAR_BG);
+        expect(inPagePlayBar.style.backdropFilter).toBe("blur(12px)");
+        expect(inPagePlayBar.style.boxShadow).toBe("none");
+        expect(playSection.style.backgroundColor).toBe("transparent");
+
+        // Simulate scroll to top where play bar becomes pinned
+        pbTop = 50;
+        scroller.dispatchEvent(new Event("scroll"));
+
+        expect(inPagePlayBar.style.backgroundImage).toBe("none");
+        expect(inPagePlayBar.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
+        expect(inPagePlayBar.style.backdropFilter).toBe("none");
+        expect(inPagePlayBar.style.boxShadow).toBe(PINNED_PLAY_BAR_SHADOW);
+        expect(playSection.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
+
+        // Simulate scroll back to top (unpinned)
+        pbTop = 300;
+        scroller.dispatchEvent(new Event("scroll"));
+
+        expect(inPagePlayBar.style.backgroundImage).toBe(GLASS_PLAY_BAR_GRADIENT);
+        expect(inPagePlayBar.style.backgroundColor).toBe(GLASS_PLAY_BAR_BG);
+        expect(inPagePlayBar.style.backdropFilter).toBe("blur(12px)");
+        expect(inPagePlayBar.style.boxShadow).toBe("none");
+        expect(playSection.style.backgroundColor).toBe("transparent");
+
+        // Stop watcher restores original styles cleanly
+        stop();
+        expect(inPagePlayBar.style.position).toBe("");
+        expect(inPagePlayBar.style.top).toBe("");
+        expect(inPagePlayBar.style.backgroundImage).toBe("");
+        expect(inPagePlayBar.style.backgroundColor).toBe("");
+        expect(inPagePlayBar.style.backdropFilter).toBe("");
+        expect(inPagePlayBar.style.boxShadow).toBe("");
+        expect(playSection.style.backgroundColor).toBe("");
+      });
     });
   });
 });
