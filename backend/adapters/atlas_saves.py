@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from _vendor.atlas import Unresolved
+from _vendor.atlas import Unresolved, core_probe_interpreter
 
 from domain.save_answer import (
     UNESTABLISHED_NOT_ASKED,
@@ -190,3 +190,20 @@ def _translate(placement: Any, emulator_label: str, content_installed: bool) -> 
         caveats=tuple(caveat.code for caveat in placement.caveats),
         content_installed=content_installed,
     )
+
+
+def describe_core_probe_interpreter() -> str:
+    """Name the interpreter atlas would run a core probe under here, as a log line.
+
+    Why the line exists, and why nothing registers an interpreter over atlas's
+    own, is ``docs/architecture/backend-architecture.md``'s, under "Composition
+    Root".
+
+    A string rather than the resolver's own ``CoreProbeInterpreter``, because
+    the one reader is the log at the wiring site in ``bootstrap/``, which may
+    not hold a ``_vendor`` type.
+    """
+    derived = core_probe_interpreter()
+    if derived is None:
+        return "atlas core probe: no interpreter to run under — every core answers unknown"
+    return f"atlas core probe: {derived.path} (atlas's own, from the running program)"

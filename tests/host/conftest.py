@@ -114,6 +114,17 @@ async def squat_run(count: int) -> tuple[int, list[asyncio.Server]]:
     raise AssertionError(f"no run of {count + 1} consecutive free loopback ports")
 
 
+async def close_listener(server: asyncio.Server) -> None:
+    """Close a server something may still be connecting to, and every connection it holds.
+
+    The same order as :meth:`host.server.HostServer.stop`, for the reasons stated there.
+    """
+    await asyncio.sleep(0)
+    server.close()
+    server.close_clients()
+    await server.wait_closed()
+
+
 async def close_all(servers: list[asyncio.Server]) -> None:
     """Close every server and wait for it, so the next test finds the ports free."""
     for server in servers:
