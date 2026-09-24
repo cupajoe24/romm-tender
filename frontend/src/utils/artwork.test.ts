@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as backend from "../api/backend";
-import { applyArtwork, cancelArtworkApply, isArtworkApplyInFlight } from "./artwork";
+import { applyArtwork, cancelArtworkApply, getGameIconUrl } from "./artwork";
 
 describe("applyArtwork", () => {
   beforeEach(() => {
@@ -259,63 +259,49 @@ describe("applyArtwork — newest-apply-wins race guard", () => {
   });
 });
 
-describe("isArtworkApplyInFlight", () => {
+describe("getGameIconUrl", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.stubGlobal("SteamClient", {
-      Apps: {
-        SetCustomArtworkForApp: vi.fn().mockResolvedValue(undefined),
-        SetShortcutIcon: vi.fn(),
-      },
+  });
+
+  it("returns data URI for SGDB icon (asset type 4) and releases lease", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({
+      base64: "ICON_PNG_BASE64",
+      prune_lease_token: "lease-icon-1",
     });
+
+    const url = await getGameIconUrl(42);
+
+    expect(url).toBe("data:image/png;base64,ICON_PNG_BASE64");
+    expect(backend.getSgdbArtworkBase64).toHaveBeenCalledWith(42, 4);
   });
 
-  it("answers yes for an appId while its apply runs, and no for any other", async () => {
-    let finish: (value: { base64: null; no_api_key: boolean }) => void = () => {};
-    vi.mocked(backend.getSgdbArtworkBase64).mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-    );
+  it("falls back to RomM cover when SGDB icon is null", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null });
+    vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: "COVER_BASE64" });
 
-    const applying = applyArtwork(42, 5000);
+    const url = await getGameIconUrl(42);
 
-    expect(isArtworkApplyInFlight(5000)).toBe(true);
-    expect(isArtworkApplyInFlight(6000)).toBe(false);
-    finish({ base64: null, no_api_key: false });
-    await applying;
-    expect(isArtworkApplyInFlight(5000)).toBe(false);
+    expect(url).toBe("data:image/png;base64,COVER_BASE64");
+    expect(backend.getSgdbArtworkBase64).toHaveBeenCalledWith(42, 4);
+    expect(backend.getArtworkBase64).toHaveBeenCalledWith(42);
   });
 
-  it("answers no once an apply that failed has ended", async () => {
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: "AA==", no_api_key: false });
-    vi.mocked(SteamClient.Apps.SetCustomArtworkForApp).mockRejectedValue(new Error("Steam refused"));
+  it("returns null when both SGDB icon and RomM cover return null base64", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null });
+    vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: null });
 
-    await expect(applyArtwork(42, 5000)).rejects.toThrow("Steam refused");
+    const url = await getGameIconUrl(42);
 
-    expect(isArtworkApplyInFlight(5000)).toBe(false);
+    expect(url).toBeNull();
   });
 
-  it("stays yes while a second apply for the same appId still runs", async () => {
-    let finishSecond: (value: { base64: null; no_api_key: boolean }) => void = () => {};
-    vi.mocked(backend.getSgdbArtworkBase64)
-      .mockResolvedValueOnce({ base64: null, no_api_key: false })
-      .mockResolvedValueOnce({ base64: null, no_api_key: false })
-      .mockResolvedValueOnce({ base64: null, no_api_key: false })
-      .mockResolvedValueOnce({ base64: null, no_api_key: false })
-      .mockReturnValue(
-        new Promise((resolve) => {
-          finishSecond = resolve;
-        }),
-      );
+  it("fails soft and returns null when calls reject", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockRejectedValue(new Error("network error"));
+    vi.mocked(backend.getArtworkBase64).mockRejectedValue(new Error("network error"));
 
-    const first = applyArtwork(42, 5000);
-    const second = applyArtwork(42, 5000);
-    await first;
+    const url = await getGameIconUrl(42);
 
-    expect(isArtworkApplyInFlight(5000)).toBe(true);
-    finishSecond({ base64: null, no_api_key: false });
-    await second;
-    expect(isArtworkApplyInFlight(5000)).toBe(false);
+    expect(url).toBeNull();
   });
 });

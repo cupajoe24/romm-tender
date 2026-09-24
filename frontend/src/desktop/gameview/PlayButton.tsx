@@ -31,6 +31,8 @@ import {
   invalidateCachedGameDetail,
   getSaveSetupInfo,
   getBiosStatus,
+  getAchievementProgress,
+  getAchievements,
   probeReachability,
   type BiosAnswer,
 } from "../../api/backend";
@@ -51,6 +53,7 @@ import {
   withPruneLease,
 } from "../../utils/pruneLease";
 import { showToast } from "../../utils/toast";
+import { requestOpenAchievementsModal } from "./AchievementsCard";
 import { detach } from "../../utils/detach";
 import {
   formatBytes,
@@ -196,6 +199,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   const isOffline = connectionState === "offline";
   const [setupInfo, setSetupInfo] = useState<SaveSetupInfo | null>(null);
   const [biosAnswer, setBiosAnswer] = useState<BiosAnswer | null>(null);
+  const [achievementCounts, setAchievementCounts] = useState<{ earned: number; total: number } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -227,6 +231,26 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
         .catch((e) => {
           detach(debugLog(`PlayButton getBiosStatus error: ${e}`));
         });
+
+      if (detail.raId) {
+        Promise.all([getAchievementProgress(romId).catch(() => null), getAchievements(romId).catch(() => null)])
+          .then(([prog, list]) => {
+            if (cancelled) return;
+            if (prog?.success || list?.success) {
+              const earned = prog?.success ? prog.earned : 0;
+              const total =
+                prog?.success && prog.total > 0
+                  ? prog.total
+                  : list?.success
+                    ? list.total || list.achievements.length
+                    : 0;
+              setAchievementCounts({ earned, total });
+            }
+          })
+          .catch((e) => {
+            detach(debugLog(`PlayButton achievement counts error: ${e}`));
+          });
+      }
     };
 
     fetchStatus();
@@ -238,15 +262,24 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       }
     };
 
+    const handleAchievements = (e: Event) => {
+      const customEvent = e as CustomEvent<{ romId?: number; earned: number; total: number }>;
+      if (customEvent.detail.romId === undefined || customEvent.detail.romId === romId) {
+        setAchievementCounts({ earned: customEvent.detail.earned, total: customEvent.detail.total });
+      }
+    };
+
     globalThis.addEventListener("romm_save_sync", handleSaveSync);
     globalThis.addEventListener("romm_data_changed", fetchStatus);
+    globalThis.addEventListener("romm_achievements_updated", handleAchievements);
 
     return () => {
       cancelled = true;
       globalThis.removeEventListener("romm_save_sync", handleSaveSync);
       globalThis.removeEventListener("romm_data_changed", fetchStatus);
+      globalThis.removeEventListener("romm_achievements_updated", handleAchievements);
     };
-  }, [romId, detail.saveSyncEnabled]);
+  }, [romId, detail.saveSyncEnabled, detail.raId]);
 
   useEffect(() => {
     mountPruneLeaseOwner(leaseOwner);
@@ -654,10 +687,9 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     };
 
     const hasAchievements = Boolean(detail.raId);
-    const countLabel =
-      detail.achievementTotal > 0
-        ? `${detail.achievementEarned}/${detail.achievementTotal}`
-        : `${detail.achievementEarned}`;
+    const earned = achievementCounts ? achievementCounts.earned : detail.achievementEarned;
+    const total = achievementCounts && achievementCounts.total > 0 ? achievementCounts.total : detail.achievementTotal;
+    const countLabel = total > 0 ? `${earned}/${total}` : `${earned}`;
 
     const currentSetupInfo = romId ? setupInfo : null;
     const currentBiosAnswer = romId ? biosAnswer : null;
@@ -776,7 +808,24 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
         ) : null}
 
         {hasAchievements && (
-          <div className="tender-desktop-badge-item tender-desktop-achievements" style={badgeColumnStyle}>
+          <div
+            role="button"
+            tabIndex={0}
+            className="tender-desktop-badge-item tender-desktop-achievements"
+            style={{ ...badgeColumnStyle, cursor: "pointer" }}
+            onClick={() => {
+              if (romId) {
+                requestOpenAchievementsModal(romId);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                if (romId) {
+                  requestOpenAchievementsModal(romId);
+                }
+              }
+            }}
+          >
             <div style={badgeHeaderStyle}>ACHIEVEMENTS</div>
             <div style={badgeValueStyle}>
               <span style={{ fontSize: "13px" }}>{"\uD83C\uDFC6"}</span>
