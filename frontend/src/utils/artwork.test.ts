@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as backend from "../api/backend";
-import { applyArtwork, cancelArtworkApply } from "./artwork";
+import { applyArtwork, cancelArtworkApply, getGameIconUrl } from "./artwork";
 
 describe("applyArtwork", () => {
   beforeEach(() => {
@@ -256,5 +256,52 @@ describe("applyArtwork — newest-apply-wins race guard", () => {
     slow.resolve({ base64: "XX==", no_api_key: false });
     await expect(xPromise).resolves.toBe(4);
     expect(write).toHaveBeenCalledWith(5000, "XX==", "png", 1);
+  });
+});
+
+describe("getGameIconUrl", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns data URI for SGDB icon (asset type 4) and releases lease", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({
+      base64: "ICON_PNG_BASE64",
+      prune_lease_token: "lease-icon-1",
+    });
+
+    const url = await getGameIconUrl(42);
+
+    expect(url).toBe("data:image/png;base64,ICON_PNG_BASE64");
+    expect(backend.getSgdbArtworkBase64).toHaveBeenCalledWith(42, 4);
+  });
+
+  it("falls back to RomM cover when SGDB icon is null", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null });
+    vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: "COVER_BASE64" });
+
+    const url = await getGameIconUrl(42);
+
+    expect(url).toBe("data:image/png;base64,COVER_BASE64");
+    expect(backend.getSgdbArtworkBase64).toHaveBeenCalledWith(42, 4);
+    expect(backend.getArtworkBase64).toHaveBeenCalledWith(42);
+  });
+
+  it("returns null when both SGDB icon and RomM cover return null base64", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null });
+    vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: null });
+
+    const url = await getGameIconUrl(42);
+
+    expect(url).toBeNull();
+  });
+
+  it("fails soft and returns null when calls reject", async () => {
+    vi.mocked(backend.getSgdbArtworkBase64).mockRejectedValue(new Error("network error"));
+    vi.mocked(backend.getArtworkBase64).mockRejectedValue(new Error("network error"));
+
+    const url = await getGameIconUrl(42);
+
+    expect(url).toBeNull();
   });
 });

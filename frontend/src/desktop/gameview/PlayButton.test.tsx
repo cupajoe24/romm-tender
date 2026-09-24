@@ -82,6 +82,8 @@ vi.mock("../../api/backend", () => ({
   getVersionList: vi.fn().mockResolvedValue({ multi_version: false }),
   getCachedGameDetail: vi.fn().mockResolvedValue({ found: false }),
   selectDisc: vi.fn().mockResolvedValue({ success: true }),
+  getAchievementProgress: vi.fn().mockResolvedValue({ success: false, earned: 0, total: 0, earned_achievements: [] }),
+  getAchievements: vi.fn().mockResolvedValue({ success: false, total: 0, achievements: [] }),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -104,6 +106,13 @@ describe("PlayButton", () => {
     vi.mocked(backend.reconcilePlaytime).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getSaveSetupInfo).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getBiosStatus).mockImplementation(() => new Promise(() => {}));
+    vi.mocked(backend.getAchievementProgress).mockResolvedValue({
+      success: false,
+      earned: 0,
+      total: 0,
+      earned_achievements: [],
+    });
+    vi.mocked(backend.getAchievements).mockResolvedValue({ success: false, total: 0, achievements: [] });
 
     (window as unknown as { SteamClient?: unknown }).SteamClient = {
       Apps: {
@@ -684,11 +693,32 @@ describe("PlayButton", () => {
     expect(cheevoBadge).toBeInTheDocument();
     if (cheevoBadge) {
       fireEvent.click(cheevoBadge);
-      // No click action should be dispatched
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "romm_open_achievements_modal",
+          detail: { romId: 100 },
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "romm_tab_switch",
+          detail: { tab: "game-info" },
+        }),
+      );
+      // Confirms no invalid "achievements" tab switch is sent
       expect(dispatchSpy).not.toHaveBeenCalledWith(
         expect.objectContaining({
           type: "romm_tab_switch",
           detail: { tab: "achievements" },
+        }),
+      );
+
+      // Keydown Enter / Space
+      fireEvent.keyDown(cheevoBadge, { key: "Enter" });
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "romm_open_achievements_modal",
+          detail: { romId: 100 },
         }),
       );
     }
@@ -724,6 +754,88 @@ describe("PlayButton", () => {
 
     render(<PlayButton appId={123} />);
     expect(screen.queryByText("ACHIEVEMENTS")).not.toBeInTheDocument();
+  });
+
+  it("updates ACHIEVEMENTS badge numbers when romm_achievements_updated event is dispatched", () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: 456,
+      achievementEarned: 2,
+      achievementTotal: 10,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+    expect(screen.getByText("2/10")).toBeInTheDocument();
+
+    act(() => {
+      globalThis.dispatchEvent(
+        new CustomEvent("romm_achievements_updated", {
+          detail: { romId: 100, earned: 5, total: 10 },
+        }),
+      );
+    });
+
+    expect(screen.getByText("5/10")).toBeInTheDocument();
+  });
+
+  it("updates ACHIEVEMENTS badge numbers when getAchievementProgress resolves", async () => {
+    vi.mocked(backend.getAchievementProgress).mockResolvedValue({
+      success: true,
+      earned: 7,
+      total: 24,
+      earned_achievements: [],
+    });
+
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: 456,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    render(<PlayButton appId={123} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("7/24")).toBeInTheDocument();
+    });
   });
 
   it("hides SPACE REQUIRED badge when game is installed", () => {

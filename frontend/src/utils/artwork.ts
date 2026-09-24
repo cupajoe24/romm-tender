@@ -6,12 +6,13 @@
  * component to keep their import graph acyclic.
  */
 
-import { getSgdbArtworkBase64, saveShortcutIcon, debugLog } from "../api/backend";
+import { getArtworkBase64, getSgdbArtworkBase64, saveShortcutIcon, debugLog } from "../api/backend";
 import { detach } from "./detach";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseCancelled,
   mountPruneLeaseOwner,
+  releasePruneLease,
   releasePruneLeasesByOwner,
   withPruneLeases,
 } from "./pruneLease";
@@ -111,4 +112,33 @@ export async function applyArtwork(romId: number, appId: number): Promise<number
 export async function cancelArtworkApply(appId: number): Promise<void> {
   artworkGenerations.set(appId, (artworkGenerations.get(appId) ?? 0) + 1);
   await releasePruneLeasesByOwner(`artwork:${appId}`);
+}
+
+/**
+ * Fetch the game icon data URL for a given ROM id, mirroring the
+ * sync-time source (`getSgdbArtworkBase64(romId, 4)` with fallback to RomM cover).
+ */
+export async function getGameIconUrl(romId: number): Promise<string | null> {
+  try {
+    const result = await getSgdbArtworkBase64(romId, 4);
+    if (result.prune_lease_token) {
+      detach(releasePruneLease(result.prune_lease_token, "Game icon"));
+    }
+    if (result.base64) {
+      return `data:image/png;base64,${result.base64}`;
+    }
+  } catch (e) {
+    detach(debugLog(`getGameIconUrl: failed to get SGDB icon for rom ${romId}: ${e}`));
+  }
+
+  try {
+    const coverResult = await getArtworkBase64(romId);
+    if (coverResult.base64) {
+      return `data:image/png;base64,${coverResult.base64}`;
+    }
+  } catch (e) {
+    detach(debugLog(`getGameIconUrl: failed to get cover fallback for rom ${romId}: ${e}`));
+  }
+
+  return null;
 }

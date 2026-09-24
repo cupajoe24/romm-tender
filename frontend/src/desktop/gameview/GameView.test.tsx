@@ -24,6 +24,7 @@ vi.mock("../desktopWindow", () => ({
 vi.mock("../../utils/artwork", () => ({
   applyArtwork: vi.fn().mockResolvedValue(4),
   cancelArtworkApply: vi.fn().mockResolvedValue(undefined),
+  getGameIconUrl: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../../utils/connectionHeartbeat", () => ({
@@ -442,5 +443,69 @@ describe("GameView", () => {
     const tabContainer = container.querySelector(".tender-desktop-tab-container");
     expect(tabContainer).toBeInTheDocument();
     expect(outerContainer?.contains(tabContainer)).toBe(true);
+  });
+
+  it("renders AchievementsCard in Game Info tab when raId is present and skips when absent", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 42,
+      romName: "Mario Golf (USA)",
+      platformSlug: "gba",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: 999,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
+
+    const { container, rerender } = render(<GameView appId={12345} />);
+    await waitFor(() => {
+      expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+    });
+    expect(container.querySelector(".tender-desktop-achievements-card")).toBeInTheDocument();
+
+    // Absent raId skips rendering achievements card
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 42,
+      romName: "Mario Golf (USA)",
+      platformSlug: "gba",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      activeSlot: "default",
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+    rerender(<GameView appId={12345} />);
+    expect(container.querySelector(".tender-desktop-achievements-card")).not.toBeInTheDocument();
   });
 });
