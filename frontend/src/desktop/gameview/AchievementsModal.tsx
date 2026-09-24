@@ -1,14 +1,6 @@
 /**
  * AchievementsModal — Steam-styled modal dialog displaying full achievement list
  * for a game in Desktop mode.
- *
- * Stylistically mirrors Steam's native achievements window:
- * - Centered dark glassmorphic dialog with backdrop blur and escape/backdrop dismiss.
- * - Header with game cover thumbnail, title, and circular close button.
- * - Upper progress bar with "X OF Y ACHIEVEMENTS EARNED (Z%)" and cyan/blue progress fill.
- * - Live search filtering by title and description.
- * - Achievement cards with badge, title, description, player unlock stats, points,
- *   unlock timestamp, and the blue unlock indicator bar.
  */
 
 import { useState, useEffect, useMemo, useCallback, type FC } from "react";
