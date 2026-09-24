@@ -19,6 +19,12 @@ import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
 import { findDesktopWindow, findReactClient } from "./desktopWindow";
 import { GameView } from "./gameview/GameView";
 import { PlayButton, ensurePulseStyles } from "./gameview/PlayButton";
+import {
+  GLASS_PLAY_BAR_BG,
+  GLASS_PLAY_BAR_GRADIENT,
+  PINNED_PLAY_BAR_SHADOW,
+  SOLID_PLAY_BAR_BG,
+} from "./gameview/styles";
 
 export const TENDER_SUBSTITUTE_ID = "tender-desktop-substitute";
 export const TENDER_PLAY_BUTTON_ID = "tender-desktop-play-button";
@@ -386,6 +392,36 @@ export function findSteamStickyPlayBar(root: Document | HTMLElement, playBarTop:
 }
 
 /**
+ * Locate the scrollable container for an element (e.g. Steam's game overview scroller).
+ * Returns the scrollable element if found, or the window.
+ */
+export function findScrollContainer(el: HTMLElement): HTMLElement | Window {
+  const win = el.ownerDocument.defaultView || window;
+  let curr = el.parentElement;
+  while (curr && curr !== el.ownerDocument.body) {
+    const style = win.getComputedStyle(curr);
+    const ov = style.overflowY;
+    if (ov === "auto" || ov === "scroll") {
+      return curr;
+    }
+    curr = curr.parentElement;
+  }
+  return win;
+}
+
+/**
+ * Determine whether a sticky play bar is currently pinned to the top of its scroll container.
+ */
+export function isPlayBarPinned(playBarTop: HTMLElement, scroller: HTMLElement | Window): boolean {
+  const pbRect = playBarTop.getBoundingClientRect();
+  const scRect =
+    "nodeType" in scroller && (scroller as HTMLElement).nodeType === 1
+      ? (scroller as HTMLElement).getBoundingClientRect()
+      : { top: 0 };
+  return pbRect.top <= scRect.top + 1;
+}
+
+/**
  * Locate the content sections to hide (the lower non-Steam placeholder area, notes, etc.)
  * while preserving the native play section.
  */
@@ -644,15 +680,53 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     zIndex: string;
     opacity: string;
     pointerEvents: string;
+    backgroundImage: string;
     backgroundColor: string;
+    backdropFilter: string;
+    webkitBackdropFilter: string;
+    boxShadow: string;
+    transition: string;
     paddingBottom: string;
   } | null = null;
   let styledPlaySection: HTMLElement | null = null;
-  let originalPlaySectionBg: string | null = null;
+  let originalPlaySectionStyles: {
+    backgroundColor: string;
+    transition: string;
+  } | null = null;
+  let activeScrollContainer: EventTarget | null = null;
+  let activeScrollListener: (() => void) | null = null;
+  let isPlayBarPinnedState: boolean | null = null;
   let hiddenStickyDuplicate: HTMLElement | null = null;
   let styledHeroElement: HTMLElement | null = null;
   let hiddenElements: HTMLElement[] = [];
   let lastPath: string | null = null;
+
+  function applyPlayBarState(pinned: boolean) {
+    if (isPlayBarPinnedState === pinned && styledPlayBar) return;
+    isPlayBarPinnedState = pinned;
+
+    if (!styledPlayBar) return;
+
+    if (pinned) {
+      styledPlayBar.style.backgroundImage = "none";
+      styledPlayBar.style.backgroundColor = SOLID_PLAY_BAR_BG;
+      styledPlayBar.style.backdropFilter = "none";
+      (styledPlayBar.style as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter = "none";
+      styledPlayBar.style.boxShadow = PINNED_PLAY_BAR_SHADOW;
+      if (styledPlaySection && styledPlaySection !== styledPlayBar) {
+        styledPlaySection.style.backgroundColor = SOLID_PLAY_BAR_BG;
+      }
+    } else {
+      styledPlayBar.style.backgroundImage = GLASS_PLAY_BAR_GRADIENT;
+      styledPlayBar.style.backgroundColor = GLASS_PLAY_BAR_BG;
+      styledPlayBar.style.backdropFilter = "blur(12px)";
+      (styledPlayBar.style as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter = "blur(12px)";
+      styledPlayBar.style.boxShadow = "none";
+      if (styledPlaySection && styledPlaySection !== styledPlayBar) {
+        styledPlaySection.style.backgroundColor = "transparent";
+      }
+    }
+  }
 
   function unmountCurrent() {
     if (activeRoot) {
@@ -693,22 +767,35 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       styledRightControls.style.marginLeft = "";
     }
     styledRightControls = null;
+    if (activeScrollContainer && activeScrollListener) {
+      activeScrollContainer.removeEventListener("scroll", activeScrollListener);
+      activeScrollContainer = null;
+      activeScrollListener = null;
+    }
+    isPlayBarPinnedState = null;
     if (styledPlayBar && styledPlayBar.isConnected && originalPlayBarStyles) {
       styledPlayBar.style.position = originalPlayBarStyles.position;
       styledPlayBar.style.top = originalPlayBarStyles.top;
       styledPlayBar.style.zIndex = originalPlayBarStyles.zIndex;
       styledPlayBar.style.opacity = originalPlayBarStyles.opacity;
       styledPlayBar.style.pointerEvents = originalPlayBarStyles.pointerEvents;
+      styledPlayBar.style.backgroundImage = originalPlayBarStyles.backgroundImage;
       styledPlayBar.style.backgroundColor = originalPlayBarStyles.backgroundColor;
+      styledPlayBar.style.backdropFilter = originalPlayBarStyles.backdropFilter;
+      (styledPlayBar.style as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter =
+        originalPlayBarStyles.webkitBackdropFilter;
+      styledPlayBar.style.boxShadow = originalPlayBarStyles.boxShadow;
+      styledPlayBar.style.transition = originalPlayBarStyles.transition;
       styledPlayBar.style.paddingBottom = originalPlayBarStyles.paddingBottom;
     }
     styledPlayBar = null;
     originalPlayBarStyles = null;
-    if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionBg !== null) {
-      styledPlaySection.style.backgroundColor = originalPlaySectionBg;
+    if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionStyles) {
+      styledPlaySection.style.backgroundColor = originalPlaySectionStyles.backgroundColor;
+      styledPlaySection.style.transition = originalPlaySectionStyles.transition;
     }
     styledPlaySection = null;
-    originalPlaySectionBg = null;
+    originalPlaySectionStyles = null;
     if (hiddenStickyDuplicate && hiddenStickyDuplicate.isConnected) {
       hiddenStickyDuplicate.style.display = "";
     }
@@ -843,6 +930,14 @@ function attachToDesktopWindow(deskWin: Window): () => void {
         styledPlayBar.style.zIndex = originalPlayBarStyles.zIndex;
         styledPlayBar.style.opacity = originalPlayBarStyles.opacity;
         styledPlayBar.style.pointerEvents = originalPlayBarStyles.pointerEvents;
+        styledPlayBar.style.backgroundImage = originalPlayBarStyles.backgroundImage;
+        styledPlayBar.style.backgroundColor = originalPlayBarStyles.backgroundColor;
+        styledPlayBar.style.backdropFilter = originalPlayBarStyles.backdropFilter;
+        (styledPlayBar.style as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter =
+          originalPlayBarStyles.webkitBackdropFilter;
+        styledPlayBar.style.boxShadow = originalPlayBarStyles.boxShadow;
+        styledPlayBar.style.transition = originalPlayBarStyles.transition;
+        styledPlayBar.style.paddingBottom = originalPlayBarStyles.paddingBottom;
       }
       styledPlayBar = playBarTop;
       originalPlayBarStyles = {
@@ -851,9 +946,16 @@ function attachToDesktopWindow(deskWin: Window): () => void {
         zIndex: playBarTop.style.zIndex,
         opacity: playBarTop.style.opacity,
         pointerEvents: playBarTop.style.pointerEvents,
+        backgroundImage: playBarTop.style.backgroundImage,
         backgroundColor: playBarTop.style.backgroundColor,
+        backdropFilter: playBarTop.style.backdropFilter,
+        webkitBackdropFilter:
+          (playBarTop.style as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter || "",
+        boxShadow: playBarTop.style.boxShadow,
+        transition: playBarTop.style.transition,
         paddingBottom: playBarTop.style.paddingBottom,
       };
+      isPlayBarPinnedState = null;
     }
     if (playBarTop.style.position !== "sticky") {
       playBarTop.style.position = "sticky";
@@ -870,24 +972,46 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     if (playBarTop.style.pointerEvents !== "auto") {
       playBarTop.style.pointerEvents = "auto";
     }
-    const SOLID_PLAY_BAR_BG = "rgb(39, 44, 53)";
-    if (playBarTop.style.backgroundColor !== SOLID_PLAY_BAR_BG) {
-      playBarTop.style.backgroundColor = SOLID_PLAY_BAR_BG;
-    }
     if (playBarTop.style.paddingBottom !== "2px") {
       playBarTop.style.paddingBottom = "2px";
     }
+    if (!playBarTop.style.transition) {
+      playBarTop.style.transition = "background-color 0.2s ease, box-shadow 0.2s ease";
+    }
     if (playSection !== playBarTop) {
       if (styledPlaySection !== playSection) {
-        if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionBg !== null) {
-          styledPlaySection.style.backgroundColor = originalPlaySectionBg;
+        if (styledPlaySection && styledPlaySection.isConnected && originalPlaySectionStyles) {
+          styledPlaySection.style.backgroundColor = originalPlaySectionStyles.backgroundColor;
+          styledPlaySection.style.transition = originalPlaySectionStyles.transition;
         }
         styledPlaySection = playSection;
-        originalPlaySectionBg = playSection.style.backgroundColor;
+        originalPlaySectionStyles = {
+          backgroundColor: playSection.style.backgroundColor,
+          transition: playSection.style.transition,
+        };
       }
-      if (playSection.style.backgroundColor !== SOLID_PLAY_BAR_BG) {
-        playSection.style.backgroundColor = SOLID_PLAY_BAR_BG;
+      if (!playSection.style.transition) {
+        playSection.style.transition = "background-color 0.2s ease";
       }
+    }
+
+    // Attach dynamic scroll watcher to toggle between semi-transparent grey glass and solid grey when pinned
+    const scroller = findScrollContainer(playBarTop);
+    if (activeScrollContainer !== scroller) {
+      if (activeScrollContainer && activeScrollListener) {
+        activeScrollContainer.removeEventListener("scroll", activeScrollListener);
+      }
+      const updatePinning = () => {
+        if (!playBarTop.isConnected) return;
+        const pinned = isPlayBarPinned(playBarTop, scroller);
+        applyPlayBarState(pinned);
+      };
+      scroller.addEventListener("scroll", updatePinning, { passive: true });
+      activeScrollContainer = scroller;
+      activeScrollListener = updatePinning;
+      updatePinning();
+    } else if (activeScrollListener) {
+      activeScrollListener();
     }
 
     // Hide Steam's duplicate sticky header so it doesn't collide with our in-page sticky play bar

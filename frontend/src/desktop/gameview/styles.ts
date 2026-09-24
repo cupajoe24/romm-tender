@@ -1,10 +1,15 @@
 import type { CSSProperties } from "react";
 
+export const SOLID_PLAY_BAR_BG = "rgb(39, 44, 53)";
+export const GLASS_PLAY_BAR_BG = "rgba(36, 40, 47, 0.65)";
+export const GLASS_PLAY_BAR_GRADIENT =
+  "radial-gradient(100% 80% at 64% 95%, rgba(107, 115, 127, 0.3) 0%, rgba(62, 70, 80, 0.5) 20%, rgba(36, 40, 47, 0.5) 100%)";
+export const PINNED_PLAY_BAR_SHADOW = "rgba(0, 0, 0, 0.267) 0px 6px 16px, rgba(0, 0, 0, 0.533) 0px 2px 6px";
+
 export const CARD_STYLE: CSSProperties = {
   padding: "24px",
-  background:
-    "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(32, 45, 62, 0.8) 40%, rgba(23, 26, 33, 0.9) 100%)",
-  backgroundColor: "#171A21",
+  background: GLASS_PLAY_BAR_GRADIENT,
+  backgroundColor: GLASS_PLAY_BAR_BG,
   border: "1px solid rgba(255, 255, 255, 0.09)",
   borderTop: "1px solid rgba(255, 255, 255, 0.16)",
   borderBottom: "1px solid rgba(0, 0, 0, 0.5)",
