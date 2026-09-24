@@ -3,8 +3,8 @@ import type { CSSProperties } from "react";
 export const CARD_STYLE: CSSProperties = {
   padding: "24px",
   background:
-    "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(24, 35, 49, 0.8) 40%, rgba(13, 19, 27, 0.9) 100%)",
-  backgroundColor: "rgba(13, 19, 27, 0.85)",
+    "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(32, 45, 62, 0.8) 40%, rgba(23, 26, 33, 0.9) 100%)",
+  backgroundColor: "#171A21",
   border: "1px solid rgba(255, 255, 255, 0.09)",
   borderTop: "1px solid rgba(255, 255, 255, 0.16)",
   borderBottom: "1px solid rgba(0, 0, 0, 0.5)",
