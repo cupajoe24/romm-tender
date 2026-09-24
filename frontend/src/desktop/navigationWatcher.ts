@@ -410,6 +410,51 @@ export function findScrollContainer(el: HTMLElement): HTMLElement | Window {
 }
 
 /**
+ * Locate the hero/banner wrapper whose overflowing canvas children inflate the
+ * scroll container's scrollHeight, causing a large empty gap at the bottom.
+ *
+ * Walks the ancestors of `container` (the content container holding the play bar
+ * and Tender substitute) up to `scroller` looking for a sibling element whose
+ * `scrollHeight` significantly exceeds its `offsetHeight`.  That sibling is the
+ * hero banner wrapper containing absolutely-positioned or inline canvas elements
+ * that overflow their container.  Setting `overflow: hidden` on it clips the
+ * overflow and keeps the scrollbar matched to the actual content height.
+ *
+ * Returns `null` when no inflated sibling can be found.
+ */
+export function findInflatedHeroWrapper(
+  container: HTMLElement,
+  playBarTop: HTMLElement,
+  scroller: HTMLElement | Window,
+): HTMLElement | null {
+  const scrollerEl =
+    "nodeType" in scroller && (scroller as HTMLElement).nodeType === 1 ? (scroller as HTMLElement) : null;
+  let curr: HTMLElement | null = container;
+
+  while (curr && curr !== scrollerEl) {
+    const parent: HTMLElement | null = curr.parentElement;
+    if (!parent) break;
+
+    for (const sibling of Array.from(parent.children) as HTMLElement[]) {
+      if (sibling === curr) continue;
+      if (isTenderElement(sibling)) continue;
+      if (sibling.contains(playBarTop)) continue;
+
+      // An element whose scrollHeight exceeds its offsetHeight by more than 200px
+      // is overflowing due to absolutely-positioned or inline canvas/img children.
+      if (sibling.scrollHeight > sibling.offsetHeight + 200) {
+        return sibling;
+      }
+    }
+
+    if (parent === scrollerEl) break;
+    curr = parent;
+  }
+
+  return null;
+}
+
+/**
  * Determine whether a sticky play bar is currently pinned to the top of its scroll container.
  */
 export function isPlayBarPinned(playBarTop: HTMLElement, scroller: HTMLElement | Window): boolean {
@@ -1026,14 +1071,17 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       duplicateSticky.style.display = "none";
     }
 
-    // Contain hero wrapper's canvas from inflating scroller height and creating a large empty gap at bottom
-    const heroWrapper = steamPanel.firstElementChild as HTMLElement | null;
-    if (
-      heroWrapper &&
-      heroWrapper !== playBarTop &&
-      !heroWrapper.contains(playBarTop) &&
-      heroWrapper.style.overflow !== "hidden"
-    ) {
+    // Contain hero wrapper's canvas from inflating scroller height and creating a large empty gap at bottom.
+    // The inflated element may be deeply nested (not necessarily steamPanel.firstElementChild), so we
+    // search for the sibling of the content container whose scrollHeight is significantly inflated.
+    const heroWrapper =
+      findInflatedHeroWrapper(container, playBarTop, scroller) ||
+      (() => {
+        // Fallback: steamPanel.firstElementChild, but only when it doesn't contain the play bar
+        const fc = steamPanel.firstElementChild as HTMLElement | null;
+        return fc && fc !== playBarTop && !fc.contains(playBarTop) ? fc : null;
+      })();
+    if (heroWrapper && heroWrapper.style.overflow !== "hidden") {
       if (styledHeroElement !== heroWrapper) {
         if (styledHeroElement && styledHeroElement.isConnected) {
           styledHeroElement.style.overflow = "";

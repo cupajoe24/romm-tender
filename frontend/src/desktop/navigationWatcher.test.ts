@@ -9,6 +9,7 @@ import {
   findSteamRightControls,
   findSteamStickyPlayBar,
   findScrollContainer,
+  findInflatedHeroWrapper,
   isPlayBarPinned,
   isTenderElement,
   isRightControlsElement,
@@ -1212,6 +1213,84 @@ describe("navigationWatcher", () => {
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
 
+    it("contains hero overflow when steamPanel.firstElementChild wraps the play bar (desktop nested layout)", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      // Build the nested desktop layout:
+      // scrollContainer > panel > heroWrapper(inflated) + contentPanel > overviewPanel(steamPanel) > playBar + ...
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+
+      const scrollContainer = mockDoc.createElement("div");
+      Object.defineProperty(scrollContainer, "scrollHeight", { value: 1978, configurable: true });
+
+      const panel = mockDoc.createElement("div");
+      scrollContainer.appendChild(panel);
+
+      // Hero wrapper with inflated scrollHeight (the bug target)
+      const heroWrapper = mockDoc.createElement("div");
+      heroWrapper.className = "HeroBanner";
+      Object.defineProperty(heroWrapper, "scrollHeight", { value: 1978, configurable: true });
+      Object.defineProperty(heroWrapper, "offsetHeight", { value: 307, configurable: true });
+      panel.appendChild(heroWrapper);
+
+      // Content panel wrapping the overview panel
+      const contentPanel = mockDoc.createElement("div");
+      panel.appendChild(contentPanel);
+
+      // Overview panel (what findSteamOverviewPanel will return)
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+      contentPanel.appendChild(overviewPanel);
+
+      const inPagePlayBar = mockDoc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBarContainer InPage";
+      const playBtn = mockDoc.createElement("button");
+      playBtn.className = "PlayButton";
+      inPagePlayBar.appendChild(playBtn);
+      overviewPanel.appendChild(inPagePlayBar);
+
+      // Content section that should be hidden
+      const contentSection = mockDoc.createElement("div");
+      contentSection.className = "ColumnContainer";
+      overviewPanel.appendChild(contentSection);
+
+      mockDoc.body.appendChild(scrollContainer);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(888),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/77777" },
+        getComputedStyle: (el: Element) => {
+          if (el === scrollContainer) {
+            return { ...window.getComputedStyle(el), overflowY: "scroll" } as CSSStyleDeclaration;
+          }
+          return window.getComputedStyle(el);
+        },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/77777" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // The hero wrapper should have overflow:hidden despite steamPanel.firstElementChild
+      // (overviewPanel) containing the play bar — findInflatedHeroWrapper finds it by scrollHeight
+      expect(heroWrapper.style.overflow).toBe("hidden");
+
+      stop();
+
+      // Overflow should be restored on unmount
+      expect(heroWrapper.style.overflow).toBe("");
+    });
+
     it("hides native duplicate sticky header when situated outside overviewPanel under main window split and restores on unmount", () => {
       const mockRoot = { render: vi.fn(), unmount: vi.fn() };
       vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
@@ -1290,6 +1369,137 @@ describe("navigationWatcher", () => {
         doc.body.appendChild(target);
 
         expect(findScrollContainer(target)).toBe(window);
+      });
+    });
+
+    describe("findInflatedHeroWrapper", () => {
+      it("finds sibling with inflated scrollHeight", () => {
+        const scroller = document.createElement("div");
+        const panel = document.createElement("div");
+        scroller.appendChild(panel);
+
+        const hero = document.createElement("div");
+        hero.className = "HeroWrapper";
+        Object.defineProperty(hero, "scrollHeight", { value: 1978, configurable: true });
+        Object.defineProperty(hero, "offsetHeight", { value: 307, configurable: true });
+        panel.appendChild(hero);
+
+        const content = document.createElement("div");
+        const playBar = document.createElement("div");
+        playBar.className = "PlayBar";
+        content.appendChild(playBar);
+        panel.appendChild(content);
+
+        document.body.appendChild(scroller);
+        try {
+          const result = findInflatedHeroWrapper(content, playBar, scroller);
+          expect(result).toBe(hero);
+        } finally {
+          scroller.remove();
+        }
+      });
+
+      it("skips siblings that contain the play bar", () => {
+        const scroller = document.createElement("div");
+        const wrapper = document.createElement("div");
+        scroller.appendChild(wrapper);
+
+        const playBar = document.createElement("div");
+        playBar.className = "PlayBar";
+        // wrapper contains the play bar and has inflated scrollHeight
+        wrapper.appendChild(playBar);
+        Object.defineProperty(wrapper, "scrollHeight", { value: 2000, configurable: true });
+        Object.defineProperty(wrapper, "offsetHeight", { value: 300, configurable: true });
+
+        const container = document.createElement("div");
+        wrapper.appendChild(container);
+
+        document.body.appendChild(scroller);
+        try {
+          const result = findInflatedHeroWrapper(container, playBar, scroller);
+          expect(result).toBeNull();
+        } finally {
+          scroller.remove();
+        }
+      });
+
+      it("returns null when no sibling is inflated", () => {
+        const scroller = document.createElement("div");
+        const panel = document.createElement("div");
+        scroller.appendChild(panel);
+
+        const hero = document.createElement("div");
+        panel.appendChild(hero);
+
+        const content = document.createElement("div");
+        const playBar = document.createElement("div");
+        content.appendChild(playBar);
+        panel.appendChild(content);
+
+        document.body.appendChild(scroller);
+        try {
+          const result = findInflatedHeroWrapper(content, playBar, scroller);
+          expect(result).toBeNull();
+        } finally {
+          scroller.remove();
+        }
+      });
+
+      it("walks up ancestors and finds inflated sibling at deeper level", () => {
+        // Simulates the actual Steam desktop DOM: scroller > panel > heroWrapper + contentPanel > overviewPanel > container
+        const scroller = document.createElement("div");
+        const panel = document.createElement("div");
+        scroller.appendChild(panel);
+
+        const heroWrapper = document.createElement("div");
+        heroWrapper.className = "HeroBanner";
+        Object.defineProperty(heroWrapper, "scrollHeight", { value: 1978, configurable: true });
+        Object.defineProperty(heroWrapper, "offsetHeight", { value: 307, configurable: true });
+        panel.appendChild(heroWrapper);
+
+        const contentPanel = document.createElement("div");
+        panel.appendChild(contentPanel);
+
+        const overviewPanel = document.createElement("div");
+        contentPanel.appendChild(overviewPanel);
+
+        const playBar = document.createElement("div");
+        overviewPanel.appendChild(playBar);
+
+        const container = document.createElement("div");
+        overviewPanel.appendChild(container);
+
+        document.body.appendChild(scroller);
+        try {
+          // container is 3 levels deep from panel, but walking up should find heroWrapper
+          const result = findInflatedHeroWrapper(container, playBar, scroller);
+          expect(result).toBe(heroWrapper);
+        } finally {
+          scroller.remove();
+        }
+      });
+
+      it("returns null when scroller is Window", () => {
+        const panel = document.createElement("div");
+        const hero = document.createElement("div");
+        Object.defineProperty(hero, "scrollHeight", { value: 2000, configurable: true });
+        Object.defineProperty(hero, "offsetHeight", { value: 300, configurable: true });
+        panel.appendChild(hero);
+
+        const content = document.createElement("div");
+        const playBar = document.createElement("div");
+        content.appendChild(playBar);
+        panel.appendChild(content);
+
+        document.body.appendChild(panel);
+        try {
+          // When scroller is window, function should still walk up but stop before body
+          const result = findInflatedHeroWrapper(content, playBar, window);
+          // Should find hero since it's a sibling of content in panel
+          expect(result).toBe(hero);
+        } finally {
+          panel.remove();
+        }
       });
     });
 
