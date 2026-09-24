@@ -78,6 +78,10 @@ vi.mock("../../api/backend", () => ({
   getSaveSetupInfo: vi.fn(() => new Promise(() => {})),
   getBiosStatus: vi.fn(() => new Promise(() => {})),
   probeReachability: vi.fn().mockResolvedValue({ online: true }),
+  getDiscSelection: vi.fn().mockResolvedValue({ multi_disc: false }),
+  getVersionList: vi.fn().mockResolvedValue({ multi_version: false }),
+  getCachedGameDetail: vi.fn().mockResolvedValue({ found: false }),
+  selectDisc: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -1373,6 +1377,56 @@ describe("PlayButton", () => {
         const btn = screen.getByRole("button", { name: /OFFLINE/i });
         expect(btn).toBeDisabled();
       });
+    });
+
+    it("renders DiscSelector alongside PLAY button when game is installed and multi-disc", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: 100,
+        romName: "Final Fantasy VII",
+        platformSlug: "psx",
+        installed: true,
+        fsSizeBytes: 1024,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: "Beetle PSX",
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: "Beetle PSX",
+        hasGameOverride: false,
+      });
+
+      vi.mocked(backend.getCachedGameDetail).mockResolvedValue({
+        found: true,
+        rom_id: 100,
+        rom_name: "Final Fantasy VII",
+        installed: true,
+      });
+
+      vi.mocked(backend.getDiscSelection).mockResolvedValue({
+        multi_disc: true,
+        discs: [
+          { filename: "ff7 (Disc 1).cue", label: "Disc 1", index: 1 },
+          { filename: "ff7 (Disc 2).cue", label: "Disc 2", index: 2 },
+        ],
+        selected: null,
+        default: { kind: "m3u", label: "All discs (m3u)", filename: "ff7.m3u" },
+      });
+
+      render(<PlayButton appId={123} />);
+
+      expect(screen.getByRole("button", { name: /PLAY/i })).toBeInTheDocument();
+      expect(await screen.findByTestId("disc-btn")).toBeInTheDocument();
     });
   });
 });

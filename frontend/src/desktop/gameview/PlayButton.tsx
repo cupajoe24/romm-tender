@@ -64,6 +64,7 @@ import { overviewFor } from "../../utils/steamOverview";
 import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
 import { markLaunchSkipped } from "../../utils/launchGate";
 import { findDesktopWindow } from "../desktopWindow";
+import { DiscSelector } from "./DiscSelector";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo } from "../../types";
 
 export interface PlayButtonProps {
@@ -160,6 +161,17 @@ export function ensurePulseStyles(doc?: Document | null) {
     :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtonsContainer"],
     :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtons"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
       margin-left: auto !important;
+    }
+    .tender-desktop-disc-btn:hover {
+      background: rgba(255, 255, 255, 0.14) !important;
+      filter: brightness(1.2);
+    }
+    .tender-desktop-disc-btn:active {
+      filter: brightness(0.9);
+    }
+    .tender-desktop-disc-menu-item:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+      color: #ffffff !important;
     }
   `;
   targetDoc.head.appendChild(style);
@@ -937,6 +949,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </button>
           )}
         </div>
+        <DiscSelector appId={appId} />
         {renderBadges()}
       </div>
     );
@@ -961,6 +974,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             READY!
           </button>
         </div>
+        <DiscSelector appId={appId} />
         {renderBadges()}
       </div>
     );
@@ -1003,6 +1017,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </svg>
           </button>
         </div>
+        <DiscSelector appId={appId} />
         {renderBadges()}
       </div>
     );
@@ -1103,6 +1118,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             </div>
           )}
         </div>
+        <DiscSelector appId={appId} />
         {renderBadges()}
       </div>
     );
@@ -1131,6 +1147,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             RESOLVE CONFLICT
           </button>
         </div>
+        <DiscSelector appId={appId} />
         {renderBadges()}
       </div>
     );
@@ -1155,6 +1172,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             UNINSTALLING...
           </button>
         </div>
+        <DiscSelector appId={appId} />
         {renderBadges()}
       </div>
     );
@@ -1193,6 +1211,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
           {isOffline ? "OFFLINE" : "DOWNLOAD"}
         </button>
       </div>
+      <DiscSelector appId={appId} />
       {renderBadges()}
     </div>
   );
