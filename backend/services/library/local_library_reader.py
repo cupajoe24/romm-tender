@@ -8,15 +8,17 @@ SQLite, and nothing here talks to RomM. That split is the reason the two exist
 separately, so a method that would have to ask the server does not belong here
 however well it fits the sentence below.
 
-What the local side knows is the ``Rom`` rows this device bound to Steam
-shortcuts, the per-platform completion stamps its runs left behind, the sibling
-group keys it persisted, and the last run that finished — shaped here into the
-projections a run's decisions are made against. The decisions themselves live in
+What the local side knows is the ``Rom`` rows this device keeps and their Steam
+shortcut bindings, the per-platform completion stamps its runs left behind, the
+sibling group keys it persisted, and the last run that finished — shaped here
+into the projections a run's decisions are made against, and into the reachable
+set the collections listing counts against. The decisions themselves live in
 ``domain/`` and the moves in
 :class:`~services.library.sync_orchestrator.SyncOrchestrator`; the reads are all
 this module does. It has no phase of its own — the baseline reads open a
-preview, the stale scan closes a run — so being local, not being early, is what
-holds it together.
+preview, the stale scan closes a run, and the reachable set rides the collections
+listing, outside any run — so being local, not being early, is what holds it
+together.
 
 **The module is declared read-only**, and that is checked:
 ``scripts/check_read_only_module.py`` fails on any repository call here that is
@@ -24,8 +26,9 @@ not a read. Its reach stops at what this file itself calls, and at calls rather
 than bound-method references, and it reads a method's *name* rather than what it
 does — so a write named like a read (``get_or_create``) would pass. The
 declaration is worth having anyway: every method here opens its own short Unit
-of Work and is offloaded through the orchestrator's executor at points chosen
-for cheapness, so a write among them would land at a moment nobody picked.
+of Work and is offloaded through its caller's executor — the orchestrator's,
+or the fetcher's for the reachable set — at points chosen for cheapness, so a
+write among them would land at a moment nobody picked.
 
 Two neighbours belong to the orchestrator instead, deliberately, though both
 touch the same tables through the same repositories:
@@ -53,6 +56,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from domain.sibling_resolution import reachable_rom_ids
 from domain.sync_diff import select_stale_removals
 
 if TYPE_CHECKING:
@@ -180,6 +184,16 @@ class LocalLibraryReader:
             return {
                 rom.rom_id: rom.sibling_group_key for rom in uow.roms.iter_all() if rom.sibling_group_key is not None
             }
+
+    def do_read_reachable_rom_ids(self) -> set[int]:
+        """Every ``rom_id`` the sync's collection filing resolves to a shortcut.
+
+        :func:`domain.sibling_resolution.reachable_rom_ids` over every row — the
+        same set ``SyncReporter._member_app_id`` answers, member by member. One
+        short read UoW.
+        """
+        with self._uow_factory() as uow:
+            return reachable_rom_ids(list(uow.roms.iter_all()))
 
     def do_scan_stale_roms(self, synced_rom_ids: set[int], synced_app_ids: set[int]) -> list[tuple[int, int]]:
         """Return ``(rom_id, app_id)`` for bound ROMs not synced this run.
