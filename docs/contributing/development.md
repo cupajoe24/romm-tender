@@ -76,8 +76,11 @@ python -m pytest tests/ -q --cov=backend --cov-report=term --cov-branch
 ```
 
 Tests mirror the source layout (`tests/services/`, `tests/adapters/`, `tests/domain/`, `tests/models/`, `tests/lib/`),
-with each test file mapping 1:1 to a source module. Shared mocks live in `tests/conftest.py`, which also provides a mock
-`decky` module so tests run without Decky Loader.
+with each test file mapping 1:1 to a source module. Shared fixtures live in `tests/conftest.py`: among them the fresh
+`HOME` every test runs under, and the per-test `emit` and `logger` a service is built with. `_isolated_environment`'s
+docstring there says what the isolation covers and what it does not, and states the named exception, a test class that
+reads your real RetroDECK install and only reads. `.claude/rules/testing-backend.md` has the rules for writing a test
+against them.
 
 Frontend component tests run with `mise run test:frontend` (`pnpm -C frontend test`); see
 `.claude/rules/testing-frontend.md` for the backend-event harness, and for what that suite cannot see — `api/host` is

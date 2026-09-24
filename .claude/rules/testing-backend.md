@@ -8,7 +8,20 @@ paths:
 Every backend feature or callable where testing makes sense MUST have unit tests: **happy path**, **bad path** (invalid
 input, missing data, API errors, network failures), and **edge cases** (empty strings, None, masked values `"••••"`,
 boundaries). Tests mirror the source structure (`tests/services/`, `tests/adapters/`, …), one test file per source
-module. Shared mocks live in `tests/conftest.py`.
+module. Shared fixtures live in `tests/conftest.py`.
+
+## The seams a test builds a service with, and the home it sees
+
+A mock a test reads calls off — an event sink, a mock logger — belongs to that test alone: the `emit` fixture in
+`tests/conftest.py` gives each test a fresh one, or the test (or one of its fixtures) builds its own. Never hold such a
+mock at module level or reset it between tests; one forgotten reset lets a test read another test's calls. A real logger
+read through `caplog` is safe at any scope, because `caplog` is per-test; the `logger` fixture gives a test one named
+after it.
+
+Build anything home-relative (a `SteamConfigAdapter`'s `user_home`, the launcher at
+`<home>/.local/bin/tender-rom-launcher`) from the `home` fixture, or from `tmp_path` where the test is about a directory
+of its own. Seed the files the test needs there, and never point it at a real path. What the isolation covers, what it
+does not, and the named exception are in `_isolated_environment`'s docstring in `tests/conftest.py`.
 
 ## The loop a test hands a service
 
