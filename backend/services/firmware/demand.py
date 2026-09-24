@@ -147,19 +147,19 @@ class FirmwareDemand:
         will reach it — following the symlinks a distribution strings through
         the BIOS tree — while a bare existence check answers about whatever the
         path assembled here happens to name. Two derivations of one fact is one
-        too many, and the LRPS2 row is what it cost: with the destination wrong,
-        the resolver had the file and this service did not. Placed elsewhere the
-        boundary falls the other way, and the next paragraph is why.
+        too many. Placed elsewhere the boundary falls the other way, and the
+        next paragraph is why.
 
         Our own probe covers what is left, and both halves of it are the same
         rule read backwards — we answer for the destinations the resolver did
-        not read. A library file no installed emulator declares has no
-        requirement at all; a placement with no ``relative_path`` has one, at a
-        destination this service cannot honour, so *dest* is its own flat
+        not read. A library file with no placement was declared by no emulator
+        the resolver read; a placement with no ``relative_path`` was declared, at
+        a destination this service cannot honour, so *dest* is its own flat
         fallback and the resolver's reading is about somewhere else. The third
-        is the re-check in ``FirmwareDownloader._download_firmware_batch``, where
-        re-reading the whole machine to learn whether one file just landed would
-        cost hundreds of milliseconds.
+        is the already-there check before a download, in both
+        ``FirmwareDownloader._download_firmware_batch`` and
+        ``FirmwareDownloader.download_platform_firmware_file``, for the reason
+        the batch states.
 
         A ``present`` of ``None`` on a placement we do honour is a destination
         the resolver could not look at. It is not a claim that anything is
