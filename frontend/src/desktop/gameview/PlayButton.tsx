@@ -46,12 +46,8 @@ import { hasAnySaveConflict } from "../../utils/saveStatus";
 import { saveSyncToastBody } from "../../utils/saveSyncToast";
 import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { reconfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
-import {
-  capturePruneLeaseAdmission,
-  mountPruneLeaseOwner,
-  releasePruneLeasesByOwner,
-  withPruneLease,
-} from "../../utils/pruneLease";
+import { capturePruneLeaseAdmission, usePruneLeaseOwner, withPruneLease } from "../../utils/pruneLease";
+import { useOutsideClick } from "../../utils/useOutsideClick";
 import { showToast } from "../../utils/toast";
 import { requestOpenAchievementsModal } from "./AchievementsCard";
 import { detach } from "../../utils/detach";
@@ -281,12 +277,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     };
   }, [romId, detail.saveSyncEnabled, detail.raId]);
 
-  useEffect(() => {
-    mountPruneLeaseOwner(leaseOwner);
-    return () => {
-      detach(releasePruneLeasesByOwner(leaseOwner));
-    };
-  }, [leaseOwner]);
+  usePruneLeaseOwner(leaseOwner);
 
   // Drive the reachability heartbeat while this game page is mounted (#1345) —
   // probes reachability periodically (every 30s, mirroring Big Picture) so offline
@@ -320,18 +311,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   }, []);
 
   // Close actions menu on outside click
-  useEffect(() => {
-    if (!showMenu) return;
-    const handleOutsideClick = (e: globalThis.MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [showMenu]);
+  useOutsideClick(menuRef, () => setShowMenu(false), showMenu);
 
   // Find matching in-flight download for this ROM
   const activeDownload = romId ? downloads.find((d) => d.rom_id === romId) : undefined;

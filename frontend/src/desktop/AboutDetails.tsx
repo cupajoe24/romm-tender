@@ -8,12 +8,9 @@ export interface AboutDetailsProps {
   covers?: string[];
 }
 
-export function formatReleaseDate(timestamp: number | null): string | null {
-  if (!timestamp || timestamp <= 0) return null;
-  const date = new Date(timestamp * 1000);
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-}
+import { formatReleaseDate } from "../utils/formatters";
+
+export { formatReleaseDate };
 
 export const AboutDetails: FC<AboutDetailsProps> = ({ title, platformName, metadata, covers = [] }) => {
   const [coverIndex, setCoverIndex] = useState(0);
