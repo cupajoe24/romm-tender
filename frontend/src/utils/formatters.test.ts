@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   formatBytes,
   formatLastPlayed,
+  formatCardDate,
+  formatModalUnlockDate,
   formatPlaytime,
   formatReleaseDate,
   formatTimestamp,
@@ -236,5 +238,22 @@ describe("formatReleaseDate", () => {
     // 1082592000 is 2004-04-22T00:00:00Z
     const formatted = formatReleaseDate(1082592000);
     expect(formatted).toMatch(/\d+\s(Apr|May)\s2004/);
+  });
+});
+
+describe("formatCardDate", () => {
+  it("strips trailing seconds from date string", () => {
+    expect(formatCardDate("2025-02-14 15:45:38")).toBe("2025-02-14 15:45");
+  });
+});
+
+describe("formatModalUnlockDate", () => {
+  it("formats date string to localized unlock date", () => {
+    const formatted = formatModalUnlockDate("2025-02-22 12:48:00");
+    expect(formatted).toMatch(/Feb 22, 2025/);
+  });
+
+  it("falls back to stripping seconds when parsing fails", () => {
+    expect(formatModalUnlockDate("invalid-date 12:34:56")).toBe("invalid-date 12:34");
   });
 });

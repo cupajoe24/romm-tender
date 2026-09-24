@@ -132,6 +132,31 @@ export function formatTimeAgo(iso: string): string | null {
   return `${Math.floor(diffMin / 1440)}d ago`;
 }
 
+/** "2025-02-14 15:45:38" -> "2025-02-14 15:45" */
+export function formatCardDate(dateStr: string): string {
+  return dateStr.replace(/:\d{2}$/, "");
+}
+
+/** "2025-02-14 15:45:38" -> formatted localized string (e.g. "Feb 14, 2025, 3:45 PM") */
+export function formatModalUnlockDate(dateStr: string): string {
+  try {
+    const normalized = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T");
+    const d = new Date(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    }
+  } catch {
+    // fallback to compact string if parsing fails
+  }
+  return dateStr.replace(/:\d{2}$/, "");
+}
+
 /**
  * What each entry kind is called on screen (#260). One map for every dialog that
  * names one, so a fourth kind cannot be spelled out in one place and left to
