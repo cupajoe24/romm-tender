@@ -54,14 +54,9 @@ from lib.sync_gate import sync_active_blocked
 
 
 class PluginEventSink(Protocol):
-    """Where an event leaves this process, and whether anybody heard it.
+    """Where an event leaves this process; answers whether anybody heard it."""
 
-    The answer is the half a module-level ``emit`` could never give. One caller
-    acts on it — the continuation funnel below — and it can only act on it
-    because the seam is an object it was handed rather than a call it makes.
-    """
-
-    async def emit(self, name: str, /, *args: Any) -> bool: ...
+    async def emit(self, name: str, payload: object, /) -> bool: ...
 
 
 class Plugin:
@@ -125,36 +120,32 @@ class Plugin:
         """
         self._debug_logger(msg)
 
-    async def _emit_with_prune_continuation(self, event, /, *args):
+    async def _emit_with_prune_continuation(self, event: str, payload: object, /) -> None:
         """Attach a prune lease to events whose Steam writes outlive backend work."""
-        payload = cast("dict[str, Any]", args[0]) if args and isinstance(args[0], dict) else None
-        needs_lease = payload is not None and (
+        fields = cast("dict[str, Any]", payload) if isinstance(payload, dict) else None
+        needs_lease = fields is not None and (
             event == "sync_complete"
-            or (event == "sync_stale" and bool(payload.get("remove")))
-            or (event == "prune_complete" and payload.get("final") is not False and payload.get("publication_required"))
-            or (event == "download_complete" and payload.get("app_id") is not None)
-            or (event == "migration_relaunch_options" and bool(payload.get("items")))
+            or (event == "sync_stale" and bool(fields.get("remove")))
+            or (event == "prune_complete" and fields.get("final") is not False and fields.get("publication_required"))
+            or (event == "download_complete" and fields.get("app_id") is not None)
+            or (event == "migration_relaunch_options" and bool(fields.get("items")))
         )
         lease_token = None
-        if needs_lease and payload is not None:
-            payload = dict(payload)
+        if needs_lease and fields is not None:
+            fields = dict(fields)
             lease_token = await acquire_prune_conflict_lease(self, event)
-            payload["prune_lease_token"] = lease_token
-            args = (payload, *args[1:])
+            fields["prune_lease_token"] = lease_token
+            payload = fields
         try:
-            delivered = await self._event_sink.emit(event, *args)
+            delivered = await self._event_sink.emit(event, payload)
         except BaseException:
             if lease_token is not None:
                 await release_prune_gate_lease(self, lease_token)
             raise
-        # A claim handed to a panel that is not there is held against every
-        # later operation until it expires, so it goes back the moment the sink
-        # says nobody heard. Only a sink that knows can say so — the loader's
-        # bridge always answers True.
         if lease_token is not None and not delivered:
             await release_prune_gate_lease(self, lease_token)
 
-    async def _main(self, *, directories, user_home, logger, events, status):
+    async def _main(self, *, directories, user_home, logger, events: PluginEventSink, status):
         """Bring the backend up: adapters, services, then the start-up repairs.
 
         Everything here must be through before the port is bound, which is what
@@ -162,8 +153,8 @@ class Plugin:
         network is deliberately not here — see :meth:`_open_network`.
         """
         self.loop = asyncio.get_running_loop()
-        # Before anything can emit: the start-up routines below already send two
-        # events, and wiring passes the funnel to every service.
+        # Before anything can emit: start-up routines below send events, and
+        # wiring passes the funnel to every service.
         self._event_sink = events
 
         # ── 1. Wire adapters ────────────────────────────────────────────────

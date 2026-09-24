@@ -13,14 +13,12 @@ Dropping is exactly why the answer is returned. One caller acts on it: the
 funnel in ``main.py`` that attaches a prune claim to the events whose Steam-side
 work outlives the backend's. A claim handed to a panel that is not there is held
 against every later operation until it expires, so the funnel releases it the
-moment the sink says nobody heard. That case cannot arise today — of the nine
-start-up routines only two send anything, and neither carries a claim — and the
-answer exists for the day a claim-bearing event fires at start-up.
+moment the sink says nobody heard.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from host.protocol import encode_event
 
@@ -67,19 +65,8 @@ class EventSink:
         if self._sender is sender:
             self._sender = None
 
-    async def emit(self, name: str, *args: Any) -> bool:
-        """Send the event *name* carrying one payload; answer whether it arrived.
-
-        The signature keeps the variadic shape every service already emits
-        through, and refuses more than one argument rather than inventing a wire
-        form for it: a message carries exactly one ``payload``, every call site
-        in this backend passes exactly one, and a second argument would be a
-        protocol decision this raise makes someone take deliberately.
-        """
-        if len(args) > 1:
-            raise TypeError(f"an event carries one payload; {name!r} was given {len(args)}")
-        payload = args[0] if args else None
-
+    async def emit(self, name: str, payload: object, /) -> bool:
+        """Send the event *name* carrying *payload*; answer whether it arrived."""
         sender = self._sender
         if sender is None:
             self._dropped += 1
