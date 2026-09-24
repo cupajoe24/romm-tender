@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import {
   logError,
   releaseOrphanedPruneLeases,
   releasePruneConflictLease,
   renewPruneConflictLease,
 } from "../api/backend";
+import { detach } from "./detach";
 import { withTimeout } from "./withTimeout";
 
 const RELEASE_TIMEOUT_MS = 5000;
@@ -74,6 +76,24 @@ export function mountPruneLeaseOwner(owner: string): void {
   const current = ownerGenerations.get(owner);
   if (current?.mounted) return;
   ownerGenerations.set(owner, { generation: (current?.generation ?? 0) + 1, mounted: true });
+}
+
+/**
+ * React lifecycle hook that mounts one or more prune lease owners on mount
+ * and releases their prune leases on unmount.
+ */
+export function usePruneLeaseOwner(...owners: string[]): void {
+  const key = owners.join(",");
+  useEffect(() => {
+    for (const owner of owners) {
+      mountPruneLeaseOwner(owner);
+    }
+    return () => {
+      for (const owner of owners) {
+        detach(releasePruneLeasesByOwner(owner));
+      }
+    };
+  }, [key]);
 }
 
 export function capturePruneLeaseAdmission(owner?: string): PruneLeaseAdmission {

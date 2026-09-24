@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 import {
   logError,
   releaseOrphanedPruneLeases,
@@ -7,6 +8,7 @@ import {
 } from "../api/backend";
 import {
   capturePruneLeaseAdmission,
+  isPruneLeaseAdmissionCurrent,
   isPruneLeaseCancellation,
   maintainPruneLease,
   mountPruneLeaseOwner,
@@ -15,6 +17,7 @@ import {
   releaseAllPruneLeases,
   releasePruneLease,
   releasePruneLeasesByOwner,
+  usePruneLeaseOwner,
   withPruneLease,
 } from "./pruneLease";
 
@@ -319,4 +322,14 @@ it("keeps mounting when the disown call fails", async () => {
   // Mount must not be blocked by a best-effort cleanup; the TTL still backs it.
   expect(logError).toHaveBeenCalledWith(expect.stringContaining("could not disown stranded leases"));
   expect(capturePruneLeaseAdmission().pluginGeneration).toBeGreaterThan(0);
+});
+
+it("mounts and disowns prune lease owner via usePruneLeaseOwner hook", async () => {
+  const { unmount } = renderHook(() => usePruneLeaseOwner("hook-owner-1", "hook-owner-2"));
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-1"))).toBe(true);
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-2"))).toBe(true);
+
+  unmount();
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-1"))).toBe(false);
+  expect(isPruneLeaseAdmissionCurrent(capturePruneLeaseAdmission("hook-owner-2"))).toBe(false);
 });

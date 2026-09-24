@@ -36,6 +36,7 @@ import type {
 import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { detach } from "../../utils/detach";
 import { showToast } from "../../utils/toast";
+import { useOutsideClick } from "../../utils/useOutsideClick";
 import { reportServerReachable } from "../../utils/connectionState";
 import { applyCommittedVersionSwitch } from "../../utils/versionSwitchApplication";
 import { setBoundVanished } from "../../utils/vanishedBinding";
@@ -120,26 +121,7 @@ const reportVersionListReachability = (result: VersionList): void => {
   }
 };
 
-const MODAL_CONTAINER_STYLE: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 10000,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
-
-const BACKDROP_BUTTON_STYLE: React.CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  backgroundColor: "rgba(0, 0, 0, 0.65)",
-  backdropFilter: "blur(4px)",
-  WebkitBackdropFilter: "blur(4px)",
-  border: "none",
-  margin: 0,
-  padding: 0,
-  cursor: "default",
-};
+import { MODAL_CONTAINER_STYLE, BACKDROP_BUTTON_STYLE } from "./styles";
 
 export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
   const leaseOwner = `desktop-disc-selector:${appId}`;
@@ -345,18 +327,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
   }, [appId, romId]);
 
   // Close dropdown menu on outside click
-  useEffect(() => {
-    if (!showMenu) return;
-    const handleOutsideClick = (e: globalThis.MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-    };
-  }, [showMenu]);
+  useOutsideClick(menuRef, () => setShowMenu(false), showMenu);
 
   // Disc change handler
   const handleDiscChange = async (data: DiscOptionData): Promise<void> => {

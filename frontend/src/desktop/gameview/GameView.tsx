@@ -1,13 +1,12 @@
 import { useState, useEffect, type FC } from "react";
 import { useGameDetail } from "../../utils/gameDetailStore";
-import { getRomMetadataShared } from "../../api/sharedReads";
-import type { RomMetadata } from "../../types";
+import { useRomMetadata } from "../../utils/useRomMetadata";
 import { coverCandidates } from "../desktopWindow";
 import { applyArtwork, cancelArtworkApply } from "../../utils/artwork";
 import { debugLog } from "../../api/backend";
 import { detach } from "../../utils/detach";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
-import { overviewFor } from "../../utils/steamOverview";
+import { resolveAppTitle } from "../../utils/steamOverview";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { AchievementsCard } from "./AchievementsCard";
@@ -24,25 +23,11 @@ export type GameViewPageProps = GameViewProps;
 
 const artworkApplied = new Map<number, number>();
 
-const CARD_STYLE: React.CSSProperties = {
-  padding: "24px",
-  background:
-    "linear-gradient(180deg, rgba(45, 66, 92, 0.85) 0%, rgba(24, 35, 49, 0.8) 40%, rgba(13, 19, 27, 0.9) 100%)",
-  backgroundColor: "rgba(13, 19, 27, 0.85)",
-  border: "1px solid rgba(255, 255, 255, 0.09)",
-  borderTop: "1px solid rgba(255, 255, 255, 0.16)",
-  borderBottom: "1px solid rgba(0, 0, 0, 0.5)",
-  borderRadius: "4px",
-  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12)",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-  color: "#c7d5e0",
-};
+import { CARD_STYLE } from "./styles";
 
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
   const [activeTab, setActiveTab] = useState<GameViewTab>("game-info");
-  const [loadedMetadata, setLoadedMetadata] = useState<RomMetadata | null>(null);
 
   useEffect(() => {
     const handleTabSwitch = (e: Event) => {
@@ -77,32 +62,8 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
       .catch((e) => debugLog(`Desktop auto-artwork error: ${e}`));
   }, [appId, detail.romId]);
 
-  useEffect(() => {
-    const romId = detail.romId;
-    if (!romId) return;
-
-    let cancelled = false;
-    void getRomMetadataShared(romId)
-      .then((meta) => {
-        if (!cancelled) {
-          setLoadedMetadata(meta);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLoadedMetadata(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [detail.romId]);
-
-  const metadata = detail.romId ? loadedMetadata : null;
-
-  const overview = overviewFor(appId);
-  const title = overview?.display_name || detail.romName || `App ${appId}`;
+  const metadata = useRomMetadata(detail.romId);
+  const title = resolveAppTitle(appId, detail.romName);
   const covers = coverCandidates(appId);
 
   return (

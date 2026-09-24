@@ -18,34 +18,11 @@ export interface AchievementsModalProps {
   romId?: number | undefined;
 }
 
-/** "2025-02-14 15:45:38" -> formatted localized string (e.g. "Feb 14, 2025, 3:45 PM") */
-export function formatModalUnlockDate(dateStr: string): string {
-  try {
-    const normalized = dateStr.includes("T") ? dateStr : dateStr.replace(" ", "T");
-    const d = new Date(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    }
-  } catch {
-    // fallback to compact string if parsing fails
-  }
-  return dateStr.replace(/:\d{2}$/, "");
-}
+import { formatModalUnlockDate } from "../../utils/formatters";
 
-const MODAL_CONTAINER_STYLE: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 10000,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-};
+export { formatModalUnlockDate };
+
+import { MODAL_CONTAINER_STYLE } from "./styles";
 
 const BACKDROP_BUTTON_STYLE: React.CSSProperties = {
   position: "absolute",

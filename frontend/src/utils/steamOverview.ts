@@ -49,6 +49,15 @@ export function overviewFor(appId: number): SteamAppOverview | null {
 }
 
 /**
+ * Resolves the display title for an app, falling back to an optional romName
+ * or "App <appId>".
+ */
+export function resolveAppTitle(appId: number, fallbackName?: string | null): string {
+  const overview = overviewFor(appId);
+  return overview?.display_name || fallbackName || `App ${appId}`;
+}
+
+/**
  * Write the metadata fields Steam's own UI reads — controller support, the
  * rating it shows as a metacritic score, and the store categories. Idempotent:
  * every write is an assignment or a set-insert of the same value.
