@@ -10,6 +10,7 @@ import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { overviewFor } from "../../utils/steamOverview";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
+import { AchievementsCard } from "./AchievementsCard";
 import { EmulationSettings } from "./EmulationSettings";
 import { SaveManagementCard } from "./SaveManagementCard";
 import { PlayButton } from "./PlayButton";
@@ -120,13 +121,21 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
       <GameViewTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
       <div className="tender-desktop-tab-container" style={{ marginTop: "12px" }}>
         {activeTab === "game-info" ? (
-          <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
-            <AboutDetails
-              title={title}
-              platformName={detail.platformSlug || undefined}
-              metadata={metadata}
-              covers={covers}
-            />
+          <div
+            className="tender-desktop-game-info-tab-content"
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
+            <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
+              <AboutDetails
+                title={title}
+                platformName={detail.platformSlug || undefined}
+                metadata={metadata}
+                covers={covers}
+              />
+            </div>
+            {detail.romId && detail.raId ? (
+              <AchievementsCard appId={appId} romId={detail.romId} raId={detail.raId} title={title} covers={covers} />
+            ) : null}
           </div>
         ) : (
           <div
@@ -147,3 +156,5 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
 export const GameViewPage = GameView;
 export { PlayButton } from "./PlayButton";
 export { DiscSelector } from "./DiscSelector";
+export { AchievementsCard } from "./AchievementsCard";
+export { AchievementsModal } from "./AchievementsModal";
