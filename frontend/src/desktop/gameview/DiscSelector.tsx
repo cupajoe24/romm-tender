@@ -268,7 +268,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
   }, [fetchDiscSelection]);
 
   useEffect(() => {
-    const completeListener = addEventListener<[DownloadCompleteEvent]>(
+    const completeListener = addEventListener<DownloadCompleteEvent>(
       "download_complete",
       (evt: DownloadCompleteEvent) => {
         if (evt.rom_id === romId) {
@@ -280,7 +280,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
       },
     );
 
-    const failListener = addEventListener<[DownloadFailedEvent]>("download_failed", (evt: DownloadFailedEvent) => {
+    const failListener = addEventListener<DownloadFailedEvent>("download_failed", (evt: DownloadFailedEvent) => {
       if (memberIdsRef.current.has(evt.rom_id)) {
         detach(loadVersionListRef.current());
       }
