@@ -875,7 +875,7 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
 
     initUnitSyncManager();
     await act(async () => {
-      emitHostEvent<[SyncApplyUnitData]>("sync_apply_unit", chunkOf([sc(42)], "run-icon-create"));
+      emitHostEvent<SyncApplyUnitData>("sync_apply_unit", chunkOf([sc(42)], "run-icon-create"));
       await flush(120);
     });
 
@@ -893,7 +893,7 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
 
     initUnitSyncManager();
     await act(async () => {
-      emitHostEvent<[SyncApplyUnitData]>("sync_apply_unit", chunkOf([sc(42)], "run-icon-update"));
+      emitHostEvent<SyncApplyUnitData>("sync_apply_unit", chunkOf([sc(42)], "run-icon-update"));
       await flush(120);
     });
 
@@ -911,7 +911,7 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
 
     initUnitSyncManager();
     await act(async () => {
-      emitHostEvent<[SyncApplyUnitData]>("sync_apply_unit", chunkOf([sc(42)], "run-icon-absent"));
+      emitHostEvent<SyncApplyUnitData>("sync_apply_unit", chunkOf([sc(42)], "run-icon-absent"));
       await flush(120);
     });
 

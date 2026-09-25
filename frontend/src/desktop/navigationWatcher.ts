@@ -429,9 +429,9 @@ export function findInflatedHeroWrapper(
 ): HTMLElement | null {
   const scrollerEl =
     "nodeType" in scroller && (scroller as HTMLElement).nodeType === 1 ? (scroller as HTMLElement) : null;
-  let curr: HTMLElement | null = container;
+  let curr: HTMLElement = container;
 
-  while (curr && curr !== scrollerEl) {
+  while (curr !== scrollerEl) {
     const parent: HTMLElement | null = curr.parentElement;
     if (!parent) break;
 
