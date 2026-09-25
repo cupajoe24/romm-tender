@@ -365,7 +365,7 @@ describe("PlayButton", () => {
     render(<PlayButton appId={123} />);
 
     act(() => {
-      emitHostEvent<[DownloadCompleteEvent]>("download_complete", {
+      emitHostEvent<DownloadCompleteEvent>("download_complete", {
         rom_id: 100,
         rom_name: "Super Mario World",
         platform_name: "snes",

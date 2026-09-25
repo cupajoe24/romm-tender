@@ -83,13 +83,16 @@ export function mountPruneLeaseOwner(owner: string): void {
  * and releases their prune leases on unmount.
  */
 export function usePruneLeaseOwner(...owners: string[]): void {
-  const key = owners.join(",");
+  // A rest array is a new identity every render, so the effect keys on its
+  // contents and reads the owners back out of the key.
+  const key = JSON.stringify(owners);
   useEffect(() => {
-    for (const owner of owners) {
+    const mounted = JSON.parse(key) as string[];
+    for (const owner of mounted) {
       mountPruneLeaseOwner(owner);
     }
     return () => {
-      for (const owner of owners) {
+      for (const owner of mounted) {
         detach(releasePruneLeasesByOwner(owner));
       }
     };
