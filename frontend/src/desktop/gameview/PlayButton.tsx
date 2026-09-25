@@ -12,14 +12,18 @@
  *   - "syncing": Pre-launch save sync in progress ("Syncing saves...").
  *   - "launching": Launching via Steam ("Launching...").
  *   - "running": Game actively running; displays "RESUME" with a stop option.
- *   - "conflict": Unresolved save conflict; displays "Resolve Conflict".
+ *   - "conflict": Unresolved save conflict; displays "Resolve Conflict", which opens
+ *     the save-conflict dialog.
  *   - Includes an actions menu dropdown (chevron) with "Uninstall".
+ *
+ * Download runs through the shared adoption flow (`utils/adoptFlow.ts`), so content
+ * already on the device opens the same dialogs Big Picture opens, drawn here by
+ * `dialogs/`.
  */
 
 import { useState, useEffect, useRef, type FC, type MouseEvent } from "react";
 import { addEventListener, removeEventListener } from "../../api/host";
 import {
-  startDownload,
   cancelDownload,
   pauseDownload,
   resumeDownload,
@@ -34,8 +38,15 @@ import {
   getAchievementProgress,
   getAchievements,
   probeReachability,
+  getCachedGameDetail,
+  isTargetOccupied,
   type BiosAnswer,
 } from "../../api/backend";
+import { runDownloadWithAdoption } from "../../utils/adoptFlow";
+import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
+import { announceSaveSync, resolveConflictsSequentially, resolveKnownConflicts } from "../../utils/saveConflictFlow";
+import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
+import { desktopAdoptionDialogs, desktopSaveConflictDialog } from "./dialogs/desktopDialogs";
 import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
 import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
@@ -64,7 +75,7 @@ import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
 import { markLaunchSkipped } from "../../utils/launchGate";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
-import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo } from "../../types";
+import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo, SaveStatus } from "../../types";
 
 export interface PlayButtonProps {
   appId: number;
@@ -92,6 +103,26 @@ interface PlaytimeState {
   lastPlayed: string;
   restoredLastPlayed: string | null;
   playtime: string;
+}
+
+/**
+ * A verdict this button reached itself — a conflict left unresolved, one just
+ * resolved, a game just adopted — held only until the shared detail moves on.
+ * The detail it was reached against is kept with it, so the next save status or
+ * install state the store folds in replaces the verdict rather than sitting
+ * under it.
+ */
+interface HeldVerdict {
+  state: "play" | "conflict";
+  saveStatus: SaveStatus | null;
+  installed: boolean;
+}
+
+/** What the backend found on disk for this ROM, as last read or proven. */
+interface FoundOnDisk {
+  romId: number | null;
+  targetOccupied: boolean;
+  candidatePresent: boolean;
 }
 
 // Download button blue gradient stops
@@ -176,7 +207,19 @@ export function ensurePulseStyles(doc?: Document | null) {
   targetDoc.head.appendChild(style);
 }
 
+// The dialog host sits above the button so that the button's branches, which
+// render different trees, cannot unmount an open dialog when the state moves.
 export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
+  const dialogs = useDialogHost();
+  return (
+    <>
+      <PlayButtonControls appId={appId} ask={dialogs.ask} />
+      {dialogs.element}
+    </>
+  );
+};
+
+const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, ask }) => {
   const detail = useGameDetail(appId);
   const downloads = useDownloads();
 
@@ -191,6 +234,19 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   });
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
+  const [heldVerdict, setHeldVerdict] = useState<HeldVerdict | null>(null);
+  // A download press's request, or an adoption, is in flight.
+  const [actionPending, setActionPending] = useState(false);
+  const downloadPressRef = useRef(false);
+  const [foundOnDisk, setFoundOnDisk] = useState<FoundOnDisk>({
+    romId: null,
+    targetOccupied: false,
+    candidatePresent: false,
+  });
+  const detailRef = useRef(detail);
+  useEffect(() => {
+    detailRef.current = detail;
+  });
   const connectionState = useRommConnectionState();
   const isOffline = connectionState === "offline";
   const [setupInfo, setSetupInfo] = useState<SaveSetupInfo | null>(null);
@@ -202,6 +258,50 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
   const romId = detail.romId;
   const leaseOwner = `desktop-play-button:${appId}`;
+
+  // Both answers belong to the ROM they were read for and mean nothing once it
+  // is installed, so a version switch or an install retires them without a
+  // write. They stay two flags because they are two states: an occupied target
+  // is compared where it lies, a candidate is renamed into place.
+  const onDiskApplies = foundOnDisk.romId !== null && foundOnDisk.romId === romId && !detail.installed;
+  const targetOccupied = onDiskApplies && foundOnDisk.targetOccupied;
+  const candidatePresent = onDiskApplies && foundOnDisk.candidatePresent;
+  const noteFoundOnDisk = (update: Partial<Omit<FoundOnDisk, "romId">>) => {
+    setFoundOnDisk((prev) => {
+      const base = prev.romId === romId ? prev : { romId, targetOccupied: false, candidatePresent: false };
+      return { ...base, ...update };
+    });
+  };
+
+  // The store's detail does not carry the two on-disk answers; the cached detail
+  // it was read from does, and re-reading it is network-free. Re-read whenever
+  // the ROM or its install state changes, which is also when the store reloads.
+  useEffect(() => {
+    if (!romId || detail.installed) return;
+    let cancelled = false;
+    getCachedGameDetail(appId)
+      .then((cached) => {
+        if (cancelled || !cached.found || cached.rom_id !== romId || cached.installed) return;
+        setFoundOnDisk({
+          romId,
+          targetOccupied: cached.target_path_occupied === true,
+          candidatePresent: cached.adoption_candidate_present === true,
+        });
+      })
+      .catch((e) => {
+        detach(debugLog(`DesktopPlayButton: on-disk read failed: ${e}`));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, romId, detail.installed]);
+
+  const holdVerdict = (state: HeldVerdict["state"]) => {
+    const latest = detailRef.current;
+    setHeldVerdict({ state, saveStatus: latest.saveStatus, installed: latest.installed });
+  };
+  const heldVerdictApplies =
+    heldVerdict !== null && heldVerdict.saveStatus === detail.saveStatus && heldVerdict.installed === detail.installed;
 
   // Fetch SaveSetupInfo and BiosStatus for indicator badges
   useEffect(() => {
@@ -331,6 +431,8 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     effectiveState = "downloading";
   } else if (romId && (isSessionActive(romId) || isAppRunning(appId))) {
     effectiveState = "running";
+  } else if (heldVerdictApplies) {
+    effectiveState = heldVerdict.state;
   } else if (detail.installed) {
     if (detail.saveStatus && hasAnySaveConflict(detail.saveStatus)) {
       effectiveState = "conflict";
@@ -347,6 +449,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       if (e.rom_id === romId || e.app_id === appId) {
         detach(setLaunchOptionsConfirmed(appId, e.launch_options).catch(() => false));
         invalidateCachedGameDetail(appId);
+        setActionPending(false);
         setStateOverride("dl_complete");
         setTimeout(() => {
           setStateOverride(null);
@@ -357,6 +460,9 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     const handleFailed = (e: DownloadFailedEvent) => {
       if (e.rom_id === romId) {
         setStateOverride(null);
+        setActionPending(false);
+        // A failed replace-download may already have removed what was found.
+        setFoundOnDisk({ romId: null, targetOccupied: false, candidatePresent: false });
         showToast(e.error_message || "Download failed");
       }
     };
@@ -425,18 +531,32 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
   // Handlers
   const handleDownloadClick = async () => {
-    if (!romId || isOffline || effectiveState === "downloading") return;
-
-    setStateOverride("downloading");
+    // A ref as well as the state: two clicks in one frame both read the old state.
+    if (!romId || isOffline || effectiveState === "downloading" || downloadPressRef.current) return;
+    downloadPressRef.current = true;
     try {
-      const result = await startDownload(romId, false, null, null, false);
-      if (!result.success) {
-        setStateOverride(null);
-        showToast(result.message || "Download failed");
+      const outcome = await runDownloadWithAdoption({
+        romId,
+        romName: detail.romName,
+        pageSawCandidate: candidatePresent,
+        leaseOwner,
+        logContext: "DesktopPlayButton",
+        dialogs: desktopAdoptionDialogs(ask),
+        hooks: {
+          setBusy: setActionPending,
+          setTargetOccupied: (occupied) => noteFoundOnDisk({ targetOccupied: occupied }),
+          setCandidatePresent: (present) => noteFoundOnDisk({ candidatePresent: present }),
+          onAdopted: () => holdVerdict("play"),
+        },
+      });
+      // The transfer's own state owns the button from here, so the press's busy
+      // flag hands over to it rather than waiting for the transfer to end.
+      if (outcome === "download_started") {
+        setStateOverride("downloading");
+        setActionPending(false);
       }
-    } catch {
-      setStateOverride(null);
-      showToast("Download failed — is RomM server running?");
+    } finally {
+      downloadPressRef.current = false;
     }
   };
 
@@ -445,13 +565,31 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     if (!romId) return;
     detach(cancelDownload(romId).catch(() => {}));
     setStateOverride(null);
+    // A cancelled replace-download has already removed what was found.
+    setFoundOnDisk({ romId: null, targetOccupied: false, candidatePresent: false });
+  };
+
+  // A refused resume is said out loud: content can appear at the game's location
+  // while the transfer sits paused, and a silent refusal leaves Cancel — which
+  // discards the transferred bytes — as the only thing that visibly works.
+  const handleResumeDownload = (rid: number) => {
+    detach(
+      resumeDownload(rid)
+        .then((result) => {
+          if (result.success) return;
+          showToast(
+            isTargetOccupied(result) ? RESUME_TARGET_OCCUPIED_TOAST : result.message || "Couldn't resume the download",
+          );
+        })
+        .catch(() => showToast("Couldn't resume the download — is RomM server running?")),
+    );
   };
 
   const handlePauseResumeClick = (e: MouseEvent) => {
     e.stopPropagation();
     if (!romId || !activeDownload) return;
     if (activeDownload.status === "paused") {
-      detach(resumeDownload(romId).catch(() => {}));
+      handleResumeDownload(romId);
     } else {
       detach(pauseDownload(romId).catch(() => {}));
     }
@@ -471,7 +609,16 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
       setStateOverride("syncing");
       try {
         const syncResult = await preLaunchSync(romId);
-        if (!syncResult.success) {
+        if (syncResult.conflicts && syncResult.conflicts.length > 0) {
+          const resolution = await resolveConflictsSequentially(syncResult.conflicts, desktopSaveConflictDialog(ask));
+          if (resolution === "cancel") {
+            setStateOverride(null);
+            holdVerdict("conflict");
+            detach(refreshSaveStatus(appId));
+            return;
+          }
+          announceSaveSync(romId);
+        } else if (!syncResult.success) {
           detach(debugLog(`DesktopPlayButton: pre-launch sync failed: ${syncResult.message}`));
         } else {
           const toastBody = saveSyncToastBody(syncResult.uploaded, syncResult.downloaded);
@@ -510,6 +657,20 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
     if (client?.Apps?.RunGame) {
       client.Apps.RunGame(gameId, "", -1, 100);
     }
+  };
+
+  // A READ of the conflict already shown, never a re-sync — see
+  // `resolveKnownConflicts` for why this must not run `preLaunchSync`.
+  const handleResolveConflictClick = async () => {
+    if (!romId) return;
+    setStateOverride("syncing");
+    const outcome = await resolveKnownConflicts(
+      romId,
+      (conflicts) => resolveConflictsSequentially(conflicts, desktopSaveConflictDialog(ask)),
+      "DesktopPlayButton",
+    );
+    setStateOverride(null);
+    if (outcome === "resolved") holdVerdict("play");
   };
 
   const handleStopClick = async () => {
@@ -1169,8 +1330,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
               fontSize: "13px",
             }}
             onClick={() => {
-              showToast("Resolve save conflict before playing");
-              if (romId) void refreshSaveStatus(appId);
+              detach(handleResolveConflictClick());
             }}
           >
             RESOLVE CONFLICT
@@ -1208,13 +1368,24 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
   }
 
   // 7. Default: Download state (Uninstalled)
+  // Pressing with something found opens the comparison, so the label names that
+  // action. It can overpromise — the page and the press-time search read the
+  // folder knowing different things — and the backstop dialog is what keeps a
+  // press from ever ending in a silent download.
+  const usesExisting = targetOccupied || candidatePresent;
+  let downloadLabel = "DOWNLOAD";
+  if (isOffline) downloadLabel = "OFFLINE";
+  else if (actionPending) downloadLabel = "STARTING...";
+  else if (usesExisting) downloadLabel = "USE EXISTING FILES";
+  const downloadDisabled = isOffline || actionPending;
+
   return (
     <div className="tender-desktop-play-btn-container" style={containerStyle}>
       <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
         <button
           type="button"
           className="tender-desktop-btn-download"
-          disabled={isOffline}
+          disabled={downloadDisabled}
           style={{
             ...buttonBaseStyle,
             width: "100%",
@@ -1222,8 +1393,9 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
             background: isOffline
               ? "linear-gradient(90deg, #4a5968 0%, #3a4754 100%)"
               : "linear-gradient(90deg, #1a9fff 0%, #0078d4 100%)",
-            cursor: isOffline ? "not-allowed" : "pointer",
-            opacity: isOffline ? 0.7 : 1,
+            cursor: downloadDisabled ? "not-allowed" : "pointer",
+            opacity: downloadDisabled ? 0.7 : 1,
+            ...(usesExisting && !downloadDisabled ? { fontSize: "13px" } : {}),
           }}
           onClick={() => {
             void handleDownloadClick();
@@ -1237,7 +1409,7 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
               strokeLinecap="round"
             />
           </svg>
-          {isOffline ? "OFFLINE" : "DOWNLOAD"}
+          {downloadLabel}
         </button>
       </div>
       <DiscSelector appId={appId} />

@@ -8,11 +8,11 @@ Deck, then continue where you left off on your HTPC — your saves travel with y
 The plugin uploads and downloads your RetroArch game saves to and from your RomM server. When you start a game, the
 plugin checks if the server has a newer save and downloads it. When you stop playing, it uploads your updated save.
 
-> **Important:** Save sync runs in **Game Mode only**, but there it covers every way a game can start: the Play button
-> on the game detail page syncs directly, and a launch that skips the plugin's UI (for example a `steam://rungameid`
-> deep link) is caught by the plugin's launch gate and synced before the game starts. In **Desktop Mode** the plugin is
-> not loaded at all, so nothing syncs there — no pre-launch download, no post-exit upload. Changes made in Desktop Mode
-> are picked up the next time you sync in Game Mode, which may surface a conflict.
+> **Important:** Save sync covers every way a game can start. The Play button on the game detail page syncs directly,
+> and a launch that skips the plugin's UI (for example a `steam://rungameid` deep link) is caught by the plugin's launch
+> gate and synced before the game starts. The plugin runs in **Desktop Mode** too: the Play button on the desktop
+> client's game page syncs before it launches, and a game's save is uploaded when it exits, whichever mode it was
+> started from.
 
 Sync uses a **newest-wins** model with a hash-divergence guard:
 
@@ -119,6 +119,11 @@ Three actions:
 The modal blocks the Play action until you choose. If a post-exit sync detects a conflict you'll see a toast — the modal
 opens the next time you tap Play, where it blocks launch until resolved. There is no longer a separate "pending
 conflicts" list on the settings page.
+
+The **desktop client's game page** shows the same dialog, with the same three actions: when **PLAY** finds a conflict,
+and when you press **RESOLVE CONFLICT**, which takes Play's place while a conflict is known. Pressing **Escape** or
+clicking outside it is the same as **Cancel**, except while a choice is being applied, when the dialog stays until it
+finishes. A choice that fails keeps the dialog open with the reason, so you can try again or cancel.
 
 ## Copying a Save to Another Slot
 

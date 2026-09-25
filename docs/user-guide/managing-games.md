@@ -272,6 +272,10 @@ comparison in front of you.
 One case the dialog cannot help with: the folder or file in the way is the wrong shape for the game — a folder where the
 server serves a single file, or the reverse. The dialog says so and only offers replace or cancel.
 
+**On the desktop client's game page** the download button behaves the same way: it reads **USE EXISTING FILES**, and
+this dialog — and every other one in this section and the next — opens there with the same choices and the same words.
+Pressing **Escape** or clicking outside a dialog is the same as **Cancel**.
+
 ### When the same game is on your device under a different name
 
 Your copy is rarely named the way your server names it. `Example Quest - Second Journey (U).zip` and
