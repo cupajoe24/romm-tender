@@ -62,8 +62,7 @@ import {
   downloadForgottenToast,
   forgetRefusedToast,
 } from "../utils/missingDownloadWording";
-import { NO_FILE_ON_ROMM_LABEL } from "../utils/noFileOnRommWording";
-import { resolveKnownConflicts } from "../utils/saveConflictFlow";
+import { announceSaveSync, resolveKnownConflicts } from "../utils/saveConflictFlow";
 import { showAdoptExistingModal } from "./AdoptExistingModal";
 import { showAdoptCandidateModal } from "./AdoptCandidateModal";
 import { showAdoptCollisionModal } from "./AdoptCollisionModal";
