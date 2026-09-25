@@ -12,7 +12,17 @@ import * as steamShortcuts from "../../utils/steamShortcuts";
 import * as metadataPatches from "../../utils/metadataPatches";
 import * as toast from "../../utils/toast";
 import { emitHostEvent } from "../../test-utils/host-event-bus";
-import type { DownloadCompleteEvent, DownloadItem, SyncConflict } from "../../types";
+import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
+import type { GameDetailState } from "../../utils/gameDetailStore";
+import type {
+  AdoptionCandidate,
+  AdoptResult,
+  DownloadCompleteEvent,
+  DownloadItem,
+  SaveStatus,
+  SyncConflict,
+  TargetOccupiedResult,
+} from "../../types";
 
 vi.mock("../../utils/gameDetailStore", () => ({
   useGameDetail: vi.fn(),
@@ -63,7 +73,24 @@ vi.mock("../../utils/metadataPatches", () => ({
   updatePlaytimeDisplay: vi.fn(),
 }));
 
-vi.mock("../../api/backend", () => ({
+vi.mock("../../api/backend", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/backend")>();
+  return {
+    isCallableFailure: actual.isCallableFailure,
+    isTargetOccupied: actual.isTargetOccupied,
+    isCandidatesFound: actual.isCandidatesFound,
+    isUnusableNamesake: actual.isUnusableNamesake,
+    isCandidateVanished: actual.isCandidateVanished,
+    isRenameCollisions: actual.isRenameCollisions,
+    adoptExistingRom: vi.fn(),
+    verifyExistingContent: vi.fn(),
+    getSaveStatus: vi.fn(),
+    resolveSyncConflict: vi.fn(),
+    ...BACKEND_STUBS,
+  };
+});
+
+const BACKEND_STUBS = vi.hoisted(() => ({
   startDownload: vi.fn().mockResolvedValue({ success: true }),
   cancelDownload: vi.fn().mockResolvedValue({ success: true }),
   pauseDownload: vi.fn().mockResolvedValue({ success: true }),
@@ -93,6 +120,20 @@ vi.mock("../../utils/steamShortcuts", () => ({
 vi.mock("../../utils/toast", () => ({
   showToast: vi.fn(),
 }));
+
+const CONFLICT: SyncConflict = {
+  type: "sync_conflict",
+  rom_id: 100,
+  filename: "smw.srm",
+  server_save_id: 7,
+  server_updated_at: "2026-01-02T00:00:00Z",
+  server_size: 2048,
+  local_path: "/saves/smw.srm",
+  local_hash: "abc",
+  local_mtime: "2026-01-01T00:00:00Z",
+  local_size: 1024,
+  created_at: "2026-01-01T00:00:00Z",
+};
 
 describe("PlayButton", () => {
   const originalSteamClient = (window as unknown as { SteamClient?: unknown }).SteamClient;
@@ -509,7 +550,14 @@ describe("PlayButton", () => {
     });
   });
 
-  it("displays RESOLVE CONFLICT when save status has a conflict", () => {
+  it("displays RESOLVE CONFLICT when save status has a conflict, and opens the dialog on it", async () => {
+    vi.mocked(backend.preLaunchSync).mockClear();
+    const known = { ...CONFLICT, filename: "save.srm" };
+    vi.mocked(backend.getSaveStatus).mockResolvedValue({
+      rom_id: 100,
+      files: [],
+      conflicts: [known],
+    } as unknown as import("../../types").SaveStatus);
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 100,
       romName: "Super Mario World",
@@ -544,7 +592,12 @@ describe("PlayButton", () => {
     const conflictBtn = screen.getByRole("button", { name: /RESOLVE CONFLICT/i });
     expect(conflictBtn).toBeInTheDocument();
     fireEvent.click(conflictBtn);
-    expect(toast.showToast).toHaveBeenCalledWith("Resolve save conflict before playing");
+    expect(await screen.findByRole("dialog", { name: "Save conflict for save.srm" })).toBeInTheDocument();
+    expect(backend.getSaveStatus).toHaveBeenCalledWith(100);
+    expect(backend.preLaunchSync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /RESOLVE CONFLICT/i })).toBeInTheDocument();
   });
 
   it("renders LAST PLAYED and PLAYTIME badges and reconciles playtime on view", async () => {
@@ -1539,6 +1592,319 @@ describe("PlayButton", () => {
 
       expect(screen.getByRole("button", { name: /PLAY/i })).toBeInTheDocument();
       expect(await screen.findByTestId("disc-btn")).toBeInTheDocument();
+    });
+  });
+
+  describe("content already on the device, and save conflicts", () => {
+    const OCCUPIED: TargetOccupiedResult = {
+      success: false,
+      reason: "target_occupied",
+      message: "'smw.sfc' is already on this device",
+      existing: { name: "smw.sfc", path: "/roms/snes/smw.sfc", kind: "file", size_bytes: 2048, modified_at: 0 },
+      incoming: { name: "smw.sfc", size_bytes: 2048 },
+      sizes_match: true,
+      adoptable: true,
+    };
+
+    const CANDIDATE_A: AdoptionCandidate = {
+      name: "Super Mario World (USA).sfc",
+      path: "/roms/snes/Super Mario World (USA).sfc",
+      is_dir: false,
+      size_bytes: 2048,
+      modified_at: 0,
+      evidence: "crc32",
+      detail: "Same checksum as the server's copy",
+    };
+    const CANDIDATE_B: AdoptionCandidate = {
+      ...CANDIDATE_A,
+      name: "smw-hack.sfc",
+      path: "/roms/snes/smw-hack.sfc",
+      evidence: "name",
+      detail: "Carries this game's name",
+    };
+
+    const ADOPTED = {
+      success: true,
+      message: "",
+      app_id: 123,
+      launch_options: "run-smw",
+      prune_lease_token: null,
+    } as unknown as AdoptResult;
+
+    function detailState(overrides: Partial<GameDetailState> = {}): GameDetailState {
+      return {
+        romId: 100,
+        romName: "Super Mario World",
+        platformSlug: "snes",
+        installed: false,
+        fsSizeBytes: 2048,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.mocked(backend.getCachedGameDetail).mockResolvedValue({ found: false });
+      vi.mocked(backend.startDownload).mockResolvedValue({ success: true } as never);
+      vi.mocked(backend.preLaunchSync).mockResolvedValue({
+        success: true,
+        synced: 0,
+        uploaded: 0,
+        downloaded: 0,
+      } as never);
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState());
+    });
+
+    it("opens the comparison on target_occupied, and adopting writes the launch command and switches to PLAY", async () => {
+      vi.mocked(backend.startDownload).mockResolvedValueOnce(OCCUPIED as never);
+      vi.mocked(backend.adoptExistingRom).mockResolvedValueOnce(ADOPTED);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /DOWNLOAD/ }));
+
+      const dialog = await screen.findByRole("dialog", { name: "This Game Is Already on Your Device" });
+      expect(dialog).toHaveTextContent("Both are the same size.");
+      fireEvent.click(screen.getByRole("button", { name: "Use These Files" }));
+
+      expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
+      expect(backend.adoptExistingRom).toHaveBeenCalledWith(100, null, null);
+      expect(steamShortcuts.setLaunchOptionsConfirmed).toHaveBeenCalledWith(123, "run-smw");
+      expect(toast.showToast).toHaveBeenCalledWith("Super Mario World is ready to play");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("Download Instead asks a second time, and Delete and Download re-sends with replace", async () => {
+      vi.mocked(backend.startDownload).mockResolvedValueOnce(OCCUPIED as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /DOWNLOAD/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "Download Instead" }));
+
+      expect(screen.getByText(/Downloading deletes the file that is here now — smw\.sfc/)).toBeInTheDocument();
+      expect(backend.startDownload).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Delete and Download" }));
+
+      await waitFor(() => expect(backend.startDownload).toHaveBeenLastCalledWith(100, true, null, null, false));
+      expect(await screen.findByRole("progressbar")).toBeInTheDocument();
+    });
+
+    it("dismissing the comparison with Escape leaves the button offering the files it found", async () => {
+      vi.mocked(backend.startDownload).mockResolvedValueOnce(OCCUPIED as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /DOWNLOAD/ }));
+      await screen.findByRole("dialog");
+      fireEvent.keyDown(window, { key: "Escape" });
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      const button = screen.getByRole("button", { name: "USE EXISTING FILES" });
+      expect(button).toBeEnabled();
+      expect(backend.adoptExistingRom).not.toHaveBeenCalled();
+      expect(backend.startDownload).toHaveBeenCalledTimes(1);
+    });
+
+    it("lists two candidates, compares the one picked, and adopts it by its path", async () => {
+      vi.mocked(backend.startDownload).mockResolvedValueOnce({
+        success: false,
+        reason: "adoption_candidates",
+        message: "",
+        incoming: { name: "smw.sfc", size_bytes: 2048 },
+        candidates: [CANDIDATE_A, CANDIDATE_B],
+        truncated: false,
+      } as never);
+      vi.mocked(backend.adoptExistingRom).mockResolvedValueOnce(ADOPTED);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /DOWNLOAD/ }));
+
+      await screen.findByRole("dialog", { name: "This Game May Already Be on Your Device" });
+      fireEvent.click(screen.getByRole("button", { name: /smw-hack\.sfc/ }));
+
+      await screen.findByRole("dialog", { name: "This Game Is Already on Your Device" });
+      expect(screen.getByText(/Using it renames it to smw\.sfc/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Use These Files" }));
+
+      await waitFor(() => expect(backend.adoptExistingRom).toHaveBeenCalledWith(100, "/roms/snes/smw-hack.sfc", null));
+    });
+
+    it("asks once about taken names and re-sends the adopt with the answer", async () => {
+      vi.mocked(backend.startDownload).mockResolvedValueOnce(OCCUPIED as never);
+      vi.mocked(backend.adoptExistingRom)
+        .mockResolvedValueOnce({
+          success: false,
+          reason: "rename_collisions",
+          message: "",
+          collisions: [{ name: "smw.srm", path: "/saves/smw.srm", kind: "save" }],
+        } as never)
+        .mockResolvedValueOnce(ADOPTED);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /DOWNLOAD/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "Use These Files" }));
+
+      const collisions = await screen.findByRole("dialog", { name: "Some of These Names Are Taken" });
+      expect(collisions).toHaveTextContent("smw.srm (save)");
+      fireEvent.click(screen.getByRole("button", { name: "Replace Them" }));
+
+      await waitFor(() => expect(backend.adoptExistingRom).toHaveBeenLastCalledWith(100, null, "overwrite"));
+      expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
+    });
+
+    it("labels the button USE EXISTING FILES from the cached detail, and reports a seen candidate on the press", async () => {
+      vi.mocked(backend.getCachedGameDetail).mockResolvedValue({
+        found: true,
+        rom_id: 100,
+        installed: false,
+        adoption_candidate_present: true,
+      });
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(await screen.findByRole("button", { name: "USE EXISTING FILES" }));
+
+      await waitFor(() => expect(backend.startDownload).toHaveBeenCalledWith(100, false, null, null, true));
+    });
+
+    it("keeps DOWNLOAD when the cached detail found nothing", async () => {
+      vi.mocked(backend.getCachedGameDetail).mockResolvedValue({
+        found: true,
+        rom_id: 100,
+        installed: false,
+        target_path_occupied: false,
+        adoption_candidate_present: false,
+      });
+
+      render(<PlayButton appId={123} />);
+      await waitFor(() => expect(backend.getCachedGameDetail).toHaveBeenCalledWith(123));
+      expect(screen.getByRole("button", { name: /DOWNLOAD/ })).toHaveTextContent(/^DOWNLOAD$/);
+    });
+
+    it("says why a resume was refused when something now sits at the game's location", async () => {
+      vi.mocked(downloadStore.useDownloads).mockReturnValue([
+        {
+          rom_id: 100,
+          rom_name: "Super Mario World",
+          platform_name: "snes",
+          file_name: "smw.sfc",
+          status: "paused",
+          progress: 50,
+          bytes_downloaded: 1024,
+          total_bytes: 2048,
+          resumable: true,
+        },
+      ]);
+      vi.mocked(backend.resumeDownload).mockResolvedValueOnce(OCCUPIED as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: "Resume download" }));
+
+      await waitFor(() => expect(toast.showToast).toHaveBeenCalledWith(RESUME_TARGET_OCCUPIED_TOAST));
+    });
+
+    it("resolves a pre-launch conflict in the dialog, then launches", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true, saveSyncEnabled: true }));
+      vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
+        success: true,
+        synced: 0,
+        uploaded: 0,
+        downloaded: 0,
+        conflicts: [CONFLICT],
+      } as never);
+      vi.mocked(backend.resolveSyncConflict).mockResolvedValueOnce({ success: true } as never);
+      const announced = vi.fn();
+      globalThis.addEventListener("romm_data_changed", announced);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      await screen.findByRole("dialog", { name: "Save conflict for smw.srm" });
+      expect(mockRunGame).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Use Server" }));
+
+      await waitFor(() => expect(mockRunGame).toHaveBeenCalledWith("123", "", -1, 100));
+      expect(backend.resolveSyncConflict).toHaveBeenCalledWith(100, "smw.srm", 7, "use_server");
+      expect(toast.showToast).toHaveBeenCalledWith(
+        "Conflict resolved — used the server save · your local was backed up.",
+      );
+      const saveSync = announced.mock.calls.map(([e]) => (e as CustomEvent).detail as { type: string; rom_id: number });
+      expect(saveSync).toContainEqual({ type: "save_sync", rom_id: 100 });
+      globalThis.removeEventListener("romm_data_changed", announced);
+    });
+
+    it("does not launch when the pre-launch conflict is cancelled, and shows RESOLVE CONFLICT", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true, saveSyncEnabled: true }));
+      vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
+        success: true,
+        synced: 0,
+        uploaded: 0,
+        downloaded: 0,
+        conflicts: [CONFLICT],
+      } as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+      await screen.findByRole("dialog");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(await screen.findByRole("button", { name: /RESOLVE CONFLICT/ })).toBeInTheDocument();
+      expect(mockRunGame).not.toHaveBeenCalled();
+      expect(backend.resolveSyncConflict).not.toHaveBeenCalled();
+      expect(gameDetailStore.refreshSaveStatus).toHaveBeenCalledWith(123);
+    });
+
+    it("RESOLVE CONFLICT resolved in the dialog switches the button to PLAY", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(
+        detailState({
+          installed: true,
+          saveSyncEnabled: true,
+          saveStatus: { rom_id: 100, files: [], conflicts: [CONFLICT] } as unknown as SaveStatus,
+        }),
+      );
+      vi.mocked(backend.getSaveStatus).mockResolvedValueOnce({
+        rom_id: 100,
+        files: [],
+        conflicts: [CONFLICT],
+      } as unknown as SaveStatus);
+      vi.mocked(backend.resolveSyncConflict).mockResolvedValueOnce({ success: true } as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /RESOLVE CONFLICT/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "Keep Local" }));
+
+      expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
+      expect(backend.resolveSyncConflict).toHaveBeenCalledWith(100, "smw.srm", 7, "keep_local");
+      expect(mockRunGame).not.toHaveBeenCalled();
+    });
+
+    it("unmounting with the comparison open ends the flow at its cancel exit", async () => {
+      vi.mocked(backend.startDownload).mockResolvedValueOnce(OCCUPIED as never);
+
+      const { unmount } = render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /DOWNLOAD/ }));
+      await screen.findByRole("dialog");
+      unmount();
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await act(async () => {});
+      expect(backend.startDownload).toHaveBeenCalledTimes(1);
+      expect(backend.adoptExistingRom).not.toHaveBeenCalled();
     });
   });
 });
