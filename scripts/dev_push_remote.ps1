@@ -82,6 +82,89 @@ if ($Frontend -and -not $Backend) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $stageDir = Join-Path $repoRoot ".dev_stage"
 
+function ConvertTo-UnixEncoding {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath
+    )
+
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) {
+        return
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($FilePath)
+    if ($bytes.Length -eq 0) {
+        return
+    }
+
+    # Detect & strip UTF-8 BOM if present (0xEF, 0xBB, 0xBF)
+    $offset = 0
+    $hasBom = $false
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        $hasBom = $true
+        $offset = 3
+    }
+
+    # Check for carriage returns (CR / 0x0D / ASCII 13)
+    $hasCr = $false
+    for ($i = $offset; $i -lt $bytes.Length; $i++) {
+        if ($bytes[$i] -eq 13) {
+            $hasCr = $true
+            break
+        }
+    }
+
+    if ($hasBom -or $hasCr) {
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $bytes.Length - $offset)
+        $text = $text.Replace("`r`n", "`n").Replace("`r", "`n")
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($FilePath, $text, $utf8NoBom)
+    }
+}
+
+function Ensure-UnixShellScripts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Directory
+    )
+
+    if (-not (Test-Path -LiteralPath $Directory)) {
+        return
+    }
+
+    Get-ChildItem -LiteralPath $Directory -Recurse -File | ForEach-Object {
+        $file = $_.FullName
+        $isShellScript = $false
+
+        if ($_.Extension -eq ".sh") {
+            $isShellScript = $true
+        } elseif ($_.Directory.Name -eq "bin") {
+            $isShellScript = $true
+        } else {
+            # Check for shebang (#! or [BOM]#!)
+            try {
+                $fs = [System.IO.File]::OpenRead($file)
+                $buf = New-Object byte[] 5
+                $read = $fs.Read($buf, 0, 5)
+                $fs.Close()
+                if ($read -ge 2 -and $buf[0] -eq 0x23 -and $buf[1] -eq 0x21) {
+                    $isShellScript = $true
+                } elseif ($read -ge 5 -and $buf[0] -eq 0xEF -and $buf[1] -eq 0xBB -and $buf[2] -eq 0xBF -and $buf[3] -eq 0x23 -and $buf[4] -eq 0x21) {
+                    $isShellScript = $true
+                }
+            } catch {
+                # Ignore unreadable / locked files
+            }
+        }
+
+        if ($isShellScript) {
+            ConvertTo-UnixEncoding -FilePath $file
+        }
+    }
+}
+
 # -------------------------------------------------------------------------
 # Step 0: Optional Remote Host Setup
 # -------------------------------------------------------------------------
@@ -195,6 +278,12 @@ try {
         }
     }
 
+    # Ensure shell scripts in staged files and local bin are properly Unix encoded (UTF-8 without BOM, LF line endings)
+    Ensure-UnixShellScripts -Directory $stageDir
+    if (Test-Path (Join-Path $repoRoot "bin")) {
+        Ensure-UnixShellScripts -Directory (Join-Path $repoRoot "bin")
+    }
+
     # Ensure remote destination directories exist
     Write-Host "==> Ensuring remote directory ($Dest) exists on ${RemoteUser}@${RemoteHost}..." -ForegroundColor Cyan
     $mkdirCmd = "mkdir -p $Dest"
@@ -217,8 +306,8 @@ try {
     }
 
     if ($PushBackend) {
-        # Ensure executable permissions on launcher
-        ssh -p $Port "${RemoteUser}@${RemoteHost}" "chmod +x $Dest/bin/* 2>/dev/null || true"
+        # Ensure Unix line endings and executable permissions on launcher
+        ssh -p $Port "${RemoteUser}@${RemoteHost}" "sed -i 's/\r$//' $Dest/bin/* 2>/dev/null || true; chmod +x $Dest/bin/* 2>/dev/null || true"
     }
 
     if ($RestartSteam) {
