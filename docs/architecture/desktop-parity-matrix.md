@@ -35,7 +35,7 @@ parity.
 | **Emulation & Core Selection**       | `EmulationSettings.tsx` + `CoreChangeModal.tsx`                        | `EmulationSettings.tsx` (`desktop/gameview/`)                              | ⚠️ **Partial** | Desktop displays core/standalone configs, but core picker modal is not yet portaled. |
 | **Achievements Display & Modal**     | `AchievementsCard.tsx` + `AchievementsModal.tsx`                       | `AchievementsCard.tsx` + `AchievementsModal.tsx`                           | ✅ **Parity**  | Unlocked/locked breakdown, progress bar, portaled desktop modal.                     |
 | **File Adoption & Conflict Dialogs** | `AdoptCandidateModal`, `AdoptCollisionModal`, etc.                     | `dialogs/DesktopAdoptDialogs.tsx`, `DesktopSaveConflictDialog.tsx`         | ✅ **Parity**  | Surface-independent logic in `utils/adoptFlow.ts` and `saveConflictFlow.ts`.         |
-| **RetroDECK Path Migration Alert**   | `MigrationBlockedCard.tsx` (Card alert in game detail)                 | ❌ _Not Implemented_                                                       | ❌ **Missing** | Need to render warning card in desktop `GameView` when migration is blocked.         |
+| **RetroDECK Path Migration Alert**   | `MigrationBlockedCard.tsx` (Card alert in game detail)                 | `MigrationBlockedCard.tsx` (`desktop/gameview/`)                           | ✅ **Parity**  | Renders amber warning card atop desktop `GameView` when migration is blocked.        |
 | **Remote Play & Session Scope**      | `PlaytimeScopeBanner.tsx` & `sessionManager.ts`                        | ❌ _Not Implemented_                                                       | ❌ **Missing** | Need banner component in `GameView` alerting to active session on another device.    |
 | **Offline Drift / Unsynced Warning** | `OfflineDriftModal.tsx`, `UnsyncedSavesSwitchModal.tsx`                | ❌ _Not Implemented_                                                       | ❌ **Missing** | Fallback launch confirmations when offline saves differ from server.                 |
 
@@ -63,7 +63,7 @@ parity.
 Enhance the existing desktop `GameView` (`frontend/src/desktop/gameview/`) to match all Big Picture game-page banners
 and alerts:
 
-1. **Migration & Path Alerts**:
+1. **Migration & Path Alerts** (✅ Completed):
    - Port `MigrationBlockedCard.tsx` into `desktop/gameview/MigrationBlockedCard.tsx`.
    - Render atop `GameView` when `migrationStore` reports active path blocks.
 2. **Session & Remote Play Scope Banners**:

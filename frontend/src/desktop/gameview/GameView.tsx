@@ -7,12 +7,14 @@ import { debugLog } from "../../api/backend";
 import { detach } from "../../utils/detach";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { resolveAppTitle } from "../../utils/steamOverview";
+import { useMigrationStatus } from "../../utils/migrationStore";
 import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { AchievementsCard } from "./AchievementsCard";
 import { EmulationSettings } from "./EmulationSettings";
 import { SaveManagementCard } from "./SaveManagementCard";
 import { PlayButton } from "./PlayButton";
+import { MigrationBlockedCard } from "./MigrationBlockedCard";
 
 export interface GameViewProps {
   appId: number;
@@ -27,6 +29,7 @@ import { CARD_STYLE } from "./styles";
 
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
+  const migration = useMigrationStatus();
   const [activeTab, setActiveTab] = useState<GameViewTab>("game-info");
 
   useEffect(() => {
@@ -74,6 +77,11 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
         marginBottom: "24px",
       }}
     >
+      {migration.pending && (
+        <div className="tender-desktop-migration-alert-container" style={{ marginBottom: "16px" }}>
+          <MigrationBlockedCard />
+        </div>
+      )}
       {showPlayButton && (
         <div style={{ marginBottom: "16px" }}>
           <PlayButton appId={appId} />
@@ -119,3 +127,4 @@ export { PlayButton } from "./PlayButton";
 export { DiscSelector } from "./DiscSelector";
 export { AchievementsCard } from "./AchievementsCard";
 export { AchievementsModal } from "./AchievementsModal";
+export { MigrationBlockedCard, type MigrationBlockedCardProps } from "./MigrationBlockedCard";
