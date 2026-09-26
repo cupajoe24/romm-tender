@@ -123,7 +123,7 @@ function ConvertTo-UnixEncoding {
     }
 }
 
-function Ensure-UnixShellScripts {
+function Format-UnixShellScripts {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -279,9 +279,9 @@ try {
     }
 
     # Ensure shell scripts in staged files and local bin are properly Unix encoded (UTF-8 without BOM, LF line endings)
-    Ensure-UnixShellScripts -Directory $stageDir
+    Format-UnixShellScripts -Directory $stageDir
     if (Test-Path (Join-Path $repoRoot "bin")) {
-        Ensure-UnixShellScripts -Directory (Join-Path $repoRoot "bin")
+        Format-UnixShellScripts -Directory (Join-Path $repoRoot "bin")
     }
 
     # Ensure remote destination directories exist
