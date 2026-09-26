@@ -28,7 +28,13 @@ export const PlayStateButton: FC<PlayStateButtonProps> = ({
   if (effectiveState === "launching") playText = "LAUNCHING...";
 
   return (
-    <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
+    <div
+      className="tender-desktop-play-btn-group"
+      style={{
+        ...BUTTON_GROUP_STYLE,
+        zIndex: showMenu ? 1000 : 20,
+      }}
+    >
       <button
         type="button"
         className="tender-desktop-btn-play"
