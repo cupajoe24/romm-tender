@@ -94,6 +94,7 @@ export const CONTAINER_STYLE: CSSProperties = {
   boxSizing: "border-box",
   userSelect: "none",
   overflow: "visible",
+  zIndex: 20,
 };
 
 export const BUTTON_GROUP_STYLE: CSSProperties = {
@@ -108,6 +109,7 @@ export const BUTTON_GROUP_STYLE: CSSProperties = {
   borderRadius: "2px",
   boxShadow: "0 1px 4px rgba(0, 0, 0, 0.4)",
   overflow: "visible",
+  zIndex: 20,
 };
 
 export const BUTTON_BASE_STYLE: CSSProperties = {
@@ -188,6 +190,19 @@ export function ensurePulseStyles(doc?: Document | null) {
     }
     #tender-desktop-play-button-host,
     #tender-desktop-play-button {
+      overflow: visible !important;
+      position: relative !important;
+      z-index: 20 !important;
+    }
+    #tender-desktop-substitute {
+      position: relative !important;
+      z-index: 1 !important;
+    }
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="PlayBar"],
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="playbar"],
+    [class*="PlayBar"]:has(#tender-desktop-play-button, #tender-desktop-play-button-host),
+    [class*="playbar"]:has(#tender-desktop-play-button, #tender-desktop-play-button-host) {
+      z-index: 10 !important;
       overflow: visible !important;
     }
     .romm-status-dot {

@@ -717,7 +717,14 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   };
 
   return (
-    <div className="tender-desktop-play-btn-container" style={CONTAINER_STYLE} ref={menuRef}>
+    <div
+      className="tender-desktop-play-btn-container"
+      style={{
+        ...CONTAINER_STYLE,
+        zIndex: showMenu ? 1000 : 20,
+      }}
+      ref={menuRef}
+    >
       {renderButtonGroup()}
       <DiscSelector appId={appId} ask={ask} />
       <PlayButtonBadges

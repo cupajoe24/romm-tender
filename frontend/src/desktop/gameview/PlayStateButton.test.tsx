@@ -59,7 +59,7 @@ describe("PlayStateButton", () => {
 
   it("renders menu with Uninstall option when showMenu is true", () => {
     const onUninstall = vi.fn();
-    render(
+    const { container } = render(
       <PlayStateButton
         effectiveState="play"
         showMenu={true}
@@ -68,6 +68,9 @@ describe("PlayStateButton", () => {
         onUninstall={onUninstall}
       />,
     );
+
+    const group = container.querySelector(".tender-desktop-play-btn-group");
+    expect(group).toHaveStyle({ zIndex: "1000" });
 
     const uninstallBtn = screen.getByText("Uninstall");
     expect(uninstallBtn).toBeInTheDocument();

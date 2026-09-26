@@ -154,7 +154,11 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       ledger.hide(nativePlayBtn);
 
       let playBtnHost = d.getElementById(TENDER_PLAY_BUTTON_ID);
-      const needsPlayBtnMount = !playBtnHost || !playBtnHost.isConnected || playBtnHost.dataset.appid !== String(appId);
+      const needsPlayBtnMount =
+        !playBtnHost ||
+        !playBtnHost.isConnected ||
+        playBtnHost.dataset.appid !== String(appId) ||
+        (nativePlayBtn.parentElement !== null && playBtnHost.parentElement !== nativePlayBtn.parentElement);
 
       if (needsPlayBtnMount) {
         if (playBtnHost) {
@@ -165,6 +169,8 @@ function attachToDesktopWindow(deskWin: Window): () => void {
         playBtnHost.id = TENDER_PLAY_BUTTON_ID;
         playBtnHost.dataset.appid = String(appId);
         playBtnHost.style.overflow = "visible";
+        playBtnHost.style.position = "relative";
+        playBtnHost.style.zIndex = "20";
         playBtnHost.style.paddingBottom = "2px";
 
         if (nativePlayBtn.parentElement) {
@@ -185,6 +191,10 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     }
 
     // 3. Setup sticky play bar behavior and scroll monitoring
+    if (stickyController && !stickyController.matches(playBarTop, playSection)) {
+      stickyController.dispose();
+      stickyController = null;
+    }
     if (!stickyController) {
       stickyController = createStickyPlayBarController(playBarTop, playSection, ledger, container, steamPanel);
     } else {
@@ -251,6 +261,8 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     host.id = TENDER_SUBSTITUTE_ID;
     host.className = "tender-desktop-cards-container";
     host.dataset.appid = String(appId);
+    host.style.position = "relative";
+    host.style.zIndex = "1";
 
     if (insertBeforeRef && insertBeforeRef.parentElement === insertParent) {
       insertParent.insertBefore(host, insertBeforeRef);

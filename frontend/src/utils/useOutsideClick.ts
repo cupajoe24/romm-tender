@@ -19,9 +19,12 @@ export function useOutsideClick<T extends HTMLElement = HTMLElement>(
       }
     };
 
-    document.addEventListener("mousedown", handleOutsideClick);
+    const targetDoc = ref.current?.ownerDocument ?? (typeof document !== "undefined" ? document : null);
+    if (!targetDoc) return;
+
+    targetDoc.addEventListener("mousedown", handleOutsideClick);
     return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
+      targetDoc.removeEventListener("mousedown", handleOutsideClick);
     };
   }, [ref, onOutsideClick, active]);
 }

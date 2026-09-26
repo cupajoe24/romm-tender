@@ -91,6 +91,7 @@ export function findInflatedHeroWrapper(
 }
 
 export interface StickyPlayBarController {
+  matches(playBarTop: HTMLElement, playSection: HTMLElement): boolean;
   updatePinning(): void;
   dispose(): void;
 }
@@ -105,21 +106,25 @@ export function createStickyPlayBarController(
   container?: HTMLElement,
   steamPanel?: HTMLElement,
 ): StickyPlayBarController {
-  ledger.style(playBarTop, "position", "sticky");
-  ledger.style(playBarTop, "top", "0px");
-  ledger.style(playBarTop, "z-index", "10");
-  ledger.style(playBarTop, "opacity", "1");
-  ledger.style(playBarTop, "pointer-events", "auto");
-  ledger.style(playBarTop, "padding-bottom", "2px");
-  if (!playBarTop.style.transition) {
-    ledger.style(playBarTop, "transition", "background-color 0.2s ease, box-shadow 0.2s ease");
-  }
-
-  if (playSection !== playBarTop) {
-    if (!playSection.style.transition) {
-      ledger.style(playSection, "transition", "background-color 0.2s ease");
+  const applyBaselineStyles = () => {
+    ledger.style(playBarTop, "position", "sticky");
+    ledger.style(playBarTop, "top", "0px");
+    ledger.style(playBarTop, "z-index", "10");
+    ledger.style(playBarTop, "opacity", "1");
+    ledger.style(playBarTop, "pointer-events", "auto");
+    ledger.style(playBarTop, "padding-bottom", "2px");
+    if (!playBarTop.style.transition) {
+      ledger.style(playBarTop, "transition", "background-color 0.2s ease, box-shadow 0.2s ease");
     }
-  }
+
+    if (playSection !== playBarTop) {
+      if (!playSection.style.transition) {
+        ledger.style(playSection, "transition", "background-color 0.2s ease");
+      }
+    }
+  };
+
+  applyBaselineStyles();
 
   let isPinnedState: boolean | null = null;
 
@@ -161,6 +166,7 @@ export function createStickyPlayBarController(
 
   const updatePinning = () => {
     if (!playBarTop.isConnected) return;
+    applyBaselineStyles();
     const pinned = isPlayBarPinned(playBarTop, scroller);
     applyPlayBarState(pinned);
     containHero();
@@ -170,6 +176,8 @@ export function createStickyPlayBarController(
   updatePinning();
 
   return {
+    matches: (top: HTMLElement, sec: HTMLElement) =>
+      top === playBarTop && sec === playSection && playBarTop.isConnected,
     updatePinning,
     dispose: () => {
       ledger.removeListener(scroller, "scroll", updatePinning);

@@ -138,6 +138,52 @@ describe("stickyPlayBarController", () => {
       expect(hero.style.overflow).toBe("");
       scroller.remove();
     });
+
+    it("re-applies baseline styles on updatePinning even if styles were wiped externally", () => {
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "scroll";
+      document.body.appendChild(scroller);
+
+      const playBar = document.createElement("div");
+      scroller.appendChild(playBar);
+
+      const controller = createStickyPlayBarController(playBar, playBar, ledger);
+      expect(playBar.style.zIndex).toBe("10");
+      expect(playBar.style.position).toBe("sticky");
+
+      // Simulate external VDOM re-render wiping inline styles
+      playBar.style.zIndex = "";
+      playBar.style.position = "";
+
+      controller.updatePinning();
+
+      expect(playBar.style.zIndex).toBe("10");
+      expect(playBar.style.position).toBe("sticky");
+
+      controller.dispose();
+      ledger.restoreAll();
+      scroller.remove();
+    });
+
+    it("matches correctly identifies managed elements", () => {
+      const playBar = document.createElement("div");
+      const otherBar = document.createElement("div");
+      document.body.appendChild(playBar);
+      document.body.appendChild(otherBar);
+
+      const controller = createStickyPlayBarController(playBar, playBar, ledger);
+
+      expect(controller.matches(playBar, playBar)).toBe(true);
+      expect(controller.matches(otherBar, playBar)).toBe(false);
+      expect(controller.matches(playBar, otherBar)).toBe(false);
+
+      playBar.remove();
+      expect(controller.matches(playBar, playBar)).toBe(false);
+
+      controller.dispose();
+      ledger.restoreAll();
+      otherBar.remove();
+    });
   });
 
   describe("findInflatedHeroWrapper", () => {

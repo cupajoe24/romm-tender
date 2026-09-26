@@ -1021,6 +1021,67 @@ describe("navigationWatcher", () => {
         expect(inPagePlayBar.style.boxShadow).toBe("");
         expect(playSection.style.backgroundColor).toBe("");
       });
+
+      it("recreates sticky controller when playBarTop is replaced during Steam re-render", () => {
+        const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+        vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+          createRoot: vi.fn().mockReturnValue(mockRoot),
+        });
+
+        const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+        const parent = mockDoc.createElement("div");
+        const overviewPanel = mockDoc.createElement("div");
+        overviewPanel.className = "AppDetailsOverviewPanel";
+
+        const playBar1 = mockDoc.createElement("div");
+        playBar1.className = "PlayBar";
+        const playBtn1 = mockDoc.createElement("button");
+        playBtn1.className = "PlayButton";
+        playBar1.appendChild(playBtn1);
+
+        overviewPanel.appendChild(playBar1);
+        parent.appendChild(overviewPanel);
+        mockDoc.body.appendChild(parent);
+
+        let checkNavCb: () => void = () => {};
+        const mockWin = {
+          document: mockDoc,
+          setInterval: vi.fn().mockImplementation((cb) => {
+            checkNavCb = cb;
+            return 888;
+          }),
+          clearInterval: vi.fn(),
+          setTimeout: vi.fn(),
+          MutationObserver: window.MutationObserver,
+          location: { pathname: "/library/app/55558" },
+        } as unknown as Window;
+
+        (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+          m_lastLocation: { pathname: "/library/app/55558" },
+        };
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+        const stop = startDesktopNavigationWatcher(mockWin);
+
+        expect(playBar1.style.zIndex).toBe("10");
+
+        // Simulate Steam re-rendering PlayBar element
+        const playBar2 = mockDoc.createElement("div");
+        playBar2.className = "PlayBar";
+        const playBtn2 = mockDoc.createElement("button");
+        playBtn2.className = "PlayButton";
+        playBar2.appendChild(playBtn2);
+
+        overviewPanel.replaceChild(playBar2, playBar1);
+
+        // Run checkNav tick
+        checkNavCb();
+
+        expect(playBar2.style.zIndex).toBe("10");
+        expect(playBar2.style.position).toBe("sticky");
+
+        stop();
+      });
     });
   });
 });
