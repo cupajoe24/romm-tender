@@ -1,0 +1,6 @@
+* text=auto
+
+# Shell scripts and executables must always have Unix (LF) line endings
+*.sh text eol=lf
+bin/* text eol=lf
+.gitattributes text eol=lf

@@ -378,6 +378,8 @@ To iterate on desktop views without altering the production bundle config:
      .\scripts\dev_push_remote.ps1 <remote-ip>
      ```
      Use `-Frontend` or `-Backend` to push specific components, or `-Dest` to customize the remote target directory.
+     Shell scripts (including `bin/tender-rom-launcher` and `*.sh`) are automatically normalized to Unix encoding (LF
+     line endings, UTF-8 without BOM) before push.
    - **Bash (Linux/macOS)**:
      ```bash
      ./scripts/dev_push_remote.sh <remote-ip>
