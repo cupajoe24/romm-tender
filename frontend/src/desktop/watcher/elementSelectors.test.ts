@@ -8,6 +8,7 @@ import {
   isRightControlsElement,
   findSteamPlayBarBadges,
   findSteamRightControls,
+  findHeroWrapperFallback,
   TENDER_PLAY_BUTTON_ID,
   TENDER_SUBSTITUTE_ID,
 } from "./elementSelectors";
@@ -168,6 +169,57 @@ describe("elementSelectors", () => {
 
       const badges = findSteamPlayBarBadges(root);
       expect(badges).toContain(stat);
+    });
+  });
+
+  describe("findHeroWrapperFallback", () => {
+    it("returns matching hero element when it does not contain playBarTop", () => {
+      const steamPanel = document.createElement("div");
+      const hero = document.createElement("div");
+      hero.className = "appDetailsHeroHeader";
+      const playBarTop = document.createElement("div");
+      steamPanel.appendChild(hero);
+      steamPanel.appendChild(playBarTop);
+
+      expect(findHeroWrapperFallback(steamPanel, playBarTop)).toBe(hero);
+    });
+
+    it("ignores hero query if it is playBarTop or contains playBarTop", () => {
+      const steamPanel = document.createElement("div");
+      const hero = document.createElement("div");
+      hero.className = "HeroBanner";
+      const playBarTop = document.createElement("div");
+      hero.appendChild(playBarTop);
+      steamPanel.appendChild(hero);
+
+      // Falls through to firstElementChild, which is hero (which also contains playBarTop), so null
+      expect(findHeroWrapperFallback(steamPanel, playBarTop)).toBeNull();
+    });
+
+    it("falls back to firstElementChild when no hero class matches", () => {
+      const steamPanel = document.createElement("div");
+      const firstChild = document.createElement("div");
+      firstChild.className = "SomeOtherContainer";
+      const playBarTop = document.createElement("div");
+      steamPanel.appendChild(firstChild);
+      steamPanel.appendChild(playBarTop);
+
+      expect(findHeroWrapperFallback(steamPanel, playBarTop)).toBe(firstChild);
+    });
+
+    it("returns null when firstElementChild is playBarTop and no hero matches", () => {
+      const steamPanel = document.createElement("div");
+      const playBarTop = document.createElement("div");
+      steamPanel.appendChild(playBarTop);
+
+      expect(findHeroWrapperFallback(steamPanel, playBarTop)).toBeNull();
+    });
+
+    it("returns null when steamPanel has no children", () => {
+      const steamPanel = document.createElement("div");
+      const playBarTop = document.createElement("div");
+
+      expect(findHeroWrapperFallback(steamPanel, playBarTop)).toBeNull();
     });
   });
 });

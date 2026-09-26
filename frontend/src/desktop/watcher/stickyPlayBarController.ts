@@ -14,7 +14,7 @@ import {
   PINNED_PLAY_BAR_SHADOW,
   SOLID_PLAY_BAR_BG,
 } from "../gameview/styles";
-import { isTenderElement } from "./elementSelectors";
+import { findHeroWrapperFallback, isTenderElement } from "./elementSelectors";
 import type { DomRestorationLedger } from "./restorationLedger";
 
 /**
@@ -153,17 +153,7 @@ export function createStickyPlayBarController(
   const containHero = () => {
     if (!container || !steamPanel) return;
     const heroWrapper =
-      findInflatedHeroWrapper(container, playBarTop, scroller) ||
-      (() => {
-        const heroQuery = steamPanel.querySelector<HTMLElement>(
-          '[class*="Hero"], [class*="hero"], [class*="HeroHeader"], [class*="HeroBanner"]',
-        );
-        if (heroQuery && heroQuery !== playBarTop && !heroQuery.contains(playBarTop)) {
-          return heroQuery;
-        }
-        const fc = steamPanel.firstElementChild as HTMLElement | null;
-        return fc && fc !== playBarTop && !fc.contains(playBarTop) ? fc : null;
-      })();
+      findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
     if (heroWrapper && heroWrapper.style.overflow !== "hidden") {
       ledger.style(heroWrapper, "overflow", "hidden");
     }

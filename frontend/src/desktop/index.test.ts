@@ -10,6 +10,7 @@ describe("desktop index exports", () => {
     expect(typeof desktopIndex.findDesktopWindow).toBe("function");
     expect(typeof desktopIndex.findReactClient).toBe("function");
     expect(desktopIndex.coverCandidates(-1)).toEqual([]);
+    expect(desktopIndex.heroCandidates(-1)).toEqual([]);
     expect(typeof desktopIndex.GameView).toBe("function");
     expect(desktopIndex.GameViewPage).toBe(desktopIndex.GameView);
     expect(typeof desktopIndex.GameViewTabBar).toBe("function");

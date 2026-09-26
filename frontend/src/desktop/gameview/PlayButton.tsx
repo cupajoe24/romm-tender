@@ -101,6 +101,8 @@ import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "../../util
 import { BENIGN_SYNC_SKIP_REASONS } from "../../types";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
+import { ensurePulseStyles } from "./styles";
+export { ensurePulseStyles, PULSE_STYLE_ID } from "./styles";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo, SaveStatus } from "../../types";
 
 export interface PlayButtonProps {
@@ -163,77 +165,6 @@ function lerpColor(a: [number, number, number], b: [number, number, number], t: 
   const g = Math.round(a[1] + (b[1] - a[1]) * t);
   const bl = Math.round(a[2] + (b[2] - a[2]) * t);
   return `rgb(${r}, ${g}, ${bl})`;
-}
-
-export const PULSE_STYLE_ID = "tender-desktop-playbutton-pulse-styles";
-
-export function ensurePulseStyles(doc?: Document | null) {
-  const targetDoc =
-    doc ||
-    (typeof findDesktopWindow === "function" ? findDesktopWindow()?.document : null) ||
-    (typeof document !== "undefined" ? document : null);
-  if (!targetDoc) return;
-  if (targetDoc.getElementById(PULSE_STYLE_ID)) return;
-
-  const style = targetDoc.createElement("style");
-  style.id = PULSE_STYLE_ID;
-  style.textContent = `
-    @keyframes tender-desktop-dl-pulse {
-      0%, 100% {
-        box-shadow: 0 0 6px rgba(26, 159, 255, 0.35), 0 1px 4px rgba(0, 0, 0, 0.4);
-      }
-      50% {
-        box-shadow: 0 0 24px rgba(26, 159, 255, 0.85), 0 0 8px rgba(26, 159, 255, 0.5), 0 1px 4px rgba(0, 0, 0, 0.4);
-      }
-    }
-    .tender-desktop-dl-pulsing {
-      animation: tender-desktop-dl-pulse 2s ease-in-out infinite !important;
-      overflow: visible !important;
-    }
-    #tender-desktop-play-button-host,
-    #tender-desktop-play-button {
-      overflow: visible !important;
-    }
-    .romm-status-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    /* Hide Steam's default badges when Tender's play button is active */
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="StatusAndStats"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="GameStatsSection"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="GameStat"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="LastPlayed"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="Playtime"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="CloudStatus"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="MiniAchievements"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="PlayBarDetailLabel"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
-      display: none !important;
-    }
-    /* Pin Steam's right-side controls container to the right edge */
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="RightControls"],
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtonsContainer"],
-    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtons"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
-      margin-left: auto !important;
-    }
-    .tender-desktop-disc-btn:hover {
-      background: rgba(255, 255, 255, 0.14) !important;
-      filter: brightness(1.2);
-    }
-    .tender-desktop-disc-btn:active {
-      filter: brightness(0.9);
-    }
-    .tender-desktop-disc-menu-item:hover {
-      background: rgba(255, 255, 255, 0.08) !important;
-      color: #ffffff !important;
-    }
-    .tender-desktop-menu-item-uninstall:hover {
-      background: rgba(255, 255, 255, 0.08) !important;
-    }
-  `;
-  targetDoc.head.appendChild(style);
 }
 
 // The dialog host sits above the button so that the button's branches, which
