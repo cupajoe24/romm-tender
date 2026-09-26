@@ -7,7 +7,19 @@ import * as desktopWin from "../desktopWindow";
 import * as artwork from "../../utils/artwork";
 import * as connectionHeartbeat from "../../utils/connectionHeartbeat";
 import { setMigrationStatus, clearMigration } from "../../utils/migrationStore";
+import { setPlaytimeScopeState } from "../../utils/playtimeScopeStore";
+import * as sessionManager from "../../utils/sessionManager";
+import * as backend from "../../api/backend";
 import type { RomMetadata } from "../../types";
+
+vi.mock("../../api/backend", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/backend")>();
+  return {
+    ...actual,
+    debugLog: vi.fn(),
+    getPlaytimeScopeNotice: vi.fn().mockResolvedValue({ pending: false }),
+  };
+});
 
 vi.mock("../../utils/gameDetailStore", () => ({
   useGameDetail: vi.fn(),
@@ -48,6 +60,7 @@ describe("GameView", () => {
   };
 
   beforeEach(() => {
+    setPlaytimeScopeState({ pending: false });
     vi.mocked(desktopWin.coverCandidates).mockReturnValue(["https://steamloopback.host/custom/cover.jpg"]);
     (window as unknown as { appStore?: unknown }).appStore = {
       GetAppOverviewByAppID: vi.fn().mockReturnValue({ display_name: "Mario Golf: Advance Tour" }),
@@ -642,6 +655,81 @@ describe("GameView", () => {
       });
 
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("renders PlaytimeScopeBanner when cross-device playtime scope notice is pending", async () => {
+      vi.mocked(backend.getPlaytimeScopeNotice).mockResolvedValue({ pending: true });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: 42,
+        romName: "Mario Golf (USA)",
+        platformSlug: "gba",
+        installed: true,
+        fsSizeBytes: null,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+      });
+
+      render(<GameView appId={12345} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("desktop-playtime-scope-banner")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Cross-device playtime")).toBeInTheDocument();
+      expect(screen.getByText("Sign in again to enable cross-device playtime sync.")).toBeInTheDocument();
+    });
+
+    it("renders ActiveSessionBanner when an active session is detected for the game", async () => {
+      vi.mocked(backend.getPlaytimeScopeNotice).mockResolvedValue({ pending: false });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: 42,
+        romName: "Mario Golf (USA)",
+        platformSlug: "gba",
+        installed: true,
+        fsSizeBytes: null,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+      });
+
+      vi.spyOn(sessionManager, "isSessionActive").mockReturnValue(true);
+      setPlaytimeScopeState({ pending: false });
+      render(<GameView appId={12345} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("desktop-active-session-banner")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Active Session in Progress")).toBeInTheDocument();
     });
   });
 });

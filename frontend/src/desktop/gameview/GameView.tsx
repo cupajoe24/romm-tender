@@ -15,6 +15,7 @@ import { EmulationSettings } from "./EmulationSettings";
 import { SaveManagementCard } from "./SaveManagementCard";
 import { PlayButton } from "./PlayButton";
 import { MigrationBlockedCard } from "./MigrationBlockedCard";
+import { PlaytimeScopeBanner } from "./PlaytimeScopeBanner";
 
 export interface GameViewProps {
   appId: number;
@@ -82,6 +83,7 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
           <MigrationBlockedCard />
         </div>
       )}
+      <PlaytimeScopeBanner appId={appId} romId={detail.romId} />
       {showPlayButton && (
         <div style={{ marginBottom: "16px" }}>
           <PlayButton appId={appId} />
@@ -128,3 +130,11 @@ export { DiscSelector } from "./DiscSelector";
 export { AchievementsCard } from "./AchievementsCard";
 export { AchievementsModal } from "./AchievementsModal";
 export { MigrationBlockedCard, type MigrationBlockedCardProps } from "./MigrationBlockedCard";
+export {
+  PlaytimeScopeBanner,
+  ActiveSessionBanner,
+  PlaytimeScopeCard,
+  type PlaytimeScopeBannerProps,
+  type ActiveSessionBannerProps,
+  type PlaytimeScopeCardProps,
+} from "./PlaytimeScopeBanner";
