@@ -40,7 +40,6 @@ const baseDetail: GameDetailState = {
   saveSyncStatus: null,
   saveSyncLabel: "",
   savefilesInContentDir: false,
-  activeSlot: "default",
   raId: null,
   achievementEarned: 0,
   achievementTotal: 0,

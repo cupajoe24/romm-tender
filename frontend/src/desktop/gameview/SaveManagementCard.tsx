@@ -108,13 +108,13 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
 
   // Active slot determination
   const [localActiveSlot, setLocalActiveSlot] = useState<string | null | undefined>(undefined);
-  const activeSlot = localActiveSlot !== undefined ? localActiveSlot : detail.activeSlot;
+  const activeSlot = localActiveSlot !== undefined ? localActiveSlot : (detail.saveStatus?.active_slot ?? null);
   const saveStatus = detail.saveStatus;
   const conflicts: SyncConflict[] = saveStatus?.conflicts ?? [];
 
   useEffect(() => {
     setLocalActiveSlot(undefined);
-  }, [romId, detail.activeSlot]);
+  }, [romId, detail.saveStatus?.active_slot]);
 
   // Fetch slots list
   const loadSlots = useCallback(async () => {

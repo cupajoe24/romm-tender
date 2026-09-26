@@ -873,10 +873,9 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
     vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: "ICON-BASE64", no_api_key: false });
     vi.mocked(backend.saveShortcutIcon).mockResolvedValue({ success: true, icon_path: "/grid/6000_icon.png" });
 
-    initUnitSyncManager();
+    const applyUnit = initUnitSyncManager();
     await act(async () => {
-      emitHostEvent<SyncApplyUnitData>("sync_apply_unit", chunkOf([sc(42)], "run-icon-create"));
-      await flush(120);
+      await applyUnit(chunkOf([sc(42)], "run-icon-create"));
     });
 
     expect(vi.mocked(backend.getSgdbArtworkBase64)).toHaveBeenCalledWith(42, 4);
@@ -891,10 +890,9 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
     vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: "ICON-BASE64", no_api_key: false });
     vi.mocked(backend.saveShortcutIcon).mockResolvedValue({ success: true, icon_path: "/grid/5000_icon.png" });
 
-    initUnitSyncManager();
+    const applyUnit = initUnitSyncManager();
     await act(async () => {
-      emitHostEvent<SyncApplyUnitData>("sync_apply_unit", chunkOf([sc(42)], "run-icon-update"));
-      await flush(120);
+      await applyUnit(chunkOf([sc(42)], "run-icon-update"));
     });
 
     expect(vi.mocked(backend.getSgdbArtworkBase64)).toHaveBeenCalledWith(42, 4);
@@ -909,10 +907,9 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
     addShortcut.mockResolvedValue(6000);
     vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null, no_api_key: false });
 
-    initUnitSyncManager();
+    const applyUnit = initUnitSyncManager();
     await act(async () => {
-      emitHostEvent<SyncApplyUnitData>("sync_apply_unit", chunkOf([sc(42)], "run-icon-absent"));
-      await flush(120);
+      await applyUnit(chunkOf([sc(42)], "run-icon-absent"));
     });
 
     expect(setShortcutIcon).not.toHaveBeenCalled();
