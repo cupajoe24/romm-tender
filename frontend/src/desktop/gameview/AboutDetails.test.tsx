@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { AboutDetails, formatReleaseDate } from "./AboutDetails";
+import { AboutDetails } from "./AboutDetails";
+import { formatReleaseDate } from "../../utils/formatters";
 import type { RomMetadata } from "../../types";
 
 describe("AboutDetails", () => {

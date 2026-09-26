@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
-import { AchievementsCard, formatCardDate, requestOpenAchievementsModal } from "./AchievementsCard";
+import { AchievementsCard, requestOpenAchievementsModal } from "./AchievementsCard";
+import { formatCardDate } from "../../utils/formatters";
 import * as backend from "../../api/backend";
 import * as connState from "../../utils/connectionState";
 import type { Achievement, AchievementProgress } from "../../types";
