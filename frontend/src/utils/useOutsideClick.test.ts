@@ -59,4 +59,21 @@ describe("useOutsideClick", () => {
     expect(onOutside).not.toHaveBeenCalled();
     div.remove();
   });
+
+  it("attaches listener to element ownerDocument", () => {
+    const onOutside = vi.fn();
+    const div = document.createElement("div");
+    document.body.appendChild(div);
+
+    const addEventListenerSpy = vi.spyOn(document, "addEventListener");
+
+    renderHook(() => {
+      const ref = useRef<HTMLDivElement>(div);
+      useOutsideClick(ref, onOutside, true);
+    });
+
+    expect(addEventListenerSpy).toHaveBeenCalledWith("mousedown", expect.any(Function));
+    addEventListenerSpy.mockRestore();
+    div.remove();
+  });
 });
