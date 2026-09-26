@@ -28,3 +28,4 @@ export {
   type AchievementsCardProps,
 } from "./gameview/AchievementsCard";
 export { AchievementsModal, type AchievementsModalProps } from "./gameview/AchievementsModal";
+export { MigrationBlockedCard, type MigrationBlockedCardProps } from "./gameview/MigrationBlockedCard";

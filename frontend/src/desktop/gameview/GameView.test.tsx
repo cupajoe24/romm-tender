@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act, cleanup } from "@testing-library/react";
 import { GameView, GameViewPage } from "./GameView";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
 import * as desktopWin from "../desktopWindow";
 import * as artwork from "../../utils/artwork";
 import * as connectionHeartbeat from "../../utils/connectionHeartbeat";
+import { setMigrationStatus, clearMigration } from "../../utils/migrationStore";
 import type { RomMetadata } from "../../types";
 
 vi.mock("../../utils/gameDetailStore", () => ({
@@ -54,6 +55,7 @@ describe("GameView", () => {
   });
 
   afterEach(() => {
+    cleanup();
     (window as unknown as { appStore?: unknown }).appStore = originalAppStore;
     vi.restoreAllMocks();
   });
@@ -507,5 +509,139 @@ describe("GameView", () => {
     });
     rerender(<GameView appId={12345} />);
     expect(container.querySelector(".tender-desktop-achievements-card")).not.toBeInTheDocument();
+  });
+
+  describe("RetroDECK Path Migration Alert", () => {
+    afterEach(() => {
+      cleanup();
+      clearMigration();
+    });
+    it("does not render MigrationBlockedCard when migration is not pending", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: null,
+        romName: "Mario Golf (USA)",
+        platformSlug: "gba",
+        installed: true,
+        fsSizeBytes: null,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+      });
+
+      const { container } = render(<GameView appId={12345} />);
+
+      expect(container.querySelector(".tender-desktop-migration-card")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("renders MigrationBlockedCard atop GameView when migration is pending", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: null,
+        romName: "Mario Golf (USA)",
+        platformSlug: "gba",
+        installed: true,
+        fsSizeBytes: null,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+      });
+
+      setMigrationStatus({ pending: true });
+
+      const { container } = render(<GameView appId={12345} />);
+
+      const alert = screen.getByRole("alert");
+      expect(alert).toBeInTheDocument();
+      expect(screen.getByText("RetroDECK Migration Required")).toBeInTheDocument();
+      expect(
+        screen.getByText("Open the plugin QAM to migrate files or dismiss the migration before playing."),
+      ).toBeInTheDocument();
+
+      const alertContainer = container.querySelector(".tender-desktop-migration-alert-container");
+      const tabBar = container.querySelector('[role="tablist"]');
+      expect(alertContainer).toBeInTheDocument();
+      expect(tabBar).toBeInTheDocument();
+      expect(
+        Boolean(
+          alertContainer && tabBar && alertContainer.compareDocumentPosition(tabBar) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ).toBe(true);
+    });
+
+    it("dynamically shows and hides MigrationBlockedCard when store state transitions", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        romId: null,
+        romName: "Mario Golf (USA)",
+        platformSlug: "gba",
+        installed: true,
+        fsSizeBytes: null,
+        saveSyncEnabled: false,
+        saveStatus: null,
+        saveSyncStatus: null,
+        saveSyncLabel: "",
+        savefilesInContentDir: false,
+        activeSlot: "default",
+        raId: null,
+        achievementEarned: 0,
+        achievementTotal: 0,
+        biosNeeded: false,
+        biosLabel: "",
+        biosRequiredMissing: false,
+        activeCoreLabel: null,
+        activeCoreIsDefault: true,
+        emulators: [],
+        emulatorDataAvailable: true,
+        platformCoreLabel: null,
+        hasGameOverride: false,
+      });
+
+      clearMigration();
+      render(<GameView appId={12345} />);
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      act(() => {
+        setMigrationStatus({ pending: true });
+      });
+
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByText("RetroDECK Migration Required")).toBeInTheDocument();
+
+      act(() => {
+        clearMigration();
+      });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 });
