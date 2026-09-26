@@ -16,9 +16,11 @@
  *     the save-conflict dialog.
  *   - Includes an actions menu dropdown (chevron) with "Uninstall".
  *
- * Download runs through the shared adoption flow (`utils/adoptFlow.ts`), so content
- * already on the device opens the same dialogs Big Picture opens, drawn here by
- * `dialogs/`.
+ * Decomposed into:
+ *   - `PlayButtonBadges`: space required, last played, playtime, achievements, save sync & BIOS badges
+ *   - `usePlayLaunch`: pre-launch sync, launch gate orchestration, and execution
+ *   - `DownloadingButton`: progress bar and download controls
+ *   - `PlayStateButton`: play/sync/launch button and options menu
  */
 
 import { useState, useEffect, useRef, type FC, type MouseEvent } from "react";
@@ -27,81 +29,44 @@ import {
   cancelDownload,
   pauseDownload,
   resumeDownload,
-  removeRom,
-  preLaunchSync,
-  stopRunningGame,
-  reconcilePlaytime,
   debugLog,
-  logError,
-  invalidateCachedGameDetail,
   getSaveSetupInfo,
   getBiosStatus,
   getAchievementProgress,
   getAchievements,
   probeReachability,
-  checkLocalDrift,
-  isSaveTrackingConfigured,
-  confirmSlotChoice,
-  checkCoreChange,
   getCachedGameDetail,
   isTargetOccupied,
+  reconcilePlaytime,
+  invalidateCachedGameDetail,
   type BiosAnswer,
 } from "../../api/backend";
 import { runDownloadWithAdoption } from "../../utils/adoptFlow";
 import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
-import { announceSaveSync, resolveConflictsSequentially, resolveKnownConflicts } from "../../utils/saveConflictFlow";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
-import {
-  desktopAdoptionDialogs,
-  desktopSaveConflictDialog,
-  desktopOfflineDriftDialog,
-  desktopFallbackLaunchDialog,
-} from "./dialogs/desktopDialogs";
-import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
+import { desktopAdoptionDialogs } from "./dialogs/desktopDialogs";
+import { useGameDetail } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
 import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { isSessionActive } from "../../utils/sessionManager";
 import { isAppRunning } from "../../utils/runningApps";
 import { hasAnySaveConflict } from "../../utils/saveStatus";
-import { saveSyncToastBody } from "../../utils/saveSyncToast";
 import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
-import { reconfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
-import {
-  capturePruneLeaseAdmission,
-  isPruneLeaseAdmissionCurrent,
-  usePruneLeaseOwner,
-  withPruneLease,
-  type PruneLeaseAdmission,
-} from "../../utils/pruneLease";
+import { usePruneLeaseOwner } from "../../utils/pruneLease";
 import { useOutsideClick } from "../../utils/useOutsideClick";
 import { showToast } from "../../utils/toast";
-import { requestOpenAchievementsModal } from "./AchievementsCard";
 import { detach } from "../../utils/detach";
-import {
-  formatBytes,
-  formatLastPlayed,
-  formatPlaytime,
-  formatTimeAgo,
-  resolveLastPlayed,
-} from "../../utils/formatters";
+import { formatLastPlayed, formatPlaytime, resolveLastPlayed } from "../../utils/formatters";
 import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
 import { overviewFor } from "../../utils/steamOverview";
-import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
-import {
-  runLaunchGate,
-  markLaunchSkipped,
-  type GateVerdict,
-  type LaunchGateOps,
-  type PreLaunchSyncOutcome,
-} from "../../utils/launchGate";
-import { getMigrationState } from "../../utils/migrationStore";
-import { romHasLaunchTarget, NO_LAUNCH_TARGET_TOAST_BODY } from "../../utils/launchTarget";
-import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "../../utils/saveSetup";
-import { BENIGN_SYNC_SKIP_REASONS } from "../../types";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
-import { ensurePulseStyles } from "./styles";
+import { CONTAINER_STYLE, BUTTON_GROUP_STYLE, BUTTON_BASE_STYLE, SIDE_ACTION_STYLE, ensurePulseStyles } from "./styles";
+import { PlayButtonBadges } from "./PlayButtonBadges";
+import { DownloadingButton } from "./DownloadingButton";
+import { PlayStateButton } from "./PlayStateButton";
+import { usePlayLaunch } from "./usePlayLaunch";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo, SaveStatus } from "../../types";
 
 export interface PlayButtonProps {
@@ -119,12 +84,6 @@ export type PlayButtonState =
   | "running"
   | "conflict"
   | "uninstalling";
-
-interface SteamClientStub {
-  Apps?: {
-    RunGame?: (appId: string, args: string, flags: number, unk: number) => void;
-  };
-}
 
 interface PlaytimeState {
   lastPlayed: string;
@@ -150,20 +109,6 @@ interface FoundOnDisk {
   romId: number | null;
   targetOccupied: boolean;
   candidatePresent: boolean;
-}
-
-// Download button blue gradient stops
-const BLUE_LEFT: [number, number, number] = [26, 159, 255]; // #1a9fff
-const BLUE_RIGHT: [number, number, number] = [0, 120, 212]; // #0078d4
-// Play button green gradient stops
-const GREEN_LEFT: [number, number, number] = [89, 191, 67]; // #59bf43
-const GREEN_RIGHT: [number, number, number] = [64, 153, 48]; // #409930
-
-function lerpColor(a: [number, number, number], b: [number, number, number], t: number): string {
-  const r = Math.round(a[0] + (b[0] - a[0]) * t);
-  const g = Math.round(a[1] + (b[1] - a[1]) * t);
-  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
-  return `rgb(${r}, ${g}, ${bl})`;
 }
 
 // The dialog host sits above the button so that the button's branches, which
@@ -213,7 +158,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const [achievementCounts, setAchievementCounts] = useState<{ earned: number; total: number } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const romId = detail.romId;
   const leaseOwner = `desktop-play-button:${appId}`;
@@ -338,9 +282,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
 
   usePruneLeaseOwner(leaseOwner);
 
-  // Drive the reachability heartbeat while this game page is mounted (#1345) —
-  // probes reachability periodically (every 30s, mirroring Big Picture) so offline
-  // and recovery transitions reflect automatically without user interaction.
+  // Drive the reachability heartbeat while this game page is mounted (#1345)
   useEffect(() => registerConnectionHeartbeat(), []);
 
   // Check reachability on mount
@@ -363,7 +305,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   // Ensure download pulsing keyframes are present in the target document
   useEffect(() => {
     const doc =
-      containerRef.current?.ownerDocument ||
+      menuRef.current?.ownerDocument ||
       (typeof findDesktopWindow === "function" ? findDesktopWindow()?.document : null) ||
       (typeof document !== "undefined" ? document : null);
     ensurePulseStyles(doc);
@@ -488,9 +430,21 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     };
   }, [appId]);
 
-  // Handlers
+  // Launch gate orchestration hook
+  const { handlePlayClick, handleResolveConflictClick, handleStopClick, handleUninstallClick } = usePlayLaunch({
+    appId,
+    romId,
+    romName: detail.romName,
+    effectiveState,
+    ask,
+    leaseOwner,
+    setStateOverride,
+    holdVerdict,
+    setShowMenu,
+  });
+
+  // Download handlers
   const handleDownloadClick = async () => {
-    // A ref as well as the state: two clicks in one frame both read the old state.
     if (!romId || isOffline || effectiveState === "downloading" || downloadPressRef.current) return;
     downloadPressRef.current = true;
     try {
@@ -508,8 +462,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
           onAdopted: () => holdVerdict("play"),
         },
       });
-      // The transfer's own state owns the button from here, so the press's busy
-      // flag hands over to it rather than waiting for the transfer to end.
       if (outcome === "download_started") {
         setStateOverride("downloading");
         setActionPending(false);
@@ -519,18 +471,14 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     }
   };
 
-  const handleCancelClick = (e: MouseEvent) => {
+  const handleCancelClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!romId) return;
     detach(cancelDownload(romId).catch(() => {}));
     setStateOverride(null);
-    // A cancelled replace-download has already removed what was found.
     setFoundOnDisk({ romId: null, targetOccupied: false, candidatePresent: false });
   };
 
-  // A refused resume is said out loud: content can appear at the game's location
-  // while the transfer sits paused, and a silent refusal leaves Cancel — which
-  // discards the transferred bytes — as the only thing that visibly works.
   const handleResumeDownload = (rid: number) => {
     detach(
       resumeDownload(rid)
@@ -544,280 +492,13 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     );
   };
 
-  const handlePauseResumeClick = (e: MouseEvent) => {
+  const handlePauseResumeClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!romId || !activeDownload) return;
     if (activeDownload.status === "paused") {
       handleResumeDownload(romId);
     } else {
       detach(pauseDownload(romId).catch(() => {}));
-    }
-  };
-
-  const ensureTrackingConfigured = async (rid: number): Promise<"proceed" | "abort"> => {
-    const trackingResult = await isSaveTrackingConfigured(rid).catch(() => ({ configured: true }));
-    if (trackingResult.configured) return "proceed";
-
-    let setupInfo;
-    try {
-      setupInfo = await getSaveSetupInfo(rid);
-    } catch {
-      return "proceed";
-    }
-
-    return applyLaunchGateSetupOutcome(resolveSaveSetupOutcome(setupInfo), {
-      rid,
-      confirmSlotChoice,
-      toast: (body) => showToast(body),
-      dispatchSavesTab: () =>
-        globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "saves" } })),
-    });
-  };
-
-  const confirmCoreChangeIfNeeded = async (rid: number): Promise<boolean> => {
-    const coreCheck = await checkCoreChange(rid).catch(
-      (): { changed: boolean; old_core?: string; new_core?: string; old_label?: string; new_label?: string } => ({
-        changed: false,
-      }),
-    );
-    if (!coreCheck.changed) return true;
-    return true;
-  };
-
-  const runPreLaunchSync = async (rid: number): Promise<PreLaunchSyncOutcome> => {
-    setStateOverride("syncing");
-    let result: Awaited<ReturnType<typeof preLaunchSync>>;
-    try {
-      result = await Promise.race([
-        preLaunchSync(rid),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
-      ]);
-    } catch (e) {
-      detach(debugLog(`DesktopPlayButton: pre-launch sync failed: ${e}`));
-      return { success: false, message: "" };
-    }
-
-    if (result.reason !== undefined && BENIGN_SYNC_SKIP_REASONS.includes(result.reason)) {
-      detach(debugLog(`DesktopPlayButton: pre-launch sync skipped (${result.reason}) — launching`));
-      return { success: true, message: result.message };
-    }
-
-    if (result.conflicts && result.conflicts.length > 0) {
-      return { success: result.success, message: result.message, conflicts: result.conflicts };
-    }
-
-    if (!result.success) {
-      detach(
-        debugLog(
-          `DesktopPlayButton: pre-launch sync failed: reason=${result.reason ?? ""} errors=[${result.errors?.join(", ") ?? ""}] message=${result.message}`,
-        ),
-      );
-      return { success: false, message: result.message };
-    }
-
-    const toastBody = saveSyncToastBody(result.uploaded, result.downloaded);
-    if (toastBody) {
-      showToast(toastBody);
-    }
-    return { success: true, message: result.message };
-  };
-
-  const makePlayButtonOps = (rid: number): LaunchGateOps => ({
-    migrationPending: () => getMigrationState().pending,
-    hasLaunchTarget: () => romHasLaunchTarget(rid, "DesktopPlayButton"),
-    ensureTrackingConfigured: () => ensureTrackingConfigured(rid),
-    checkCoreChange: () => confirmCoreChangeIfNeeded(rid),
-    checkReachability: async () => {
-      try {
-        const { online } = await probeReachability();
-        reportServerReachable(online);
-        return online;
-      } catch (e) {
-        logError(`DesktopPlayButton: reachability probe failed (treating as offline): ${e}`);
-        return false;
-      }
-    },
-    preLaunchSync: () => runPreLaunchSync(rid),
-    checkLocalDrift: async () =>
-      (
-        await checkLocalDrift(rid).catch((e) => {
-          logError(`DesktopPlayButton: local-drift check failed (treating as not-drifted): ${e}`);
-          return { drifted: false, rom_id: rid };
-        })
-      ).drifted,
-  });
-
-  const actOnVerdict = async (
-    verdict: GateVerdict,
-    gameId: string,
-    rid: number,
-    admission: PruneLeaseAdmission,
-  ): Promise<"done" | "retry"> => {
-    switch (verdict.decision) {
-      case "allow":
-        await dispatchLaunch(gameId, admission);
-        return "done";
-      case "abort":
-      case "block":
-        if (verdict.decision === "block" && verdict.reason === "no_launch_target") {
-          showToast(NO_LAUNCH_TARGET_TOAST_BODY);
-        }
-        setStateOverride(null);
-        return "done";
-      case "conflict": {
-        const resolution = await resolveConflictsSequentially(verdict.conflicts, desktopSaveConflictDialog(ask));
-        if (resolution === "cancel") {
-          setStateOverride(null);
-          holdVerdict("conflict");
-          detach(refreshSaveStatus(appId));
-          return "done";
-        }
-        announceSaveSync(rid);
-        await dispatchLaunch(gameId, admission);
-        return "done";
-      }
-      case "offline_drift": {
-        const askDrift = desktopOfflineDriftDialog(ask);
-        const choice = await askDrift();
-        if (choice === "start_anyway") {
-          await dispatchLaunch(gameId, admission);
-          return "done";
-        }
-        if (choice === "retry") {
-          setStateOverride("syncing");
-          return "retry";
-        }
-        setStateOverride(null);
-        return "done";
-      }
-      case "sync_failed": {
-        const askFallback = desktopFallbackLaunchDialog(ask);
-        const proceed = await askFallback(verdict.message);
-        if (proceed) {
-          await dispatchLaunch(gameId, admission);
-          return "done";
-        }
-        setStateOverride(null);
-        return "done";
-      }
-    }
-  };
-
-  const dispatchLaunch = async (_gameId: string, admission: PruneLeaseAdmission) => {
-    if (!isPruneLeaseAdmissionCurrent(admission)) return;
-    setStateOverride("launching");
-    if (romId) {
-      try {
-        const reconfirm = await reconfirmLaunchOptions(romId, appId, "DesktopPlayButton", admission);
-        if (reconfirm.status === "cancelled") return;
-        if (reconfirm.status === "timeout") {
-          setStateOverride(null);
-          return;
-        }
-      } catch {
-        // Best-effort
-      }
-    }
-
-    launchGame();
-    setTimeout(() => {
-      setStateOverride(null);
-    }, 2000);
-  };
-
-  const handlePlayClick = async () => {
-    if (!romId || effectiveState === "syncing" || effectiveState === "launching") return;
-
-    // Already running -> bring to front
-    if (isSessionActive(romId) || isAppRunning(appId)) {
-      launchGame();
-      return;
-    }
-
-    const overview = overviewFor(appId);
-    const gameId = overview?.GetGameID?.() ?? String(appId);
-    const admission = capturePruneLeaseAdmission(leaseOwner);
-
-    try {
-      let verdict = await runLaunchGate(appId, romId, makePlayButtonOps(romId));
-      while ((await actOnVerdict(verdict, gameId, romId, admission)) === "retry") {
-        verdict = await runLaunchGate(appId, romId, makePlayButtonOps(romId));
-      }
-    } catch (e) {
-      detach(debugLog(`DesktopPlayButton: handlePlay unexpected error — resetting: ${e}`));
-      setStateOverride(null);
-    }
-  };
-
-  const launchGame = () => {
-    const overview = overviewFor(appId);
-    const gameId = overview?.GetGameID?.() ?? String(appId);
-
-    markLaunchSkipped(appId);
-
-    const winClient = (window as unknown as { SteamClient?: SteamClientStub }).SteamClient;
-    const globalClient = (globalThis as unknown as { SteamClient?: SteamClientStub }).SteamClient;
-    const client = winClient || globalClient;
-
-    if (client?.Apps?.RunGame) {
-      client.Apps.RunGame(gameId, "", -1, 100);
-    }
-  };
-
-  // A READ of the conflict already shown, never a re-sync — see
-  // `resolveKnownConflicts` for why this must not run `preLaunchSync`.
-  const handleResolveConflictClick = async () => {
-    if (!romId) return;
-    setStateOverride("syncing");
-    const outcome = await resolveKnownConflicts(
-      romId,
-      (conflicts) => resolveConflictsSequentially(conflicts, desktopSaveConflictDialog(ask)),
-      "DesktopPlayButton",
-    );
-    setStateOverride(null);
-    if (outcome === "resolved") holdVerdict("play");
-  };
-
-  const handleStopClick = async () => {
-    if (!romId) return;
-    try {
-      await stopRunningGame(romId);
-      setStateOverride(null);
-    } catch {
-      showToast("Could not stop game");
-    }
-  };
-
-  const handleUninstallClick = async () => {
-    if (!romId) return;
-    setShowMenu(false);
-    setStateOverride("uninstalling");
-
-    const admission = capturePruneLeaseAdmission(leaseOwner);
-    try {
-      const result = await removeRom(romId);
-      if (result.success) {
-        await withPruneLease(
-          result.prune_lease_token,
-          "ROM uninstall",
-          async (signal) => {
-            if (signal.aborted) return;
-            await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-          },
-          leaseOwner,
-          admission,
-        );
-        globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
-        invalidateCachedGameDetail(appId);
-        showToast(`${detail.romName || "ROM"} uninstalled`);
-        setStateOverride(null);
-      } else {
-        showToast(result.message || "Uninstall failed");
-        setStateOverride(null);
-      }
-    } catch {
-      showToast("Uninstall failed");
-      setStateOverride(null);
     }
   };
 
@@ -830,437 +511,29 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const isPaused = activeDownload?.status === "paused";
   const isResumable = activeDownload?.resumable ?? false;
 
-  // Base container style matching Steam's action bar height
-  const containerStyle: React.CSSProperties = {
-    display: "inline-flex",
-    flexDirection: "row",
-    alignItems: "center",
-    height: "48px",
-    position: "relative",
-    paddingBottom: "2px",
-    boxSizing: "border-box",
-    userSelect: "none",
-    overflow: "visible",
-  };
-
-  // Consistent 200px button container size matching default Steam desktop play/install button
-  const buttonGroupStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    width: "200px",
-    minWidth: "200px",
-    maxWidth: "200px",
-    height: "48px",
-    position: "relative",
-    borderRadius: "2px",
-    boxShadow: "0 1px 4px rgba(0, 0, 0, 0.4)",
-    overflow: "visible",
-  };
-
-  const buttonBaseStyle: React.CSSProperties = {
-    height: "100%",
-    flex: "1 1 auto",
-    padding: "0 16px",
-    border: "none",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
-    fontSize: "15px",
-    fontWeight: 700,
-    letterSpacing: "0.5px",
-    color: "#ffffff",
-    borderRadius: "2px",
-    textShadow: "0 1px 2px rgba(0, 0, 0, 0.4)",
-    transition: "filter 0.15s ease, background 0.15s ease",
-  };
-
-  const sideActionStyle: React.CSSProperties = {
-    height: "48px",
-    width: "36px",
-    minWidth: "36px",
-    maxWidth: "36px",
-    flex: "0 0 36px",
-    border: "none",
-    borderRadius: "0 2px 2px 0",
-    background: "rgba(0, 0, 0, 0.25)",
-    borderLeft: "1px solid rgba(255, 255, 255, 0.15)",
-    color: "#ffffff",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "background 0.15s ease",
-  };
-
-  const renderBadges = () => {
-    const badgeColumnStyle: React.CSSProperties = {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      marginLeft: "24px",
-      userSelect: "none",
-      whiteSpace: "nowrap",
-    };
-
-    const badgeHeaderStyle: React.CSSProperties = {
-      fontSize: "11px",
-      fontWeight: 600,
-      letterSpacing: "0.5px",
-      textTransform: "uppercase",
-      color: "#8f98a0",
-      lineHeight: 1.2,
-    };
-
-    const badgeValueStyle: React.CSSProperties = {
-      fontSize: "14px",
-      fontWeight: 700,
-      color: "#ffffff",
-      lineHeight: 1.4,
-      display: "flex",
-      alignItems: "center",
-      gap: "6px",
-    };
-
-    const statusDotStyle: React.CSSProperties = {
-      display: "inline-block",
-      width: "8px",
-      height: "8px",
-      borderRadius: "50%",
-      flexShrink: 0,
-    };
-
-    const hasAchievements = Boolean(detail.raId);
-    const earned = achievementCounts ? achievementCounts.earned : detail.achievementEarned;
-    const total = achievementCounts && achievementCounts.total > 0 ? achievementCounts.total : detail.achievementTotal;
-    const countLabel = total > 0 ? `${earned}/${total}` : `${earned}`;
-
-    const currentSetupInfo = romId ? setupInfo : null;
-    const currentBiosAnswer = romId ? biosAnswer : null;
-
-    // Save Sync status calculation
-    let saveSyncColor = "#8f98a0";
-    let saveSyncText = "disabled";
-
-    if (detail.saveSyncEnabled) {
-      const rommAvailable = !isOffline;
-      const hasLocalSave = Boolean(
-        detail.installed &&
-        (currentSetupInfo?.has_local_saves ||
-          (detail.saveStatus?.files &&
-            detail.saveStatus.files.some((f) => Boolean(f.local_path || f.local_size || f.local_mtime)))),
+  const renderButtonGroup = () => {
+    if (effectiveState === "downloading") {
+      return (
+        <DownloadingButton
+          progressPercent={progressPercent}
+          isExtracting={isExtracting}
+          isPaused={isPaused}
+          isResumable={isResumable}
+          progressRatio={progressRatio}
+          onPauseResume={handlePauseResumeClick}
+          onCancel={handleCancelClick}
+        />
       );
-
-      let lastSyncIso = detail.saveStatus?.last_sync_check_at;
-      if (!lastSyncIso && detail.saveStatus?.files) {
-        for (const f of detail.saveStatus.files) {
-          if (f.last_sync_at) {
-            if (!lastSyncIso || f.last_sync_at > lastSyncIso) {
-              lastSyncIso = f.last_sync_at;
-            }
-          }
-        }
-      }
-      const formattedSyncTime = lastSyncIso ? formatTimeAgo(lastSyncIso) : null;
-      const syncTimeText = formattedSyncTime
-        ? formattedSyncTime.toLowerCase().startsWith("just now")
-          ? "Synced just now"
-          : `Synced ${formattedSyncTime}`
-        : null;
-
-      if (!rommAvailable) {
-        if (hasLocalSave) {
-          saveSyncColor = "#d4a72c";
-          saveSyncText = syncTimeText || "Not Synced";
-        } else {
-          saveSyncColor = BIOS_MISSING_RED;
-          saveSyncText = "RomM Unavailable";
-        }
-      } else {
-        const isUnconfirmedWizard = Boolean(
-          currentSetupInfo && !currentSetupInfo.slot_confirmed && currentSetupInfo.recommended_action === "show_wizard",
-        );
-        const isConflict =
-          hasLocalSave &&
-          (isUnconfirmedWizard || detail.saveSyncStatus === "conflict" || hasAnySaveConflict(detail.saveStatus));
-
-        if (isConflict) {
-          saveSyncColor = "#d4a72c";
-          saveSyncText = "Save Conflict";
-        } else {
-          saveSyncColor = "#5ba32b";
-          saveSyncText = syncTimeText || "Ready";
-        }
-      }
     }
 
-    // BIOS status calculation
-    let biosColor = biosColorForLevel("ok");
-    let biosText = "Ready (no BIOS)";
-
-    const isBiosError = detail.biosRequiredMissing || currentBiosAnswer?.bios_level === "missing";
-    const isUnknown = currentBiosAnswer?.bios_level === "unknown" || Boolean(currentBiosAnswer?.bios_status_unknown);
-
-    if (isBiosError) {
-      biosColor = biosColorForLevel("missing");
-      biosText = "Error, see below";
-    } else if (isUnknown) {
-      biosColor = biosColorForLevel("unknown");
-      biosText = "Unknown";
-    } else if (!detail.biosNeeded) {
-      biosColor = biosColorForLevel("ok");
-      biosText = "Ready (no BIOS)";
-    } else {
-      const level = currentBiosAnswer?.bios_level ?? null;
-      const requiredCount = currentBiosAnswer?.bios_status?.required_count ?? 0;
-      const localCount = currentBiosAnswer?.bios_status?.local_count ?? 0;
-      const isOptionalNotInstalled =
-        currentBiosAnswer?.bios_status?.needs_bios === true && requiredCount === 0 && localCount === 0;
-
-      if (currentBiosAnswer?.bios_status?.needs_bios === false || isOptionalNotInstalled) {
-        biosColor = biosColorForLevel("ok");
-        biosText = "Ready (no BIOS)";
-      } else if (level === "partial") {
-        biosColor = biosColorForLevel("partial");
-        biosText = detail.biosLabel || "Partial";
-      } else {
-        biosColor = biosColorForLevel(level ?? "ok");
-        biosText = "Ready";
-      }
-    }
-
-    return (
-      <div className="tender-desktop-badges" style={{ display: "flex", flexDirection: "row", alignItems: "center" }}>
-        {!detail.installed && detail.fsSizeBytes != null && (
-          <div className="tender-desktop-badge-item tender-desktop-space-required" style={badgeColumnStyle}>
-            <div style={badgeHeaderStyle}>SPACE REQUIRED</div>
-            <div style={badgeValueStyle}>{formatBytes(detail.fsSizeBytes)}</div>
-          </div>
-        )}
-
-        {playtimeInfo.lastPlayed ? (
-          <div className="tender-desktop-badge-item tender-desktop-last-played" style={badgeColumnStyle}>
-            <div style={badgeHeaderStyle}>LAST PLAYED</div>
-            <div style={badgeValueStyle}>{playtimeInfo.lastPlayed}</div>
-          </div>
-        ) : null}
-
-        {playtimeInfo.playtime ? (
-          <div className="tender-desktop-badge-item tender-desktop-playtime" style={badgeColumnStyle}>
-            <div style={badgeHeaderStyle}>PLAYTIME</div>
-            <div style={badgeValueStyle}>{playtimeInfo.playtime}</div>
-          </div>
-        ) : null}
-
-        {hasAchievements && (
-          <div
-            role="button"
-            tabIndex={0}
-            className="tender-desktop-badge-item tender-desktop-achievements"
-            style={{ ...badgeColumnStyle, cursor: "pointer" }}
-            onClick={() => {
-              if (romId) {
-                requestOpenAchievementsModal(romId);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                if (romId) {
-                  requestOpenAchievementsModal(romId);
-                }
-              }
-            }}
-          >
-            <div style={badgeHeaderStyle}>ACHIEVEMENTS</div>
-            <div style={badgeValueStyle}>
-              <span style={{ fontSize: "13px" }}>{"\uD83C\uDFC6"}</span>
-              <span>{countLabel}</span>
-            </div>
-          </div>
-        )}
-
-        <div
-          role="button"
-          tabIndex={0}
-          className="tender-desktop-badge-item tender-desktop-save-sync"
-          style={{ ...badgeColumnStyle, cursor: "pointer" }}
-          onClick={() => {
-            globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
-            }
-          }}
-        >
-          <div style={badgeHeaderStyle}>SAVE SYNC</div>
-          <div style={{ ...badgeValueStyle, color: saveSyncColor }}>
-            <span className="romm-status-dot" style={{ ...statusDotStyle, backgroundColor: saveSyncColor }} />
-            <span>{saveSyncText}</span>
-          </div>
-        </div>
-
-        <div
-          role="button"
-          tabIndex={0}
-          className="tender-desktop-badge-item tender-desktop-bios"
-          style={{ ...badgeColumnStyle, cursor: "pointer" }}
-          onClick={() => {
-            globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
-            }
-          }}
-        >
-          <div style={badgeHeaderStyle}>BIOS</div>
-          <div style={{ ...badgeValueStyle, color: biosColor }}>
-            <span className="romm-status-dot" style={{ ...statusDotStyle, backgroundColor: biosColor }} />
-            <span>{biosText}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // 1. Downloading state
-  if (effectiveState === "downloading") {
-    let progressLabel = `${progressPercent}%`;
-    if (isExtracting) progressLabel = `Extracting… ${progressPercent}%`;
-    if (isPaused) progressLabel = `Paused (${progressPercent}%)`;
-
-    const t = Math.min(1, Math.max(0, progressRatio));
-
-    const fillGradient = isExtracting
-      ? "linear-gradient(90deg, #59bf43 0%, #409930 100%)"
-      : `linear-gradient(90deg, ${lerpColor(BLUE_LEFT, GREEN_LEFT, t)} 0%, ${lerpColor(BLUE_RIGHT, GREEN_RIGHT, t)} 100%)`;
-
-    const { boxShadow: _baseShadow, ...buttonGroupNoShadow } = buttonGroupStyle;
-
-    return (
-      <div className="tender-desktop-play-btn-container" ref={containerRef} style={containerStyle}>
-        <div
-          className={`tender-desktop-play-btn-group ${!isPaused ? "tender-desktop-dl-pulsing" : ""}`.trim()}
-          style={
-            {
-              ...buttonGroupNoShadow,
-              overflow: "visible",
-              ...(isPaused ? { boxShadow: "0 0 10px rgba(212, 167, 44, 0.7), 0 1px 4px rgba(0, 0, 0, 0.4)" } : {}),
-            } as React.CSSProperties
-          }
-        >
-          <div
-            role="progressbar"
-            aria-valuenow={progressPercent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            style={{
-              ...buttonBaseStyle,
-              position: "relative",
-              overflow: "hidden",
-              background: "#0e1c2e",
-              borderRadius: isExtracting ? "2px" : "2px 0 0 2px",
-              padding: "0 10px",
-            }}
-          >
-            <div
-              className="tender-desktop-dl-fill"
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                bottom: 0,
-                width: `${progressPercent}%`,
-                background: fillGradient,
-                transition: "width 0.25s ease-out, background 0.25s ease-out",
-              }}
-            />
-            <span
-              style={{
-                position: "relative",
-                zIndex: 1,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                fontSize: "13px",
-              }}
-            >
-              {progressLabel}
-            </span>
-          </div>
-
-          {/* Pause/Resume if supported */}
-          {isResumable && !isExtracting && (
-            <button
-              type="button"
-              className="tender-desktop-dl-pause"
-              title={isPaused ? "Resume download" : "Pause download"}
-              aria-label={isPaused ? "Resume download" : "Pause download"}
-              style={{
-                ...sideActionStyle,
-                width: "32px",
-                minWidth: "32px",
-                maxWidth: "32px",
-                flex: "0 0 32px",
-                borderRadius: 0,
-              }}
-              onClick={handlePauseResumeClick}
-            >
-              {isPaused ? (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M2 1.5L10 6L2 10.5V1.5Z" />
-                </svg>
-              ) : (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <rect x="2" y="2" width="3" height="8" rx="0.5" />
-                  <rect x="7" y="2" width="3" height="8" rx="0.5" />
-                </svg>
-              )}
-            </button>
-          )}
-
-          {/* Cancel button */}
-          {!isExtracting && (
-            <button
-              type="button"
-              className="tender-desktop-dl-cancel"
-              title="Cancel download"
-              aria-label="Cancel download"
-              style={{
-                ...sideActionStyle,
-                width: isResumable ? "32px" : "36px",
-                minWidth: isResumable ? "32px" : "36px",
-                maxWidth: isResumable ? "32px" : "36px",
-                flex: isResumable ? "0 0 32px" : "0 0 36px",
-              }}
-              onClick={handleCancelClick}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="2" y1="2" x2="10" y2="10" strokeLinecap="round" />
-                <line x1="10" y1="2" x2="2" y2="10" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
-        </div>
-        <DiscSelector appId={appId} ask={ask} />
-        {renderBadges()}
-      </div>
-    );
-  }
-
-  // 2. Download Complete flash
-  if (effectiveState === "dl_complete") {
-    return (
-      <div className="tender-desktop-play-btn-container" style={containerStyle}>
-        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+    if (effectiveState === "dl_complete") {
+      return (
+        <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
           <button
             type="button"
             disabled
             style={{
-              ...buttonBaseStyle,
+              ...BUTTON_BASE_STYLE,
               width: "100%",
               borderRadius: "2px",
               background: "linear-gradient(90deg, #70d61d 0%, #01a75b 100%)",
@@ -1270,22 +543,17 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             READY!
           </button>
         </div>
-        <DiscSelector appId={appId} ask={ask} />
-        {renderBadges()}
-      </div>
-    );
-  }
+      );
+    }
 
-  // 3. Running / Resume state
-  if (effectiveState === "running") {
-    return (
-      <div className="tender-desktop-play-btn-container" style={containerStyle}>
-        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+    if (effectiveState === "running") {
+      return (
+        <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
           <button
             type="button"
             className="tender-desktop-btn-resume"
             style={{
-              ...buttonBaseStyle,
+              ...BUTTON_BASE_STYLE,
               background: "linear-gradient(90deg, #59bf43 0%, #409930 100%)",
               borderRadius: "2px 0 0 2px",
             }}
@@ -1303,7 +571,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             className="tender-desktop-btn-stop"
             title="Stop Game"
             aria-label="Stop Game"
-            style={sideActionStyle}
+            style={SIDE_ACTION_STYLE}
             onClick={() => {
               void handleStopClick();
             }}
@@ -1313,127 +581,33 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             </svg>
           </button>
         </div>
-        <DiscSelector appId={appId} ask={ask} />
-        {renderBadges()}
-      </div>
-    );
-  }
+      );
+    }
 
-  // 4. Play state (Installed)
-  if (effectiveState === "play" || effectiveState === "syncing" || effectiveState === "launching") {
-    let playText = "PLAY";
-    if (effectiveState === "syncing") playText = "SYNCING SAVES...";
-    if (effectiveState === "launching") playText = "LAUNCHING...";
+    if (effectiveState === "play" || effectiveState === "syncing" || effectiveState === "launching") {
+      return (
+        <PlayStateButton
+          effectiveState={effectiveState}
+          showMenu={showMenu}
+          onPlay={() => {
+            void handlePlayClick();
+          }}
+          onToggleMenu={() => setShowMenu((prev) => !prev)}
+          onUninstall={() => {
+            void handleUninstallClick();
+          }}
+        />
+      );
+    }
 
-    return (
-      <div className="tender-desktop-play-btn-container" style={containerStyle} ref={menuRef}>
-        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
-          <button
-            type="button"
-            className="tender-desktop-btn-play"
-            disabled={effectiveState !== "play"}
-            style={{
-              ...buttonBaseStyle,
-              background: "linear-gradient(90deg, #59bf43 0%, #409930 100%)",
-              borderRadius: "2px 0 0 2px",
-            }}
-            onClick={() => {
-              void handlePlayClick();
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M3 2L12 7L3 12V2Z" />
-            </svg>
-            {playText}
-          </button>
-
-          {/* Dropdown Menu Toggle */}
-          <button
-            type="button"
-            className="tender-desktop-menu-toggle"
-            title="Game Options"
-            aria-label="Game Options"
-            aria-expanded={showMenu}
-            style={sideActionStyle}
-            onClick={() => setShowMenu((prev) => !prev)}
-          >
-            <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
-              <path
-                d="M1 1L5 5L9 1"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-          </button>
-
-          {/* Dropdown Menu */}
-          {showMenu && (
-            <div
-              className="tender-desktop-play-menu"
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                left: 0,
-                right: 0,
-                width: "100%",
-                boxSizing: "border-box",
-                background: "#1e2837",
-                border: "1px solid #3c4856",
-                borderRadius: "2px",
-                boxShadow: "0 8px 16px rgba(0, 0, 0, 0.5)",
-                zIndex: 1000,
-                padding: "4px 0",
-              }}
-            >
-              <button
-                type="button"
-                className="tender-desktop-menu-item-uninstall"
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  padding: "8px 16px",
-                  textAlign: "left",
-                  background: "transparent",
-                  border: "none",
-                  color: "#ff6b6b",
-                  fontSize: "13px",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                }}
-                onClick={() => {
-                  void handleUninstallClick();
-                }}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M1.5 3H10.5M4 3V1.5H8V3M4.5 5.5V9.5M7.5 5.5V9.5" strokeLinecap="round" />
-                  <path d="M2.5 3L3.2 10.2C3.25 10.65 3.65 11 4.1 11H7.9C8.35 11 8.75 10.65 8.8 10.2L9.5 3" />
-                </svg>
-                Uninstall
-              </button>
-            </div>
-          )}
-        </div>
-        <DiscSelector appId={appId} ask={ask} />
-        {renderBadges()}
-      </div>
-    );
-  }
-
-  // 5. Conflict state
-  if (effectiveState === "conflict") {
-    return (
-      <div className="tender-desktop-play-btn-container" style={containerStyle}>
-        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+    if (effectiveState === "conflict") {
+      return (
+        <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
           <button
             type="button"
             className="tender-desktop-btn-conflict"
             style={{
-              ...buttonBaseStyle,
+              ...BUTTON_BASE_STYLE,
               width: "100%",
               borderRadius: "2px",
               background: "linear-gradient(90deg, #d4a017 0%, #b8860b 100%)",
@@ -1446,22 +620,17 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             RESOLVE CONFLICT
           </button>
         </div>
-        <DiscSelector appId={appId} ask={ask} />
-        {renderBadges()}
-      </div>
-    );
-  }
+      );
+    }
 
-  // 6. Uninstalling state
-  if (effectiveState === "uninstalling") {
-    return (
-      <div className="tender-desktop-play-btn-container" style={containerStyle}>
-        <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+    if (effectiveState === "uninstalling") {
+      return (
+        <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
           <button
             type="button"
             disabled
             style={{
-              ...buttonBaseStyle,
+              ...BUTTON_BASE_STYLE,
               width: "100%",
               borderRadius: "2px",
               background: "#2a3f5a",
@@ -1471,33 +640,25 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             UNINSTALLING...
           </button>
         </div>
-        <DiscSelector appId={appId} ask={ask} />
-        {renderBadges()}
-      </div>
-    );
-  }
+      );
+    }
 
-  // 7. Default: Download state (Uninstalled)
-  // Pressing with something found opens the comparison, so the label names that
-  // action. It can overpromise — the page and the press-time search read the
-  // folder knowing different things — and the backstop dialog is what keeps a
-  // press from ever ending in a silent download.
-  const usesExisting = targetOccupied || candidatePresent;
-  let downloadLabel = "DOWNLOAD";
-  if (isOffline) downloadLabel = "OFFLINE";
-  else if (actionPending) downloadLabel = "STARTING...";
-  else if (usesExisting) downloadLabel = "USE EXISTING FILES";
-  const downloadDisabled = isOffline || actionPending;
+    // Default: Download state (Uninstalled)
+    const usesExisting = targetOccupied || candidatePresent;
+    let downloadLabel = "DOWNLOAD";
+    if (isOffline) downloadLabel = "OFFLINE";
+    else if (actionPending) downloadLabel = "STARTING...";
+    else if (usesExisting) downloadLabel = "USE EXISTING FILES";
+    const downloadDisabled = isOffline || actionPending;
 
-  return (
-    <div className="tender-desktop-play-btn-container" style={containerStyle}>
-      <div className="tender-desktop-play-btn-group" style={buttonGroupStyle}>
+    return (
+      <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
         <button
           type="button"
           className="tender-desktop-btn-download"
           disabled={downloadDisabled}
           style={{
-            ...buttonBaseStyle,
+            ...BUTTON_BASE_STYLE,
             width: "100%",
             borderRadius: "2px",
             background: isOffline
@@ -1522,8 +683,22 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
           {downloadLabel}
         </button>
       </div>
+    );
+  };
+
+  return (
+    <div className="tender-desktop-play-btn-container" style={CONTAINER_STYLE} ref={menuRef}>
+      {renderButtonGroup()}
       <DiscSelector appId={appId} ask={ask} />
-      {renderBadges()}
+      <PlayButtonBadges
+        detail={detail}
+        playtimeInfo={playtimeInfo}
+        achievementCounts={achievementCounts}
+        setupInfo={romId ? setupInfo : null}
+        biosAnswer={romId ? biosAnswer : null}
+        isOffline={isOffline}
+        romId={romId}
+      />
     </div>
   );
 };

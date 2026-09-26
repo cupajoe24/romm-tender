@@ -57,6 +57,83 @@ export const BUTTON_STYLE: CSSProperties = {
   userSelect: "none",
 };
 
+export const CONTAINER_STYLE: CSSProperties = {
+  display: "inline-flex",
+  flexDirection: "row",
+  alignItems: "center",
+  height: "48px",
+  position: "relative",
+  paddingBottom: "2px",
+  boxSizing: "border-box",
+  userSelect: "none",
+  overflow: "visible",
+};
+
+export const BUTTON_GROUP_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "row",
+  alignItems: "center",
+  width: "200px",
+  minWidth: "200px",
+  maxWidth: "200px",
+  height: "48px",
+  position: "relative",
+  borderRadius: "2px",
+  boxShadow: "0 1px 4px rgba(0, 0, 0, 0.4)",
+  overflow: "visible",
+};
+
+export const BUTTON_BASE_STYLE: CSSProperties = {
+  height: "100%",
+  flex: "1 1 auto",
+  padding: "0 16px",
+  border: "none",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "8px",
+  fontSize: "15px",
+  fontWeight: 700,
+  letterSpacing: "0.5px",
+  color: "#ffffff",
+  borderRadius: "2px",
+  textShadow: "0 1px 2px rgba(0, 0, 0, 0.4)",
+  transition: "filter 0.15s ease, background 0.15s ease",
+};
+
+export const SIDE_ACTION_STYLE: CSSProperties = {
+  height: "48px",
+  width: "36px",
+  minWidth: "36px",
+  maxWidth: "36px",
+  flex: "0 0 36px",
+  border: "none",
+  borderRadius: "0 2px 2px 0",
+  background: "rgba(0, 0, 0, 0.25)",
+  borderLeft: "1px solid rgba(255, 255, 255, 0.15)",
+  color: "#ffffff",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  transition: "background 0.15s ease",
+};
+
+// Download button blue gradient stops
+export const BLUE_LEFT: [number, number, number] = [26, 159, 255]; // #1a9fff
+export const BLUE_RIGHT: [number, number, number] = [0, 120, 212]; // #0078d4
+// Play button green gradient stops
+export const GREEN_LEFT: [number, number, number] = [89, 191, 67]; // #59bf43
+export const GREEN_RIGHT: [number, number, number] = [64, 153, 48]; // #409930
+
+export function lerpColor(a: [number, number, number], b: [number, number, number], t: number): string {
+  const r = Math.round(a[0] + (b[0] - a[0]) * t);
+  const g = Math.round(a[1] + (b[1] - a[1]) * t);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
 export const PULSE_STYLE_ID = "tender-desktop-playbutton-pulse-styles";
 
 export function ensurePulseStyles(doc?: Document | null) {
