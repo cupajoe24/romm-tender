@@ -169,3 +169,11 @@ To ensure layout containment remains locked regardless of when Steam finishes re
 - **MutationObserver**: Observes `deskWin.document.body` for child list and subtree mutations.
 - **Scroll Synchronization (`stickyPlayBarController.ts`)**: When the user scrolls, `updatePinning()` recalculates play
   bar glass/solid styling and validates that `heroWrapper` overflow remains clipped.
+
+---
+
+## Feature Parity & Roadmap
+
+For a comprehensive comparison of features implemented in Big Picture mode versus Desktop mode, as well as the
+multi-phase development roadmap for desktop parity, see the
+[Desktop vs. Big Picture Feature Parity Matrix](desktop-parity-matrix.md).
