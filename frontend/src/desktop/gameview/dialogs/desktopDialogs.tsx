@@ -21,6 +21,9 @@ import { DesktopAdoptExistingDialog } from "./DesktopAdoptExistingDialog";
 import { DesktopAdoptUnusableDialog } from "./DesktopAdoptUnusableDialog";
 import { DesktopAdoptVanishedDialog } from "./DesktopAdoptVanishedDialog";
 import { DesktopSaveConflictDialog } from "./DesktopSaveConflictDialog";
+import { DesktopOfflineDriftDialog } from "./DesktopOfflineDriftDialog";
+import { DesktopFallbackLaunchDialog } from "./DesktopFallbackLaunchDialog";
+import { DesktopUnsyncedSavesDialog, type UnsyncedSavesChoice } from "./DesktopUnsyncedSavesDialog";
 
 export function desktopAdoptionDialogs(ask: AskDialog): AdoptionDialogs {
   return {
@@ -52,5 +55,24 @@ export function desktopSaveConflictDialog(ask: AskDialog): (conflict: SyncConfli
   return (conflict) =>
     ask<SyncConflictResolution>("cancel", (resolve) => (
       <DesktopSaveConflictDialog conflict={conflict} onDone={resolve} />
+    ));
+}
+
+export function desktopOfflineDriftDialog(ask: AskDialog): () => Promise<"start_anyway" | "retry" | "cancel"> {
+  return () =>
+    ask<"start_anyway" | "retry" | "cancel">("cancel", (resolve) => <DesktopOfflineDriftDialog onChoice={resolve} />);
+}
+
+export function desktopFallbackLaunchDialog(ask: AskDialog): (message?: string) => Promise<boolean> {
+  return (message) =>
+    ask<boolean>(false, (resolve) => <DesktopFallbackLaunchDialog message={message} onChoice={resolve} />);
+}
+
+export function desktopUnsyncedSavesDialog(
+  ask: AskDialog,
+): (args: { versionName: string; serverReachable: boolean }) => Promise<UnsyncedSavesChoice> {
+  return ({ versionName, serverReachable }) =>
+    ask<UnsyncedSavesChoice>("cancel", (resolve) => (
+      <DesktopUnsyncedSavesDialog versionName={versionName} serverReachable={serverReachable} onChoice={resolve} />
     ));
 }

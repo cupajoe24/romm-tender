@@ -111,6 +111,10 @@ const BACKEND_STUBS = vi.hoisted(() => ({
   selectDisc: vi.fn().mockResolvedValue({ success: true }),
   getAchievementProgress: vi.fn().mockResolvedValue({ success: false, earned: 0, total: 0, earned_achievements: [] }),
   getAchievements: vi.fn().mockResolvedValue({ success: false, total: 0, achievements: [] }),
+  getInstalledRom: vi.fn().mockResolvedValue({ launchable: true }),
+  isSaveTrackingConfigured: vi.fn().mockResolvedValue({ configured: true }),
+  checkCoreChange: vi.fn().mockResolvedValue({ changed: false }),
+  checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, rom_id: 100 }),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -144,6 +148,7 @@ describe("PlayButton", () => {
     vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
     vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
     vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
+    vi.mocked(backend.probeReachability).mockResolvedValue({ online: true });
     vi.mocked(backend.reconcilePlaytime).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getSaveSetupInfo).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getBiosStatus).mockImplementation(() => new Promise(() => {}));
@@ -1513,7 +1518,7 @@ describe("PlayButton", () => {
     });
 
     it("probes reachability on mount and reports to connectionState", async () => {
-      vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
+      vi.mocked(backend.probeReachability).mockResolvedValueOnce({ online: false });
 
       render(<PlayButton appId={123} />);
 
@@ -1687,6 +1692,8 @@ describe("PlayButton", () => {
 
     beforeEach(() => {
       vi.clearAllMocks();
+      vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: true });
       vi.mocked(backend.getCachedGameDetail).mockResolvedValue({ found: false });
       vi.mocked(backend.startDownload).mockResolvedValue({ success: true } as never);
       vi.mocked(backend.preLaunchSync).mockResolvedValue({
@@ -1916,6 +1923,114 @@ describe("PlayButton", () => {
       expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
       expect(backend.resolveSyncConflict).toHaveBeenCalledWith(100, "smw.srm", 7, "keep_local");
       expect(mockRunGame).not.toHaveBeenCalled();
+    });
+
+    it("offline with local drift prompts with offline drift dialog and launches on start_anyway", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      const dialog = await screen.findByRole("dialog", { name: "RomM Unreachable" });
+      expect(dialog).toHaveTextContent("Your local save has unsynced changes.");
+      expect(mockRunGame).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Start Anyway" }));
+
+      await waitFor(() => expect(mockRunGame).toHaveBeenCalledWith("123", "", -1, 100));
+    });
+
+    it("offline with local drift does not launch when cancelled from offline drift dialog", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      await screen.findByRole("dialog", { name: "RomM Unreachable" });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(mockRunGame).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
+    });
+
+    it("offline with local drift retries connection, re-probes reachability, and launches online", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
+      vi.mocked(backend.probeReachability)
+        .mockResolvedValueOnce({ online: false })
+        .mockResolvedValueOnce({ online: false })
+        .mockResolvedValueOnce({ online: true });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
+        success: true,
+        synced: 1,
+        uploaded: 1,
+        downloaded: 0,
+      } as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      await screen.findByRole("dialog", { name: "RomM Unreachable" });
+      fireEvent.click(screen.getByRole("button", { name: "Retry connection" }));
+
+      await waitFor(() => expect(mockRunGame).toHaveBeenCalledWith("123", "", -1, 100));
+      expect(backend.preLaunchSync).toHaveBeenCalledWith(100);
+    });
+
+    it("offline without local drift launches silently without dialog", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: false, rom_id: 100 });
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      await waitFor(() => expect(mockRunGame).toHaveBeenCalledWith("123", "", -1, 100));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("online pre-launch sync failure opens fallback launch dialog and launches on Launch Anyway", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: true });
+      vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
+        success: false,
+        message: "Server returned 500",
+      } as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      const dialog = await screen.findByRole("dialog", { name: "Save Sync Unavailable" });
+      expect(dialog).toHaveTextContent("Server returned 500 — launch with local saves?");
+      expect(mockRunGame).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Launch Anyway" }));
+
+      await waitFor(() => expect(mockRunGame).toHaveBeenCalledWith("123", "", -1, 100));
+    });
+
+    it("online pre-launch sync failure cancels launch when dismissed", async () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
+      vi.mocked(backend.probeReachability).mockResolvedValue({ online: true });
+      vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
+        success: false,
+        message: "Network timed out",
+      } as never);
+
+      render(<PlayButton appId={123} />);
+      fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
+
+      await screen.findByRole("dialog", { name: "Save Sync Unavailable" });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(mockRunGame).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
     });
 
     it("unmounting with the comparison open ends the flow at its cancel exit", async () => {
