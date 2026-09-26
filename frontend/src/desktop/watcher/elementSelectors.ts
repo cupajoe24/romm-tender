@@ -6,8 +6,6 @@
  *  - Tier 2: Read-only React Fiber component names (getFiberDisplayName)
  *  - Tier 3: Semantic ARIA, text content, and SVG geometry heuristics
  *  - Tier 4: Structural DOM hierarchy fallbacks
- *
- * Replaces all brittle minified CSS class hashes with durable semantics.
  */
 
 import {
