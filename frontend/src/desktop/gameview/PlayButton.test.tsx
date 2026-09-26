@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import { PlayButton, ensurePulseStyles, PULSE_STYLE_ID } from "./PlayButton";
+import { PlayButton } from "./PlayButton";
+import { ensurePulseStyles, PULSE_STYLE_ID } from "./styles";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as downloadStore from "../../utils/downloadStore";
 import * as connectionState from "../../utils/connectionState";

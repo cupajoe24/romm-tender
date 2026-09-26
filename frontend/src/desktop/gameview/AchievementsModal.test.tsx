@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { AchievementsModal, formatModalUnlockDate } from "./AchievementsModal";
+import { AchievementsModal } from "./AchievementsModal";
+import { formatModalUnlockDate } from "../../utils/formatters";
 import type { Achievement, AchievementProgress } from "../../types";
 
 vi.mock("../../utils/artwork", () => ({

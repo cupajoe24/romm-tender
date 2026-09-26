@@ -6,6 +6,8 @@
 import { useState, useEffect, useMemo, useCallback, type FC } from "react";
 import type { Achievement, AchievementProgress, EarnedAchievement } from "../../types";
 import { getGameIconUrl } from "../../utils/artwork";
+import { formatModalUnlockDate } from "../../utils/formatters";
+import { MODAL_CONTAINER_STYLE } from "./styles";
 
 export interface AchievementsModalProps {
   isOpen: boolean;
@@ -17,12 +19,6 @@ export interface AchievementsModalProps {
   progress: AchievementProgress | null;
   romId?: number | undefined;
 }
-
-import { formatModalUnlockDate } from "../../utils/formatters";
-
-export { formatModalUnlockDate };
-
-import { MODAL_CONTAINER_STYLE } from "./styles";
 
 const BACKDROP_BUTTON_STYLE: React.CSSProperties = {
   position: "absolute",

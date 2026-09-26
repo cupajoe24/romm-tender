@@ -13,7 +13,9 @@ import {
 } from "../../utils/connectionState";
 import { detach } from "../../utils/detach";
 import { getGameIconUrl } from "../../utils/artwork";
+import { formatCardDate } from "../../utils/formatters";
 import { AchievementsModal } from "./AchievementsModal";
+import { CARD_STYLE } from "./styles";
 
 export interface AchievementsCardProps {
   appId: number;
@@ -38,12 +40,6 @@ export function consumeOpenAchievementsModal(romId: number): boolean {
   }
   return false;
 }
-
-import { formatCardDate } from "../../utils/formatters";
-
-export { formatCardDate };
-
-import { CARD_STYLE } from "./styles";
 
 export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, romId, raId, title, covers = [] }) => {
   const isOffline = useRommConnectionState() === "offline";

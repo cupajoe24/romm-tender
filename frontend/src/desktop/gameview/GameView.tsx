@@ -16,6 +16,7 @@ import { SaveManagementCard } from "./SaveManagementCard";
 import { PlayButton } from "./PlayButton";
 import { MigrationBlockedCard } from "./MigrationBlockedCard";
 import { PlaytimeScopeBanner } from "./PlaytimeScopeBanner";
+import { CARD_STYLE } from "./styles";
 
 export interface GameViewProps {
   appId: number;
@@ -25,8 +26,6 @@ export interface GameViewProps {
 export type GameViewPageProps = GameViewProps;
 
 const artworkApplied = new Map<number, number>();
-
-import { CARD_STYLE } from "./styles";
 
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
@@ -125,16 +124,3 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
 };
 
 export const GameViewPage = GameView;
-export { PlayButton } from "./PlayButton";
-export { DiscSelector } from "./DiscSelector";
-export { AchievementsCard } from "./AchievementsCard";
-export { AchievementsModal } from "./AchievementsModal";
-export { MigrationBlockedCard, type MigrationBlockedCardProps } from "./MigrationBlockedCard";
-export {
-  PlaytimeScopeBanner,
-  ActiveSessionBanner,
-  PlaytimeScopeCard,
-  type PlaytimeScopeBannerProps,
-  type ActiveSessionBannerProps,
-  type PlaytimeScopeCardProps,
-} from "./PlaytimeScopeBanner";

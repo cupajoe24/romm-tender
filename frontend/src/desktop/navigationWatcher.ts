@@ -18,7 +18,6 @@ import { DomRestorationLedger } from "./watcher/restorationLedger";
 import {
   TENDER_PLAY_BUTTON_ID,
   TENDER_SUBSTITUTE_ID,
-  containsContentSections,
   findHeroWrapperFallback,
   findPlayBarAndContainer,
   findSteamContentSections,
@@ -28,42 +27,13 @@ import {
   findSteamPlaySection,
   findSteamRightControls,
   findSteamStickyPlayBar,
-  getDirectChild,
-  getDocument,
-  isPlayBarElement,
-  isRightControlsElement,
-  isTenderElement,
 } from "./watcher/elementSelectors";
 import {
   createStickyPlayBarController,
   findInflatedHeroWrapper,
   findScrollContainer,
-  isPlayBarPinned,
   type StickyPlayBarController,
 } from "./watcher/stickyPlayBarController";
-
-// Re-export selectors, helpers, and constants for backward compatibility
-export {
-  TENDER_PLAY_BUTTON_ID,
-  TENDER_SUBSTITUTE_ID,
-  containsContentSections,
-  findInflatedHeroWrapper,
-  findPlayBarAndContainer,
-  findScrollContainer,
-  findSteamContentSections,
-  findSteamOverviewPanel,
-  findSteamPlayBarBadges,
-  findSteamPlayButton,
-  findSteamPlaySection,
-  findSteamRightControls,
-  findSteamStickyPlayBar,
-  getDirectChild,
-  getDocument,
-  isPlayBarElement,
-  isPlayBarPinned,
-  isRightControlsElement,
-  isTenderElement,
-};
 
 interface MainWindowBrowserManagerStub {
   m_lastLocation?: {

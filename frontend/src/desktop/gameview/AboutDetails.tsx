@@ -2,8 +2,6 @@ import { useState, type FC } from "react";
 import type { RomMetadata } from "../../types";
 import { formatReleaseDate } from "../../utils/formatters";
 
-export { formatReleaseDate };
-
 export interface AboutDetailsProps {
   title: string;
   platformName?: string | undefined;

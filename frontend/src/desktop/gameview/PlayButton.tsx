@@ -102,7 +102,6 @@ import { BENIGN_SYNC_SKIP_REASONS } from "../../types";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
 import { ensurePulseStyles } from "./styles";
-export { ensurePulseStyles, PULSE_STYLE_ID } from "./styles";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo, SaveStatus } from "../../types";
 
 export interface PlayButtonProps {

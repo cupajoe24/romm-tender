@@ -6,20 +6,16 @@
  * shares data and logic from api/, utils/, and types/, and never imports from bigpicture/.
  */
 
-export {
-  startDesktopNavigationWatcher,
-  stopDesktopNavigationWatcher,
-  appIdOf,
-  findSteamOverviewPanel,
-  TENDER_SUBSTITUTE_ID,
-} from "./navigationWatcher";
+export { startDesktopNavigationWatcher, stopDesktopNavigationWatcher, appIdOf } from "./navigationWatcher";
+
+export { findSteamOverviewPanel, TENDER_SUBSTITUTE_ID } from "./watcher/elementSelectors";
 
 export { findDesktopWindow, findReactClient, coverCandidates, heroCandidates } from "./desktopWindow";
 
 export { GameView, GameViewPage, type GameViewProps, type GameViewPageProps } from "./gameview/GameView";
 export { GameViewTabBar, type GameViewTabBarProps, type GameViewTab } from "./gameview/GameViewTabBar";
 export { AboutHeader, type AboutHeaderProps } from "./gameview/AboutHeader";
-export { AboutDetails, formatReleaseDate, type AboutDetailsProps } from "./gameview/AboutDetails";
+export { AboutDetails, type AboutDetailsProps } from "./gameview/AboutDetails";
 export { EmulationSettings, type EmulationSettingsProps } from "./gameview/EmulationSettings";
 export {
   AchievementsCard,
