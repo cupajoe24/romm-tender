@@ -32,12 +32,17 @@ import {
   stopRunningGame,
   reconcilePlaytime,
   debugLog,
+  logError,
   invalidateCachedGameDetail,
   getSaveSetupInfo,
   getBiosStatus,
   getAchievementProgress,
   getAchievements,
   probeReachability,
+  checkLocalDrift,
+  isSaveTrackingConfigured,
+  confirmSlotChoice,
+  checkCoreChange,
   getCachedGameDetail,
   isTargetOccupied,
   type BiosAnswer,
@@ -46,7 +51,12 @@ import { runDownloadWithAdoption } from "../../utils/adoptFlow";
 import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
 import { announceSaveSync, resolveConflictsSequentially, resolveKnownConflicts } from "../../utils/saveConflictFlow";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
-import { desktopAdoptionDialogs, desktopSaveConflictDialog } from "./dialogs/desktopDialogs";
+import {
+  desktopAdoptionDialogs,
+  desktopSaveConflictDialog,
+  desktopOfflineDriftDialog,
+  desktopFallbackLaunchDialog,
+} from "./dialogs/desktopDialogs";
 import { useGameDetail, refreshSaveStatus } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
 import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
@@ -57,7 +67,13 @@ import { hasAnySaveConflict } from "../../utils/saveStatus";
 import { saveSyncToastBody } from "../../utils/saveSyncToast";
 import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { reconfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
-import { capturePruneLeaseAdmission, usePruneLeaseOwner, withPruneLease } from "../../utils/pruneLease";
+import {
+  capturePruneLeaseAdmission,
+  isPruneLeaseAdmissionCurrent,
+  usePruneLeaseOwner,
+  withPruneLease,
+  type PruneLeaseAdmission,
+} from "../../utils/pruneLease";
 import { useOutsideClick } from "../../utils/useOutsideClick";
 import { showToast } from "../../utils/toast";
 import { requestOpenAchievementsModal } from "./AchievementsCard";
@@ -72,7 +88,17 @@ import {
 import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
 import { overviewFor } from "../../utils/steamOverview";
 import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
-import { markLaunchSkipped } from "../../utils/launchGate";
+import {
+  runLaunchGate,
+  markLaunchSkipped,
+  type GateVerdict,
+  type LaunchGateOps,
+  type PreLaunchSyncOutcome,
+} from "../../utils/launchGate";
+import { getMigrationState } from "../../utils/migrationStore";
+import { romHasLaunchTarget, NO_LAUNCH_TARGET_TOAST_BODY } from "../../utils/launchTarget";
+import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "../../utils/saveSetup";
+import { BENIGN_SYNC_SKIP_REASONS } from "../../types";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
 import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo, SaveStatus } from "../../types";
@@ -595,6 +621,177 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     }
   };
 
+  const ensureTrackingConfigured = async (rid: number): Promise<"proceed" | "abort"> => {
+    const trackingResult = await isSaveTrackingConfigured(rid).catch(() => ({ configured: true }));
+    if (trackingResult.configured) return "proceed";
+
+    let setupInfo;
+    try {
+      setupInfo = await getSaveSetupInfo(rid);
+    } catch {
+      return "proceed";
+    }
+
+    return applyLaunchGateSetupOutcome(resolveSaveSetupOutcome(setupInfo), {
+      rid,
+      confirmSlotChoice,
+      toast: (body) => showToast(body),
+      dispatchSavesTab: () =>
+        globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "saves" } })),
+    });
+  };
+
+  const confirmCoreChangeIfNeeded = async (rid: number): Promise<boolean> => {
+    const coreCheck = await checkCoreChange(rid).catch(
+      (): { changed: boolean; old_core?: string; new_core?: string; old_label?: string; new_label?: string } => ({
+        changed: false,
+      }),
+    );
+    if (!coreCheck.changed) return true;
+    return true;
+  };
+
+  const runPreLaunchSync = async (rid: number): Promise<PreLaunchSyncOutcome> => {
+    setStateOverride("syncing");
+    let result: Awaited<ReturnType<typeof preLaunchSync>>;
+    try {
+      result = await Promise.race([
+        preLaunchSync(rid),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
+      ]);
+    } catch (e) {
+      detach(debugLog(`DesktopPlayButton: pre-launch sync failed: ${e}`));
+      return { success: false, message: "" };
+    }
+
+    if (result.reason !== undefined && BENIGN_SYNC_SKIP_REASONS.includes(result.reason)) {
+      detach(debugLog(`DesktopPlayButton: pre-launch sync skipped (${result.reason}) — launching`));
+      return { success: true, message: result.message };
+    }
+
+    if (result.conflicts && result.conflicts.length > 0) {
+      return { success: result.success, message: result.message, conflicts: result.conflicts };
+    }
+
+    if (!result.success) {
+      detach(
+        debugLog(
+          `DesktopPlayButton: pre-launch sync failed: reason=${result.reason ?? ""} errors=[${result.errors?.join(", ") ?? ""}] message=${result.message}`,
+        ),
+      );
+      return { success: false, message: result.message };
+    }
+
+    const toastBody = saveSyncToastBody(result.uploaded, result.downloaded);
+    if (toastBody) {
+      showToast(toastBody);
+    }
+    return { success: true, message: result.message };
+  };
+
+  const makePlayButtonOps = (rid: number): LaunchGateOps => ({
+    migrationPending: () => getMigrationState().pending,
+    hasLaunchTarget: () => romHasLaunchTarget(rid, "DesktopPlayButton"),
+    ensureTrackingConfigured: () => ensureTrackingConfigured(rid),
+    checkCoreChange: () => confirmCoreChangeIfNeeded(rid),
+    checkReachability: async () => {
+      try {
+        const { online } = await probeReachability();
+        reportServerReachable(online);
+        return online;
+      } catch (e) {
+        logError(`DesktopPlayButton: reachability probe failed (treating as offline): ${e}`);
+        return false;
+      }
+    },
+    preLaunchSync: () => runPreLaunchSync(rid),
+    checkLocalDrift: async () =>
+      (
+        await checkLocalDrift(rid).catch((e) => {
+          logError(`DesktopPlayButton: local-drift check failed (treating as not-drifted): ${e}`);
+          return { drifted: false, rom_id: rid };
+        })
+      ).drifted,
+  });
+
+  const actOnVerdict = async (
+    verdict: GateVerdict,
+    gameId: string,
+    rid: number,
+    admission: PruneLeaseAdmission,
+  ): Promise<"done" | "retry"> => {
+    switch (verdict.decision) {
+      case "allow":
+        await dispatchLaunch(gameId, admission);
+        return "done";
+      case "abort":
+      case "block":
+        if (verdict.decision === "block" && verdict.reason === "no_launch_target") {
+          showToast(NO_LAUNCH_TARGET_TOAST_BODY);
+        }
+        setStateOverride(null);
+        return "done";
+      case "conflict": {
+        const resolution = await resolveConflictsSequentially(verdict.conflicts, desktopSaveConflictDialog(ask));
+        if (resolution === "cancel") {
+          setStateOverride(null);
+          holdVerdict("conflict");
+          detach(refreshSaveStatus(appId));
+          return "done";
+        }
+        announceSaveSync(rid);
+        await dispatchLaunch(gameId, admission);
+        return "done";
+      }
+      case "offline_drift": {
+        const askDrift = desktopOfflineDriftDialog(ask);
+        const choice = await askDrift();
+        if (choice === "start_anyway") {
+          await dispatchLaunch(gameId, admission);
+          return "done";
+        }
+        if (choice === "retry") {
+          setStateOverride("syncing");
+          return "retry";
+        }
+        setStateOverride(null);
+        return "done";
+      }
+      case "sync_failed": {
+        const askFallback = desktopFallbackLaunchDialog(ask);
+        const proceed = await askFallback(verdict.message);
+        if (proceed) {
+          await dispatchLaunch(gameId, admission);
+          return "done";
+        }
+        setStateOverride(null);
+        return "done";
+      }
+    }
+  };
+
+  const dispatchLaunch = async (_gameId: string, admission: PruneLeaseAdmission) => {
+    if (!isPruneLeaseAdmissionCurrent(admission)) return;
+    setStateOverride("launching");
+    if (romId) {
+      try {
+        const reconfirm = await reconfirmLaunchOptions(romId, appId, "DesktopPlayButton", admission);
+        if (reconfirm.status === "cancelled") return;
+        if (reconfirm.status === "timeout") {
+          setStateOverride(null);
+          return;
+        }
+      } catch {
+        // Best-effort
+      }
+    }
+
+    launchGame();
+    setTimeout(() => {
+      setStateOverride(null);
+    }, 2000);
+  };
+
   const handlePlayClick = async () => {
     if (!romId || effectiveState === "syncing" || effectiveState === "launching") return;
 
@@ -604,44 +801,19 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
       return;
     }
 
-    // Pre-launch save sync if enabled
-    if (detail.saveSyncEnabled) {
-      setStateOverride("syncing");
-      try {
-        const syncResult = await preLaunchSync(romId);
-        if (syncResult.conflicts && syncResult.conflicts.length > 0) {
-          const resolution = await resolveConflictsSequentially(syncResult.conflicts, desktopSaveConflictDialog(ask));
-          if (resolution === "cancel") {
-            setStateOverride(null);
-            holdVerdict("conflict");
-            detach(refreshSaveStatus(appId));
-            return;
-          }
-          announceSaveSync(romId);
-        } else if (!syncResult.success) {
-          detach(debugLog(`DesktopPlayButton: pre-launch sync failed: ${syncResult.message}`));
-        } else {
-          const toastBody = saveSyncToastBody(syncResult.uploaded, syncResult.downloaded);
-          if (toastBody) showToast(toastBody);
-        }
-      } catch (err) {
-        detach(debugLog(`DesktopPlayButton: pre-launch sync error: ${err}`));
-      }
-    }
-
-    // Launch game
-    setStateOverride("launching");
+    const overview = overviewFor(appId);
+    const gameId = overview?.GetGameID?.() ?? String(appId);
     const admission = capturePruneLeaseAdmission(leaseOwner);
-    try {
-      await reconfirmLaunchOptions(romId, appId, "DesktopPlayButton", admission);
-    } catch {
-      // Best-effort
-    }
 
-    launchGame();
-    setTimeout(() => {
+    try {
+      let verdict = await runLaunchGate(appId, romId, makePlayButtonOps(romId));
+      while ((await actOnVerdict(verdict, gameId, romId, admission)) === "retry") {
+        verdict = await runLaunchGate(appId, romId, makePlayButtonOps(romId));
+      }
+    } catch (e) {
+      detach(debugLog(`DesktopPlayButton: handlePlay unexpected error — resetting: ${e}`));
       setStateOverride(null);
-    }, 2000);
+    }
   };
 
   const launchGame = () => {
@@ -1140,7 +1312,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             </button>
           )}
         </div>
-        <DiscSelector appId={appId} />
+        <DiscSelector appId={appId} ask={ask} />
         {renderBadges()}
       </div>
     );
@@ -1165,7 +1337,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             READY!
           </button>
         </div>
-        <DiscSelector appId={appId} />
+        <DiscSelector appId={appId} ask={ask} />
         {renderBadges()}
       </div>
     );
@@ -1208,7 +1380,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             </svg>
           </button>
         </div>
-        <DiscSelector appId={appId} />
+        <DiscSelector appId={appId} ask={ask} />
         {renderBadges()}
       </div>
     );
@@ -1309,7 +1481,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             </div>
           )}
         </div>
-        <DiscSelector appId={appId} />
+        <DiscSelector appId={appId} ask={ask} />
         {renderBadges()}
       </div>
     );
@@ -1337,7 +1509,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             RESOLVE CONFLICT
           </button>
         </div>
-        <DiscSelector appId={appId} />
+        <DiscSelector appId={appId} ask={ask} />
         {renderBadges()}
       </div>
     );
@@ -1362,7 +1534,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             UNINSTALLING...
           </button>
         </div>
-        <DiscSelector appId={appId} />
+        <DiscSelector appId={appId} ask={ask} />
         {renderBadges()}
       </div>
     );
@@ -1413,7 +1585,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
           {downloadLabel}
         </button>
       </div>
-      <DiscSelector appId={appId} />
+      <DiscSelector appId={appId} ask={ask} />
       {renderBadges()}
     </div>
   );
