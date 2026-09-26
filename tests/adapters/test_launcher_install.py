@@ -129,6 +129,26 @@ class TestInstallingIt:
 
         assert installed.read_bytes() == _SHIPPED
 
+    def test_normalizes_crlf_and_bom_to_unix_lf(self, tmp_path):
+        """A launcher checked out or copied on Windows with CRLF/BOM is normalized on install."""
+        _ship(tmp_path, content=b'\xef\xbb\xbf#!/bin/bash\r\nexec "$@"\r\n')
+
+        assert _make(tmp_path).install() is True
+
+        installed = tmp_path / "data" / "bin" / "tender-rom-launcher"
+        assert installed.read_bytes() == _SHIPPED
+
+    def test_replaces_an_installed_launcher_that_carries_crlf(self, tmp_path):
+        """A destination launcher left with Windows line endings by a previous deploy is replaced."""
+        _ship(tmp_path)
+        installed = tmp_path / "data" / "bin" / "tender-rom-launcher"
+        installed.parent.mkdir(parents=True)
+        installed.write_bytes(b'#!/bin/bash\r\nexec "$@"\r\n')
+
+        assert _make(tmp_path).install() is True
+
+        assert installed.read_bytes() == _SHIPPED
+
     def test_it_replaces_the_launcher_by_renaming_a_new_file_onto_it(self, tmp_path):
         """A game running right now is executing that file; it must keep its own inode.
 

@@ -63,6 +63,7 @@ class LauncherInstallAdapter:
         except OSError as e:
             self._logger.warning(f"Could not read the launcher this release ships at {self._source}: {e}")
             return False
+        shipped = self._normalize_line_endings(shipped)
         if self._already_in_place(shipped):
             return True
         try:
@@ -72,6 +73,20 @@ class LauncherInstallAdapter:
             return False
         self._logger.info(f"Installed this release's launcher at {self._destination}")
         return True
+
+    @staticmethod
+    def _normalize_line_endings(content: bytes) -> bytes:
+        """Ensure shell script launcher uses Unix (LF) line endings without BOM.
+
+        A source file checked out or transferred on Windows may carry CRLF
+        line endings or a UTF-8 BOM, which causes Linux/bash to fail with
+        'bad interpreter' or syntax errors when executed by Steam.
+        """
+        if content.startswith(b"\xef\xbb\xbf"):
+            content = content[3:]
+        if content.startswith(b"#!"):
+            content = content.replace(b"\r\n", b"\n")
+        return content
 
     @staticmethod
     def _read(path: str) -> bytes:
