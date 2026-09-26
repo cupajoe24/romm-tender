@@ -1241,6 +1241,7 @@ class TestSwitchSlot:
 
         assert result["success"] is True
         assert "save_status" in result
+        assert result["save_status"]["active_slot"] == "desktop"
         # active_slot was updated
         assert _require_save_state(svc, 42).active_slot == "desktop"
         # The server save was downloaded

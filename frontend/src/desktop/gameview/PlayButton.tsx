@@ -874,11 +874,12 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
           saveSyncText = "RomM Unavailable";
         }
       } else {
+        const isUnconfirmedWizard = Boolean(
+          currentSetupInfo && !currentSetupInfo.slot_confirmed && currentSetupInfo.recommended_action === "show_wizard",
+        );
         const isConflict =
           hasLocalSave &&
-          (currentSetupInfo?.recommended_action === "show_wizard" ||
-            detail.saveSyncStatus === "conflict" ||
-            hasAnySaveConflict(detail.saveStatus));
+          (isUnconfirmedWizard || detail.saveSyncStatus === "conflict" || hasAnySaveConflict(detail.saveStatus));
 
         if (isConflict) {
           saveSyncColor = "#d4a72c";

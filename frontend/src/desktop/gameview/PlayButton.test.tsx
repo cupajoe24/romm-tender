@@ -1147,6 +1147,31 @@ describe("PlayButton", () => {
       });
     });
 
+    it("displays 'Ready' in green when slot_confirmed is true even if recommended_action is show_wizard", async () => {
+      vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+        has_local_saves: true,
+        local_files: [{ filename: "save.srm", size: 100 }],
+        server_slots: [{ slot: "default", count: 1, saves: [], latest_updated_at: null }],
+        default_slot: "default",
+        slot_confirmed: true,
+        active_slot: "default",
+        recommended_action: "show_wizard",
+      });
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        saveSyncEnabled: true,
+        saveStatus: null,
+      });
+
+      render(<PlayButton appId={123} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Ready")).toBeInTheDocument();
+        expect(screen.queryByText("Save Conflict")).not.toBeInTheDocument();
+      });
+    });
+
     it("displays sync time in yellow when offline and a local save exists", async () => {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 
