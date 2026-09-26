@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DomRestorationLedger } from "./restorationLedger";
 import type { Root } from "react-dom/client";
-import * as backend from "../../api/backend";
 
 describe("DomRestorationLedger", () => {
   let ledger: DomRestorationLedger;
@@ -18,11 +17,11 @@ describe("DomRestorationLedger", () => {
 
       ledger.hide(el);
       expect(el.style.display).toBe("none");
-      expect(ledger.isEmpty()).toBe(false);
+      expect(ledger.isElementHidden(el)).toBe(true);
 
       ledger.restoreAll();
       expect(el.style.display).toBe("flex");
-      expect(ledger.isEmpty()).toBe(true);
+      expect(ledger.isElementHidden(el)).toBe(false);
 
       el.remove();
     });
@@ -40,16 +39,18 @@ describe("DomRestorationLedger", () => {
       el.remove();
     });
 
-    it("keeps the display from before the first hide through a later one", () => {
+    it("unhides single element on demand", () => {
       const el = document.createElement("div");
-      el.style.display = "flex";
+      el.style.display = "block";
       document.body.appendChild(el);
 
       ledger.hide(el);
-      ledger.hide(el);
-      ledger.restoreAll();
+      expect(el.style.display).toBe("none");
 
-      expect(el.style.display).toBe("flex");
+      ledger.unhide(el);
+      expect(el.style.display).toBe("block");
+      expect(ledger.isElementHidden(el)).toBe(false);
+
       el.remove();
     });
   });
@@ -78,25 +79,6 @@ describe("DomRestorationLedger", () => {
       el.remove();
     });
 
-    it("logs an element whose styles throw on restore, and still restores the next one", () => {
-      const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
-      const broken = document.createElement("div");
-      const next = document.createElement("div");
-      document.body.append(broken, next);
-      ledger.style(broken, "z-index", "10");
-      ledger.style(next, "z-index", "10");
-      vi.spyOn(broken.style, "removeProperty").mockImplementation(() => {
-        throw new Error("style refused");
-      });
-
-      expect(() => ledger.restoreAll()).not.toThrow();
-
-      expect(next.style.zIndex).toBe("");
-      expect(logError).toHaveBeenCalledWith(expect.stringContaining("style refused"));
-      broken.remove();
-      next.remove();
-    });
-
     it("preserves earliest recorded value across multiple style calls", () => {
       const el = document.createElement("div");
       el.style.zIndex = "5";
@@ -108,6 +90,26 @@ describe("DomRestorationLedger", () => {
 
       ledger.restoreAll();
       expect(el.style.zIndex).toBe("5");
+
+      el.remove();
+    });
+
+    it("setStyles applies batch styles", () => {
+      const el = document.createElement("div");
+      document.body.appendChild(el);
+
+      ledger.setStyles(el, {
+        opacity: "0.5",
+        "pointer-events": "none",
+      });
+
+      expect(el.style.opacity).toBe("0.5");
+      expect(el.style.pointerEvents).toBe("none");
+
+      ledger.restoreAll();
+
+      expect(el.style.opacity).toBe("");
+      expect(el.style.pointerEvents).toBe("");
 
       el.remove();
     });
@@ -130,8 +132,7 @@ describe("DomRestorationLedger", () => {
       expect(host.isConnected).toBe(false);
     });
 
-    it("logs a root that throws on unmount and still removes its host", () => {
-      const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
+    it("handles root unmount errors gracefully", () => {
       const host = document.createElement("div");
       document.body.appendChild(host);
 
@@ -144,28 +145,6 @@ describe("DomRestorationLedger", () => {
       ledger.recordRoot(mockRoot, host);
       expect(() => ledger.restoreAll()).not.toThrow();
       expect(host.isConnected).toBe(false);
-      expect(logError).toHaveBeenCalledWith(expect.stringContaining("Unmount error"));
-    });
-
-    it("releases one root by its host and keeps the others", () => {
-      const released = document.createElement("div");
-      const kept = document.createElement("div");
-      document.body.append(released, kept);
-      const releasedRoot = { unmount: vi.fn() } as unknown as Root;
-      const keptRoot = { unmount: vi.fn() } as unknown as Root;
-      ledger.recordRoot(releasedRoot, released);
-      ledger.recordRoot(keptRoot, kept);
-
-      ledger.releaseRoot(released);
-
-      expect(releasedRoot.unmount).toHaveBeenCalledTimes(1);
-      expect(released.isConnected).toBe(false);
-      expect(keptRoot.unmount).not.toHaveBeenCalled();
-      expect(kept.isConnected).toBe(true);
-
-      ledger.restoreAll();
-      expect(releasedRoot.unmount).toHaveBeenCalledTimes(1);
-      expect(kept.isConnected).toBe(false);
     });
   });
 

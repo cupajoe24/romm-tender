@@ -1,210 +1,171 @@
-# How the desktop surface adapts Steam's game page
+# Desktop Mode DOM Adaptation & Lifecycle Architecture
 
-How the desktop surface — the surface Tender draws into Steam's desktop client — adapts Steam's game page for a RomM
-shortcut, and gives every change back when the page leaves it.
+How Tender adapts Steam Desktop mode to display RomM game details, manage shortcuts, and handle the desktop lifecycle
+without Decky Loader, monkey-patching, or fragile CSS scraping.
 
-**Dev build only.** Nothing on this page is in a shipped bundle. The surface reaches Steam only through
-`pnpm -C frontend build:desktop` ([the desktop dev build](frontend-bundles.md#the-desktop-dev-build-dev-build-only)).
+---
 
-The navigation watcher (`frontend/src/desktop/navigationWatcher.ts`) does the work on this page. It draws what it is
-handed — a `DesktopGamePage` with an optional `gameView` and `playButton` — and `startDesktopSurface`
-(`frontend/src/desktop/index.ts`) is the one place that hands it anything. A part it is handed replaces Steam's own:
-`gameView` the page's content sections, `playButton` Steam's Play button and the badges beside it. A part left out
-leaves Steam's own in place, and the play bar, the hero and the controls beside them are adapted either way.
+## Dual-Window Execution Model
 
-## Two windows, two realms
+Tender operates across two separate Chromium Embedded Framework (CEF) window contexts in Steam Desktop mode:
 
-The panel runs in Steam's **SharedJSContext**, where the backend loads it
-([loading the panel](loading-the-panel.md#which-bundles-and-the-rule-that-cannot-bend)), and the navigation watcher runs
-there with it. The page it adapts is in another window: the popup that `g_PopupManager.GetPopups()` lists under a name
-starting with `SP Desktop` (`findDesktopWindow`, `frontend/src/desktop/desktopWindow.ts`). The watcher looks for that
-window when it starts, on a poll, and whenever Steam reports a popup created or destroyed; it detaches from a window
-that closed or was replaced, and attaches to the new one. A window it could not attach to is not tried again.
+```mermaid
+flowchart TD
+    subgraph Daemon [Backend Daemon (backend/main.py)]
+        CEF[CEF Remote Debugging Port 8080/8081]
+    end
 
-That window's document is a realm of its own, as the Quick Access view's is. What that means for `instanceof` and for a
-constructor such as `MutationObserver` or `ResizeObserver` is the trap in `CLAUDE.md`, "`instanceof` against a DOM
-global is false in QAM and desktop-client code".
+    subgraph SharedContext [SharedJSContext Window]
+        Globals[dist/globals.js (SP_* React)]
+        Index[dist/index.js (Tender Supervisor)]
+        DeskSupervisor[startDesktopNavigationWatcher]
+    end
 
-## Fiber, read-only (`frontend/src/desktop/watcher/fiberInspector.ts`)
+    subgraph DesktopWindow [Steam Desktop Client Window (vgui_root / Library)]
+        SteamDOM[Steam Desktop DOM Tree]
+        OverviewPanel[AppDetailsOverviewPanel]
+        HeroBanner[Hero Banner (Canvases)]
+        InPagePlayBar[Play Bar Container]
+        Substitute[#tender-desktop-cards-container (GameView)]
+    end
 
-Where the DOM does not say which element is which, the watcher reads React's Fiber: the `__reactFiber$` (or
-`__reactInternalInstance$`) property React attaches to a DOM element. From it, it reads a component's name (its
-`displayName` or `type.name`, walking up past HTML tags to the nearest component), and an appId from the nearest
-ancestor's props — `appId`, `overview.appid` or `details.appid` — when the route (`/library/app/<appId>` in
-`MainWindowBrowserManager.m_lastLocation.pathname`) yields none.
+    CEF -->|Inject Script| SharedContext
+    DeskSupervisor -->|Window Polling / DevTools| DesktopWindow
+    DeskSupervisor -->|Mount / Adapt| SteamDOM
+```
 
-It reads Fiber and never writes it, because the desktop client offers no seam to write through: a patch on a context
-menu's `menuContent.type` fires zero times, since each open builds a fresh element, and the desktop route passes no
-`renderFunc` to patch (#1866). The types it reads Fiber through are `readonly`, so the compiler refuses a write.
+1. **SharedJSContext**: The headless background context where Tender's bundle (`dist/globals.js` and `dist/index.js`) is
+   injected via CEF remote debugging. It hosts the supervisor daemon, WebSocket connection to the backend, and
+   background sync managers.
+2. **Desktop Client Window**: The visible desktop window (named `vgui_root` or `Steam Desktop Client`) containing the
+   library overview, play bar, and game details.
 
-## The restoration ledger (`frontend/src/desktop/watcher/restorationLedger.ts`)
+Because plugin code executes from `SharedJSContext` while targeting nodes in the desktop client's window, the two
+documents belong to separate JavaScript execution realms. An `instanceof` check against a DOM global (e.g. `Element` or
+`Window`) will evaluate to `false` across realms. All constructors and observers must be drawn from the target node's
+own realm (`el.ownerDocument.defaultView`).
 
-Every change the watcher makes to Steam's page goes through one `DomRestorationLedger`, so that leaving the page gives
-all of it back:
+---
 
-- **Styles:** `ledger.style(el, property, value)` records the element's own inline value of that property, named in its
-  CSS spelling, before the first change; later changes keep that first record.
-- **Hiding:** `ledger.hide(el)` records the element's inline `display` before the first hide and sets it to `none`; a
-  later hide keeps the first record.
-- **React roots:** `ledger.recordRoot(root, host)` records a mounted root with the host element Tender created for it,
-  and `ledger.releaseRoot(host)` unmounts one root and removes its host.
-- **Listeners:** `ledger.addListener(...)` attaches a listener and records it.
+## Architectural Principles
 
-`ledger.restoreAll()` detaches the listeners, unmounts the roots and removes their hosts, then restores the recorded
-displays and styles, in that order; a step that throws is logged and the rest still run. It runs when the page leaves
-RomM shortcuts or moves to another RomM game — whenever the ledger holds anything, not only once a page was adapted, so
-a pass that threw partway is given back too — when a pass tears down a stale `GameView` (below), when a view fails to
-mount or fails after it was drawn, and when the watcher detaches from the window. A callback registered with Steam can
-still fire after that, and the ledger cannot cancel what it never recorded: the watcher's popup callbacks, a view's
-render callback and the sticky play bar controller's updates each do nothing once the teardown before them has run. The
-controller's own set-up is no exception: when its first update throws, it disconnects its `ResizeObserver` before the
-throw reaches the pass.
+### 1. Read-Only React Fiber Introspection (`watcher/fiberInspector.ts`)
 
-A test holds the whole rule: it records the `style` attribute of every element on a page, runs passes from Steam's
-mutations and from a change to the set of RomM shortcuts, re-pins the play bar on a scroll and a resize, leaves the
-page, and requires every attribute to be what it was (`frontend/src/desktop/navigationWatcher.test.ts`, "every change it
-makes is given back"). That a pass which threw partway is given back is held by its own test, "gives back what a pass
-changed before it threw".
+In Big Picture mode, Tender patches into Steam's UI using Decky UI internals and component interception. In Desktop
+mode, however, attempting to monkey-patch React reconciler internals or inject synthetic Fiber trees across execution
+realms creates severe memory safety hazards and crashes the CEF renderer.
 
-## The selector ladder (`frontend/src/desktop/watcher/elementSelectors.ts`)
+Instead, Tender employs **Read-Only React Fiber Introspection**:
 
-A class name in Steam's DOM is a webpack hash that a Steam update may change, so no selector names one, and ESLint fails
-a string or regex literal under `frontend/src/desktop/` that holds a token shaped like one
-(`frontend/eslint.config.js`). The finders resolve through these rungs instead:
+- Inspects the internal `__reactFiber$` expando property attached to native DOM elements.
+- Reads component identities (`displayName` or `type.name`) to identify Steam structures (e.g.
+  `AppDetailsOverviewPanel`, `RightControls`, `PlayBarContainer`) without relying on ephemeral classes.
+- Extracts domain state directly from Fiber props (e.g. `overview.appid`, `details.nAppId`) when route URLs are missing
+  or ambiguous.
+- **Strict Invariant**: Fiber structures are strictly read-only. Never modify Fiber nodes, hooks, props, or linked
+  lists.
 
-| Rung         | What it matches                                                                                          | Example                                                                   |
-| :----------- | :------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------ |
-| module class | The exact class `@decky/ui` resolved from Steam's own modules (`frontend/src/utils/deckyUiInternals.ts`) | `appDetailsClasses.PlayBar`, `appActionButtonClasses.PlayButtonContainer` |
-| class name   | The readable, PascalCase part of a module class name, where the class carries one                        | `[class*="PlayBar"]`, `[class*="AppDetailsOverviewPanel"]`                |
-| Fiber name   | The nearest component name on the element's Fiber                                                        | the nearest name is `PlayButton` or `AppActionButton`                     |
-| structure    | Known parent and child relationships                                                                     | The nearest common ancestor of the play bar and the content sections      |
+### 2. Atomic DOM Restoration Ledger (`watcher/restorationLedger.ts`)
 
-What is fixed is the two ends: the module class is asked first, and the structural walk last. Between them a finder asks
-the rungs it has, in its own order, and not every finder has all four. Three do not stop at the first answer:
-`findSteamPlaySection` asks the Play button's ladder before its own and climbs from the button it finds, and
-`findSteamContentSections` and `findSteamPlayBarBadges` collect from every rung. The name the watcher logs for a rung is
-the one in the table (`Rung`).
+Desktop UI adaptations mutate native Steam DOM nodes (hiding default non-Steam placeholder notices, replacing play
+buttons, clipping overflow, and setting auto margins). An untracked DOM mutation causes permanent layout corruption when
+navigating to non-RomM shortcuts or official Steam games.
 
-The module class is not one rung among equals. The class-name rung needs a readable part, and not every class has one:
-on a German-language desktop client, as the maintainer measured it (#2389), the Play button's and the play bar's classes
-are two hashes and `Panel`, and the module class is the only rung that finds either. Text and ARIA labels are no rung at
-all, because they read differently in every language.
-`frontend/src/desktop/watcher/elementSelectors.moduleClasses.test.ts` holds the first rung against made-up hashed class
-maps, since the rest of the suite runs with those maps undefined.
+The **`DomRestorationLedger`** guarantees atomic, idempotent restoration:
 
-## Drawing a view
+- **Style Recording**: When setting inline styles (e.g. `overflow: hidden`, `margin-left: auto`), the element's
+  _original_ pre-mutation style is preserved in an internal map. Successive mutations preserve the earliest recorded
+  value.
+- **Visibility Tracking**: Hiding elements (`ledger.hide(el)`) backs up the initial `display` property and sets
+  `display: none`. `ledger.unhide(el)` restores the exact prior display state.
+- **Root Tracking**: Mounted React 18 roots (`client.createRoot(host)`) are tracked alongside their host container.
+- **Listener Tracking**: Attached event listeners are registered for guaranteed teardown.
+- **Atomic Teardown**: `ledger.restoreAll()` unmounts all React roots, clears registered event listeners, and restores
+  all original element styles and displays in a single atomic pass upon unmount, route switch, or window unload.
 
-A part is drawn in a React root of its own, in a host element Tender creates beside Steam's: the `playButton` before
-Steam's Play button, the `gameView` right after the play bar. `createRoot` comes from Steam's module registry
-(`findReactClient`, `frontend/src/desktop/desktopWindow.ts`). The watcher looks it up the first time it has a view to
-mount and keeps the answer, a miss included, for as long as it is attached to that window; with nothing handed to it, it
-never asks.
+### 3. Multi-Tier Resilient Selection Ladder (`watcher/elementSelectors.ts`)
 
-Steam's own part is hidden only once React has committed the view into its host, so a view that fails to draw leaves
-Steam's in place. A mount that fails — `createRoot` or `render` throwing, or the view throwing as it renders — is logged
-and remembered for that appId, and not tried again, and the next pass gives Steam's page back first: an earlier mount of
-the same part, before Steam moved its Play button or the view broke, may have hidden Steam's, and it returns. Steam's
-part stays from then on.
+Steam client desktop updates frequently re-minify and regenerate Webpack class names (e.g. `_3fLoY...`, `_3by_V...`).
+Hardcoding these hashes creates brittle points of failure.
 
-## The pass order
+Tender resolves elements using a 4-tier fallback ladder:
 
-Steam renders the game page in more than one go: the hero's blurred background canvases, the play bar's badges and
-Steam's duplicate sticky header arrive after the page's first render. An adaptation made only once, when the page is
-first seen, misses all of them. Until the canvases arrive, `findInflatedHeroWrapper` — which recognises the hero wrapper
-by the canvases inflating its `scrollHeight` — finds nothing, and the watcher keeps `overflow: visible` on what
-`findHeroWrapperFallback` answers instead: the panel's first element with `Hero` in its class name, else the panel's
-first child unless that child holds the play bar.
+| Tier       | Strategy                   | Description                                                           | Example                                                        |
+| :--------- | :------------------------- | :-------------------------------------------------------------------- | :------------------------------------------------------------- |
+| **Tier 1** | Webpack CSS Module / Fiber | Exact tokens from `deckyUiInternals` or read-only Fiber `displayName` | `appDetailsClasses.PlayBar`, Fiber `AppDetailsOverviewPanel`   |
+| **Tier 2** | Semantic & ARIA Attributes | Accessibility labels, ARIA roles, or stable attributes                | `button[aria-label="Play Game"]`, `[role="tab"]`               |
+| **Tier 3** | Class Substring Tokens     | Hyphen/underscore-bounded stable semantic name segments               | `[class*="playbar_"]`, `[class*="gameoverview_"]`              |
+| **Tier 4** | Structural Tree Walk       | Traversal based on known parent/child layout relationships            | Nearest common ancestor between `playBar` and content sections |
 
-So each pass (`pass()` in `frontend/src/desktop/navigationWatcher.ts`) runs in this order:
+**Rule**: Ephemeral minified class hashes are strictly forbidden in code.
 
-1. **Another game's page is a page left.** A pass on a different appId than the one before it gives Steam's page back
-   first, as leaving RomM shortcuts would. Where Steam keeps the same Play button and badges across the switch, what was
-   hidden for the last game would otherwise stay hidden when nothing is drawn for this one.
-2. **A stale `GameView` is torn down.** One carrying another appId, or no longer in the insertion container, is
-   unmounted with everything the ledger holds. Both of these come before the adaptations because they restore everything
-   the ledger holds: after them, they would undo them all.
-3. **The adaptations, on every pass**, in this order: hide the page's content sections (once a `gameView` is drawn);
-   mount `playButton` beside Steam's Play button, and hide Steam's once it is drawn — remounted only when it is missing,
-   detached, for another appId or moved; set up or refresh the sticky play bar controller, which also keeps the hero
-   wrapper at `overflow: visible` (below); hide Steam's duplicate sticky header; hide the play bar's badges (once a
-   `playButton` is drawn); push the right-hand controls to the right edge.
-4. **The mount guard.** If a `GameView` for this appId is already in place, or failed for it before, the pass ends here.
-   Otherwise it mounts one right after the play bar.
+---
 
-The adaptations run on every pass, before the mount guard, because Steam adds the canvases after `GameView` has mounted
-— a pass that returned at the guard would skip them.
+## Continuous Adaptation & The Async Layout Shift Trap
 
-A pass runs in the desktop window's next animation frame, and every trigger that arrives before that frame shares it: at
-most one pass a frame. Passes are triggered by:
+### The Lifecycle Problem
 
-- **A `MutationObserver`** on the desktop window's `body`, for elements added or removed anywhere in its subtree.
-- **A change to the set of RomM shortcuts** (`onRomMAppIdsChanged`, `frontend/src/utils/rommAppIds.ts`), so a page
-  opened before its shortcut was registered is adapted once it is.
-- **A view's first render**, which is what hides the Steam part it replaces, and **a view's failure**, which gives that
-  part back (below, "Drawing a view").
-- **Attaching to a window**, for the page already open in it.
+When a user selects a game in the desktop library:
 
-The sticky play bar controller (`frontend/src/desktop/watcher/stickyPlayBarController.ts`) also updates on scroll, on
-the window's resize, and on a `ResizeObserver` over the play bar, the scroller, the content container and the parallax
-layer — the sizes `boundHeroOverflow`'s margin is computed from (below).
+1. Steam constructs the initial DOM skeleton (`overviewPanel`, `playBar`).
+2. Tender's watcher detects the route and mounts `TENDER_SUBSTITUTE_ID` (`GameView`).
+3. **Asynchronously (100–500ms later)**: Steam's background threads render blurred background gradient canvases into the
+   hero wrapper.
+4. These canvas elements have natural dimensions exceeding the container, inflating the hero wrapper's `scrollHeight`
+   from ~307px to 1978px (with `overflow: visible`).
+5. This creates an enormous empty gap below the game cards, allowing the user to scroll endlessly past content.
 
-Neither sets a timer. A timer catches only a change that adds or removes no element. On a Steam Deck's desktop client
-(2026-10-14, #2389), the watcher's interval and settle timeouts ran some 800 passes of their own and changed nothing;
-the sticky play bar controller's settle timeouts changed one thing, the parallax layer's clip margin, which follows
-sizes rather than elements. So the `ResizeObserver` watches those sizes in their place, and with it watching them,
-checks one and three seconds after each play bar was set up found nothing left to change.
+### The Pass Order Invariant
 
-## What it logs
+An agent or developer might instinctively short-circuit `reinject()` if `existingSubstitute` is already mounted:
 
-The watcher writes to the backend's log, each line starting `desktop:`: its failures as errors and warnings, which the
-default log level keeps, and its transitions as info, which only Tender's log level at Info or Debug keeps. It logs each
-transition once: attaching to and detaching from the desktop client's window, adapting a RomM game page — with the rung
-that found the panel, the play bar and the Play button — and giving the page back. It logs every failure with what it
-was doing: a window it could not attach to, a pass that threw (once for each path and error), a view that could not be
-drawn, a restore step that threw, and `createRoot` missing from Steam's modules.
+```ts
+// ❌ DANGEROUS: Short-circuiting early breaks async layout adaptations!
+if (existingSubstitute && existingSubstitute.isConnected && existingSubstitute.dataset.appid === String(appId)) {
+  return;
+}
+// Hero wrapper overflow clipping, badges hiding, and duplicate sticky bar suppression NEVER RUN!
+```
 
-A RomM game page the finders never recognised is a warning too, logged once when the page is left and naming what was
-not found, the overview panel or the play section, and how long the page was open. It is the line to look for after a
-Steam update. It is not logged when a pass misses the page, because a pass that runs before Steam has drawn the page
-misses it too, and that miss is no failure. A page left before Steam drew it, as when clicking quickly through the
-library, was never recognised either, so it is reported too; the time it was open tells the two apart, since a page the
-finders cannot read goes unrecognised for as long as it is open.
+Because `GameView` mounts on tick 0 before the canvases render, returning early skips all subsequent layout containment.
 
-## The hero's parallax
+**The Invariant**: In `reinject()`, **DOM adaptations must precede the substitute mount guard**:
 
-Steam's game page scrolls its hero artwork more slowly than the page, behind the play bar and the cards, with CSS 3D
-transforms:
+```mermaid
+sequenceDiagram
+    participant Watcher as navigationWatcher
+    participant SteamDOM as Steam Client DOM
+    participant Ledger as DomRestorationLedger
+    participant ReactRoot as React 18 Root (GameView)
 
-- The scroller sets a `perspective`.
-- The hero wrapper and the elements between it and the artwork keep `transform-style: preserve-3d` and
-  `overflow: visible`.
-- The artwork's own layer — the **parallax layer** — is pushed back along the z axis and scaled up to its visual size
-  again (a `matrix3d(...)` transform), which slows its scroll. It sits on a negative `z-index`, which paints it beneath
-  the page's other content.
+    Note over Watcher: Tick 0: Route Navigation
+    Watcher->>SteamDOM: Find playBarTop, container, heroWrapper
+    Watcher->>Ledger: Hide native content sections
+    Watcher->>Ledger: Replace native Play Button
+    Watcher->>Ledger: Set heroWrapper overflow: hidden
+    Watcher->>Ledger: Hide duplicate sticky header & badges
+    Watcher->>ReactRoot: Mount GameView into #tender-desktop-cards-container
 
-The sticky play bar controller keeps the play bar see-through while it scrolls with the page, so the artwork shows
-through it, and solid once it is pinned to the top of the scroller (`isPlayBarPinned`); its colours are in
-`frontend/src/desktop/gameview/styles.ts`.
+    Note over SteamDOM: Tick 1 (200ms later): Steam renders background canvases
+    Note over Watcher: Interval / MutationObserver / Timeout fires reinject()
+    Watcher->>SteamDOM: Find heroWrapper (now inflated to 1978px)
+    Watcher->>Ledger: Set heroWrapper overflow: hidden (CONTAINED)
+    Watcher->>Ledger: Re-hide any newly rendered native badges
+    Watcher->>Watcher: Check: existingSubstitute already mounted for appId?
+    Watcher-->>ReactRoot: Skip GameView remount (No-op)
+```
 
-**The hero wrapper stays `overflow: visible`.** Clipping it, or any element in the `preserve-3d` chain, flattens the
-chain: the artwork stops scrolling more slowly than the page, and is cut off at the wrapper's height instead of running
-on behind the play bar and the cards. The sticky play bar controller sets `overflow: visible` on the wrapper on every
-pinning update, which every pass runs, through the ledger.
+1. **Step 1–7 (Always Execute)**: Hide native content sections, replace Play button, clip hero wrapper overflow, hide
+   duplicate sticky headers, hide native badges, align right controls.
+2. **Step 8 (Gated)**: If `existingSubstitute` is connected for the current `appId`, return. Only instantiate or unmount
+   the `GameView` React root when navigating to a new game or if the container detached.
 
-### Bounding the artwork (`boundHeroOverflow`)
+### Continuous Adaptation Mechanisms
 
-The parallax layer is much shorter than what it holds: the image, then a canvas Steam flips vertically to continue the
-blurred background below it. The scroller counts that overflow towards its scrollable height, so with nothing else done
-the page scrolls on past its last card into empty space.
+To ensure layout containment remains locked regardless of when Steam finishes rendering:
 
-`boundHeroOverflow` (`frontend/src/desktop/watcher/stickyPlayBarController.ts`) closes that gap lower in the chain, on
-the parallax layer itself. The layer is the end of the 3D chain and already `transform-style: flat`, so clipping it
-flattens nothing above it:
-
-- **`overflow: clip`** on the layer, with an **`overflow-clip-margin`** that lets the artwork run on exactly as far as
-  the page does: to the content's bottom, or to the scroller's own height on a page shorter than the window. How the
-  margin is computed is the function's docstring.
-- **A fade** over the flipped canvas's last `HERO_FADE_PX` before the clip edge, so the artwork ends in a gradient
-  rather than on a straight line. It is a mask on the canvas itself, where the overflow is.
-
-Both are recomputed on every pinning update, because the cards change height, and both go through the ledger.
+- **Polling Loop (`checkNav`)**: Runs every 250ms via `deskWin.setInterval`. When `isMountedForCurrent` is true, it
+  still calls `reinject()` to catch asynchronous layout shifts.
+- **MutationObserver**: Observes `deskWin.document.body` for child list and subtree mutations.
+- **Scroll Synchronization (`stickyPlayBarController.ts`)**: When the user scrolls, `updatePinning()` recalculates play
+  bar glass/solid styling and validates that `heroWrapper` overflow remains clipped.
