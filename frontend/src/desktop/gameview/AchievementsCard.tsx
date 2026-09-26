@@ -2,7 +2,7 @@
  * AchievementsCard — achievements overview card for the Desktop game view.
  */
 
-import { useState, useEffect, useRef, useMemo, type FC } from "react";
+import { useState, useEffect, useRef, useMemo, type CSSProperties, type FC } from "react";
 import { getAchievements, getAchievementProgress, debugLog } from "../../api/backend";
 import type { Achievement, AchievementProgress, EarnedAchievement } from "../../types";
 import {
@@ -40,6 +40,198 @@ export function consumeOpenAchievementsModal(romId: number): boolean {
   }
   return false;
 }
+
+const EMPTY_STATE_TEXT_STYLE: CSSProperties = {
+  color: "#8f98a0",
+  fontSize: "13px",
+};
+
+const HEADER_ROW_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginBottom: "12px",
+};
+
+const HEADER_LABEL_GROUP_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "10px",
+};
+
+const HEADER_TITLE_STYLE: CSSProperties = {
+  fontSize: "11px",
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  color: "#8f98a0",
+};
+
+const HEADER_SUBTITLE_STYLE: CSSProperties = {
+  fontSize: "12px",
+  color: "#8f98a0",
+};
+
+const SHOW_ALL_BUTTON_STYLE: CSSProperties = {
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  margin: 0,
+  fontSize: "12px",
+  fontWeight: 500,
+  color: "#66c0f4",
+  cursor: "pointer",
+  outline: "none",
+  textDecoration: "none",
+  transition: "color 0.15s ease",
+};
+
+const PROGRESS_TRACK_STYLE: CSSProperties = {
+  height: "5px",
+  backgroundColor: "rgba(255, 255, 255, 0.08)",
+  borderRadius: "3px",
+  overflow: "hidden",
+  marginBottom: "16px",
+};
+
+const PROGRESS_BAR_FILL_STYLE: CSSProperties = {
+  height: "100%",
+  background: "linear-gradient(to right, #e5a93c, #f1be48)",
+  borderRadius: "3px",
+  transition: "width 0.4s ease-out",
+};
+
+const PREVIEW_LIST_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px",
+};
+
+const PREVIEW_ROW_BASE_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "14px",
+  padding: "10px 12px",
+  borderRadius: "4px",
+  borderBottom: "1px solid rgba(255, 255, 255, 0.04)",
+  cursor: "pointer",
+  transition: "background-color 0.12s ease",
+  userSelect: "none",
+};
+
+const ROW_HOVERED_STYLE: CSSProperties = {
+  ...PREVIEW_ROW_BASE_STYLE,
+  backgroundColor: "rgba(255, 255, 255, 0.08)",
+};
+
+const ROW_EARNED_STYLE: CSSProperties = {
+  ...PREVIEW_ROW_BASE_STYLE,
+  backgroundColor: "rgba(255, 255, 255, 0.03)",
+};
+
+const ROW_DEFAULT_STYLE: CSSProperties = {
+  ...PREVIEW_ROW_BASE_STYLE,
+  backgroundColor: "transparent",
+};
+
+const BADGE_IMG_BASE_STYLE: CSSProperties = {
+  width: "44px",
+  height: "44px",
+  borderRadius: "4px",
+  objectFit: "cover",
+  backgroundColor: "rgba(0, 0, 0, 0.4)",
+  flexShrink: 0,
+};
+
+const BADGE_IMG_EARNED_STYLE: CSSProperties = {
+  ...BADGE_IMG_BASE_STYLE,
+  filter: "none",
+  boxShadow: "none",
+  border: "none",
+};
+
+const BADGE_IMG_HARDCORE_STYLE: CSSProperties = {
+  ...BADGE_IMG_BASE_STYLE,
+  filter: "none",
+  boxShadow: "0 0 6px rgba(255, 215, 0, 0.3), 0 0 10px rgba(255, 215, 0, 0.15)",
+  border: "1px solid rgba(255, 215, 0, 0.4)",
+};
+
+const BADGE_IMG_LOCKED_STYLE: CSSProperties = {
+  ...BADGE_IMG_BASE_STYLE,
+  filter: "grayscale(0.85) opacity(0.4)",
+  boxShadow: "none",
+  border: "none",
+};
+
+const DETAILS_COL_STYLE: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+};
+
+const ACHIEVEMENT_TITLE_STYLE: CSSProperties = {
+  fontSize: "13px",
+  fontWeight: 600,
+  color: "#ffffff",
+  marginBottom: "2px",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const ACHIEVEMENT_DESC_STYLE: CSSProperties = {
+  fontSize: "12px",
+  color: "#8f98a0",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  marginBottom: "2px",
+};
+
+const NUM_AWARDED_STYLE: CSSProperties = {
+  fontSize: "11px",
+  color: "#677584",
+};
+
+const RIGHT_COL_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-end",
+  gap: "3px",
+  flexShrink: 0,
+};
+
+const DATE_STYLE: CSSProperties = {
+  fontSize: "11px",
+  color: "#8f98a0",
+};
+
+const HARDCORE_CONTAINER_STYLE: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+};
+
+const HARDCORE_TAG_STYLE: CSSProperties = {
+  fontSize: "9px",
+  fontWeight: 700,
+  color: "#ffd700",
+  backgroundColor: "rgba(255, 215, 0, 0.15)",
+  padding: "1px 4px",
+  borderRadius: "2px",
+};
+
+const POINTS_EARNED_STYLE: CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 600,
+  color: "#e5a93c",
+};
+
+const POINTS_LOCKED_STYLE: CSSProperties = {
+  fontSize: "12px",
+  fontWeight: 500,
+  color: "#677584",
+};
 
 export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, romId, raId, title, covers = [] }) => {
   const isOffline = useRommConnectionState() === "offline";
@@ -175,7 +367,7 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
   if (loading && achievements.length === 0) {
     return (
       <div className="tender-desktop-achievements-card tender-desktop-info-card" style={CARD_STYLE}>
-        <div style={{ color: "#8f98a0", fontSize: "13px" }}>Loading achievements…</div>
+        <div style={EMPTY_STATE_TEXT_STYLE}>Loading achievements…</div>
       </div>
     );
   }
@@ -184,13 +376,13 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
     if (isOffline) {
       return (
         <div className="tender-desktop-achievements-card tender-desktop-info-card" style={CARD_STYLE}>
-          <div style={{ color: "#8f98a0", fontSize: "13px" }}>RomM offline — achievements unavailable.</div>
+          <div style={EMPTY_STATE_TEXT_STYLE}>RomM offline — achievements unavailable.</div>
         </div>
       );
     }
     return (
       <div className="tender-desktop-achievements-card tender-desktop-info-card" style={CARD_STYLE}>
-        <div style={{ color: "#8f98a0", fontSize: "13px" }}>No achievements found for this game.</div>
+        <div style={EMPTY_STATE_TEXT_STYLE}>No achievements found for this game.</div>
       </div>
     );
   }
@@ -199,27 +391,10 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
     <>
       <div className="tender-desktop-achievements-card tender-desktop-info-card" style={CARD_STYLE}>
         {/* Header Row: Title + Progress + Show All */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: "12px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                color: "#8f98a0",
-              }}
-            >
-              Achievements
-            </span>
-            <span style={{ fontSize: "12px", color: "#8f98a0" }}>
+        <div style={HEADER_ROW_STYLE}>
+          <div style={HEADER_LABEL_GROUP_STYLE}>
+            <span style={HEADER_TITLE_STYLE}>Achievements</span>
+            <span style={HEADER_SUBTITLE_STYLE}>
               {`${earned} of ${total}${earnedHardcore > 0 ? ` · ${earnedHardcore} hardcore` : ""}`}
             </span>
           </div>
@@ -227,19 +402,7 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            style={{
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              margin: 0,
-              fontSize: "12px",
-              fontWeight: 500,
-              color: "#66c0f4",
-              cursor: "pointer",
-              outline: "none",
-              textDecoration: "none",
-              transition: "color 0.15s ease",
-            }}
+            style={SHOW_ALL_BUTTON_STYLE}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = "#ffffff";
             }}
@@ -252,33 +415,29 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
         </div>
 
         {/* Progress Bar (Golden amber matching Image 1) */}
-        <div
-          style={{
-            height: "5px",
-            backgroundColor: "rgba(255, 255, 255, 0.08)",
-            borderRadius: "3px",
-            overflow: "hidden",
-            marginBottom: "16px",
-          }}
-        >
-          <div
-            style={{
-              width: `${pct}%`,
-              height: "100%",
-              background: "linear-gradient(to right, #e5a93c, #f1be48)",
-              borderRadius: "3px",
-              transition: "width 0.4s ease-out",
-            }}
-          />
+        <div style={PROGRESS_TRACK_STYLE}>
+          <div style={{ ...PROGRESS_BAR_FILL_STYLE, width: `${pct}%` }} />
         </div>
 
         {/* Preview Rows (Up to 4 items) */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+        <div style={PREVIEW_LIST_STYLE}>
           {previewItems.map((a) => {
             const earnedData = earnedMap.get(a.badge_id);
             const isEarned = Boolean(earnedData);
             const isHardcore = Boolean(earnedData?.date_hardcore);
             const isHovered = hoveredRowId === a.ra_id;
+
+            const rowStyle: CSSProperties = isHovered
+              ? ROW_HOVERED_STYLE
+              : isEarned
+                ? ROW_EARNED_STYLE
+                : ROW_DEFAULT_STYLE;
+
+            const badgeImgStyle: CSSProperties = isHardcore
+              ? BADGE_IMG_HARDCORE_STYLE
+              : isEarned
+                ? BADGE_IMG_EARNED_STYLE
+                : BADGE_IMG_LOCKED_STYLE;
 
             return (
               <div
@@ -294,128 +453,35 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
                 tabIndex={0}
                 onMouseEnter={() => setHoveredRowId(a.ra_id)}
                 onMouseLeave={() => setHoveredRowId(null)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "14px",
-                  padding: "10px 12px",
-                  borderRadius: "4px",
-                  backgroundColor: isHovered
-                    ? "rgba(255, 255, 255, 0.08)"
-                    : isEarned
-                      ? "rgba(255, 255, 255, 0.03)"
-                      : "transparent",
-                  borderBottom: "1px solid rgba(255, 255, 255, 0.04)",
-                  cursor: "pointer",
-                  transition: "background-color 0.12s ease",
-                  userSelect: "none",
-                }}
+                style={rowStyle}
               >
                 {/* Badge Image */}
-                <img
-                  src={isEarned ? a.badge_url : a.badge_url_lock || a.badge_url}
-                  alt=""
-                  style={{
-                    width: "44px",
-                    height: "44px",
-                    borderRadius: "4px",
-                    objectFit: "cover",
-                    backgroundColor: "rgba(0, 0, 0, 0.4)",
-                    flexShrink: 0,
-                    filter: isEarned ? "none" : "grayscale(0.85) opacity(0.4)",
-                    boxShadow: isHardcore ? "0 0 6px rgba(255, 215, 0, 0.3), 0 0 10px rgba(255, 215, 0, 0.15)" : "none",
-                    border: isHardcore ? "1px solid rgba(255, 215, 0, 0.4)" : "none",
-                  }}
-                />
+                <img src={isEarned ? a.badge_url : a.badge_url_lock || a.badge_url} alt="" style={badgeImgStyle} />
 
                 {/* Details Column */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      color: "#ffffff",
-                      marginBottom: "2px",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {a.title}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#8f98a0",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      marginBottom: "2px",
-                    }}
-                  >
-                    {a.description}
-                  </div>
+                <div style={DETAILS_COL_STYLE}>
+                  <div style={ACHIEVEMENT_TITLE_STYLE}>{a.title}</div>
+                  <div style={ACHIEVEMENT_DESC_STYLE}>{a.description}</div>
                   {a.num_awarded > 0 && (
-                    <div style={{ fontSize: "11px", color: "#677584" }}>
-                      {`${a.num_awarded.toLocaleString()} players earned this`}
-                    </div>
+                    <div style={NUM_AWARDED_STYLE}>{`${a.num_awarded.toLocaleString()} players earned this`}</div>
                   )}
                 </div>
 
                 {/* Date / Points Column */}
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-end",
-                    gap: "3px",
-                    flexShrink: 0,
-                  }}
-                >
+                <div style={RIGHT_COL_STYLE}>
                   {isEarned ? (
                     <>
-                      {earnedData?.date && (
-                        <span style={{ fontSize: "11px", color: "#8f98a0" }}>{formatCardDate(earnedData.date)}</span>
-                      )}
+                      {earnedData?.date && <span style={DATE_STYLE}>{formatCardDate(earnedData.date)}</span>}
                       {isHardcore && earnedData?.date_hardcore && (
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                          <span
-                            style={{
-                              fontSize: "9px",
-                              fontWeight: 700,
-                              color: "#ffd700",
-                              backgroundColor: "rgba(255, 215, 0, 0.15)",
-                              padding: "1px 4px",
-                              borderRadius: "2px",
-                            }}
-                          >
-                            HC
-                          </span>
-                          <span style={{ fontSize: "11px", color: "#8f98a0" }}>
-                            {formatCardDate(earnedData.date_hardcore)}
-                          </span>
+                        <div style={HARDCORE_CONTAINER_STYLE}>
+                          <span style={HARDCORE_TAG_STYLE}>HC</span>
+                          <span style={DATE_STYLE}>{formatCardDate(earnedData.date_hardcore)}</span>
                         </div>
                       )}
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: 600,
-                          color: "#e5a93c",
-                        }}
-                      >
-                        {`${a.points} pts`}
-                      </span>
+                      <span style={POINTS_EARNED_STYLE}>{`${a.points} pts`}</span>
                     </>
                   ) : (
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        fontWeight: 500,
-                        color: "#677584",
-                      }}
-                    >
-                      {`${a.points} pts`}
-                    </span>
+                    <span style={POINTS_LOCKED_STYLE}>{`${a.points} pts`}</span>
                   )}
                 </div>
               </div>

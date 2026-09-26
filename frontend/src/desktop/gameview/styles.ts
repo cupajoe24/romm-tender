@@ -22,6 +22,33 @@ export const CARD_STYLE: CSSProperties = {
   fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
 };
 
+export const WARNING_CARD_STYLE: CSSProperties = {
+  ...CARD_STYLE,
+  background: "linear-gradient(135deg, rgba(255, 170, 0, 0.08) 0%, rgba(36, 40, 47, 0.75) 100%)",
+  backgroundColor: "rgba(36, 40, 47, 0.75)",
+  border: "1px solid rgba(255, 170, 0, 0.35)",
+  borderLeft: "4px solid #ffaa00",
+  borderRadius: "4px",
+};
+
+export const ACTIVE_SESSION_CARD_STYLE: CSSProperties = {
+  ...CARD_STYLE,
+  background: "linear-gradient(135deg, rgba(56, 152, 236, 0.12) 0%, rgba(36, 40, 47, 0.75) 100%)",
+  backgroundColor: "rgba(36, 40, 47, 0.75)",
+  border: "1px solid rgba(56, 152, 236, 0.35)",
+  borderLeft: "4px solid #3898ec",
+  borderRadius: "4px",
+};
+
+export const PLAYTIME_SCOPE_CARD_STYLE: CSSProperties = {
+  ...CARD_STYLE,
+  background: "linear-gradient(135deg, rgba(212, 167, 44, 0.1) 0%, rgba(36, 40, 47, 0.75) 100%)",
+  backgroundColor: "rgba(36, 40, 47, 0.75)",
+  border: "1px solid rgba(212, 167, 44, 0.35)",
+  borderLeft: "4px solid #d4a72c",
+  borderRadius: "4px",
+};
+
 export const MODAL_CONTAINER_STYLE: CSSProperties = {
   position: "fixed",
   inset: 0,
