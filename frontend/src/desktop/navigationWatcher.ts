@@ -11,13 +11,15 @@ import { createElement } from "react";
 import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
 import { findDesktopWindow, findReactClient } from "./desktopWindow";
 import { GameView } from "./gameview/GameView";
-import { PlayButton, ensurePulseStyles } from "./gameview/PlayButton";
+import { PlayButton } from "./gameview/PlayButton";
+import { ensurePulseStyles } from "./gameview/styles";
 import { getAppIdFromFiber } from "./watcher/fiberInspector";
 import { DomRestorationLedger } from "./watcher/restorationLedger";
 import {
   TENDER_PLAY_BUTTON_ID,
   TENDER_SUBSTITUTE_ID,
   containsContentSections,
+  findHeroWrapperFallback,
   findPlayBarAndContainer,
   findSteamContentSections,
   findSteamOverviewPanel,
@@ -222,17 +224,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     // 4. Contain hero wrapper overflow (prevent canvas elements from inflating scrollHeight)
     const scroller = findScrollContainer(playBarTop);
     const heroWrapper =
-      findInflatedHeroWrapper(container, playBarTop, scroller) ||
-      (() => {
-        const heroQuery = steamPanel.querySelector<HTMLElement>(
-          '[class*="Hero"], [class*="hero"], [class*="HeroHeader"], [class*="HeroBanner"]',
-        );
-        if (heroQuery && heroQuery !== playBarTop && !heroQuery.contains(playBarTop)) {
-          return heroQuery;
-        }
-        const fc = steamPanel.firstElementChild as HTMLElement | null;
-        return fc && fc !== playBarTop && !fc.contains(playBarTop) ? fc : null;
-      })();
+      findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
     if (heroWrapper && heroWrapper.style.overflow !== "hidden") {
       ledger.style(heroWrapper, "overflow", "hidden");
     }

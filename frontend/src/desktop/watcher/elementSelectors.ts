@@ -638,3 +638,18 @@ export function findSteamRightControls(root: HTMLElement): HTMLElement | null {
 
   return null;
 }
+
+/**
+ * Fallback search for Steam's native Hero banner element within the overview panel.
+ * Used when findInflatedHeroWrapper does not match (e.g. before scrollHeight is inflated by canvas).
+ */
+export function findHeroWrapperFallback(steamPanel: HTMLElement, playBarTop: HTMLElement): HTMLElement | null {
+  const heroQuery = steamPanel.querySelector<HTMLElement>(
+    '[class*="Hero"], [class*="hero"], [class*="HeroHeader"], [class*="HeroBanner"]',
+  );
+  if (heroQuery && heroQuery !== playBarTop && !heroQuery.contains(playBarTop)) {
+    return heroQuery;
+  }
+  const fc = steamPanel.firstElementChild as HTMLElement | null;
+  return fc && fc !== playBarTop && !fc.contains(playBarTop) ? fc : null;
+}

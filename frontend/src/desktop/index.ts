@@ -14,7 +14,7 @@ export {
   TENDER_SUBSTITUTE_ID,
 } from "./navigationWatcher";
 
-export { findDesktopWindow, findReactClient, coverCandidates } from "./desktopWindow";
+export { findDesktopWindow, findReactClient, coverCandidates, heroCandidates } from "./desktopWindow";
 
 export { GameView, GameViewPage, type GameViewProps, type GameViewPageProps } from "./gameview/GameView";
 export { GameViewTabBar, type GameViewTabBarProps, type GameViewTab } from "./gameview/GameViewTabBar";

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { findDesktopWindow } from "../desktopWindow";
 
 export const SOLID_PLAY_BAR_BG = "rgb(39, 44, 53)";
 export const GLASS_PLAY_BAR_BG = "rgba(36, 40, 47, 0.65)";
@@ -55,3 +56,80 @@ export const BUTTON_STYLE: CSSProperties = {
   outline: "none",
   userSelect: "none",
 };
+
+export const PULSE_STYLE_ID = "tender-desktop-playbutton-pulse-styles";
+
+export function ensurePulseStyles(doc?: Document | null) {
+  const targetDoc =
+    doc ||
+    (typeof findDesktopWindow === "function" ? findDesktopWindow()?.document : null) ||
+    (typeof document !== "undefined" ? document : null);
+  if (!targetDoc) return;
+  if (targetDoc.getElementById(PULSE_STYLE_ID)) return;
+
+  const style = targetDoc.createElement("style");
+  style.id = PULSE_STYLE_ID;
+  style.textContent = `
+    @keyframes tender-desktop-dl-pulse {
+      0%, 100% {
+        box-shadow: 0 0 6px rgba(26, 159, 255, 0.35), 0 1px 4px rgba(0, 0, 0, 0.4);
+      }
+      50% {
+        box-shadow: 0 0 24px rgba(26, 159, 255, 0.85), 0 0 8px rgba(26, 159, 255, 0.5), 0 1px 4px rgba(0, 0, 0, 0.4);
+      }
+    }
+    .tender-desktop-dl-pulsing {
+      animation: tender-desktop-dl-pulse 2s ease-in-out infinite !important;
+      overflow: visible !important;
+    }
+    #tender-desktop-play-button-host,
+    #tender-desktop-play-button {
+      overflow: visible !important;
+    }
+    .romm-status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    /*
+     * Belt-and-suspenders badge & controls hiding:
+     * Steam asynchronously renders badges and controls into the play bar.
+     * While navigationWatcher performs explicit DOM-level hiding via the restoration ledger,
+     * this CSS rule serves as an immediate safety net to prevent visual flicker
+     * and catch elements that mount between watcher polling ticks.
+     */
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="StatusAndStats"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="GameStatsSection"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="GameStat"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="LastPlayed"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="Playtime"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="CloudStatus"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="MiniAchievements"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *),
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="PlayBarDetailLabel"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
+      display: none !important;
+    }
+    /* Pin Steam's right-side controls container to the right edge */
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="RightControls"],
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtonsContainer"],
+    :has(#tender-desktop-play-button, #tender-desktop-play-button-host) [class*="AppButtons"]:not(#tender-desktop-play-button *):not(#tender-desktop-play-button-host *) {
+      margin-left: auto !important;
+    }
+    .tender-desktop-disc-btn:hover {
+      background: rgba(255, 255, 255, 0.14) !important;
+      filter: brightness(1.2);
+    }
+    .tender-desktop-disc-btn:active {
+      filter: brightness(0.9);
+    }
+    .tender-desktop-disc-menu-item:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+      color: #ffffff !important;
+    }
+    .tender-desktop-menu-item-uninstall:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+    }
+  `;
+  targetDoc.head.appendChild(style);
+}
