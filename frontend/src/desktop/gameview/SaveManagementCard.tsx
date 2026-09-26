@@ -107,9 +107,14 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   const [restoringVersionId, setRestoringVersionId] = useState<number | null>(null);
 
   // Active slot determination
-  const activeSlot = detail.activeSlot;
+  const [localActiveSlot, setLocalActiveSlot] = useState<string | null | undefined>(undefined);
+  const activeSlot = localActiveSlot !== undefined ? localActiveSlot : detail.activeSlot;
   const saveStatus = detail.saveStatus;
   const conflicts: SyncConflict[] = saveStatus?.conflicts ?? [];
+
+  useEffect(() => {
+    setLocalActiveSlot(undefined);
+  }, [romId, detail.activeSlot]);
 
   // Fetch slots list
   const loadSlots = useCallback(async () => {
@@ -120,6 +125,9 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
         reportServerReachable(true);
         setAvailableSlots(result.slots);
         setActiveSlotKnown(result.active_slot !== null);
+        if (result.active_slot !== undefined) {
+          setLocalActiveSlot(result.active_slot);
+        }
       } else {
         if (result.reason === "server_unreachable") {
           reportServerReachable(false);
@@ -185,6 +193,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
         detach(refreshSaveStatus(appId));
         // Invalidate version histories
         setVersionHistoryCache({});
+        setSlotSavesCache({});
       }
     };
     globalThis.addEventListener("romm_data_changed", handleDataChanged);
@@ -282,11 +291,15 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       if (result.success && result.save_status) {
         reportServerReachable(true);
         showToast(`Switched to slot '${name}'`);
+        setLocalActiveSlot(name);
+        setSlotSavesCache({});
         setShowNewSlotModal(false);
         setNewSlotInput("");
         setNewSlotError(null);
         globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
+          new CustomEvent("romm_data_changed", {
+            detail: { type: "save_sync", rom_id: romId, save_status: result.save_status },
+          }),
         );
         await refreshSaveStatus(appId);
         await loadSlots();
@@ -315,8 +328,12 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       if (result.success && result.save_status) {
         reportServerReachable(true);
         showToast(`Switched to slot '${slotName}'`);
+        setLocalActiveSlot(slotName);
+        setSlotSavesCache({});
         globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
+          new CustomEvent("romm_data_changed", {
+            detail: { type: "save_sync", rom_id: romId, save_status: result.save_status },
+          }),
         );
         await refreshSaveStatus(appId);
         await loadSlots();

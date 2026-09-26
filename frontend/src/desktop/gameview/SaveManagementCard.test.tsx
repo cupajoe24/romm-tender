@@ -226,9 +226,16 @@ describe("SaveManagementCard", () => {
       slot: "speedrun",
       saves: [],
     });
-    vi.mocked(backend.switchSlot).mockResolvedValue({
-      success: true,
-      save_status: mockSaveStatus,
+    vi.mocked(backend.switchSlot).mockImplementation(async () => {
+      vi.mocked(backend.getSaveSlots).mockResolvedValue({
+        success: true,
+        slots: mockSlots,
+        active_slot: "speedrun",
+      });
+      return {
+        success: true,
+        save_status: { ...mockSaveStatus, active_slot: "speedrun" },
+      };
     });
 
     render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
@@ -248,6 +255,7 @@ describe("SaveManagementCard", () => {
     await waitFor(() => {
       expect(backend.switchSlot).toHaveBeenCalledWith(42, "speedrun");
       expect(toast.showToast).toHaveBeenCalledWith("Switched to slot 'speedrun'");
+      expect(screen.queryByText("Activate Slot")).toBeNull();
     });
   });
 
