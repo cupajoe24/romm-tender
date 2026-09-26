@@ -43,6 +43,7 @@ describe("SaveManagementCard", () => {
     rom_id: 42,
     device_id: "steamdeck",
     last_sync_check_at: "2026-06-15T21:04:00Z",
+    active_slot: "default",
     playtime: {
       total_seconds: 3600,
       session_count: 5,
@@ -95,7 +96,6 @@ describe("SaveManagementCard", () => {
     saveSyncStatus: "synced",
     saveSyncLabel: "Synced",
     savefilesInContentDir: false,
-    activeSlot: "default",
     raId: null,
     achievementEarned: 0,
     achievementTotal: 0,
@@ -152,7 +152,7 @@ describe("SaveManagementCard", () => {
       expect(screen.getByText("default")).toBeInTheDocument();
       expect(screen.getByText("ACTIVE")).toBeInTheDocument();
       expect(screen.getByText("speedrun")).toBeInTheDocument();
-      expect(screen.getByText("Legacy")).toBeInTheDocument();
+      expect(screen.getByText("Manual archive")).toBeInTheDocument();
     });
   });
 
@@ -449,7 +449,13 @@ describe("SaveManagementCard", () => {
   });
 
   it("renders legacy warning banner when activeSlot is null", async () => {
-    render(<SaveManagementCard appId={100} romId={42} detail={{ ...baseDetail, activeSlot: null }} />);
+    render(
+      <SaveManagementCard
+        appId={100}
+        romId={42}
+        detail={{ ...baseDetail, saveStatus: { ...mockSaveStatus, active_slot: null } }}
+      />,
+    );
 
     await waitFor(() => {
       expect(
