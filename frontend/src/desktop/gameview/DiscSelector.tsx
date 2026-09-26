@@ -51,9 +51,12 @@ import {
 } from "../../utils/pruneLease";
 import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
 import type { RommDataChangedDetail, RommRomUninstalledDetail } from "../../types/events";
+import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
+import { desktopUnsyncedSavesDialog } from "./dialogs/desktopDialogs";
 
 export interface DiscSelectorProps {
   appId: number;
+  ask?: AskDialog | undefined;
 }
 
 /** A disc option's data value: a disc filename, or null for the m3u default. */
@@ -121,11 +124,12 @@ const reportVersionListReachability = (result: VersionList): void => {
   }
 };
 
-import { MODAL_CONTAINER_STYLE, BACKDROP_BUTTON_STYLE } from "./styles";
-
-export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
+export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
   const leaseOwner = `desktop-disc-selector:${appId}`;
   const versionLeaseOwner = `version-picker:${appId}`;
+
+  const fallbackHost = useDialogHost();
+  const effectiveAsk = ask ?? fallbackHost.ask;
 
   const isMountedRef = useRef(false);
 
@@ -141,10 +145,6 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
   const coversRequested = useRef<Set<number>>(new Set());
   const memberIdsRef = useRef<Set<number>>(new Set());
   const listRequestIdRef = useRef(0);
-  const [unsyncedModalData, setUnsyncedModalData] = useState<{
-    result: SwitchVersionUnsyncedSaves;
-    target: VersionInfo;
-  } | null>(null);
 
   // Common UI state
   const [showMenu, setShowMenu] = useState(false);
@@ -443,7 +443,23 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
       }
       if (result.reason === "unsynced_saves") {
         reportServerReachable(result.server_reachable);
-        setUnsyncedModalData({ result, target });
+        const askUnsynced = desktopUnsyncedSavesDialog(effectiveAsk);
+        const choice = await askUnsynced({
+          versionName: result.unsynced_version_name,
+          serverReachable: result.server_reachable,
+        });
+        if (choice === "sync_and_switch") {
+          await syncThenSwitch(result.unsynced_rom_id, target, admission);
+        } else if (choice === "switch_anyway") {
+          const forced = await switchVersion(appId, target.rom_id, true);
+          if (forced.success) {
+            await applySwitchSuccess(forced, admission);
+          } else {
+            handleSwitchFailure(forced);
+          }
+        } else {
+          setSwitching(false);
+        }
         return;
       }
       handleSwitchFailure(result);
@@ -455,36 +471,6 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
       setSwitching(false);
       logError(`Desktop DiscSelector: switchVersion failed: ${e}`);
       showToast("Could not switch version");
-    }
-  };
-
-  const handleSwitchAnyway = async (): Promise<void> => {
-    if (!unsyncedModalData) return;
-    const { target } = unsyncedModalData;
-    setUnsyncedModalData(null);
-    const admission = capturePruneLeaseAdmission(versionLeaseOwner);
-    const forced = await switchVersion(appId, target.rom_id, true);
-    if (forced.success) {
-      await applySwitchSuccess(forced, admission);
-    } else {
-      handleSwitchFailure(forced);
-    }
-  };
-
-  const handleSyncOrSwitch = async (): Promise<void> => {
-    if (!unsyncedModalData) return;
-    const { result, target } = unsyncedModalData;
-    setUnsyncedModalData(null);
-    const admission = capturePruneLeaseAdmission(versionLeaseOwner);
-    if (result.server_reachable) {
-      await syncThenSwitch(result.unsynced_rom_id, target, admission);
-    } else {
-      const forced = await switchVersion(appId, target.rom_id, true);
-      if (forced.success) {
-        await applySwitchSuccess(forced, admission);
-      } else {
-        handleSwitchFailure(forced);
-      }
     }
   };
 
@@ -716,104 +702,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId }) => {
           </div>
         )}
       </div>
-
-      {/* Desktop Unsynced Saves Modal */}
-      {unsyncedModalData && (
-        <div style={MODAL_CONTAINER_STYLE}>
-          <button
-            type="button"
-            aria-label="Close dialog"
-            style={BACKDROP_BUTTON_STYLE}
-            onClick={() => {
-              setUnsyncedModalData(null);
-              setSwitching(false);
-            }}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="unsynced-saves-title"
-            style={{
-              position: "relative",
-              zIndex: 1,
-              backgroundColor: "#1b2838",
-              border: "1px solid rgba(255, 255, 255, 0.15)",
-              borderRadius: "4px",
-              padding: "24px",
-              maxWidth: "460px",
-              width: "90%",
-              boxShadow: "0 12px 32px rgba(0, 0, 0, 0.6)",
-              color: "#ffffff",
-              boxSizing: "border-box",
-            }}
-          >
-            <h3
-              id="unsynced-saves-title"
-              style={{ margin: "0 0 12px 0", color: "#ffffff", fontSize: "16px", fontWeight: 700 }}
-            >
-              Unsynced saves
-            </h3>
-            <p style={{ margin: "0 0 20px 0", fontSize: "13px", color: "#a0b0c0", lineHeight: 1.5 }}>
-              {unsyncedModalData.result.server_reachable
-                ? `"${unsyncedModalData.result.unsynced_version_name}" has save changes that were never uploaded to RomM. They stay on disk, but won't sync until you switch back.`
-                : `"${unsyncedModalData.result.unsynced_version_name}" has save changes that were never uploaded, and RomM is not reachable right now — so they can't be synced first. They stay on disk, but won't sync until you switch back.`}
-            </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-              <button
-                type="button"
-                style={{
-                  padding: "8px 16px",
-                  fontSize: "13px",
-                  backgroundColor: "transparent",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  borderRadius: "2px",
-                  color: "#c7d5e0",
-                  cursor: "pointer",
-                }}
-                onClick={() => {
-                  setUnsyncedModalData(null);
-                  setSwitching(false);
-                }}
-              >
-                Cancel
-              </button>
-              {unsyncedModalData.result.server_reachable && (
-                <button
-                  type="button"
-                  style={{
-                    padding: "8px 16px",
-                    fontSize: "13px",
-                    backgroundColor: "rgba(255, 255, 255, 0.08)",
-                    border: "1px solid rgba(255, 255, 255, 0.2)",
-                    borderRadius: "2px",
-                    color: "#c7d5e0",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => void handleSwitchAnyway()}
-                >
-                  Switch anyway
-                </button>
-              )}
-              <button
-                type="button"
-                style={{
-                  padding: "8px 16px",
-                  fontSize: "13px",
-                  backgroundColor: "#1a9fff",
-                  border: "none",
-                  borderRadius: "2px",
-                  color: "#ffffff",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-                onClick={() => void handleSyncOrSwitch()}
-              >
-                {unsyncedModalData.result.server_reachable ? "Sync now & switch" : "Switch anyway"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {ask ? null : fallbackHost.element}
     </>
   );
 };
