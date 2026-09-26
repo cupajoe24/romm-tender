@@ -1291,6 +1291,87 @@ describe("navigationWatcher", () => {
       expect(heroWrapper.style.overflow).toBe("");
     });
 
+    it("contains hero wrapper overflow when it inflates asynchronously after substitute is already mounted", () => {
+      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
+        createRoot: vi.fn().mockReturnValue(mockRoot),
+      });
+
+      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+
+      const scrollContainer = mockDoc.createElement("div");
+      const panel = mockDoc.createElement("div");
+      scrollContainer.appendChild(panel);
+
+      // Hero wrapper initially NOT inflated (scrollHeight matches offsetHeight)
+      const heroWrapper = mockDoc.createElement("div");
+      heroWrapper.className = "HeroBanner";
+      Object.defineProperty(heroWrapper, "scrollHeight", { value: 307, configurable: true });
+      Object.defineProperty(heroWrapper, "offsetHeight", { value: 307, configurable: true });
+      panel.appendChild(heroWrapper);
+
+      const contentPanel = mockDoc.createElement("div");
+      panel.appendChild(contentPanel);
+
+      const overviewPanel = mockDoc.createElement("div");
+      overviewPanel.className = "AppDetailsOverviewPanel";
+      contentPanel.appendChild(overviewPanel);
+
+      const inPagePlayBar = mockDoc.createElement("div");
+      inPagePlayBar.className = "InPagePlayBarContainer InPage";
+      const playBtn = mockDoc.createElement("button");
+      playBtn.className = "PlayButton";
+      inPagePlayBar.appendChild(playBtn);
+      overviewPanel.appendChild(inPagePlayBar);
+
+      const contentSection = mockDoc.createElement("div");
+      contentSection.className = "ColumnContainer";
+      overviewPanel.appendChild(contentSection);
+
+      mockDoc.body.appendChild(scrollContainer);
+
+      const mockWin = {
+        document: mockDoc,
+        setInterval: vi.fn().mockReturnValue(999),
+        clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
+        MutationObserver: window.MutationObserver,
+        location: { pathname: "/library/app/77778" },
+        getComputedStyle: (el: Element) => {
+          if (el === scrollContainer) {
+            return { ...window.getComputedStyle(el), overflowY: "scroll" } as CSSStyleDeclaration;
+          }
+          return window.getComputedStyle(el);
+        },
+      } as unknown as Window;
+
+      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+        m_lastLocation: { pathname: "/library/app/77778" },
+      };
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = startDesktopNavigationWatcher(mockWin);
+
+      // Initially, substitute is mounted, but hero wrapper is not yet inflated
+      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).not.toBeNull();
+      expect(heroWrapper.style.overflow).toBe("");
+
+      // Steam renders canvas in background: heroWrapper scrollHeight inflates
+      Object.defineProperty(heroWrapper, "scrollHeight", { value: 1978, configurable: true });
+
+      // Trigger interval check while substitute is ALREADY mounted
+      const intervalCallback = vi.mocked(mockWin.setInterval).mock.calls[0]?.[0];
+      if (typeof intervalCallback === "function") {
+        intervalCallback();
+      }
+
+      // On reinject pass, hero wrapper should now be clipped
+      expect(heroWrapper.style.overflow).toBe("hidden");
+
+      stop();
+      expect(heroWrapper.style.overflow).toBe("");
+    });
+
     it("hides native duplicate sticky header when situated outside overviewPanel under main window split and restores on unmount", () => {
       const mockRoot = { render: vi.fn(), unmount: vi.fn() };
       vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
