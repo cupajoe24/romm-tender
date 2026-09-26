@@ -24,20 +24,20 @@ parity.
 
 ### 1. In-Game Details View (`/library/app/<appId>`)
 
-| Feature / Capability                 | Big Picture Implementation                                             | Desktop Implementation                                                     |     Status     | Notes & Roadmap                                                                      |
-| :----------------------------------- | :--------------------------------------------------------------------- | :------------------------------------------------------------------------- | :------------: | :----------------------------------------------------------------------------------- |
-| **Host UI Injection & Mounting**     | `gameDetailPatch.tsx` replaces `AppDetailsOverviewPanel` in React tree | `navigationWatcher.ts` mounts dual React roots (`PlayButton` + `GameView`) | ✅ **Parity**  | Both inject cleanly without Decky Loader dependencies.                               |
-| **Play / Download Button**           | `CustomPlayButton.tsx` (Action button container)                       | `PlayButton.tsx` (Replaces native Steam button)                            | ✅ **Parity**  | Supports Play, Download, Extracting, Launching, and Conflict states.                 |
-| **Sticky Play Bar & Glassmorphism**  | Native Steam sticky header adaptation                                  | `stickyPlayBarController.ts` with pinned solid / glass transition          | ✅ **Parity**  | Clips hero wrapper canvas overflow (`overflow: hidden`).                             |
-| **Game Information & Metadata**      | `AboutHeader.tsx` & `AboutDetails.tsx` (Steam deck style cards)        | `AboutHeader.tsx` & `AboutDetails.tsx` (`desktop/gameview/`)               | ✅ **Parity**  | Developer, publisher, release date, genres, description.                             |
-| **Multi-Disc & Variant Selector**    | `DiscSelector.tsx`                                                     | `DiscSelector.tsx` (`desktop/gameview/`)                                   | ✅ **Parity**  | Disc switching, variant selection, file list display.                                |
-| **Save Management (Cloud / Local)**  | `SaveManagementCard.tsx` + slot modals                                 | `SaveManagementCard.tsx` (`desktop/gameview/`)                             | ✅ **Parity**  | Slot switching, server vs. local status, download/upload.                            |
-| **Emulation & Core Selection**       | `EmulationSettings.tsx` + `CoreChangeModal.tsx`                        | `EmulationSettings.tsx` (`desktop/gameview/`)                              | ⚠️ **Partial** | Desktop displays core/standalone configs, but core picker modal is not yet portaled. |
-| **Achievements Display & Modal**     | `AchievementsCard.tsx` + `AchievementsModal.tsx`                       | `AchievementsCard.tsx` + `AchievementsModal.tsx`                           | ✅ **Parity**  | Unlocked/locked breakdown, progress bar, portaled desktop modal.                     |
-| **File Adoption & Conflict Dialogs** | `AdoptCandidateModal`, `AdoptCollisionModal`, etc.                     | `dialogs/DesktopAdoptDialogs.tsx`, `DesktopSaveConflictDialog.tsx`         | ✅ **Parity**  | Surface-independent logic in `utils/adoptFlow.ts` and `saveConflictFlow.ts`.         |
-| **RetroDECK Path Migration Alert**   | `MigrationBlockedCard.tsx` (Card alert in game detail)                 | `MigrationBlockedCard.tsx` (`desktop/gameview/`)                           | ✅ **Parity**  | Renders amber warning card atop desktop `GameView` when migration is blocked.        |
-| **Remote Play & Session Scope**      | `PlaytimeScopeBanner.tsx` & `sessionManager.ts`                        | ❌ _Not Implemented_                                                       | ❌ **Missing** | Need banner component in `GameView` alerting to active session on another device.    |
-| **Offline Drift / Unsynced Warning** | `OfflineDriftModal.tsx`, `UnsyncedSavesSwitchModal.tsx`                | ❌ _Not Implemented_                                                       | ❌ **Missing** | Fallback launch confirmations when offline saves differ from server.                 |
+| Feature / Capability                 | Big Picture Implementation                                             | Desktop Implementation                                                     |     Status     | Notes & Roadmap                                                                         |
+| :----------------------------------- | :--------------------------------------------------------------------- | :------------------------------------------------------------------------- | :------------: | :-------------------------------------------------------------------------------------- |
+| **Host UI Injection & Mounting**     | `gameDetailPatch.tsx` replaces `AppDetailsOverviewPanel` in React tree | `navigationWatcher.ts` mounts dual React roots (`PlayButton` + `GameView`) | ✅ **Parity**  | Both inject cleanly without Decky Loader dependencies.                                  |
+| **Play / Download Button**           | `CustomPlayButton.tsx` (Action button container)                       | `PlayButton.tsx` (Replaces native Steam button)                            | ✅ **Parity**  | Supports Play, Download, Extracting, Launching, and Conflict states.                    |
+| **Sticky Play Bar & Glassmorphism**  | Native Steam sticky header adaptation                                  | `stickyPlayBarController.ts` with pinned solid / glass transition          | ✅ **Parity**  | Clips hero wrapper canvas overflow (`overflow: hidden`).                                |
+| **Game Information & Metadata**      | `AboutHeader.tsx` & `AboutDetails.tsx` (Steam deck style cards)        | `AboutHeader.tsx` & `AboutDetails.tsx` (`desktop/gameview/`)               | ✅ **Parity**  | Developer, publisher, release date, genres, description.                                |
+| **Multi-Disc & Variant Selector**    | `DiscSelector.tsx`                                                     | `DiscSelector.tsx` (`desktop/gameview/`)                                   | ✅ **Parity**  | Disc switching, variant selection, file list display.                                   |
+| **Save Management (Cloud / Local)**  | `SaveManagementCard.tsx` + slot modals                                 | `SaveManagementCard.tsx` (`desktop/gameview/`)                             | ✅ **Parity**  | Slot switching, server vs. local status, download/upload.                               |
+| **Emulation & Core Selection**       | `EmulationSettings.tsx` + `CoreChangeModal.tsx`                        | `EmulationSettings.tsx` (`desktop/gameview/`)                              | ⚠️ **Partial** | Desktop displays core/standalone configs, but core picker modal is not yet portaled.    |
+| **Achievements Display & Modal**     | `AchievementsCard.tsx` + `AchievementsModal.tsx`                       | `AchievementsCard.tsx` + `AchievementsModal.tsx`                           | ✅ **Parity**  | Unlocked/locked breakdown, progress bar, portaled desktop modal.                        |
+| **File Adoption & Conflict Dialogs** | `AdoptCandidateModal`, `AdoptCollisionModal`, etc.                     | `dialogs/DesktopAdoptDialogs.tsx`, `DesktopSaveConflictDialog.tsx`         | ✅ **Parity**  | Surface-independent logic in `utils/adoptFlow.ts` and `saveConflictFlow.ts`.            |
+| **RetroDECK Path Migration Alert**   | `MigrationBlockedCard.tsx` (Card alert in game detail)                 | `MigrationBlockedCard.tsx` (`desktop/gameview/`)                           | ✅ **Parity**  | Renders amber warning card atop desktop `GameView` when migration is blocked.           |
+| **Remote Play & Session Scope**      | `PlaytimeScopeBanner.tsx` & `sessionManager.ts`                        | `PlaytimeScopeBanner.tsx` (`desktop/gameview/`)                            | ✅ **Parity**  | Cross-device playtime notice card & active session banner subscribed to session events. |
+| **Offline Drift / Unsynced Warning** | `OfflineDriftModal.tsx`, `UnsyncedSavesSwitchModal.tsx`                | ❌ _Not Implemented_                                                       | ❌ **Missing** | Fallback launch confirmations when offline saves differ from server.                    |
 
 ---
 
@@ -66,9 +66,9 @@ and alerts:
 1. **Migration & Path Alerts** (✅ Completed):
    - Port `MigrationBlockedCard.tsx` into `desktop/gameview/MigrationBlockedCard.tsx`.
    - Render atop `GameView` when `migrationStore` reports active path blocks.
-2. **Session & Remote Play Scope Banners**:
+2. **Session & Remote Play Scope Banners** (✅ Completed):
    - Port `PlaytimeScopeBanner.tsx` into `desktop/gameview/PlaytimeScopeBanner.tsx`.
-   - Subscribe to `sessionManager.ts` to warn when the same game is active on another device.
+   - Subscribe to `sessionManager.ts` and `romm_session_changed` to warn when a game session is active.
 3. **Core Selection Modal**:
    - Create a desktop portaled equivalent of `CoreChangeModal.tsx` allowing users to switch emulator cores directly from
      `desktop/gameview/EmulationSettings.tsx`.

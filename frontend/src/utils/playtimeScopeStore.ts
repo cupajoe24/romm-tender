@@ -61,6 +61,9 @@ export function usePlaytimeScopeState(): PlaytimeScopeState {
  */
 export async function fetchPlaytimeScopeState(): Promise<PlaytimeScopeState> {
   const notice = await getPlaytimeScopeNotice();
+  if (_state.pending === notice.pending) {
+    return _state;
+  }
   const next: PlaytimeScopeState = { pending: notice.pending };
   setPlaytimeScopeState(next);
   return next;
