@@ -1,9 +1,9 @@
-import { useEffect, useSyncExternalStore, type FC } from "react";
+import { useEffect, useSyncExternalStore, type CSSProperties, type FC } from "react";
 import { FaExclamationTriangle, FaGamepad } from "react-icons/fa";
 import { usePlaytimeScopeState, setPlaytimeScopeState, fetchPlaytimeScopeState } from "../../utils/playtimeScopeStore";
 import { isSessionActive } from "../../utils/sessionManager";
 import { showToast } from "../../utils/toast";
-import { CARD_STYLE, BUTTON_STYLE } from "./styles";
+import { BUTTON_STYLE, ACTIVE_SESSION_CARD_STYLE, PLAYTIME_SCOPE_CARD_STYLE } from "./styles";
 
 /** Title of the account-wide playtime-scope banner. */
 export const PLAYTIME_SCOPE_TITLE = "Cross-device playtime";
@@ -24,6 +24,102 @@ export interface ActiveSessionBannerProps {
   message?: string | undefined;
 }
 
+const ACTIVE_SESSION_STANDARD_STYLE: CSSProperties = {
+  ...ACTIVE_SESSION_CARD_STYLE,
+  display: "flex",
+  flexDirection: "row",
+  alignItems: "flex-start",
+  gap: "16px",
+  padding: "18px 20px",
+  textAlign: "left",
+};
+
+const ACTIVE_SESSION_COMPACT_STYLE: CSSProperties = {
+  ...ACTIVE_SESSION_CARD_STYLE,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "12px",
+  padding: "16px",
+  textAlign: "center",
+};
+
+const ACTIVE_SESSION_STANDARD_ICON_STYLE: CSSProperties = {
+  color: "#3898ec",
+  fontSize: "28px",
+  minWidth: "28px",
+  flexShrink: 0,
+  marginTop: "2px",
+};
+
+const ACTIVE_SESSION_COMPACT_ICON_STYLE: CSSProperties = {
+  color: "#3898ec",
+  fontSize: "22px",
+  minWidth: "22px",
+  flexShrink: 0,
+  marginTop: 0,
+};
+
+const ACTIVE_SESSION_DOT_STYLE: CSSProperties = {
+  display: "inline-block",
+  width: "8px",
+  height: "8px",
+  borderRadius: "50%",
+  backgroundColor: "#3898ec",
+  boxShadow: "0 0 8px #3898ec",
+};
+
+const PLAYTIME_SCOPE_STANDARD_STYLE: CSSProperties = {
+  ...PLAYTIME_SCOPE_CARD_STYLE,
+  display: "flex",
+  flexDirection: "row",
+  alignItems: "flex-start",
+  gap: "16px",
+  padding: "18px 20px",
+  textAlign: "left",
+};
+
+const PLAYTIME_SCOPE_COMPACT_STYLE: CSSProperties = {
+  ...PLAYTIME_SCOPE_CARD_STYLE,
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: "12px",
+  padding: "16px",
+  textAlign: "center",
+};
+
+const PLAYTIME_SCOPE_STANDARD_ICON_STYLE: CSSProperties = {
+  color: "#d4a72c",
+  fontSize: "28px",
+  minWidth: "28px",
+  flexShrink: 0,
+  marginTop: "2px",
+};
+
+const PLAYTIME_SCOPE_COMPACT_ICON_STYLE: CSSProperties = {
+  color: "#d4a72c",
+  fontSize: "22px",
+  minWidth: "22px",
+  flexShrink: 0,
+  marginTop: 0,
+};
+
+const OPEN_CONNECTIONS_BUTTON_STYLE: CSSProperties = {
+  ...BUTTON_STYLE,
+  backgroundColor: "rgba(212, 167, 44, 0.15)",
+  borderColor: "rgba(212, 167, 44, 0.4)",
+  color: "#e2bf58",
+};
+
+const BANNER_CONTENT_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px",
+  flex: 1,
+  minWidth: 0,
+};
+
 /**
  * Polished desktop card alerting the user to an active session for the current game.
  * Styled with desktop client typography, glassmorphism, and a glowing blue active status indicator.
@@ -39,32 +135,13 @@ export const ActiveSessionBanner: FC<ActiveSessionBannerProps> = ({
       aria-label="Active Game Session"
       data-testid="desktop-active-session-banner"
       className="tender-desktop-card tender-desktop-active-session-card"
-      style={{
-        ...CARD_STYLE,
-        display: "flex",
-        flexDirection: compact ? "column" : "row",
-        alignItems: compact ? "center" : "flex-start",
-        gap: compact ? "12px" : "16px",
-        background: "linear-gradient(135deg, rgba(56, 152, 236, 0.12) 0%, rgba(36, 40, 47, 0.75) 100%)",
-        backgroundColor: "rgba(36, 40, 47, 0.75)",
-        border: "1px solid rgba(56, 152, 236, 0.35)",
-        borderLeft: "4px solid #3898ec",
-        borderRadius: "4px",
-        padding: compact ? "16px" : "18px 20px",
-        textAlign: compact ? "center" : "left",
-      }}
+      style={compact ? ACTIVE_SESSION_COMPACT_STYLE : ACTIVE_SESSION_STANDARD_STYLE}
     >
       <FaGamepad
-        style={{
-          color: "#3898ec",
-          fontSize: compact ? "22px" : "28px",
-          minWidth: compact ? "22px" : "28px",
-          flexShrink: 0,
-          marginTop: compact ? 0 : "2px",
-        }}
+        style={compact ? ACTIVE_SESSION_COMPACT_ICON_STYLE : ACTIVE_SESSION_STANDARD_ICON_STYLE}
         aria-hidden="true"
       />
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1, minWidth: 0 }}>
+      <div style={BANNER_CONTENT_STYLE}>
         <div
           className="tender-desktop-active-session-title"
           style={{
@@ -79,17 +156,7 @@ export const ActiveSessionBanner: FC<ActiveSessionBannerProps> = ({
           }}
         >
           <span>{title}</span>
-          <span
-            style={{
-              display: "inline-block",
-              width: "8px",
-              height: "8px",
-              borderRadius: "50%",
-              backgroundColor: "#3898ec",
-              boxShadow: "0 0 8px #3898ec",
-            }}
-            title="Session active"
-          />
+          <span style={ACTIVE_SESSION_DOT_STYLE} title="Session active" />
         </div>
         <div
           className="tender-desktop-active-session-message"
@@ -144,32 +211,13 @@ export const PlaytimeScopeCard: FC<PlaytimeScopeCardProps> = ({
       aria-live="polite"
       data-testid="desktop-playtime-scope-banner"
       className="tender-desktop-card tender-desktop-playtime-scope-card tender-desktop-warning-card"
-      style={{
-        ...CARD_STYLE,
-        display: "flex",
-        flexDirection: compact ? "column" : "row",
-        alignItems: compact ? "center" : "flex-start",
-        gap: compact ? "12px" : "16px",
-        background: "linear-gradient(135deg, rgba(212, 167, 44, 0.1) 0%, rgba(36, 40, 47, 0.75) 100%)",
-        backgroundColor: "rgba(36, 40, 47, 0.75)",
-        border: "1px solid rgba(212, 167, 44, 0.35)",
-        borderLeft: "4px solid #d4a72c",
-        borderRadius: "4px",
-        padding: compact ? "16px" : "18px 20px",
-        textAlign: compact ? "center" : "left",
-      }}
+      style={compact ? PLAYTIME_SCOPE_COMPACT_STYLE : PLAYTIME_SCOPE_STANDARD_STYLE}
     >
       <FaExclamationTriangle
-        style={{
-          color: "#d4a72c",
-          fontSize: compact ? "22px" : "28px",
-          minWidth: compact ? "22px" : "28px",
-          flexShrink: 0,
-          marginTop: compact ? 0 : "2px",
-        }}
+        style={compact ? PLAYTIME_SCOPE_COMPACT_ICON_STYLE : PLAYTIME_SCOPE_STANDARD_ICON_STYLE}
         aria-hidden="true"
       />
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1, minWidth: 0 }}>
+      <div style={BANNER_CONTENT_STYLE}>
         <div
           className="tender-desktop-playtime-scope-title"
           style={{
@@ -202,12 +250,7 @@ export const PlaytimeScopeCard: FC<PlaytimeScopeCardProps> = ({
           <button
             type="button"
             className="tender-desktop-button"
-            style={{
-              ...BUTTON_STYLE,
-              backgroundColor: "rgba(212, 167, 44, 0.15)",
-              borderColor: "rgba(212, 167, 44, 0.4)",
-              color: "#e2bf58",
-            }}
+            style={OPEN_CONNECTIONS_BUTTON_STYLE}
             onClick={handleOpenConnections}
           >
             Open Connections

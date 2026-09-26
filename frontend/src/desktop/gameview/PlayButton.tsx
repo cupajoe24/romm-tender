@@ -23,7 +23,7 @@
  *   - `PlayStateButton`: play/sync/launch button and options menu
  */
 
-import { useState, useEffect, useRef, type FC, type MouseEvent } from "react";
+import { useState, useEffect, useRef, type CSSProperties, type FC, type MouseEvent } from "react";
 import { addEventListener, removeEventListener } from "../../api/host";
 import {
   cancelDownload,
@@ -110,6 +110,68 @@ interface FoundOnDisk {
   targetOccupied: boolean;
   candidatePresent: boolean;
 }
+
+const READY_BUTTON_STYLE: CSSProperties = {
+  ...BUTTON_BASE_STYLE,
+  width: "100%",
+  borderRadius: "2px",
+  background: "linear-gradient(90deg, #70d61d 0%, #01a75b 100%)",
+  filter: "brightness(1.2)",
+};
+
+const RESUME_BUTTON_STYLE: CSSProperties = {
+  ...BUTTON_BASE_STYLE,
+  background: "linear-gradient(90deg, #59bf43 0%, #409930 100%)",
+  borderRadius: "2px 0 0 2px",
+};
+
+const CONFLICT_BUTTON_STYLE: CSSProperties = {
+  ...BUTTON_BASE_STYLE,
+  width: "100%",
+  borderRadius: "2px",
+  background: "linear-gradient(90deg, #d4a017 0%, #b8860b 100%)",
+  fontSize: "13px",
+};
+
+const UNINSTALLING_BUTTON_STYLE: CSSProperties = {
+  ...BUTTON_BASE_STYLE,
+  width: "100%",
+  borderRadius: "2px",
+  background: "#2a3f5a",
+  color: "#8fa3b8",
+};
+
+const DOWNLOAD_BUTTON_BASE_STYLE: CSSProperties = {
+  ...BUTTON_BASE_STYLE,
+  width: "100%",
+  borderRadius: "2px",
+};
+
+const DOWNLOAD_BUTTON_OFFLINE_STYLE: CSSProperties = {
+  ...DOWNLOAD_BUTTON_BASE_STYLE,
+  background: "linear-gradient(90deg, #4a5968 0%, #3a4754 100%)",
+  cursor: "not-allowed",
+  opacity: 0.7,
+};
+
+const DOWNLOAD_BUTTON_PENDING_STYLE: CSSProperties = {
+  ...DOWNLOAD_BUTTON_BASE_STYLE,
+  background: "linear-gradient(90deg, #1a9fff 0%, #0078d4 100%)",
+  cursor: "not-allowed",
+  opacity: 0.7,
+};
+
+const DOWNLOAD_BUTTON_ONLINE_STYLE: CSSProperties = {
+  ...DOWNLOAD_BUTTON_BASE_STYLE,
+  background: "linear-gradient(90deg, #1a9fff 0%, #0078d4 100%)",
+  cursor: "pointer",
+  opacity: 1,
+};
+
+const DOWNLOAD_BUTTON_EXISTING_STYLE: CSSProperties = {
+  ...DOWNLOAD_BUTTON_ONLINE_STYLE,
+  fontSize: "13px",
+};
 
 // The dialog host sits above the button so that the button's branches, which
 // render different trees, cannot unmount an open dialog when the state moves.
@@ -529,17 +591,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     if (effectiveState === "dl_complete") {
       return (
         <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
-          <button
-            type="button"
-            disabled
-            style={{
-              ...BUTTON_BASE_STYLE,
-              width: "100%",
-              borderRadius: "2px",
-              background: "linear-gradient(90deg, #70d61d 0%, #01a75b 100%)",
-              filter: "brightness(1.2)",
-            }}
-          >
+          <button type="button" disabled style={READY_BUTTON_STYLE}>
             READY!
           </button>
         </div>
@@ -552,11 +604,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
           <button
             type="button"
             className="tender-desktop-btn-resume"
-            style={{
-              ...BUTTON_BASE_STYLE,
-              background: "linear-gradient(90deg, #59bf43 0%, #409930 100%)",
-              borderRadius: "2px 0 0 2px",
-            }}
+            style={RESUME_BUTTON_STYLE}
             onClick={() => {
               void handlePlayClick();
             }}
@@ -606,13 +654,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
           <button
             type="button"
             className="tender-desktop-btn-conflict"
-            style={{
-              ...BUTTON_BASE_STYLE,
-              width: "100%",
-              borderRadius: "2px",
-              background: "linear-gradient(90deg, #d4a017 0%, #b8860b 100%)",
-              fontSize: "13px",
-            }}
+            style={CONFLICT_BUTTON_STYLE}
             onClick={() => {
               detach(handleResolveConflictClick());
             }}
@@ -626,17 +668,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     if (effectiveState === "uninstalling") {
       return (
         <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
-          <button
-            type="button"
-            disabled
-            style={{
-              ...BUTTON_BASE_STYLE,
-              width: "100%",
-              borderRadius: "2px",
-              background: "#2a3f5a",
-              color: "#8fa3b8",
-            }}
-          >
+          <button type="button" disabled style={UNINSTALLING_BUTTON_STYLE}>
             UNINSTALLING...
           </button>
         </div>
@@ -651,23 +683,21 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     else if (usesExisting) downloadLabel = "USE EXISTING FILES";
     const downloadDisabled = isOffline || actionPending;
 
+    const downloadStyle: CSSProperties = isOffline
+      ? DOWNLOAD_BUTTON_OFFLINE_STYLE
+      : actionPending
+        ? DOWNLOAD_BUTTON_PENDING_STYLE
+        : usesExisting
+          ? DOWNLOAD_BUTTON_EXISTING_STYLE
+          : DOWNLOAD_BUTTON_ONLINE_STYLE;
+
     return (
       <div className="tender-desktop-play-btn-group" style={BUTTON_GROUP_STYLE}>
         <button
           type="button"
           className="tender-desktop-btn-download"
           disabled={downloadDisabled}
-          style={{
-            ...BUTTON_BASE_STYLE,
-            width: "100%",
-            borderRadius: "2px",
-            background: isOffline
-              ? "linear-gradient(90deg, #4a5968 0%, #3a4754 100%)"
-              : "linear-gradient(90deg, #1a9fff 0%, #0078d4 100%)",
-            cursor: downloadDisabled ? "not-allowed" : "pointer",
-            opacity: downloadDisabled ? 0.7 : 1,
-            ...(usesExisting && !downloadDisabled ? { fontSize: "13px" } : {}),
-          }}
+          style={downloadStyle}
           onClick={() => {
             void handleDownloadClick();
           }}

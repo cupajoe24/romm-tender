@@ -21,7 +21,6 @@ import {
   checkLocalDrift,
   isSaveTrackingConfigured,
   confirmSlotChoice,
-  checkCoreChange,
 } from "../../api/backend";
 import {
   desktopSaveConflictDialog,
@@ -116,15 +115,9 @@ export function usePlayLaunch({
     });
   };
 
-  const confirmCoreChangeIfNeeded = async (rid: number): Promise<boolean> => {
-    const coreCheck = await checkCoreChange(rid).catch(
-      (): { changed: boolean; old_core?: string; new_core?: string; old_label?: string; new_label?: string } => ({
-        changed: false,
-      }),
-    );
-    if (!coreCheck.changed) return true;
-    return true;
-  };
+  // Core change confirmation modal is not yet portaled to Steam Desktop (per parity matrix).
+  // Returns true without making an unnecessary network call until DesktopCoreChangeModal exists.
+  const confirmCoreChangeIfNeeded = async (_rid: number): Promise<boolean> => true;
 
   const runPreLaunchSync = async (rid: number): Promise<PreLaunchSyncOutcome> => {
     setStateOverride("syncing");
