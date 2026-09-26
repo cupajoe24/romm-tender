@@ -229,6 +229,9 @@ export function ensurePulseStyles(doc?: Document | null) {
       background: rgba(255, 255, 255, 0.08) !important;
       color: #ffffff !important;
     }
+    .tender-desktop-menu-item-uninstall:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+    }
   `;
   targetDoc.head.appendChild(style);
 }
@@ -1420,6 +1423,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             className="tender-desktop-menu-toggle"
             title="Game Options"
             aria-label="Game Options"
+            aria-expanded={showMenu}
             style={sideActionStyle}
             onClick={() => setShowMenu((prev) => !prev)}
           >
@@ -1442,8 +1446,10 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
               style={{
                 position: "absolute",
                 top: "calc(100% + 4px)",
+                left: 0,
                 right: 0,
-                minWidth: "160px",
+                width: "100%",
+                boxSizing: "border-box",
                 background: "#1e2837",
                 border: "1px solid #3c4856",
                 borderRadius: "2px",
@@ -1457,6 +1463,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
                 className="tender-desktop-menu-item-uninstall"
                 style={{
                   width: "100%",
+                  boxSizing: "border-box",
                   padding: "8px 16px",
                   textAlign: "left",
                   background: "transparent",

@@ -533,7 +533,13 @@ describe("PlayButton", () => {
     render(<PlayButton appId={123} />);
 
     const menuToggle = screen.getByRole("button", { name: /game options/i });
+    expect(menuToggle).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(menuToggle);
+    expect(menuToggle).toHaveAttribute("aria-expanded", "true");
+
+    const playMenu = document.querySelector(".tender-desktop-play-menu");
+    expect(playMenu).toBeInTheDocument();
+    expect(playMenu).toHaveStyle({ left: "0px", right: "0px", width: "100%" });
 
     const uninstallBtn = screen.getByRole("button", { name: /uninstall/i });
     expect(uninstallBtn).toBeInTheDocument();
