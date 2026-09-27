@@ -19,7 +19,6 @@ import {
   switchSlot,
   deleteSlot,
   getSlotDeleteInfo,
-  syncRomSaves,
   copySaveToSlot,
   savesListFileVersions,
   savesRollbackToVersion,
@@ -28,9 +27,8 @@ import {
   debugLog,
 } from "../../api/backend";
 import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
-import { refreshSaveStatus, noteSaveSyncDisplay, type GameDetailState } from "../../utils/gameDetailStore";
+import { refreshSaveStatus, type GameDetailState } from "../../utils/gameDetailStore";
 import { showToast } from "../../utils/toast";
-import { saveSyncToastBody } from "../../utils/saveSyncToast";
 import { detach } from "../../utils/detach";
 import { formatBytes, formatTimestamp } from "../../utils/formatters";
 import {
@@ -42,7 +40,16 @@ import {
   statusLabel,
   computeSyncSummary,
   MUTED_COLOR,
+  sortSaveSlots,
+  filterSaveSlotsForDisplay,
+  switchSlotFailureMessage,
+  formatCopySaveToSlotFeedback,
+  formatRollbackFeedback,
+  formatSlotDeleteLines,
 } from "../../utils/saveHelpers";
+import { executeManualSaveSync } from "../../utils/manualSaveSync";
+import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
+import { desktopSaveConflictDialog } from "./dialogs/desktopDialogs";
 import type {
   SaveSlotSummary,
   SlotSaveFile,
@@ -57,6 +64,7 @@ export interface SaveManagementCardProps {
   appId: number;
   romId: number | null;
   detail: GameDetailState;
+  ask?: AskDialog | undefined;
 }
 
 import { CARD_STYLE, BUTTON_STYLE, MODAL_CONTAINER_STYLE, BACKDROP_BUTTON_STYLE } from "./styles";
@@ -72,8 +80,10 @@ const DIALOG_BOX_STYLE: React.CSSProperties = {
   color: "#c7d5e0",
   fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
 };
+export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, detail, ask }) => {
+  const fallbackHost = useDialogHost();
+  const effectiveAsk = ask ?? fallbackHost.ask;
 
-export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, detail }) => {
   const [availableSlots, setAvailableSlots] = useState<SaveSlotSummary[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(Boolean(romId));
   const [activeSlotKnown, setActiveSlotKnown] = useState(false);
@@ -97,7 +107,6 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
 
   const [copyModalData, setCopyModalData] = useState<{ saveId: number; sourceSlot: string } | null>(null);
   const [copyNewSlotInput, setCopyNewSlotInput] = useState("");
-
   const [deleteModalSlot, setDeleteModalSlot] = useState<SlotDeleteInfo | null>(null);
 
   // Version history sub-panels expansion & cache
@@ -254,29 +263,8 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     if (isSyncing || !romId) return;
     setIsSyncing(true);
     try {
-      const result = await syncRomSaves(romId);
-      if (result.success) {
-        const body = saveSyncToastBody(result.uploaded, result.downloaded);
-        const c = result.conflicts?.length ?? 0;
-        if (body) {
-          showToast(body);
-        } else if (c === 0) {
-          showToast("Saves already up to date");
-        }
-        if (c > 0) {
-          showToast(`${c} conflict(s) need resolution`);
-        }
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
-        );
-        noteSaveSyncDisplay(appId, romId, { status: "synced", label: "Just now", last_sync_check_at: null });
-        await refreshSaveStatus(appId);
-        await loadSlots();
-      } else {
-        showToast(result.message || "Save sync failed");
-      }
-    } catch {
-      showToast("Save sync failed");
+      await executeManualSaveSync(appId, romId);
+      await loadSlots();
     } finally {
       setIsSyncing(false);
     }
@@ -304,13 +292,10 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
         await refreshSaveStatus(appId);
         await loadSlots();
       } else {
-        let msg = "Failed to create slot";
-        if (result.reason === "pending_uploads") {
-          msg = "Sync your saves first — local changes haven't been uploaded";
-        } else if (result.reason === "server_unreachable") {
+        if (result.reason === "server_unreachable") {
           reportServerReachable(false);
-          msg = "Can't switch — RomM server is not reachable";
         }
+        const msg = switchSlotFailureMessage(result.reason, result.message, "Failed to create slot");
         setNewSlotError(msg);
       }
     } catch (e) {
@@ -338,15 +323,10 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
         await refreshSaveStatus(appId);
         await loadSlots();
       } else {
-        let msg = "Failed to switch slot";
-        if (result.reason === "pending_uploads") {
-          msg = "Sync your saves first — local changes haven't been uploaded";
-        } else if (result.reason === "server_unreachable") {
+        if (result.reason === "server_unreachable") {
           reportServerReachable(false);
-          msg = "Can't switch — RomM server is not reachable";
-        } else if (result.reason === "not_installed") {
-          msg = "Can't switch — download the game first";
         }
+        const msg = switchSlotFailureMessage(result.reason, result.message, "Failed to switch slot");
         setSlotSwitchErrors((prev) => ({ ...prev, [slotName]: msg }));
       }
     } catch (e) {
@@ -398,28 +378,26 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   const handleExecuteCopy = async (target: string) => {
     if (!copyModalData || !romId) return;
     const { saveId } = copyModalData;
+    setCopyModalData(null);
+    setCopyNewSlotInput("");
     try {
       const result: CopySaveToSlotStatus = await copySaveToSlot(romId, saveId, target);
+      const feedback = formatCopySaveToSlotFeedback(result, target);
+      if (feedback.kind === "conflict") {
+        await desktopSaveConflictDialog(effectiveAsk)(feedback.conflict);
+      } else {
+        showToast(feedback.message);
+      }
       if (result.status === "ok") {
-        showToast(`Save copied to slot '${displaySlot(target)}'`);
-        setCopyModalData(null);
-        setCopyNewSlotInput("");
         globalThis.dispatchEvent(
           new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
         );
         await refreshSaveStatus(appId);
         await loadSlots();
-      } else if (result.status === "already_present") {
-        showToast(`Already in slot '${displaySlot(target)}' as #${result.existing_id}`);
-        setCopyModalData(null);
-      } else if (result.status === "target_slot_busy") {
-        showToast(`Slot '${displaySlot(target)}' has newer changes on another device — sync it first.`);
-      } else {
-        showToast(`Could not copy save: ${result.status}`);
       }
     } catch (e) {
       detach(debugLog(`SaveManagementCard: copy error: ${e}`));
-      showToast("Couldn't copy the save. Check your connection.");
+      showToast("Couldn't copy the save. Check your connection and try again.");
     }
   };
 
@@ -429,20 +407,18 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     setRestoringVersionId(version.id);
     try {
       const result: RollbackStatus = await savesRollbackToVersion(romId, slotName, version.id);
-      if (result.status === "ok") {
-        showToast(`Save restored from ${formatRelativeTime(version.updated_at)}`);
+      const feedback = formatRollbackFeedback(result, version.updated_at);
+      if (feedback.kind === "conflict") {
+        await desktopSaveConflictDialog(effectiveAsk)(feedback.conflict);
+      } else {
+        showToast(feedback.message);
+      }
+      if (result.status === "ok" || result.status === "put_failed") {
         globalThis.dispatchEvent(
           new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
         );
         await refreshSaveStatus(appId);
         await loadSlots();
-      } else if (result.status === "put_failed") {
-        showToast("Restored locally, but server update failed. Try syncing again.");
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
-        );
-      } else {
-        showToast(`Restore blocked: ${result.status}`);
       }
     } catch (e) {
       detach(debugLog(`SaveManagementCard: restore error: ${e}`));
@@ -453,22 +429,9 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   };
 
   // Sort slots: active first, then alphabetical, legacy "" last
-  const slotRank = (s: SaveSlotSummary): number => {
-    if (s.slot === activeSlot) return 0;
-    if (s.slot === "") return 2;
-    return 1;
-  };
-  const sortedSlots = [...availableSlots].sort((a, b) => {
-    const diff = slotRank(a) - slotRank(b);
-    if (diff !== 0) return diff;
-    return a.slot.localeCompare(b.slot);
-  });
-
-  if (activeSlot && activeSlotKnown && !sortedSlots.some((s) => s.slot === activeSlot)) {
-    sortedSlots.unshift({ slot: activeSlot, source: "local", count: 0, latest_updated_at: null });
-  }
-
-  const totalSlotsCount = sortedSlots.length;
+  const sortedSlots = sortSaveSlots(availableSlots, activeSlot, activeSlotKnown);
+  const displaySlots = filterSaveSlotsForDisplay(sortedSlots, activeSlot);
+  const totalSlotsCount = displaySlots.length;
   const syncLabel = detail.saveSyncEnabled ? "save sync on" : "save sync off";
 
   return (
@@ -591,7 +554,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
 
       {/* Slot Accordion Panels */}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-        {sortedSlots.map((slot) => {
+        {displaySlots.map((slot) => {
           const isSlotActive = activeSlot !== null && slot.slot === activeSlot;
           const isExpanded = expandedSlots[slot.slot] ?? isSlotActive;
           const isLegacy = slot.slot === "";
@@ -1285,16 +1248,11 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
             >
               Delete Slot
             </h3>
-            <p style={{ margin: "0 0 12px 0", fontSize: "13px", color: "#a0b0c0", lineHeight: 1.4 }}>
-              {deleteModalSlot.source === "server" && (deleteModalSlot.server_save_count ?? 0) > 0
-                ? `This will permanently delete ${deleteModalSlot.server_save_count} save(s) from slot '${deleteModalSlot.slot}' on the RomM server.`
-                : `This will remove slot '${deleteModalSlot.slot}' from your local configuration.`}
-            </p>
-            {(deleteModalSlot.local_file_count ?? 0) > 0 && (
-              <p style={{ margin: "0 0 12px 0", fontSize: "13px", color: "#a0b0c0" }}>
-                {`${deleteModalSlot.local_file_count} tracked file(s) will be unlinked.`}
+            {formatSlotDeleteLines(deleteModalSlot).map((line, idx) => (
+              <p key={idx} style={{ margin: "0 0 12px 0", fontSize: "13px", color: "#a0b0c0", lineHeight: 1.4 }}>
+                {line}
               </p>
-            )}
+            ))}
             <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#d94126", fontWeight: 600 }}>
               This cannot be undone.
             </p>
@@ -1322,6 +1280,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
           </div>
         </div>
       )}
+      {ask ? null : fallbackHost.element}
     </div>
   );
 };

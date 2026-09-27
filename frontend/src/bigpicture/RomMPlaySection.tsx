@@ -46,6 +46,7 @@ import {
   reconcilePlaytime,
   debugLog,
 } from "../api/backend";
+import { executeManualSaveSync } from "../utils/manualSaveSync";
 import { executeRomUninstall } from "../utils/romUninstall";
 import { setLaunchOptionsConfirmed } from "../utils/steamShortcuts";
 import {
