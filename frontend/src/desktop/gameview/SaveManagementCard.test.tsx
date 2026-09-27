@@ -5,7 +5,7 @@ import * as backend from "../../api/backend";
 import * as connectionState from "../../utils/connectionState";
 import * as toast from "../../utils/toast";
 import type { GameDetailState } from "../../utils/gameDetailStore";
-import type { SaveStatus, SaveSlotSummary, SlotSaveFile, SaveVersionEntry } from "../../types";
+import type { SaveStatus, SaveSlotSummary, SlotSaveFile, SaveVersionEntry, SyncConflict } from "../../types";
 
 vi.mock("../../utils/gameDetailStore", () => ({
   refreshSaveStatus: vi.fn(),
@@ -115,6 +115,11 @@ describe("SaveManagementCard", () => {
       success: true,
       slots: mockSlots,
       active_slot: "default",
+    });
+    vi.mocked(backend.getSlotSaves).mockResolvedValue({
+      success: true,
+      slot: "speedrun",
+      saves: [],
     });
     vi.mocked(backend.getVersionList).mockResolvedValue({
       multi_version: false,
@@ -294,7 +299,7 @@ describe("SaveManagementCard", () => {
     await waitFor(() => {
       expect(backend.getSlotDeleteInfo).toHaveBeenCalledWith(42, "speedrun");
       expect(
-        screen.getByText("This will permanently delete 2 save(s) from slot 'speedrun' on the RomM server."),
+        screen.getByText("This will permanently delete 2 saves from slot 'speedrun' on the RomM server."),
       ).toBeInTheDocument();
     });
 
@@ -448,7 +453,13 @@ describe("SaveManagementCard", () => {
     });
   });
 
-  it("renders legacy warning banner when activeSlot is null", async () => {
+  it("renders legacy warning banner and omits empty legacy slot panel when activeSlot is null", async () => {
+    vi.mocked(backend.getSaveSlots).mockResolvedValue({
+      success: true,
+      slots: mockSlots,
+      active_slot: null,
+    });
+
     render(
       <SaveManagementCard
         appId={100}
@@ -461,6 +472,171 @@ describe("SaveManagementCard", () => {
       expect(
         screen.getByText("This game uses legacy mode (no slot). Only one save version per game is supported."),
       ).toBeInTheDocument();
+      // "default" and "speedrun" should be in the document, but legacy "" panel should be omitted
+      expect(screen.getByText("default")).toBeInTheDocument();
+      expect(screen.getByText("speedrun")).toBeInTheDocument();
+      expect(screen.queryByText("legacy")).not.toBeInTheDocument();
+    });
+  });
+
+  it("surfaces specific error for savefiles_in_content_dir when switching slots", async () => {
+    vi.mocked(backend.switchSlot).mockResolvedValue({
+      success: false,
+      reason: "savefiles_in_content_dir",
+    });
+
+    render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("speedrun")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("speedrun").closest('[role="button"]')!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Activate Slot")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Activate Slot"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Can't switch — this game's saves are written beside the game file")).toBeInTheDocument();
+    });
+  });
+
+  it("handles conflict_blocked during copy save to slot and prompts conflict resolution", async () => {
+    const mockConflict: SyncConflict = {
+      type: "sync_conflict",
+      rom_id: 42,
+      filename: "Mario Golf - Advance Tour.srm",
+      server_save_id: 999,
+      server_updated_at: "2026-06-15T12:30:00Z",
+      server_size: 65536,
+      local_path: "~/retrodeck/saves/gba/Mario Golf - Advance Tour.srm",
+      local_hash: "hash123",
+      local_mtime: "2026-06-15T12:00:00Z",
+      local_size: 65536,
+      created_at: "2026-06-15T12:30:00Z",
+    };
+
+    vi.mocked(backend.copySaveToSlot).mockResolvedValue({
+      status: "conflict_blocked",
+      conflicts: [mockConflict],
+    });
+
+    render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Copy to slot...")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Copy to slot..."));
+    fireEvent.click(screen.getByRole("button", { name: "speedrun" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Save conflict for/i)).toBeInTheDocument();
+      expect(screen.getByText("Keep Local")).toBeInTheDocument();
+      expect(screen.getByText("Use Server")).toBeInTheDocument();
+    });
+  });
+
+  it("handles conflict_blocked during version restore and prompts conflict resolution", async () => {
+    const mockConflict: SyncConflict = {
+      type: "sync_conflict",
+      rom_id: 42,
+      filename: "Mario Golf - Advance Tour.srm",
+      server_save_id: 999,
+      server_updated_at: "2026-06-15T12:30:00Z",
+      server_size: 65536,
+      local_path: "~/retrodeck/saves/gba/Mario Golf - Advance Tour.srm",
+      local_hash: "hash123",
+      local_mtime: "2026-06-15T12:00:00Z",
+      local_size: 65536,
+      created_at: "2026-06-15T12:30:00Z",
+    };
+
+    const mockVersions: SaveVersionEntry[] = [
+      {
+        id: 4809,
+        emulator: "mgba",
+        file_name: "Mario Golf - Advance Tour.srm",
+        file_size_bytes: 65536,
+        updated_at: "2026-06-12T10:00:00Z",
+        uploaded_by_us: true,
+        device_syncs: [],
+      },
+    ];
+
+    vi.mocked(backend.savesListFileVersions).mockResolvedValue({
+      status: "ok",
+      versions: mockVersions,
+    });
+    vi.mocked(backend.savesRollbackToVersion).mockResolvedValue({
+      status: "conflict_blocked",
+      conflicts: [mockConflict],
+    });
+
+    render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Previous Versions")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Previous Versions"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Restore")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Restore"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Save conflict for/i)).toBeInTheDocument();
+      expect(screen.getByText("Keep Local")).toBeInTheDocument();
+      expect(screen.getByText("Use Server")).toBeInTheDocument();
+    });
+  });
+
+  it("notifies with warning toast on rollback put_failed", async () => {
+    const mockVersions: SaveVersionEntry[] = [
+      {
+        id: 4809,
+        emulator: "mgba",
+        file_name: "Mario Golf - Advance Tour.srm",
+        file_size_bytes: 65536,
+        updated_at: "2026-06-12T10:00:00Z",
+        uploaded_by_us: true,
+        device_syncs: [],
+      },
+    ];
+
+    vi.mocked(backend.savesListFileVersions).mockResolvedValue({
+      status: "ok",
+      versions: mockVersions,
+    });
+    vi.mocked(backend.savesRollbackToVersion).mockResolvedValue({
+      status: "put_failed",
+      message: "Server update failed",
+    });
+
+    render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Previous Versions")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Previous Versions"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Restore")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Restore"));
+
+    await waitFor(() => {
+      expect(toast.showToast).toHaveBeenCalledWith(
+        "Restored locally, but the server didn't update. Other devices will see the previous version until you retry.",
+      );
     });
   });
 });

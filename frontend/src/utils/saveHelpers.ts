@@ -4,7 +4,15 @@
  * or React belongs here.
  */
 
-import type { DeviceSyncInfo, RollbackStatus, SaveStatus, SyncConflict, SlotDeleteInfo } from "../types";
+import type {
+  DeviceSyncInfo,
+  RollbackStatus,
+  SaveStatus,
+  SyncConflict,
+  SlotDeleteInfo,
+  SaveSlotSummary,
+  CopySaveToSlotStatus,
+} from "../types";
 
 export const MUTED_COLOR = "#8f98a0";
 
@@ -180,4 +188,180 @@ export function computeSyncSummary(
     return { syncSummaryText: rel === "just now" ? "Synced just now" : `Synced ${rel}`, syncSummaryColor: "#5ba32b" };
   }
   return { syncSummaryText: "Not synced", syncSummaryColor: MUTED_COLOR };
+}
+
+/** The toast for a copy refused as unsupported — the backend's own explanation where it gave one. */
+export function unsupportedCopyMessage(result: Extract<CopySaveToSlotStatus, { status: "unsupported" }>): string {
+  if (result.reason === "savefiles_in_content_dir") {
+    return "Save sync is off for this game: its saves are written beside the game file.";
+  }
+  if (result.reason === "save_shape_unsupported" && result.message) {
+    return result.message;
+  }
+  return "Copying isn't available for multi-file saves yet.";
+}
+
+export type CopySaveToSlotFeedback = { kind: "toast"; message: string } | { kind: "conflict"; conflict: SyncConflict };
+
+/** Map a CopySaveToSlotStatus to user-facing toast feedback or conflict modal requirement. */
+export function formatCopySaveToSlotFeedback(result: CopySaveToSlotStatus, targetSlot: string): CopySaveToSlotFeedback {
+  switch (result.status) {
+    case "ok":
+      return { kind: "toast", message: `Save copied to slot '${displaySlot(targetSlot)}'` };
+    case "already_present":
+      return { kind: "toast", message: `Already in slot '${displaySlot(targetSlot)}' as #${result.existing_id}` };
+    case "conflict_blocked": {
+      const first = result.conflicts[0];
+      if (first) {
+        return { kind: "conflict", conflict: first };
+      }
+      return { kind: "toast", message: "Copy blocked by a sync conflict. Sync this save, then try again." };
+    }
+    case "target_slot_busy":
+      return {
+        kind: "toast",
+        message: `Slot '${displaySlot(targetSlot)}' has newer changes on another device — sync it first, then copy again.`,
+      };
+    case "preflight_failed":
+      return {
+        kind: "toast",
+        message: `Sync failed before copy: ${result.errors[0] ?? "preflight error"}`,
+      };
+    case "server_unreachable":
+      return { kind: "toast", message: "Couldn't reach RomM. Check your connection and try again." };
+    case "not_found":
+      return { kind: "toast", message: "RomM couldn't find this game's save data — nothing was copied." };
+    case "version_deleted":
+      return { kind: "toast", message: "This save no longer exists on the server." };
+    case "rom_not_installed":
+      return { kind: "toast", message: "ROM is no longer installed locally. Reinstall and try again." };
+    case "unsupported":
+      return { kind: "toast", message: unsupportedCopyMessage(result) };
+    case "not_configured":
+      return { kind: "toast", message: "Set up save slots for this game first, then copy." };
+    case "copy_failed":
+      return { kind: "toast", message: `Couldn't copy the save: ${result.message}` };
+    case "invalid_slot_name":
+      return { kind: "toast", message: "Enter a valid slot name." };
+  }
+}
+
+export type RollbackFeedback = { kind: "toast"; message: string } | { kind: "conflict"; conflict: SyncConflict };
+
+/** Map a RollbackStatus to user-facing toast feedback or conflict modal requirement. */
+export function formatRollbackFeedback(result: RollbackStatus, versionUpdatedAt: string | null): RollbackFeedback {
+  switch (result.status) {
+    case "ok":
+      return { kind: "toast", message: `Save restored from ${formatRelativeTime(versionUpdatedAt)}` };
+    case "conflict_blocked": {
+      const first = result.conflicts[0];
+      if (first) {
+        return { kind: "conflict", conflict: first };
+      }
+      return { kind: "toast", message: "Restore blocked by a sync conflict. Sync this save, then try again." };
+    }
+    case "preflight_failed": {
+      const detail = result.errors[0] ?? "preflight error";
+      return { kind: "toast", message: `Sync failed before restore: ${detail}` };
+    }
+    case "put_failed":
+      return {
+        kind: "toast",
+        message:
+          "Restored locally, but the server didn't update. Other devices will see the previous version until you retry.",
+      };
+    case "rom_not_installed":
+      return { kind: "toast", message: "ROM is no longer installed locally. Reinstall and try again." };
+    case "version_deleted":
+      return { kind: "toast", message: "This version no longer exists on the server" };
+    case "server_unreachable":
+      return { kind: "toast", message: "Couldn't reach RomM. Check your connection and try again." };
+    case "not_found":
+      return { kind: "toast", message: "RomM couldn't find this game's save data — nothing was restored." };
+    case "unsupported":
+      return { kind: "toast", message: unsupportedRestoreMessage(result) };
+  }
+}
+
+/** Error message for a switchSlot failure, preserving specific backend explanations. */
+export function switchSlotFailureMessage(
+  reason: string | undefined,
+  message?: string,
+  fallback = "Failed to switch slot",
+): string {
+  if (reason === "pending_uploads") {
+    return "Sync your saves first — local changes haven't been uploaded";
+  }
+  if (reason === "server_unreachable") {
+    return "Can't switch — RomM server is not reachable";
+  }
+  if (reason === "not_installed") {
+    return "Can't switch — download the game first";
+  }
+  if (reason === "savefiles_in_content_dir") {
+    return "Can't switch — this game's saves are written beside the game file";
+  }
+  if (reason === "save_shape_unsupported" && message) {
+    return message;
+  }
+  return message || fallback;
+}
+
+/** Build confirmation text lines for deleting a slot. */
+export function formatSlotDeleteLines(info: SlotDeleteInfo): string[] {
+  const lines: string[] = [];
+  if (info.source === "server" && (info.server_save_count ?? 0) > 0) {
+    const n = info.server_save_count ?? 0;
+    lines.push(
+      `This will permanently delete ${n} save${n === 1 ? "" : "s"} from slot '${info.slot}' on the RomM server.`,
+    );
+  } else {
+    lines.push(`This will remove slot '${info.slot}' from your local configuration.`);
+  }
+  if ((info.local_file_count ?? 0) > 0) {
+    const n = info.local_file_count ?? 0;
+    lines.push(`${n} tracked file${n === 1 ? "" : "s"} will be unlinked.`);
+  }
+  return lines;
+}
+
+/** Build the multi-line confirmation description for deleting a slot. */
+export function formatSlotDeleteDescription(info: SlotDeleteInfo): string {
+  return [...formatSlotDeleteLines(info), "This cannot be undone."].join("\n\n");
+}
+
+/**
+ * Sort save slots: active slot first, named slots alphabetically, legacy "" bucket last.
+ * Synthesizes an entry for a known active slot missing from the list.
+ */
+export function sortSaveSlots(
+  slots: SaveSlotSummary[],
+  activeSlot: string | null | undefined,
+  activeSlotKnown: boolean,
+): SaveSlotSummary[] {
+  const slotRank = (s: SaveSlotSummary): number => {
+    if (s.slot === activeSlot) return 0;
+    if (s.slot === "") return 2;
+    return 1;
+  };
+  const sorted = [...slots].sort((a, b) => {
+    const rankDiff = slotRank(a) - slotRank(b);
+    if (rankDiff !== 0) return rankDiff;
+    return a.slot.localeCompare(b.slot);
+  });
+  if (activeSlot && activeSlotKnown && !sorted.some((s) => s.slot === activeSlot)) {
+    sorted.unshift({ slot: activeSlot, source: "local", count: 0, latest_updated_at: null });
+  }
+  return sorted;
+}
+
+/**
+ * Filter slots for panel display: in legacy mode (activeSlot === null),
+ * omit the redundant legacy "" panel.
+ */
+export function filterSaveSlotsForDisplay(
+  slots: SaveSlotSummary[],
+  activeSlot: string | null | undefined,
+): SaveSlotSummary[] {
+  return slots.filter((s) => activeSlot !== null || s.slot !== "");
 }
