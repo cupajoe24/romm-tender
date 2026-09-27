@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { activateRunningApp, executeStopRunningGame } from "./runningGame";
 import * as backend from "../api/backend";
 import * as toast from "./toast";
+import * as runningApps from "./runningApps";
 import * as sessionManager from "./sessionManager";
 import { Navigation } from "@decky/ui";
 
@@ -24,17 +25,13 @@ vi.mock("./toast", () => ({
   showToast: vi.fn(),
 }));
 
-vi.mock("./sessionManager", () => ({
-  readGameRunning: vi.fn(),
+vi.mock("./runningApps", () => ({
+  isAppRunning: vi.fn(),
 }));
 
-function setRunning(running: boolean): void {
-  vi.mocked(sessionManager.readGameRunning).mockReturnValue({
-    running,
-    decidedBy: running ? "store" : "none",
-    diagnostics: "",
-  });
-}
+vi.mock("./sessionManager", () => ({
+  isSessionActive: vi.fn(),
+}));
 
 describe("runningGame", () => {
   beforeEach(() => {
@@ -101,30 +98,30 @@ describe("runningGame", () => {
       );
     });
 
-    it("lets a throwing Navigation.Navigate reach its caller", () => {
+    it("handles Navigation.Navigate throwing gracefully", () => {
       vi.mocked(Navigation.Navigate).mockImplementationOnce(() => {
         throw new Error("Nav failure");
       });
 
-      expect(() => activateRunningApp(42, "testTag")).toThrow("Nav failure");
+      expect(() => activateRunningApp(42, "testTag")).not.toThrow();
+      expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("testTag: Navigation.Navigate threw"));
     });
   });
 
   describe("executeStopRunningGame", () => {
-    const confirmed = () => Promise.resolve(true);
-
     it("ignores call when a stop is already in flight", async () => {
       const stopInFlightRef = { current: true };
       const onClearOverlay = vi.fn();
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(false);
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(backend.debugLog).toHaveBeenCalledWith(
         expect.stringContaining("testTag: Stop ignored for appId=10 — a stop is already in flight"),
@@ -132,19 +129,21 @@ describe("runningGame", () => {
       expect(stopInFlightRef.current).toBe(true);
     });
 
-    it("self-heals stale overlay when nothing reads as running", async () => {
+    it("self-heals stale overlay when neither app nor session is active", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      setRunning(false);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
+      vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(false);
       expect(onClearOverlay).toHaveBeenCalledTimes(1);
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(backend.debugLog).toHaveBeenCalledWith(
@@ -156,16 +155,17 @@ describe("runningGame", () => {
     it("warns and aborts if romId is null", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      setRunning(true);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: null,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(false);
       expect(toast.showToast).toHaveBeenCalledWith("Couldn't stop the game — still loading its details");
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(stopInFlightRef.current).toBe(false);
@@ -175,9 +175,9 @@ describe("runningGame", () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
       const confirmModal = vi.fn().mockResolvedValue(false);
-      setRunning(true);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -185,6 +185,8 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal,
       });
+
+      expect(stopped).toBe(false);
       expect(confirmModal).toHaveBeenCalledTimes(1);
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("testTag: Stop cancelled for appId=10"));
@@ -195,22 +197,23 @@ describe("runningGame", () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
       const onSetPending = vi.fn();
-      setRunning(true);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
       vi.mocked(backend.stopRunningGame).mockResolvedValueOnce({
         success: true,
         stopped: 1,
         force_killed: 0,
       });
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
         onSetPending,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(true);
       expect(backend.stopRunningGame).toHaveBeenCalledWith(100);
       expect(onSetPending).toHaveBeenCalledWith(true);
       expect(onSetPending).toHaveBeenCalledWith(false);
@@ -224,20 +227,21 @@ describe("runningGame", () => {
     it("treats reason=not_running as success and clears overlay", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      setRunning(true);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
       vi.mocked(backend.stopRunningGame).mockResolvedValueOnce({
         success: false,
         reason: "not_running",
       });
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(true);
       expect(onClearOverlay).toHaveBeenCalledTimes(1);
       expect(stopInFlightRef.current).toBe(false);
     });
@@ -245,21 +249,22 @@ describe("runningGame", () => {
     it("handles backend refusal, toasts message, and preserves overlay", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      setRunning(true);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
       vi.mocked(backend.stopRunningGame).mockResolvedValueOnce({
         success: false,
         reason: "game_not_running",
         message: "No matching process found",
       });
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(false);
       expect(onClearOverlay).not.toHaveBeenCalled();
       expect(toast.showToast).toHaveBeenCalledWith("No matching process found");
       expect(backend.debugLog).toHaveBeenCalledWith(
@@ -271,17 +276,18 @@ describe("runningGame", () => {
     it("catches errors, toasts generic failure, and preserves overlay", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      setRunning(true);
+      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
       vi.mocked(backend.stopRunningGame).mockRejectedValueOnce(new Error("Bridge died"));
 
-      await executeStopRunningGame({
+      const stopped = await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
-        confirmModal: confirmed,
       });
+
+      expect(stopped).toBe(false);
       expect(onClearOverlay).not.toHaveBeenCalled();
       expect(toast.showToast).toHaveBeenCalledWith("Couldn't stop the game");
       expect(backend.debugLog).toHaveBeenCalledWith(

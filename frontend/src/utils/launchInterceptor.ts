@@ -28,11 +28,15 @@ import {
   isSaveTrackingConfigured,
   getSaveSetupInfo,
   confirmSlotChoice,
-  getVersionList,
+  probeReachability,
+  preLaunchSync,
+  checkLocalDrift,
   logInfo,
   logError,
 } from "../api/backend";
-import { setMigrationStatus } from "./migrationStore";
+import { confirmCoreChangeIfNeeded } from "./coreChange";
+import { getMigrationState, setMigrationStatus } from "./migrationStore";
+import { reportServerReachable } from "./connectionState";
 import { getAppIdRomIdMapSnapshot, readGameRunning, refreshAppIdMap } from "./sessionManager";
 import { markLaunchSkipped, consumeLaunchSkip, LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
 import { makeLaunchGateOps } from "./launchGateOps";
@@ -100,6 +104,81 @@ async function ensureTrackingConfiguredWatcher(romId: number): Promise<void> {
     rethrowTimeout(e);
     logError(`Watcher auto-adopt slot failed (proceeding): ${e}`);
   });
+}
+
+/**
+ * Core-change gate — reuses the same check the Play button uses, and puts the
+ * same question to the user through the injected prompt. Returns `true` to
+ * proceed, `false` when the user cancelled.
+ */
+async function checkCoreChangeWatcher(romId: number, prompts: LaunchPrompts): Promise<boolean> {
+  return confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange, (e) => {
+    logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
+  });
+}
+
+/**
+ * Online pre-launch sync, mapped onto the gate's {@link PreLaunchSyncOutcome}.
+ * A benign skip is treated as a successful proceed (no conflict, no failure) —
+ * exactly as the Play button does — so it never surfaces a fallback confirm.
+ * Two slugs are benign: saves written to the content directory, and an emulator
+ * whose save is not a per-game file set Tender can carry. Both mean sync
+ * did not run and nothing is wrong, which is a different thing from sync
+ * failing.
+ *
+ * Critically, this MUST NOT fail open: a throw in `preLaunchSync` would
+ * otherwise propagate to the gate's blanket catch → `allow` → a silent
+ * relaunch on stale saves. So a throw returns `{ success: false, ... }` — which
+ * the gate maps to `sync_failed`, surfacing the fallback confirm instead of
+ * silently launching. An expired limit is let through: the gate answers it.
+ */
+async function preLaunchSyncWatcher(romId: number): Promise<PreLaunchSyncOutcome> {
+  const result = await boundedOr(preLaunchSync(romId), SERVER_CALL_LIMIT_MS, (e) => {
+    logError(`Watcher pre-launch sync failed (surfacing fallback confirm): ${e}`);
+    return null;
+  });
+  if (result === null) return { success: false, message: "Couldn't sync saves with RomM server." };
+  if (result.reason !== undefined && BENIGN_SYNC_SKIP_REASONS.includes(result.reason)) {
+    return { success: true, message: result.message };
+  }
+  const outcome: PreLaunchSyncOutcome = { success: result.success, message: result.message };
+  if (result.conflicts) outcome.conflicts = result.conflicts;
+  return outcome;
+}
+
+/** Build the funnel callbacks for a given romId. */
+function makeWatcherOps(romId: number, prompts: LaunchPrompts): LaunchGateOps {
+  return {
+    migrationPending: () => getMigrationState().pending,
+    hasLaunchTarget: () => romHasLaunchTarget(romId, "Watcher"),
+    readStartingSource: () => readStartingSource("Watcher"),
+    confirmUncheckedStartingSource: () => prompts.confirmUncheckedSource(),
+    ensureTrackingConfigured: async (): Promise<"proceed"> => {
+      await ensureTrackingConfiguredWatcher(romId);
+      return "proceed";
+    },
+    checkCoreChange: () => checkCoreChangeWatcher(romId, prompts),
+    checkReachability: async () => {
+      // A resolved probe feeds the shared store (#1345); a throw is a bridge
+      // error, not a server verdict, so it leaves the store untouched but the
+      // launch still treats it as offline (fail-safe).
+      const probe = await boundedOr(probeReachability(), LOCAL_CALL_LIMIT_MS, (e) => {
+        logError(`Watcher reachability probe failed (treating as offline): ${e}`);
+        return null;
+      });
+      if (probe === null) return false;
+      reportServerReachable(probe.online);
+      return probe.online;
+    },
+    preLaunchSync: () => preLaunchSyncWatcher(romId),
+    checkLocalDrift: async () =>
+      (
+        await boundedOr(checkLocalDrift(romId), LOCAL_CALL_LIMIT_MS, (e) => {
+          logError(`Watcher local-drift check failed (treating as not-drifted): ${e}`);
+          return { drifted: false };
+        })
+      ).drifted,
+  };
 }
 
 /** Relaunch a previously-cancelled launch. Marks the appId as skipped FIRST so

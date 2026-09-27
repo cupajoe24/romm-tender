@@ -23,6 +23,7 @@ import { DesktopAdoptVanishedDialog } from "./DesktopAdoptVanishedDialog";
 import { DesktopSaveConflictDialog } from "./DesktopSaveConflictDialog";
 import { DesktopOfflineDriftDialog } from "./DesktopOfflineDriftDialog";
 import { DesktopFallbackLaunchDialog } from "./DesktopFallbackLaunchDialog";
+import { DesktopCoreChangeDialog } from "./DesktopCoreChangeDialog";
 import { DesktopUnsyncedSavesDialog, type UnsyncedSavesChoice } from "./DesktopUnsyncedSavesDialog";
 
 export function desktopAdoptionDialogs(ask: AskDialog): AdoptionDialogs {
@@ -66,6 +67,13 @@ export function desktopOfflineDriftDialog(ask: AskDialog): () => Promise<"start_
 export function desktopFallbackLaunchDialog(ask: AskDialog): (message?: string) => Promise<boolean> {
   return (message) =>
     ask<boolean>(false, (resolve) => <DesktopFallbackLaunchDialog message={message} onChoice={resolve} />);
+}
+
+export function desktopCoreChangeDialog(ask: AskDialog): (oldLabel: string, newLabel: string) => Promise<boolean> {
+  return (oldLabel, newLabel) =>
+    ask<boolean>(false, (resolve) => (
+      <DesktopCoreChangeDialog oldLabel={oldLabel} newLabel={newLabel} onChoice={resolve} />
+    ));
 }
 
 export function desktopUnsyncedSavesDialog(

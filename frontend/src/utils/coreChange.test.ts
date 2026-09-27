@@ -67,7 +67,7 @@ describe("confirmCoreChangeIfNeeded", () => {
     expect(result).toBe(true);
   });
 
-  it("proceeds without prompting when the check fails", async () => {
+  it("catches errors, logs non-vacuously, and proceeds without prompting", async () => {
     vi.mocked(backend.checkCoreChange).mockRejectedValueOnce(new Error("RPC failed"));
     const prompt = vi.fn();
 
@@ -75,9 +75,12 @@ describe("confirmCoreChangeIfNeeded", () => {
 
     expect(result).toBe(true);
     expect(prompt).not.toHaveBeenCalled();
+    expect(backend.debugLog).toHaveBeenCalledWith(
+      expect.stringContaining("Core-change check failed (assuming unchanged): Error: RPC failed"),
+    );
   });
 
-  it("hands a failed check's error to onError", async () => {
+  it("calls custom onError callback when error occurs", async () => {
     vi.mocked(backend.checkCoreChange).mockRejectedValueOnce(new Error("RPC failed"));
     const prompt = vi.fn();
     const onError = vi.fn();
@@ -86,6 +89,7 @@ describe("confirmCoreChangeIfNeeded", () => {
 
     expect(result).toBe(true);
     expect(prompt).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "RPC failed" }));
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(backend.debugLog).not.toHaveBeenCalled();
   });
 });
