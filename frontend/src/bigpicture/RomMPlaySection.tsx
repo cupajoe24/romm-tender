@@ -44,14 +44,12 @@ import {
   getRomMetadata,
   isEndpointFailure,
   refreshCoverArtwork,
-  refreshSgdbArtwork,
   downloadAllFirmware,
   deleteLocalSaves,
   debugLog,
 } from "../api/backend";
-import { isStrandedPanelFailure } from "../api/host";
-import { executeManualSaveSync } from "../utils/manualSaveSync";
 import { executeRomUninstall } from "../utils/romUninstall";
+import { setLaunchOptionsConfirmed } from "../utils/steamShortcuts";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseCancellation,

@@ -42,6 +42,7 @@ import {
   probeReachability,
   checkLocalDrift,
 } from "../api/backend";
+import { executeRomUninstall } from "../utils/romUninstall";
 import { confirmCoreChangeIfNeeded } from "../utils/coreChange";
 import { activateRunningApp, executeStopRunningGame } from "../utils/runningGame";
 import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../utils/connectionState";
@@ -931,10 +932,13 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
   };
 
   /**
-   * Run a forget of this ROM's install record and, once the backend has answered
-   * success, reset the shortcut's launch command under the removal's lease and
-   * announce the ROM as not installed — the reset `executeRomUninstall` makes after
-   * an uninstall, for the reason given there.
+   * Run a forget of this ROM's install record (an uninstall goes through
+   * `executeRomUninstall`) and, once the backend has answered success, reset the shortcut's now-stale launch
+   * command to the uninstalled "" placeholder under the removal's lease and
+   * announce the ROM as not installed. The reset keeps a raced-past
+   * not_installed launch from exec'ing a stale `flatpak run … '<path>'`
+   * (#1051); it is best-effort, so a launch-options hiccup never turns a
+   * removal that happened into an error.
    */
   const removeInstallRecord = async <R extends { success: boolean; prune_lease_token?: string }>(
     rid: number,
@@ -970,14 +974,14 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     setState("uninstall_pending");
     detach(debugLog(`CustomPlayButton: uninstalling romId=${romId}`));
     try {
-      const removed = await executeRomUninstall({
+      const result = await executeRomUninstall({
         romId,
         appId,
         romName,
         leaseOwner,
         tag: "CustomPlayButton",
       });
-      if (removed) {
+      if (result.success) {
         // Dark pulse transition before showing Download button
         setState("uninstalling");
         transitionTimerRef.current = setTimeout(() => enterDownloadState(), 500);
