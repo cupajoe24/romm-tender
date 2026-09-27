@@ -40,7 +40,6 @@ import {
   getSgdbResolution,
   getRomMetadata,
   refreshCoverArtwork,
-  removeRom,
   downloadAllFirmware,
   syncRomSaves,
   deleteLocalSaves,
@@ -49,6 +48,7 @@ import {
   reconcilePlaytime,
   debugLog,
 } from "../api/backend";
+import { executeRomUninstall } from "../utils/romUninstall";
 import { setLaunchOptionsConfirmed } from "../utils/steamShortcuts";
 import {
   capturePruneLeaseAdmission,
@@ -644,34 +644,15 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   const handleUninstall = async () => {
     if (actionPending || !detail.romId) return;
     setActionPending("uninstall");
-    const admission = capturePruneLeaseAdmission(`game-detail:${appId}`);
     try {
-      const result = await removeRom(detail.romId);
-      if (result.success) {
-        await withPruneLease(
-          result.prune_lease_token,
-          "Game detail uninstall",
-          async (signal) => {
-            if (isPruneLeaseCancelled(signal)) return;
-            await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-            if (isPruneLeaseCancelled(signal)) return;
-            globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: detail.romId } }));
-          },
-          `game-detail:${appId}`,
-          admission,
-        );
-        showToast(`${detail.romName || "ROM"} uninstalled`);
-      } else {
-        showToast(result.message || "Uninstall failed");
-      }
-    } catch (e) {
-      // The backend uninstall already committed before the continuation was torn
-      // down; reporting it as a failure would be a lie the user can't act on.
-      if (isPruneLeaseCancellation(e, admission)) {
-        detach(debugLog(`handleUninstall: continuation was cancelled: ${e}`));
-        return;
-      }
-      showToast("Uninstall failed");
+      await executeRomUninstall({
+        romId: detail.romId,
+        appId,
+        romName: detail.romName,
+        leaseOwner: `game-detail:${appId}`,
+        context: "Game detail uninstall",
+        tag: "handleUninstall",
+      });
     } finally {
       setActionPending(null);
     }

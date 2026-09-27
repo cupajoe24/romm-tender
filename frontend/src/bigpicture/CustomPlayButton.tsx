@@ -23,7 +23,6 @@ import {
   pauseDownload,
   resumeDownload,
   getDownloadQueue,
-  removeRom,
   debugLog,
   preLaunchSync,
   logError,
@@ -33,6 +32,7 @@ import {
   probeReachability,
   checkLocalDrift,
 } from "../api/backend";
+import { executeRomUninstall } from "../utils/romUninstall";
 import { confirmCoreChangeIfNeeded } from "../utils/coreChange";
 import { activateRunningApp, executeStopRunningGame } from "../utils/runningGame";
 import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../utils/connectionState";
@@ -67,13 +67,11 @@ import type {
 } from "../types";
 import { BENIGN_SYNC_SKIP_REASONS } from "../types";
 import { detach } from "../utils/detach";
-import { setLaunchOptionsConfirmed } from "../utils/steamShortcuts";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseAdmissionCurrent,
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
-  withPruneLease,
   type PruneLeaseAdmission,
 } from "../utils/pruneLease";
 import { reconfirmLaunchOptions } from "../utils/launchOptionsReconcile";
@@ -973,36 +971,20 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     setState("uninstall_pending");
     detach(debugLog(`CustomPlayButton: uninstalling romId=${romId}`));
     try {
-      const admission = capturePruneLeaseAdmission(leaseOwner);
-      const result = await removeRom(romId);
+      const result = await executeRomUninstall({
+        romId,
+        appId,
+        romName,
+        leaseOwner,
+        tag: "CustomPlayButton",
+      });
       if (result.success) {
-        // Reset the now-stale launch command to the uninstalled "" placeholder so a
-        // raced-past not_installed launch execs `bin/tender-rom-launcher` with no args (clean
-        // exit 1) instead of a stale `flatpak run … "<deleted path>"` (#1051). Best-effort:
-        // a launch-options hiccup must not turn a successful uninstall into an error.
-        await withPruneLease(
-          result.prune_lease_token,
-          "ROM uninstall",
-          async (signal) => {
-            if (signal.aborted) return;
-            await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-          },
-          leaseOwner,
-          admission,
-        );
-        globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
-        showToast(`${romName || "ROM"} uninstalled`);
         // Dark pulse transition before showing Download button
         setState("uninstalling");
         transitionTimerRef.current = setTimeout(() => enterDownloadState(), 500);
-        return;
       } else {
-        showToast(result.message || "Uninstall failed");
         setState(stateBeforeUninstall);
       }
-    } catch {
-      showToast("Uninstall failed");
-      setState(stateBeforeUninstall);
     } finally {
       uninstallPendingRef.current = false;
       setUninstallProgress(null);

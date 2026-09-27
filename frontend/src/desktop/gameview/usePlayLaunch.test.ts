@@ -31,13 +31,17 @@ vi.mock("../../utils/toast", () => ({
   showToast: vi.fn(),
 }));
 
-vi.mock("../../utils/pruneLease", () => ({
-  capturePruneLeaseAdmission: vi.fn(() => ({ pluginGeneration: 1 })),
-  isPruneLeaseAdmissionCurrent: vi.fn(() => true),
-  withPruneLease: vi.fn(async (_tok: string, _ctx: string, fn: (signal: { aborted: boolean }) => Promise<void>) =>
-    fn({ aborted: false }),
-  ),
-}));
+vi.mock("../../utils/pruneLease", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../utils/pruneLease")>();
+  return {
+    ...actual,
+    capturePruneLeaseAdmission: vi.fn(() => ({ pluginGeneration: 1 })),
+    isPruneLeaseAdmissionCurrent: vi.fn(() => true),
+    withPruneLease: vi.fn(async (_tok: string, _ctx: string, fn: (signal: { aborted: boolean }) => Promise<void>) =>
+      fn({ aborted: false }),
+    ),
+  };
+});
 
 vi.mock("../../utils/runningApps", () => ({
   isAppRunning: vi.fn(() => false),
@@ -180,6 +184,34 @@ describe("usePlayLaunch", () => {
     expect(setStateOverride).toHaveBeenCalledWith("uninstalling");
     expect(backend.removeRom).toHaveBeenCalledWith(100);
     expect(toast.showToast).toHaveBeenCalledWith("Test Game uninstalled");
+    expect(setStateOverride).toHaveBeenCalledWith("download");
+  });
+
+  it("handles failed uninstall by resetting state override to null", async () => {
+    vi.mocked(backend.removeRom).mockResolvedValueOnce({ success: false, message: "Failed" });
+
+    const { result } = renderHook(() =>
+      usePlayLaunch({
+        appId: 12345,
+        romId: 100,
+        romName: "Test Game",
+        effectiveState: "play",
+        ask,
+        leaseOwner: "desktop-play-button:12345",
+        setStateOverride,
+        holdVerdict,
+        setShowMenu,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleUninstallClick();
+    });
+
+    expect(setShowMenu).toHaveBeenCalledWith(false);
+    expect(setStateOverride).toHaveBeenCalledWith("uninstalling");
+    expect(backend.removeRom).toHaveBeenCalledWith(100);
+    expect(toast.showToast).toHaveBeenCalledWith("Failed");
     expect(setStateOverride).toHaveBeenCalledWith(null);
   });
 
