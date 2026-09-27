@@ -28,9 +28,8 @@ vi.mock("./connectionState", () => ({
   reportServerReachable: vi.fn(),
 }));
 
-vi.mock("./vanishedBinding", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./vanishedBinding")>()),
-  setBoundAvailability: vi.fn(),
+vi.mock("./vanishedBinding", () => ({
+  setBoundVanished: vi.fn(),
 }));
 
 vi.mock("./versionSwitchApplication", () => ({
@@ -98,7 +97,7 @@ describe("loadVersionList", () => {
     vi.clearAllMocks();
   });
 
-  it("fetches list, reports reachability, and publishes the bound version's availability", async () => {
+  it("fetches list, reports reachability, and publishes bound vanished", async () => {
     const mockList: VersionList = {
       multi_version: true,
       server_query_failed: false,
@@ -110,8 +109,7 @@ describe("loadVersionList", () => {
     const result = await loadVersionList(100);
     expect(result).toBe(mockList);
     expect(backend.getVersionList).toHaveBeenCalledWith(100);
-    // The bound version is gone and another version is not.
-    expect(vanishedBinding.setBoundAvailability).toHaveBeenCalledWith(100, "version_gone");
+    expect(vanishedBinding.setBoundVanished).toHaveBeenCalledWith(100, true);
   });
 });
 
@@ -164,19 +162,38 @@ describe("executeVersionSwitch", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    pruneLease.mountPruneLeasePlugin();
     pruneLease.mountPruneLeaseOwner(leaseOwner);
   });
 
   it("no-ops if target is active, vanished, or not switchable", async () => {
-    for (const target of [
-      { ...mockTarget, active: true },
-      { ...mockTarget, vanished: true },
-      { ...mockTarget, switchable: false },
-    ]) {
-      await executeVersionSwitch({ appId: 100, target, leaseOwner, askUnsyncedSaves, setSwitching });
-    }
+    const activeTarget = { ...mockTarget, active: true };
+    const r1 = await executeVersionSwitch({
+      appId: 100,
+      target: activeTarget,
+      leaseOwner,
+      askUnsyncedSaves,
+    });
+    expect(r1.success).toBe(false);
     expect(backend.switchVersion).not.toHaveBeenCalled();
-    expect(setSwitching).not.toHaveBeenCalled();
+
+    const vanishedTarget = { ...mockTarget, vanished: true };
+    const r2 = await executeVersionSwitch({
+      appId: 100,
+      target: vanishedTarget,
+      leaseOwner,
+      askUnsyncedSaves,
+    });
+    expect(r2.success).toBe(false);
+
+    const unswitchableTarget = { ...mockTarget, switchable: false };
+    const r3 = await executeVersionSwitch({
+      appId: 100,
+      target: unswitchableTarget,
+      leaseOwner,
+      askUnsyncedSaves,
+    });
+    expect(r3.success).toBe(false);
   });
 
   it("switches version successfully without soft-block", async () => {
@@ -188,7 +205,7 @@ describe("executeVersionSwitch", () => {
       launch_options: "run",
     });
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
@@ -196,6 +213,8 @@ describe("executeVersionSwitch", () => {
       setSwitching,
       onCoverResolved,
     });
+
+    expect(result).toEqual({ success: true });
     expect(setSwitching).toHaveBeenCalledWith(true);
     // setSwitching(false) must NOT be called on success
     expect(setSwitching).not.toHaveBeenCalledWith(false);
@@ -217,12 +236,14 @@ describe("executeVersionSwitch", () => {
     });
     vi.mocked(versionApp.applyCommittedVersionSwitch).mockResolvedValueOnce(false);
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
     });
+
+    expect(result).toEqual({ success: true });
     expect(toast.showToast).toHaveBeenCalledWith("Switched — re-switch if launch fails");
   });
 
@@ -237,13 +258,15 @@ describe("executeVersionSwitch", () => {
     });
     askUnsyncedSaves.mockResolvedValueOnce("cancel");
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       setSwitching,
     });
+
+    expect(result).toEqual({ success: false, cancelled: true });
     expect(connectionState.reportServerReachable).toHaveBeenCalledWith(true);
     expect(setSwitching).toHaveBeenCalledWith(false);
     expect(backend.switchVersion).toHaveBeenCalledTimes(1);
@@ -268,13 +291,15 @@ describe("executeVersionSwitch", () => {
       });
     askUnsyncedSaves.mockResolvedValueOnce("switch_anyway");
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       setSwitching,
     });
+
+    expect(result).toEqual({ success: true });
     expect(backend.switchVersion).toHaveBeenNthCalledWith(1, 100, 2, false);
     expect(backend.switchVersion).toHaveBeenNthCalledWith(2, 100, 2, true);
     expect(versionApp.applyCommittedVersionSwitch).toHaveBeenCalled();
@@ -305,13 +330,15 @@ describe("executeVersionSwitch", () => {
       conflicts: [],
     });
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       setSwitching,
     });
+
+    expect(result).toEqual({ success: true });
     expect(backend.syncRomSaves).toHaveBeenCalledWith(1);
     expect(backend.switchVersion).toHaveBeenNthCalledWith(2, 100, 2, false);
   });
@@ -332,13 +359,15 @@ describe("executeVersionSwitch", () => {
       synced: 0,
     });
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       setSwitching,
     });
+
+    expect(result).toEqual({ success: false });
     expect(toast.showToast).toHaveBeenCalledWith("Couldn't sync saves — try again");
     expect(backend.refreshSaveStatus).toHaveBeenCalledWith(1);
     expect(setSwitching).toHaveBeenCalledWith(false);
@@ -361,13 +390,15 @@ describe("executeVersionSwitch", () => {
       conflicts: [{ filename: "save1.srm" } as never],
     });
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       setSwitching,
     });
+
+    expect(result).toEqual({ success: false });
     expect(toast.showToast).toHaveBeenCalledWith("Resolve save conflicts first");
     expect(backend.refreshSaveStatus).toHaveBeenCalledWith(1);
     expect(setSwitching).toHaveBeenCalledWith(false);
@@ -380,13 +411,15 @@ describe("executeVersionSwitch", () => {
       message: "Host down",
     });
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       setSwitching,
     });
+
+    expect(result).toEqual({ success: false, reason: "server_unreachable" });
     expect(connectionState.reportServerReachable).toHaveBeenCalledWith(false);
     expect(toast.showToast).toHaveBeenCalledWith("Could not switch version", { subtext: "Host down" });
     expect(setSwitching).toHaveBeenCalledWith(false);
@@ -399,13 +432,15 @@ describe("executeVersionSwitch", () => {
       message: "ROM 404",
     });
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       onVanishedRefusal,
     });
+
+    expect(result).toEqual({ success: false, reason: "version_vanished" });
     expect(onVanishedRefusal).toHaveBeenCalled();
   });
 
@@ -413,13 +448,15 @@ describe("executeVersionSwitch", () => {
     const error = new pruneLease.PruneLeaseAdmissionCancelled("unmounted");
     vi.mocked(backend.switchVersion).mockRejectedValueOnce(error);
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
       askUnsyncedSaves,
       logTag: "TestSwitch",
     });
+
+    expect(result).toEqual({ success: false, cancelled: true });
     expect(backend.logWarn).toHaveBeenCalledWith(
       expect.stringContaining("TestSwitch: version switch continuation was cancelled"),
     );
@@ -429,7 +466,7 @@ describe("executeVersionSwitch", () => {
   it("handles unexpected error by toasting and clearing switching", async () => {
     vi.mocked(backend.switchVersion).mockRejectedValueOnce(new Error("Crash"));
 
-    await executeVersionSwitch({
+    const result = await executeVersionSwitch({
       appId: 100,
       target: mockTarget,
       leaseOwner,
@@ -437,6 +474,8 @@ describe("executeVersionSwitch", () => {
       setSwitching,
       logTag: "TestSwitch",
     });
+
+    expect(result).toEqual({ success: false });
     expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining("TestSwitch: switchVersion failed"));
     expect(toast.showToast).toHaveBeenCalledWith("Could not switch version");
     expect(setSwitching).toHaveBeenCalledWith(false);
