@@ -28,13 +28,13 @@ import {
   isSaveTrackingConfigured,
   getSaveSetupInfo,
   confirmSlotChoice,
-  checkCoreChange,
   probeReachability,
   preLaunchSync,
   checkLocalDrift,
   logInfo,
   logError,
 } from "../api/backend";
+import { confirmCoreChangeIfNeeded } from "./coreChange";
 import { getMigrationState, setMigrationStatus } from "./migrationStore";
 import { reportServerReachable } from "./connectionState";
 import { getAppIdRomIdMapSnapshot, readGameRunning, refreshAppIdMap } from "./sessionManager";
@@ -143,19 +143,9 @@ async function ensureTrackingConfiguredWatcher(romId: number): Promise<void> {
  * proceed, `false` when the user cancelled.
  */
 async function checkCoreChangeWatcher(romId: number, prompts: LaunchPrompts): Promise<boolean> {
-  const coreCheck = await boundedOr(
-    checkCoreChange(romId),
-    LOCAL_CALL_LIMIT_MS,
-    (e): { changed: boolean; old_core?: string; new_core?: string; old_label?: string; new_label?: string } => {
-      logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
-      return { changed: false };
-    },
-  );
-  if (!coreCheck.changed) return true;
-  return prompts.confirmCoreChange(
-    coreCheck.old_label ?? coreCheck.old_core ?? "Unknown",
-    coreCheck.new_label ?? coreCheck.new_core ?? "Unknown",
-  );
+  return confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange, (e) => {
+    logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
+  });
 }
 
 /**
