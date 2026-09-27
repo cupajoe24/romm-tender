@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, FC, ReactElement } from "react";
 import { addEventListener, removeEventListener } from "../api/host";
 import { showToast } from "../utils/toast";
-import { Focusable, DialogButton, Menu, MenuItem, Navigation, showContextMenu } from "@decky/ui";
+import { Focusable, DialogButton, Menu, MenuItem, showContextMenu } from "@decky/ui";
 import { appActionButtonClasses, basicAppDetailsSectionStylerClasses } from "../utils/deckyUiInternals";
 import { hideNativePlaySection, showNativePlaySection } from "../utils/styleInjector";
 import { hasAnySaveConflict } from "../utils/saveStatus";
@@ -30,11 +30,11 @@ import {
   isSaveTrackingConfigured,
   getSaveSetupInfo,
   confirmSlotChoice,
-  checkCoreChange,
   probeReachability,
   checkLocalDrift,
-  stopRunningGame,
 } from "../api/backend";
+import { confirmCoreChangeIfNeeded } from "../utils/coreChange";
+import { activateRunningApp, executeStopRunningGame } from "../utils/runningGame";
 import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../utils/connectionState";
 import { isBoundVanished, onBoundVanishedChange } from "../utils/vanishedBinding";
 import { scrollToTop } from "../utils/scrollHelpers";
@@ -565,18 +565,8 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
 
   // Detects emulator core change since last launch; if changed, surfaces the
   // core-change confirm modal. Returns true to proceed, false to bail.
-  const confirmCoreChangeIfNeeded = async (rid: number): Promise<boolean> => {
-    const coreCheck = await checkCoreChange(rid).catch(
-      (): { changed: boolean; old_core?: string; new_core?: string; old_label?: string; new_label?: string } => ({
-        changed: false,
-      }),
-    );
-    if (!coreCheck.changed) return true;
-    return showCoreChangeModal(
-      coreCheck.old_label ?? coreCheck.old_core ?? "Unknown",
-      coreCheck.new_label ?? coreCheck.new_core ?? "Unknown",
-    );
-  };
+  const confirmCoreChange = (rid: number): Promise<boolean> =>
+    confirmCoreChangeIfNeeded(rid, showCoreChangeModal);
 
   // Online pre-launch sync, mapped onto the gate's PreLaunchSyncOutcome (the
   // gate routes it to conflict / sync_failed / allow). Keeps the Play button's
@@ -676,7 +666,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     migrationPending: () => getMigrationState().pending,
     hasLaunchTarget: () => romHasLaunchTarget(rid, "CustomPlayButton"),
     ensureTrackingConfigured: () => ensureTrackingConfigured(rid),
-    checkCoreChange: () => confirmCoreChangeIfNeeded(rid),
+    checkCoreChange: () => confirmCoreChange(rid),
     checkReachability: async () => {
       // A resolved probe is a definitive reachability signal → feed the shared
       // store so the badge/Download re-derive (#1345). A throw is a bridge error,
@@ -843,33 +833,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
       return;
     }
 
-    // NOSONAR(typescript:S7741) — SteamUIStore is an ambient Steam SP global; the
-    // typeof guard keeps a genuinely-absent one from throwing ReferenceError.
-    if (typeof SteamUIStore !== "undefined" && SteamUIStore) {
-      // A present-but-broken store is the exact failure class this button was born
-      // from (RaiseWindowForGame reporting Success while doing nothing) — a
-      // throwing `SetRunningApp` / `NavigateToRunningApp` getter must NOT strand the
-      // user with no foreground and no backstop. Any throw is swallowed and falls
-      // through to the route nav below, mirroring how runningApps.ts wraps every
-      // Steam-global access in try/catch.
-      try {
-        SteamUIStore.SetRunningApp(appId);
-        if (typeof SteamUIStore.NavigateToRunningApp === "function") {
-          SteamUIStore.NavigateToRunningApp();
-          detach(debugLog(`CustomPlayButton: resumed appId=${appId} via SteamUIStore.NavigateToRunningApp`));
-          return;
-        }
-      } catch (e) {
-        detach(debugLog(`CustomPlayButton: resume — SteamUIStore threw, falling back to Navigate: ${e}`));
-      }
-    }
-    // Older SteamUI without `NavigateToRunningApp` (API drift), an absent store, or a
-    // store whose `SetRunningApp` / `NavigateToRunningApp` threw — navigate to the
-    // running-app route directly. When the store was present and `SetRunningApp`
-    // succeeded it already selected this app, so the foreground lands on it (the
-    // decky-rocketjump fallback path).
-    Navigation.Navigate("/apprunning");
-    detach(debugLog(`CustomPlayButton: resumed appId=${appId} via Navigation.Navigate`));
+    activateRunningApp(appId, "CustomPlayButton");
   };
 
   // Drop the running overlay back to the underlying button state. Clearing
@@ -890,90 +854,18 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
   // state value — the ref is updated synchronously.
   const stopInFlightRef = useRef(false);
 
-  // Stop the running game. Steam cannot do this itself: the shortcut execs
-  // `flatpak run net.retrodeck.retrodeck` and flatpak's portal starts the
-  // sandbox outside Steam's `reaper` ancestry, so `SteamClient.Apps.TerminateApp`
-  // has nothing to signal (measured on-device: a no-op even with force=true).
-  // The backend owns the kill instead — it resolves the flatpak instance's host
-  // processes and runs a single-stop-request → grace → force ladder
-  // (`services/game_process.py`). The `romId` is what tells it WHICH instance:
-  // RetroDECK can have several live at once (a second game, ES-DE opened on its
-  // own), and only the one running this ROM may be signalled.
+  // Stop the running game via shared utility with in-flight guard, modal confirmation,
+  // metrics logging, and error toasts.
   const handleStopGame = async () => {
-    // A stop is already running — do not start a second one. The disabled menu
-    // item makes this hard to reach; this is the guard for the paths that
-    // bypass the render (a menu opened before the flag flipped, a double-fire
-    // within one frame).
-    if (stopInFlightRef.current) {
-      detach(debugLog(`CustomPlayButton: Stop ignored for appId=${appId} — a stop is already in flight`));
-      return;
-    }
-
-    // Stale-overlay self-heal, mirroring handleResumeGame: if nothing is
-    // actually running, the overlay is stale — clear it back to Play without
-    // prompting or touching the backend.
-    if (!readGameRunning(appId, romId).running) {
-      detach(debugLog(`CustomPlayButton: Stop on appId=${appId} but nothing is running — clearing stale overlay`));
-      clearRunningOverlay();
-      return;
-    }
-
-    // Without the rom id the backend cannot tell this game's instance from any
-    // other live one, and stopping "whichever" is exactly the bug this argument
-    // exists to fix. The detail lookup that fills `romId` normally lands long
-    // before a running overlay can be pressed; if it somehow has not, say so and
-    // leave the overlay up so Resume stays reachable.
-    if (romId == null) {
-      detach(debugLog(`CustomPlayButton: Stop on appId=${appId} but the rom id is not resolved yet — not stopping`));
-      showToast("Couldn't stop the game — still loading its details");
-      return;
-    }
-
-    // Destructive and unrecoverable: the emulator gets one chance to flush and
-    // is forced after that, so anything unsaved is gone. Confirm first.
-    if (!(await showStopGameModal())) {
-      detach(debugLog(`CustomPlayButton: Stop cancelled for appId=${appId}`));
-      return;
-    }
-
-    // Claimed only once the user has actually confirmed — an abandoned modal
-    // must not leave Stop Game stuck reading "Stopping...".
-    stopInFlightRef.current = true;
-    setStopPending(true);
-    try {
-      const result = await stopRunningGame(romId);
-      if (result.success || result.reason === "not_running") {
-        // "not_running" is the same stale-overlay case caught one layer down:
-        // the backend found nothing of RetroDECK's alive. Either way the game is
-        // not running now, so the overlay must come down.
-        detach(
-          debugLog(
-            `CustomPlayButton: stop_running_game for appId=${appId} — success=${result.success} ` +
-              `reason=${result.reason ?? "none"} stopped=${result.stopped ?? 0} forced=${result.force_killed ?? 0}`,
-          ),
-        );
-        clearRunningOverlay();
-        return;
-      }
-      // Every other failure leaves the overlay UP on purpose. That includes
-      // "game_not_running": RetroDECK is alive but the backend could not tie any
-      // of its instances to this ROM, so it signalled nothing — the game may
-      // well still be running, and Resume has to stay reachable either way.
-      detach(
-        debugLog(`CustomPlayButton: stop_running_game refused for appId=${appId} — reason=${result.reason ?? "none"}`),
-      );
-      showToast(result.message || "Couldn't stop the game");
-    } catch (e) {
-      // The overlay deliberately stays up: the call never reached a verdict, so
-      // the game may well still be running and Resume must stay reachable.
-      detach(debugLog(`CustomPlayButton: stop_running_game threw for appId=${appId}: ${e}`));
-      showToast("Couldn't stop the game");
-    } finally {
-      // Released on every path, so a failed stop can be retried deliberately
-      // (the backend, not this flag, is what makes a retry safe).
-      stopInFlightRef.current = false;
-      setStopPending(false);
-    }
+    await executeStopRunningGame({
+      appId,
+      romId,
+      tag: "CustomPlayButton",
+      stopInFlightRef,
+      onClearOverlay: clearRunningOverlay,
+      onSetPending: setStopPending,
+      confirmModal: showStopGameModal,
+    });
   };
 
   // Chevron menu for the running overlay — the single destructive Stop Game

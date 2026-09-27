@@ -9,9 +9,9 @@
  *   - Stop running game, conflict resolution, and ROM uninstallation
  */
 
+import { useRef } from "react";
 import {
   preLaunchSync,
-  stopRunningGame,
   removeRom,
   debugLog,
   logError,
@@ -26,7 +26,10 @@ import {
   desktopSaveConflictDialog,
   desktopOfflineDriftDialog,
   desktopFallbackLaunchDialog,
+  desktopCoreChangeDialog,
 } from "./dialogs/desktopDialogs";
+import { confirmCoreChangeIfNeeded } from "../../utils/coreChange";
+import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
 import { announceSaveSync, resolveConflictsSequentially, resolveKnownConflicts } from "../../utils/saveConflictFlow";
 import { reportServerReachable } from "../../utils/connectionState";
 import { isSessionActive } from "../../utils/sessionManager";
@@ -95,6 +98,8 @@ export function usePlayLaunch({
   holdVerdict,
   setShowMenu,
 }: UsePlayLaunchOptions): UsePlayLaunchResult {
+  const stopInFlightRef = useRef(false);
+
   const ensureTrackingConfigured = async (rid: number): Promise<"proceed" | "abort"> => {
     const trackingResult = await isSaveTrackingConfigured(rid).catch(() => ({ configured: true }));
     if (trackingResult.configured) return "proceed";
@@ -115,9 +120,7 @@ export function usePlayLaunch({
     });
   };
 
-  // Core change confirmation modal is not yet portaled to Steam Desktop (per parity matrix).
-  // Returns true without making an unnecessary network call until DesktopCoreChangeModal exists.
-  const confirmCoreChangeIfNeeded = async (_rid: number): Promise<boolean> => true;
+  const confirmCoreChange = (rid: number) => confirmCoreChangeIfNeeded(rid, desktopCoreChangeDialog(ask));
 
   const runPreLaunchSync = async (rid: number): Promise<PreLaunchSyncOutcome> => {
     setStateOverride("syncing");
@@ -161,7 +164,7 @@ export function usePlayLaunch({
     migrationPending: () => getMigrationState().pending,
     hasLaunchTarget: () => romHasLaunchTarget(rid, "DesktopPlayButton"),
     ensureTrackingConfigured: () => ensureTrackingConfigured(rid),
-    checkCoreChange: () => confirmCoreChangeIfNeeded(rid),
+    checkCoreChange: () => confirmCoreChange(rid),
     checkReachability: async () => {
       try {
         const { online } = await probeReachability();
@@ -278,10 +281,16 @@ export function usePlayLaunch({
   const handlePlayClick = async () => {
     if (!romId || effectiveState === "syncing" || effectiveState === "launching") return;
 
-    // Already running -> bring to front
+    // Already running -> bring to front without re-entering launch gate or RunGame
     if (isSessionActive(romId) || isAppRunning(appId)) {
-      launchGame();
+      activateRunningApp(appId, "DesktopPlayButton");
       return;
+    }
+
+    // Stale overlay self-heal: if Resume was pressed while nothing is actually running
+    if (effectiveState === "running") {
+      detach(debugLog(`DesktopPlayButton: Resume on appId=${appId} but nothing is running — self-healing to launch`));
+      setStateOverride(null);
     }
 
     const overview = overviewFor(appId);
@@ -312,13 +321,13 @@ export function usePlayLaunch({
   };
 
   const handleStopClick = async () => {
-    if (!romId) return;
-    try {
-      await stopRunningGame(romId);
-      setStateOverride(null);
-    } catch {
-      showToast("Could not stop game");
-    }
+    await executeStopRunningGame({
+      appId,
+      romId,
+      tag: "DesktopPlayButton",
+      stopInFlightRef,
+      onClearOverlay: () => setStateOverride(null),
+    });
   };
 
   const handleUninstallClick = async () => {
