@@ -12,16 +12,15 @@
 import { useRef } from "react";
 import {
   preLaunchSync,
-  removeRom,
   debugLog,
   logError,
-  invalidateCachedGameDetail,
   getSaveSetupInfo,
   probeReachability,
   checkLocalDrift,
   isSaveTrackingConfigured,
   confirmSlotChoice,
 } from "../../api/backend";
+import { executeRomUninstall } from "../../utils/romUninstall";
 import {
   desktopSaveConflictDialog,
   desktopOfflineDriftDialog,
@@ -35,12 +34,10 @@ import { reportServerReachable } from "../../utils/connectionState";
 import { isSessionActive } from "../../utils/sessionManager";
 import { isAppRunning } from "../../utils/runningApps";
 import { saveSyncToastBody } from "../../utils/saveSyncToast";
-import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { reconfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseAdmissionCurrent,
-  withPruneLease,
   type PruneLeaseAdmission,
 } from "../../utils/pruneLease";
 import { showToast } from "../../utils/toast";
@@ -335,30 +332,17 @@ export function usePlayLaunch({
     setShowMenu?.(false);
     setStateOverride("uninstalling");
 
-    const admission = capturePruneLeaseAdmission(leaseOwner);
-    try {
-      const result = await removeRom(romId);
-      if (result.success) {
-        await withPruneLease(
-          result.prune_lease_token,
-          "ROM uninstall",
-          async (signal) => {
-            if (signal.aborted) return;
-            await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-          },
-          leaseOwner,
-          admission,
-        );
-        globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
-        invalidateCachedGameDetail(appId);
-        showToast(`${romName || "ROM"} uninstalled`);
-        setStateOverride(null);
-      } else {
-        showToast(result.message || "Uninstall failed");
-        setStateOverride(null);
-      }
-    } catch {
-      showToast("Uninstall failed");
+    const result = await executeRomUninstall({
+      romId,
+      appId,
+      romName,
+      leaseOwner,
+      tag: "DesktopPlayButton",
+    });
+
+    if (result.success) {
+      setStateOverride("download");
+    } else {
       setStateOverride(null);
     }
   };
