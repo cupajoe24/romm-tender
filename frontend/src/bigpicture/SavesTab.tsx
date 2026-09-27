@@ -16,7 +16,7 @@ import { switchSlot, getVersionList, checkLocalDrift, debugLog, logWarn } from "
 import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../utils/connectionState";
 import type { SaveStatus, SyncConflict, SaveSlotSummary, LastKnownSlots } from "../types";
 import { scrollFocusedToCenter } from "../utils/scrollHelpers";
-import { MUTED_COLOR, sortSaveSlots, filterSaveSlotsForDisplay } from "../utils/saveHelpers";
+import { MUTED_COLOR, sortSaveSlots, filterSaveSlotsForDisplay, switchSlotFailureMessage } from "./saves/helpers";
 import { renderLastKnownSlots } from "./saves/LastKnownSlotList";
 import { NewSlotModal } from "./saves/NewSlotModal";
 import { SlotPanel } from "./saves/SlotPanel";
@@ -207,10 +207,7 @@ export const SavesTab: FC<SavesTabProps> = ({
                   if (result.reason === "server_unreachable") {
                     reportServerReachable(false);
                   }
-                  const msg =
-                    result.reason === "pending_uploads" || result.reason === "server_unreachable"
-                      ? switchSlotFailureMessage(result.reason)
-                      : "Failed to create slot";
+                  const msg = switchSlotFailureMessage(result.reason, result.message, "Failed to create slot");
                   setNewSlotError(msg);
                   if (newSlotErrorTimerRef.current) clearTimeout(newSlotErrorTimerRef.current);
                   newSlotErrorTimerRef.current = setTimeout(() => setNewSlotError(null), 5000);

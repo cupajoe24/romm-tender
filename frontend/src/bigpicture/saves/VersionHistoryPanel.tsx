@@ -12,8 +12,7 @@ import type { SaveVersionEntry, ListFileVersionsResult } from "../../types";
 import { showSyncConflictModal } from "../../shared/SyncConflictModal";
 import { scrollFocusedToCenter } from "../../utils/scrollHelpers";
 import { formatBytes, formatTimestamp } from "../../utils/formatters";
-import { formatAttributionSegment, pickLastSyncer } from "../../utils/saveHelpers";
-import { rollbackFeedback } from "../../utils/saveSlotWording";
+import { formatAttributionSegment, pickLastSyncer, formatRollbackFeedback } from "./helpers";
 import { renderCopyToSlotButton, type CopyToSlotHandler } from "./CopyToSlotButton";
 import { detach } from "../../utils/detach";
 
@@ -113,18 +112,14 @@ export const VersionHistoryPanel: FC<VersionHistoryPanelProps> = ({
   const handleRestore = async (version: SaveVersionEntry) => {
     setRestoring(version.id);
     try {
-      const result = await savesRollbackToVersion(romId, slot, version.id);
-      const feedback = rollbackFeedback(result, version.updated_at);
-      if (feedback === null) return;
+      const result: RollbackStatus = await savesRollbackToVersion(romId, slot, version.id);
+      const feedback = formatRollbackFeedback(result, version.updated_at);
       if (feedback.kind === "conflict") {
         await showSyncConflictModal(feedback.conflict);
       } else {
         showToast(feedback.message);
       }
-      // `put_failed` refreshes too: the local download succeeded and only the
-      // server-side bump did not, so the switch is locally complete — it just
-      // won't reach other devices yet.
-      if (!isEndpointFailure(result) && (result.status === "ok" || result.status === "put_failed")) {
+      if (result.status === "ok" || result.status === "put_failed") {
         setVersions(null);
         setOpen(false);
         onRestored();

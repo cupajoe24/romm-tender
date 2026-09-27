@@ -11,8 +11,14 @@ import { getSlotSaves, switchSlot, debugLog, getSlotDeleteInfo, deleteSlot } fro
 import type { SaveStatus, SyncConflict, SaveSlotSummary, SlotSaveFile } from "../../types";
 import { scrollFocusedToCenter } from "../../utils/scrollHelpers";
 import { reportServerReachable } from "../../utils/connectionState";
-import { MUTED_COLOR, computeSyncSummary, displaySlot } from "../../utils/saveHelpers";
-import { formatSlotDeleteDescription, switchSlotFailureMessage } from "../../utils/saveSlotWording";
+import {
+  MUTED_COLOR,
+  computeSyncSummary,
+  displaySlot,
+  slotDeleteFailureToast,
+  switchSlotFailureMessage,
+  formatSlotDeleteDescription,
+} from "./helpers";
 import { renderSaveFileRow } from "./SaveFileRow";
 import { InactiveSlotBody } from "./InactiveSlotBody";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
