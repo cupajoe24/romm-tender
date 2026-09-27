@@ -13,42 +13,24 @@
 import { useState, useEffect, useRef, useCallback, type FC, type ReactNode } from "react";
 import { addEventListener, removeEventListener } from "../../api/host";
 import { FaCompactDisc, FaChevronDown, FaLayerGroup, FaTrash } from "react-icons/fa";
-import {
-  getCachedGameDetail,
-  getDiscSelection,
-  selectDisc,
-  getVersionList,
-  switchVersion,
-  syncRomSaves,
-  refreshSaveStatus,
-  fetchCoverBase64,
-  logError,
-  logWarn,
-} from "../../api/backend";
-import type {
-  DiscSelection,
-  VersionList,
-  VersionInfo,
-  SwitchVersionSuccess,
-  SwitchVersionFailure,
-  SwitchVersionUnsyncedSaves,
-} from "../../api/backend";
+import { getCachedGameDetail, getDiscSelection, selectDisc, logError, logWarn } from "../../api/backend";
+import type { DiscSelection, VersionList, VersionInfo } from "../../api/backend";
 import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { detach } from "../../utils/detach";
 import { showToast } from "../../utils/toast";
 import { useOutsideClick } from "../../utils/useOutsideClick";
-import { reportServerReachable } from "../../utils/connectionState";
-import { applyCommittedVersionSwitch } from "../../utils/versionSwitchApplication";
-import { setBoundVanished } from "../../utils/vanishedBinding";
 import {
   capturePruneLeaseAdmission,
-  isPruneLeaseAdmissionCurrent,
   isPruneLeaseCancellation,
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
   withPruneLease,
-  type PruneLeaseAdmission,
 } from "../../utils/pruneLease";
+import {
+  executeVersionSwitch,
+  loadVersionList as fetchVersionList,
+  fetchVersionCovers,
+} from "../../utils/versionSwitch";
 import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
 import type { RommDataChangedDetail, RommRomUninstalledDetail } from "../../types/events";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
@@ -116,14 +98,6 @@ const DiscWithNumber: FC<{ size: number; color: string; num: string }> = ({ size
   </span>
 );
 
-const reportVersionListReachability = (result: VersionList): void => {
-  if (result.server_query_failed) {
-    reportServerReachable(false);
-  } else if (result.multi_version && !result.bound_vanished) {
-    reportServerReachable(true);
-  }
-};
-
 export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
   const leaseOwner = `desktop-disc-selector:${appId}`;
   const versionLeaseOwner = `version-picker:${appId}`;
@@ -172,10 +146,8 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
       const requestId = ++listRequestIdRef.current;
       const isCurrent = (): boolean => isMountedRef.current && requestId === listRequestIdRef.current;
       try {
-        const result = await getVersionList(appId);
-        if (!isCurrent()) return;
-        reportVersionListReachability(result);
-        setBoundVanished(appId, result.bound_vanished);
+        const result = await fetchVersionList(appId, isCurrent);
+        if (!result || !isCurrent()) return;
         memberIdsRef.current = new Set((result.versions ?? []).map((v) => v.rom_id));
         if (result.multi_version || result.bound_vanished) {
           setVersionList(result);
@@ -208,13 +180,29 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
 
   // Stable refs so the mount effect can depend on nothing that changes
   const initGameDetailRef = useRef(initGameDetail);
-  const loadVersionListRef = useRef(loadVersionList);
   useEffect(() => {
     initGameDetailRef.current = initGameDetail;
   }, [initGameDetail]);
+
+  const loadVersionListRef = useRef<{
+    appId: number;
+    load: (source?: "normal" | "vanished_refusal") => Promise<void>;
+  } | null>(null);
+
   useEffect(() => {
-    loadVersionListRef.current = loadVersionList;
-  }, [loadVersionList]);
+    loadVersionListRef.current = { appId, load: loadVersionList };
+    return () => {
+      if (loadVersionListRef.current?.load === loadVersionList) {
+        loadVersionListRef.current = null;
+      }
+    };
+  }, [appId, loadVersionList]);
+
+  const runLoadVersionList = (source?: "normal" | "vanished_refusal"): Promise<void> => {
+    const loader = loadVersionListRef.current;
+    if (loader?.appId !== appId) return Promise.resolve();
+    return loader.load(source);
+  };
 
   // Mount & initial load — intentionally empty dep array so this runs exactly
   // once and never releases the prune lease mid-switch when state changes cause
@@ -226,7 +214,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
 
     detach(
       (async () => {
-        await Promise.all([initGameDetailRef.current(), loadVersionListRef.current()]);
+        await Promise.all([initGameDetailRef.current(), runLoadVersionList()]);
       })(),
     );
 
@@ -240,23 +228,11 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
 
   // Lazy fetch covers for versions
   useEffect(() => {
-    const versions = versionList?.versions;
-    if (!versions) return;
-    let cancelled = false;
-    for (const v of versions) {
-      if (coversRequested.current.has(v.rom_id)) continue;
-      coversRequested.current.add(v.rom_id);
-      fetchCoverBase64(v.rom_id)
-        .then((result) => {
-          if (!cancelled && isMountedRef.current && result.base64) {
-            setCovers((prev) => ({ ...prev, [v.rom_id]: result.base64! }));
-          }
-        })
-        .catch(() => {});
-    }
-    return () => {
-      cancelled = true;
-    };
+    return fetchVersionCovers(versionList?.versions, coversRequested.current, (rid, base64) => {
+      if (isMountedRef.current) {
+        setCovers((prev) => ({ ...prev, [rid]: base64 }));
+      }
+    });
   }, [versionList]);
 
   // Event listeners — use refs for callbacks so we never re-register just because
@@ -275,14 +251,14 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
           detach(fetchDiscSelectionRef.current(evt.rom_id));
         }
         if (memberIdsRef.current.has(evt.rom_id)) {
-          detach(loadVersionListRef.current());
+          detach(runLoadVersionList());
         }
       },
     );
 
     const failListener = addEventListener<DownloadFailedEvent>("download_failed", (evt: DownloadFailedEvent) => {
       if (memberIdsRef.current.has(evt.rom_id)) {
-        detach(loadVersionListRef.current());
+        detach(runLoadVersionList());
       }
     });
 
@@ -293,7 +269,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
         setSelected(null);
       }
       if (memberIdsRef.current.has(rid)) {
-        detach(loadVersionListRef.current());
+        detach(runLoadVersionList());
       }
     };
     globalThis.addEventListener("romm_rom_uninstalled", onUninstall);
@@ -309,11 +285,11 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
         detach(
           (async () => {
             await initGameDetailRef.current();
-            await loadVersionListRef.current();
+            await runLoadVersionList();
           })(),
         );
       } else if (pruned) {
-        detach(loadVersionListRef.current());
+        detach(runLoadVersionList());
       }
     };
     globalThis.addEventListener("romm_data_changed", onDataChanged);
@@ -364,114 +340,17 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
     }
   };
 
-  // Version switch success
-  const applySwitchSuccess = async (result: SwitchVersionSuccess, admission: PruneLeaseAdmission): Promise<void> => {
-    const confirmed = await applyCommittedVersionSwitch(
-      result,
-      (rid, cover) => setCovers((prev) => ({ ...prev, [rid]: cover })),
-      admission,
-    );
-    if (!confirmed) {
-      showToast("Switched — re-switch if launch fails");
-    }
-  };
-
-  const handleSwitchFailure = (result: SwitchVersionFailure | SwitchVersionUnsyncedSaves): void => {
-    if (result.reason === "server_unreachable") reportServerReachable(false);
-    setSwitching(false);
-    showToast("Could not switch version", { subtext: result.message });
-    if (result.reason === "version_vanished") {
-      detach(loadVersionList("vanished_refusal"));
-    }
-  };
-
-  const syncThenSwitch = async (
-    unsyncedRomId: number,
-    target: VersionInfo,
-    admission: PruneLeaseAdmission,
-  ): Promise<void> => {
-    const refreshStrandedSaveStatus = (): void => {
-      detach(
-        refreshSaveStatus(unsyncedRomId).catch((e) =>
-          logWarn(`Desktop DiscSelector: post-abort save-status refresh failed for rom ${unsyncedRomId}: ${e}`),
-        ),
-      );
-    };
-    const abort = (body: string): void => {
-      setSwitching(false);
-      showToast(body);
-      refreshStrandedSaveStatus();
-    };
-    if (!isPruneLeaseAdmissionCurrent(admission)) return;
-    try {
-      const sync = await syncRomSaves(unsyncedRomId);
-      if (!isPruneLeaseAdmissionCurrent(admission)) return;
-      if (!sync.success) {
-        abort("Couldn't sync saves — try again");
-        return;
-      }
-      if (sync.conflicts && sync.conflicts.length > 0) {
-        abort("Resolve save conflicts first");
-        return;
-      }
-      if (!isPruneLeaseAdmissionCurrent(admission)) return;
-      const retry = await switchVersion(appId, target.rom_id, false);
-      if (retry.success) {
-        await applySwitchSuccess(retry, admission);
-      } else if (retry.reason === "unsynced_saves") {
-        abort("Saves still unsynced — try again");
-      } else {
-        handleSwitchFailure(retry);
-        refreshStrandedSaveStatus();
-      }
-    } catch (e) {
-      if (!isPruneLeaseAdmissionCurrent(admission)) return;
-      logError(`Desktop DiscSelector: sync-then-switch failed: ${e}`);
-      abort("Couldn't sync saves — try again");
-    }
-  };
-
   const handleSwitch = async (target: VersionInfo): Promise<void> => {
-    if (target.active || target.vanished || !target.switchable) return;
-    setSwitching(true);
-    const admission = capturePruneLeaseAdmission(versionLeaseOwner);
-    try {
-      const result = await switchVersion(appId, target.rom_id, false);
-      if (result.success) {
-        await applySwitchSuccess(result, admission);
-        return;
-      }
-      if (result.reason === "unsynced_saves") {
-        reportServerReachable(result.server_reachable);
-        const askUnsynced = desktopUnsyncedSavesDialog(effectiveAsk);
-        const choice = await askUnsynced({
-          versionName: result.unsynced_version_name,
-          serverReachable: result.server_reachable,
-        });
-        if (choice === "sync_and_switch") {
-          await syncThenSwitch(result.unsynced_rom_id, target, admission);
-        } else if (choice === "switch_anyway") {
-          const forced = await switchVersion(appId, target.rom_id, true);
-          if (forced.success) {
-            await applySwitchSuccess(forced, admission);
-          } else {
-            handleSwitchFailure(forced);
-          }
-        } else {
-          setSwitching(false);
-        }
-        return;
-      }
-      handleSwitchFailure(result);
-    } catch (e) {
-      if (isPruneLeaseCancellation(e, admission)) {
-        logWarn(`Desktop DiscSelector: version switch continuation was cancelled: ${e}`);
-        return;
-      }
-      setSwitching(false);
-      logError(`Desktop DiscSelector: switchVersion failed: ${e}`);
-      showToast("Could not switch version");
-    }
+    await executeVersionSwitch({
+      appId,
+      target,
+      leaseOwner: versionLeaseOwner,
+      askUnsyncedSaves: desktopUnsyncedSavesDialog(effectiveAsk),
+      onCoverResolved: (rid, cover) => setCovers((prev) => ({ ...prev, [rid]: cover })),
+      onVanishedRefusal: () => detach(runLoadVersionList("vanished_refusal")),
+      setSwitching,
+      logTag: "Desktop DiscSelector",
+    });
   };
 
   const hasDiscs = Boolean(selection?.multi_disc && selection.discs && selection.default);
