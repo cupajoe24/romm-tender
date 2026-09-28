@@ -1,4 +1,4 @@
-"""What a gated endpoint answers while the condition it is gated on holds, and which condition answers first.
+"""What an endpoint answers while a conflict rule it names holds, and which rule answers first.
 
 Four conditions refuse an endpoint before it does anything: a pending RetroDECK
 migration (``blocked_by_migration``), a library sync in flight
@@ -12,11 +12,11 @@ Every test here but the five at the bottom drives ``harness.plugin.<endpoint>``
 with frontend-shaped arguments and reads the answer, so it holds wherever the
 rules are enforced. Four of those five, the ``test_*_names_every_endpoint_*``
 tests, read where each rule is declared instead, to keep each list from falling
-behind an endpoint that gains or loses a rule: the endpoint's gate decorator, or
-the ``hold("<endpoint>", …)`` call at the entry of the use case it calls
-(``tests/_gate_rules.py``). The fifth,
-``test_every_gated_endpoint_has_its_arguments``, reads only the lists. Outside
-this module, ``tests/test_plugin.py``'s ``TestMigrationBlockedDecoratorCoverage``
+behind an endpoint that gains or loses a rule: the ``hold("<endpoint>", …)`` or
+``hold_start("<endpoint>", …)`` call at the entry of the use case it calls
+(``tests/_conflict_rules.py``). The fifth,
+``test_every_endpoint_with_a_rule_has_its_arguments``, reads only the lists.
+Outside this module, ``tests/test_plugin.py``'s ``TestMigrationRuleCoverage``
 reads the migration rule the same way.
 """
 
@@ -28,7 +28,7 @@ import threading
 from typing import Any
 
 import pytest
-from _gate_rules import endpoints_with_rule
+from _conflict_rules import endpoints_with_rule
 
 from domain.sync_state import SyncState
 
@@ -56,7 +56,7 @@ _SAVE_SYNC_SETTINGS = {
 }
 _APP_ID = 0x80000001
 
-# Every gated endpoint's arguments, positional and typed the way
+# The arguments of every endpoint with a rule, positional and typed the way
 # ``frontend/src/api/backend.ts`` declares them.
 _ARGS: dict[str, tuple[Any, ...]] = {
     "adopt_existing_rom": (41, None, None),
@@ -321,7 +321,7 @@ async def test_the_migration_refusal_is_the_canonical_failure_shape(harness):
     }
 
 
-async def test_start_prune_is_refused_while_a_lease_is_held_and_gets_past_the_gate_once_it_is_released(harness):
+async def test_start_prune_is_refused_while_a_lease_is_held_and_no_longer_once_it_is_released(harness):
     seed_rom(harness, 41)
     removed = await harness.plugin.remove_all_shortcuts()
     token = removed["prune_lease_token"]
@@ -431,40 +431,40 @@ async def test_start_prune_refused_for_a_sync_in_flight_leaves_no_cleanup_claim_
     assert (await harness.plugin.test_connection())["reason"] == "config_error"
 
 
-# ── The lists above against the gates they stand for ─────────────────────────
+# ── The lists above against the rules they stand for ─────────────────────────
 
 
-def test_the_prune_active_matrix_names_every_endpoint_the_gate_covers():
-    """Holds ``PRUNE_ACTIVE`` equal to the endpoints ``@prune_active_blocked`` marks or a use case's ``hold`` names.
+def test_the_prune_active_matrix_names_every_endpoint_with_the_rule():
+    """Holds ``PRUNE_ACTIVE`` equal to the endpoints whose use case's ``hold`` names the prune rule.
 
     Reads where the rule is declared, not behaviour.
     """
     assert set(PRUNE_ACTIVE) == endpoints_with_rule("prune")
 
 
-def test_the_migration_matrix_names_every_endpoint_the_gate_covers():
-    """Holds ``MIGRATION`` equal to the endpoints ``@migration_blocked`` marks or a use case's ``hold`` names.
+def test_the_migration_matrix_names_every_endpoint_with_the_rule():
+    """Holds ``MIGRATION`` equal to the endpoints whose use case's ``hold`` or ``hold_start`` names the migration rule.
 
     Reads where the rule is declared, not behaviour.
     """
     assert set(MIGRATION) == endpoints_with_rule("migration")
 
 
-def test_the_sync_active_matrix_names_every_endpoint_the_gate_covers():
-    """Holds ``SYNC_ACTIVE`` equal to the endpoints ``@sync_active_blocked`` marks or a use case's ``hold`` names.
+def test_the_sync_active_matrix_names_every_endpoint_with_the_rule():
+    """Holds ``SYNC_ACTIVE`` equal to the endpoints whose use case's ``hold`` or ``hold_start`` names the sync rule.
 
     Reads where the rule is declared, not behaviour.
     """
     assert set(SYNC_ACTIVE) == endpoints_with_rule("sync")
 
 
-def test_the_exclusive_start_names_every_endpoint_the_gate_covers():
-    """Holds ``EXCLUSIVE_START`` equal to the endpoints ``@prune_exclusive_start`` marks.
+def test_the_exclusive_start_names_every_endpoint_that_takes_it():
+    """Holds ``EXCLUSIVE_START`` equal to the endpoints whose use case checks its rules through ``hold_start``.
 
     Reads where the rule is declared, not behaviour.
     """
     assert set(EXCLUSIVE_START) == endpoints_with_rule("exclusive_start")
 
 
-def test_every_gated_endpoint_has_its_arguments():
+def test_every_endpoint_with_a_rule_has_its_arguments():
     assert set(_ARGS) == set(PRUNE_ACTIVE) | set(MIGRATION) | set(SYNC_ACTIVE) | set(EXCLUSIVE_START)
