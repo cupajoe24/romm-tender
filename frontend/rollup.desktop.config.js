@@ -1,4 +1,4 @@
-import builds from "./rollup.config.js";
+import { configure } from "./rollup.config.js";
 
 // Dev config with source maps enabled for CEF debugging
 // Build-time injection of desktop navigation watcher
@@ -25,8 +25,7 @@ const desktopWatcherPlugin = {
   },
 };
 
-export default builds.map((build) => ({
+export default configure({ sourcemap: true }).map((build) => ({
   ...build,
-  output: { ...build.output, sourcemap: true },
   plugins: [...build.plugins, desktopWatcherPlugin],
 }));
