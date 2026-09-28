@@ -350,8 +350,8 @@ solo groups). Key derivation: `domain/sibling_group.py`, persisted as `roms.sibl
   of reachable ROMs is what a surface states about how much of a platform or of a collection arrived in Steam; a count
   of bindings is what it states about shortcuts (a platform states both, and they need not agree); a group with no
   binding raises neither (`reachable_count` vs. `count`, `services/library/reporter.py`). The platform count
-  (`reachable_count`) is the reachable versions less those the platform's last completed fetch did not return, which it
-  leaves out because RomM no longer serves them (the exact rule:
+  (`reachable_count`) is the reachable versions less those the fetch the platform's completion stamp records did not
+  return, which it leaves out because RomM no longer serves them (the exact rule:
   [qam-panel.md § Library](docs/architecture/qam-panel.md#library)); the collection count (`in_steam_count`) is the
   reachable versions as the sync's collection filing resolves them, with no such exclusion. Both start from one
   computation, `domain/sibling_resolution.py`'s `reachable_rom_ids`.
@@ -853,9 +853,9 @@ Three deliberately-distinct ROM-removal notions (see [ADR-0007](docs/adr/0007-ro
 
 - **Unbind** — drop a ROM's Steam-shortcut binding (`shortcut_app_id` → NULL, via `Rom.unbind_shortcut()`) while keeping
   its `roms` row and all per-ROM state (install, metadata, playtime, saves). What removing a shortcut does.
-- **Stale** — a ROM still in local state but no longer returned by RomM on a sync. Triggers an **unbind**, never a
-  delete: a stale signal may be a transient server blip or a reversible RomM change, and local playtime/saves must
-  survive.
+- **Stale** — a **bound** ROM that no unit of a sync returned, judged only when the sync was not stopped (→ SyncRun); a
+  unit the sync skipped as unchanged counts as returning every ROM it held. Triggers an **unbind**, never a delete: a
+  stale signal may be a transient server blip or a reversible RomM change, and local playtime/saves must survive.
 - **Prune** — an explicit, opt-in purge that `DELETE`s the `roms` row, cascading every per-ROM child away atomically.
   The **only** thing that deletes rows. **Clean Up Removed RomM Games** performs it only after fresh exact-ID 404s,
   explicit options, and any enabled recovery bundle have passed their final guards.

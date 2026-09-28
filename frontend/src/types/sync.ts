@@ -275,15 +275,12 @@ export interface RegistryPlatform {
   count: number;
   /**
    * How many of the platform's ROMs are reachable from Steam (CONTEXT.md →
-   * Reachable), less the versions its last completed fetch did not return, left
-   * out because RomM no longer serves them. It need not equal `count` in either
-   * direction: a pane can read fewer here than it has shortcuts
+   * Reachable), less the versions the fetch its completion stamp records did not
+   * return, left out because RomM no longer serves them. It need not equal
+   * `count` in either direction: a pane can read fewer here than it has shortcuts
    * (`docs/architecture/qam-panel.md`, § Library, has the rule and its edges).
-   *
-   * Absent on older backends; a reader falls back to `count`, which is the
-   * pre-#1815 wording and understates rather than inventing a number.
    */
-  reachable_count?: number;
+  reachable_count: number;
 }
 
 export interface SyncAddItem {
