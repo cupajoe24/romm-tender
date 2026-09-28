@@ -146,6 +146,11 @@ describe("EmulationSettings", () => {
     expect(screen.getByText("Resident Evil 2")).toBeInTheDocument();
   });
 
+  it("renders platform display name in heading when available", async () => {
+    await renderSettings({ detail: { platformSlug: "gba", platformName: "Gameboy Advance" } });
+    expect(screen.getByText("GAMEBOY ADVANCE EMULATION")).toBeInTheDocument();
+  });
+
   it("shows the active core in the summary row with Game override badge when override is set", async () => {
     await renderSettings();
     // Active core label appears in the summary row
