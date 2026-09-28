@@ -61,6 +61,7 @@ import {
 } from "../../utils/pruneLease";
 import { removeShortcutsPaced } from "../../utils/shortcutRemoval";
 import { withTimeout } from "../../utils/withTimeout";
+import { useLatestWrites, useLineWrites } from "./latestWrites";
 import { SYNC_WRITE_FAILED } from "./syncWriteFailed";
 
 /** How long the pressed button says `Failed` before everything returns. Two of
@@ -71,6 +72,7 @@ import { SYNC_WRITE_FAILED } from "./syncWriteFailed";
 const FAILED_NOTICE_MS = 2000;
 
 const LEASE_OWNER = "library-platforms";
+const LIST_LINE = "list";
 const REMOVAL_REPORT_TIMEOUT_MS = 15000;
 
 /** Which group of the detail a status line belongs under, so a failed core
@@ -201,10 +203,14 @@ export interface PlatformsPageState {
    * about a row the reader is already looking at, so neither belongs in
    * {@link DetailStatus}, which is bound to one platform's pane.
    *
-   * Cleared by the next sync write that succeeds — a line about a toggle the
-   * reader has since put right is a line about nothing.
+   * Cleared when the tab is entered, and otherwise set and cleared only by the
+   * answer to the latest sync write — `docs/architecture/qam-panel.md`
+   * § Library, "Only the latest write speaks".
    */
   listStatus: string | null;
+  /** The tab was entered: no answer to a sync write issued before now sets or
+   *  clears the list's line. */
+  enter: () => void;
   /**
    * The platform whose action is in flight, or `null`. Every action the detail
    * offers disables on every platform while one is running; the list's own sync
@@ -324,6 +330,9 @@ export function usePlatformsPage(): PlatformsPageState {
   const [saveCounts, setSaveCounts] = useState<Record<string, number | null>>({});
   const [status, setStatus] = useState<DetailStatus | null>(null);
   const [listStatus, setListStatus] = useState<string | null>(null);
+  // Touched only in handlers and in answers, never during render.
+  const syncWrites = useLatestWrites<boolean>();
+  const lines = useLineWrites();
   const [busySlug, setBusySlug] = useState<string | null>(null);
   const [removalProgress, setRemovalProgress] = useState<{ slug: string; removed: number; total: number } | null>(null);
 
@@ -540,6 +549,7 @@ export function usePlatformsPage(): PlatformsPageState {
           setFailed(true);
           return;
         }
+        syncWrites.seed(result.platforms.map((p) => [p.slug, p.sync_enabled]));
         setPlatforms(result.platforms);
         const frozen = freezeGroups(result.platforms);
         setGroups(frozen);
@@ -562,7 +572,7 @@ export function usePlatformsPage(): PlatformsPageState {
     return () => {
       detach(releasePruneLeasesByOwner(LEASE_OWNER));
     };
-  }, [loadCore, loadSaveCount, readOverview, refreshShortcutCounts]);
+  }, [loadCore, loadSaveCount, readOverview, refreshShortcutCounts, syncWrites]);
 
   /** Where a platform's BIOS answer stands — see {@link FirmwareState}.
    *
@@ -622,59 +632,78 @@ export function usePlatformsPage(): PlatformsPageState {
   const coreFor = useCallback((slug: string): CoreAnswer => cores[slug], [cores]);
   const saveCountFor = useCallback((slug: string): SaveCountAnswer => saveCounts[slug], [saveCounts]);
 
-  // Disable all has to be able to put the list back exactly as it was, which no
-  // functional update can reconstruct. The snapshot is written in an effect
-  // rather than during render, and is read only from an event handler — after
-  // the commit that wrote it.
-  const platformsRef = useRef<PlatformSyncSetting[]>([]);
-  useEffect(() => {
-    platformsRef.current = platforms;
-  }, [platforms]);
+  const listLine = useCallback(() => {
+    const speaks = lines.issue(LIST_LINE);
+    return (text: string | null) => {
+      if (speaks()) setListStatus(text);
+    };
+  }, [lines]);
 
-  // Both sync writes below treat a refusal and a rejection as one outcome: the
-  // write did not take, the optimistic flip goes back, and the reader is told.
-  // A flip that silently returns to where it was is what a toggle that never
-  // moved looks like, and neither callable throws to refuse.
-  const toggleSync = useCallback((row: PlatformRow, enabled: boolean) => {
-    const flip = (want: boolean) =>
-      setPlatforms((prev) => prev.map((p) => (p.slug === row.slug ? { ...p, sync_enabled: want } : p)));
-    flip(enabled);
-    detach(
-      savePlatformSync(row.id, enabled)
-        .then((result) => {
-          if (result.success) {
-            setListStatus(null);
-            return;
-          }
-          flip(!enabled);
-          setListStatus(result.message || SYNC_WRITE_FAILED);
-        })
-        .catch(() => {
-          flip(!enabled);
-          setListStatus(SYNC_WRITE_FAILED);
-        }),
-    );
-  }, []);
+  const enter = useCallback(() => {
+    lines.enter();
+    setListStatus(null);
+  }, [lines]);
 
-  const setAllSync = useCallback((enabled: boolean) => {
-    const previous = platformsRef.current;
-    setPlatforms((prev) => prev.map((p) => ({ ...p, sync_enabled: enabled })));
-    detach(
-      setAllPlatformsSync(enabled)
-        .then((result) => {
-          if (result.success) {
-            setListStatus(null);
-            return;
-          }
-          setPlatforms(previous);
-          setListStatus(result.message || SYNC_WRITE_FAILED);
-        })
-        .catch(() => {
-          setPlatforms(previous);
-          setListStatus(SYNC_WRITE_FAILED);
-        }),
-    );
-  }, []);
+  // What an answer may change on its switch and on the list's line:
+  // `docs/architecture/qam-panel.md` § Library, "Only the latest write speaks".
+  const toggleSync = useCallback(
+    (row: PlatformRow, enabled: boolean) => {
+      const show = (want: boolean) =>
+        setPlatforms((prev) => prev.map((p) => (p.slug === row.slug ? { ...p, sync_enabled: want } : p)));
+      const write = syncWrites.issue([row.slug], enabled);
+      const line = listLine();
+      const failed = (text: string) => {
+        if (write.isLatest(row.slug)) show(syncWrites.stored(row.slug) ?? !enabled);
+        line(text);
+      };
+      show(enabled);
+      detach(
+        savePlatformSync(row.id, enabled)
+          .then((result) => {
+            if (result.success) {
+              write.stored();
+              line(null);
+              return;
+            }
+            failed(result.message || SYNC_WRITE_FAILED);
+          })
+          .catch(() => failed(SYNC_WRITE_FAILED)),
+      );
+    },
+    [listLine, syncWrites],
+  );
+
+  const setAllSync = useCallback(
+    (enabled: boolean) => {
+      const write = syncWrites.issue(
+        platforms.map((p) => p.slug),
+        enabled,
+      );
+      const line = listLine();
+      const failed = (text: string) => {
+        setPlatforms((prev) =>
+          prev.map((p) =>
+            write.isLatest(p.slug) ? { ...p, sync_enabled: syncWrites.stored(p.slug) ?? p.sync_enabled } : p,
+          ),
+        );
+        line(text);
+      };
+      setPlatforms((prev) => prev.map((p) => ({ ...p, sync_enabled: enabled })));
+      detach(
+        setAllPlatformsSync(enabled)
+          .then((result) => {
+            if (result.success) {
+              write.stored();
+              line(null);
+              return;
+            }
+            failed(result.message || SYNC_WRITE_FAILED);
+          })
+          .catch(() => failed(SYNC_WRITE_FAILED)),
+      );
+    },
+    [listLine, platforms, syncWrites],
+  );
 
   /** Take back the core line this pick wrote, and only that one. The page holds
    *  a single status, and the clear runs after an await: naming the line means a
@@ -988,6 +1017,7 @@ export function usePlatformsPage(): PlatformsPageState {
     saveCountFor,
     status,
     listStatus,
+    enter,
     busySlug,
     removalProgress,
     toggleSync,
