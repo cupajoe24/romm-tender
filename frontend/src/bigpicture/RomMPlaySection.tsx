@@ -46,20 +46,19 @@ import {
   refreshCoverArtwork,
   downloadAllFirmware,
   deleteLocalSaves,
+  reconcilePlaytime,
   debugLog,
 } from "../api/backend";
 import { executeManualSaveSync } from "../utils/manualSaveSync";
 import { executeRomUninstall } from "../utils/romUninstall";
-import { setLaunchOptionsConfirmed } from "../utils/steamShortcuts";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseCancellation,
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
 } from "../utils/pruneLease";
-import { executeGameCoreChange } from "../utils/coreOverride";
-import { emulatorName } from "../utils/emulatorEntries";
-import { useGamePlaytime } from "../utils/playtimeReconcile";
+import { applyGameCoreChange } from "../utils/coreOverride";
+import { updatePlaytimeDisplay } from "../utils/metadataPatches";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
 import { formatBytes } from "../utils/formatters";
 import { BIOS_MISSING_RED } from "../utils/biosColor";
@@ -592,10 +591,9 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     const romId = detail.romId;
     if (!romId || !detail.platformSlug) return;
     const platformSlug = detail.platformSlug;
-    await executeGameCoreChange({
+    await applyGameCoreChange({
       romId,
       coreLabel,
-      coreName: emulatorName(detail.emulators, coreLabel),
       leaseOwner: `game-detail:${appId}`,
       onSuccess: () => refreshCoreDisplay(platformSlug),
       logTag: "handleChangeGameCore",
@@ -606,7 +604,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     const romId = detail.romId;
     if (!romId || !detail.platformSlug) return;
     const platformSlug = detail.platformSlug;
-    await executeGameCoreChange({
+    await applyGameCoreChange({
       romId,
       coreLabel: null,
       leaseOwner: `game-detail:${appId}`,

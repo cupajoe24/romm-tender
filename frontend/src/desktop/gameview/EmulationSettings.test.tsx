@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { EmulationSettings } from "./EmulationSettings";
 import type { GameDetailState } from "../../utils/gameDetailStore";
+import { toaster } from "../../api/host";
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
 
@@ -132,6 +133,7 @@ async function renderSettings(props?: { title?: string; detail?: Partial<GameDet
 describe("EmulationSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(toaster.toast).mockReset();
     // Default: return BIOS files so most tests see the file list
     vi.mocked(getBiosStatus).mockResolvedValue(BIOS_ANSWER_WITH_FILES);
   });
@@ -225,15 +227,67 @@ describe("EmulationSettings", () => {
 
   // ── Core change interactions ──────────────────────────────────────────────
 
-  it("calls clearGameCore when the default-marked emulator is clicked", async () => {
-    vi.mocked(clearGameCore).mockResolvedValue({ success: true, app_id: 1234, launch_options: "-e parallel" });
+  it("calls setGameCore when the default-marked emulator is clicked and not already pinned (#211)", async () => {
+    vi.mocked(setGameCore).mockResolvedValue({ success: true, app_id: 1234, launch_options: "-e parallel" });
     await renderSettings();
 
     const parallelOption = screen.getAllByRole("option").find((o) => o.textContent.includes("ParaLLEl N64"));
     fireEvent.click(parallelOption!);
 
-    await waitFor(() => expect(clearGameCore).toHaveBeenCalledWith(42));
+    await waitFor(() => expect(setGameCore).toHaveBeenCalledWith(42, "ParaLLEl N64"));
     expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(1234, "-e parallel");
+    expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Core set to ParaLLEl N64" }));
+  });
+
+  it("calls clearGameCore when clicking the same emulator option that is already pinned", async () => {
+    vi.mocked(clearGameCore).mockResolvedValue({ success: true, app_id: 1234, launch_options: "run default" });
+    await renderSettings();
+
+    // Mupen64Plus-Next is activeCoreLabel in baseDetail with hasGameOverride: true
+    const mupenOption = screen.getAllByRole("option").find((o) => o.textContent.includes("Mupen64Plus-Next"));
+    fireEvent.click(mupenOption!);
+
+    await waitFor(() => expect(clearGameCore).toHaveBeenCalledWith(42));
+    expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(1234, "run default");
+    expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Now following the system core" }));
+  });
+
+  it("calls clearGameCore when clicking default emulator that is already pinned as override", async () => {
+    vi.mocked(clearGameCore).mockResolvedValue({ success: true, app_id: 1234, launch_options: "run default" });
+    await renderSettings({
+      detail: {
+        hasGameOverride: true,
+        activeCoreLabel: "ParaLLEl N64",
+        activeCoreIsDefault: false,
+      },
+    });
+
+    const parallelOption = screen.getAllByRole("option").find((o) => o.textContent.includes("ParaLLEl N64"));
+    fireEvent.click(parallelOption!);
+
+    await waitFor(() => expect(clearGameCore).toHaveBeenCalledWith(42));
+    expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Now following the system core" }));
+  });
+
+  it("toasts restart Steam when launch options are unconfirmed", async () => {
+    vi.mocked(setGameCore).mockResolvedValue({ success: true, app_id: 1234, launch_options: "-e mupen" });
+    vi.mocked(setLaunchOptionsConfirmed).mockResolvedValue(false);
+    await renderSettings({
+      title: "Mario 64",
+      detail: {
+        activeCoreIsDefault: true,
+        activeCoreLabel: null,
+        hasGameOverride: false,
+      },
+    });
+
+    const mupenOption = screen.getAllByRole("option").find((o) => o.textContent.includes("Mupen64Plus-Next"));
+    fireEvent.click(mupenOption!);
+
+    await waitFor(() => expect(setGameCore).toHaveBeenCalledWith(42, "Mupen64Plus-Next"));
+    expect(toaster.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ body: "Core saved — restart Steam to apply" }),
+    );
   });
 
   it("calls setGameCore when a non-default emulator is selected", async () => {

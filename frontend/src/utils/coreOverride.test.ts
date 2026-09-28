@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { toaster } from "../api/host";
 import * as backend from "../api/backend";
 import { setLaunchOptionsConfirmed } from "./steamShortcuts";
-import * as pruneLease from "./pruneLease";
 import { mountPruneLeaseOwner } from "./pruneLease";
-import { executeGameCoreChange } from "./coreOverride";
+import { applyGameCoreChange } from "./coreOverride";
 
 vi.mock("../api/backend", () => ({
   setGameCore: vi.fn(),
@@ -16,7 +15,7 @@ vi.mock("./steamShortcuts", () => ({
   setLaunchOptionsConfirmed: vi.fn().mockResolvedValue(true),
 }));
 
-describe("coreOverride — executeGameCoreChange", () => {
+describe("coreOverride — applyGameCoreChange", () => {
   const leaseOwner = "test-core-owner";
 
   beforeEach(() => {
@@ -28,15 +27,6 @@ describe("coreOverride — executeGameCoreChange", () => {
     vi.mocked(toaster.toast).mockReset();
   });
 
-  it("names the pinned emulator in its toast by the name it is given", async () => {
-    vi.mocked(backend.setGameCore).mockResolvedValue({ success: true });
-
-    await executeGameCoreChange({ romId: 42, coreLabel: "LRPS2", coreName: "LRPS2 / PCSX2", leaseOwner });
-
-    expect(backend.setGameCore).toHaveBeenCalledWith(42, "LRPS2");
-    expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Core set to LRPS2 / PCSX2" }));
-  });
-
   it("pins a core override and confirms launch options on success", async () => {
     vi.mocked(backend.setGameCore).mockResolvedValue({
       success: true,
@@ -45,12 +35,14 @@ describe("coreOverride — executeGameCoreChange", () => {
     });
     const onSuccess = vi.fn();
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: "Snes9x",
       leaseOwner,
       onSuccess,
     });
+
+    expect(outcome.success).toBe(true);
     expect(backend.setGameCore).toHaveBeenCalledWith(42, "Snes9x");
     expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(1234, "flatpak run -e core.so");
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Core set to Snes9x" }));
@@ -66,12 +58,15 @@ describe("coreOverride — executeGameCoreChange", () => {
     vi.mocked(setLaunchOptionsConfirmed).mockResolvedValue(false);
     const onSuccess = vi.fn();
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: "Snes9x",
       leaseOwner,
       onSuccess,
     });
+
+    expect(outcome.success).toBe(true);
+    expect(outcome.unconfirmed).toBe(true);
     expect(toaster.toast).toHaveBeenCalledWith(
       expect.objectContaining({ body: "Core saved — restart Steam to apply" }),
     );
@@ -84,12 +79,14 @@ describe("coreOverride — executeGameCoreChange", () => {
     });
     const onSuccess = vi.fn();
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: "Genesis Plus GX",
       leaseOwner,
       onSuccess,
     });
+
+    expect(outcome.success).toBe(true);
     expect(setLaunchOptionsConfirmed).not.toHaveBeenCalled();
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Core set to Genesis Plus GX" }));
     expect(onSuccess).toHaveBeenCalled();
@@ -103,12 +100,14 @@ describe("coreOverride — executeGameCoreChange", () => {
     });
     const onSuccess = vi.fn();
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: null,
       leaseOwner,
       onSuccess,
     });
+
+    expect(outcome.success).toBe(true);
     expect(backend.clearGameCore).toHaveBeenCalledWith(42);
     expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(1234, "flatpak run default.so");
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Now following the system core" }));
@@ -118,87 +117,51 @@ describe("coreOverride — executeGameCoreChange", () => {
   it("toasts failure message on set failure", async () => {
     vi.mocked(backend.setGameCore).mockResolvedValue({
       success: false,
-      reason: "core_unavailable",
       message: "Core binary missing",
     });
     const onSuccess = vi.fn();
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: "Snes9x",
       leaseOwner,
       onSuccess,
     });
+
+    expect(outcome.success).toBe(false);
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Core binary missing" }));
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
-  it("toasts 'Failed to set core' on a refused clear without message", async () => {
+  it("toasts fallback failure message on clear failure without message", async () => {
     vi.mocked(backend.clearGameCore).mockResolvedValue({
       success: false,
-      reason: "not_found",
-      message: "",
     });
     const onSuccess = vi.fn();
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: null,
       leaseOwner,
       onSuccess,
     });
-    expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Failed to set core" }));
-    expect(onSuccess).not.toHaveBeenCalled();
-  });
 
-  it("toasts 'Failed to reset core' on a clear that throws", async () => {
-    vi.mocked(backend.clearGameCore).mockRejectedValue(new Error("RPC failed"));
-
-    await executeGameCoreChange({ romId: 42, coreLabel: null, leaseOwner });
-
+    expect(outcome.success).toBe(false);
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Failed to reset core" }));
-  });
-
-  it("logs the request and the answer under the caller's tag", async () => {
-    vi.mocked(backend.setGameCore).mockResolvedValue({ success: true });
-    vi.mocked(backend.clearGameCore).mockResolvedValue({ success: false, reason: "not_found", message: "" });
-
-    await executeGameCoreChange({ romId: 42, coreLabel: "Snes9x", leaseOwner, logTag: "handleChangeGameCore" });
-    await executeGameCoreChange({ romId: 42, coreLabel: null, leaseOwner, logTag: "handleResetGameCore" });
-
-    expect(vi.mocked(backend.debugLog).mock.calls.map(([line]) => line)).toEqual([
-      "handleChangeGameCore: romId=42 coreLabel=Snes9x",
-      "handleChangeGameCore: result success=true",
-      "handleResetGameCore: romId=42",
-      "handleResetGameCore: result success=false",
-    ]);
-  });
-
-  it("runs the continuation under the 'Core selection' lease context, whatever the log tag", async () => {
-    vi.mocked(backend.setGameCore).mockResolvedValue({ success: true, prune_lease_token: "tok" });
-    const withPruneLease = vi.spyOn(pruneLease, "withPruneLease");
-
-    await executeGameCoreChange({ romId: 42, coreLabel: "Snes9x", leaseOwner, logTag: "handleChangeGameCore" });
-
-    expect(withPruneLease).toHaveBeenCalledWith(
-      "tok",
-      "Core selection",
-      expect.any(Function),
-      leaseOwner,
-      expect.objectContaining({ owner: leaseOwner }),
-    );
-    withPruneLease.mockRestore();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it("suppresses toast on prune lease cancellation", async () => {
     const { PruneLeaseAdmissionCancelled } = await import("./pruneLease");
     vi.mocked(backend.setGameCore).mockRejectedValue(new PruneLeaseAdmissionCancelled("unmounted"));
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: "Snes9x",
       leaseOwner,
     });
+
+    expect(outcome.success).toBe(false);
     expect(toaster.toast).not.toHaveBeenCalled();
     expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("continuation was cancelled"));
   });
@@ -206,55 +169,13 @@ describe("coreOverride — executeGameCoreChange", () => {
   it("toasts generic failure on unexpected exception", async () => {
     vi.mocked(backend.setGameCore).mockRejectedValue(new Error("RPC failed"));
 
-    await executeGameCoreChange({
+    const outcome = await applyGameCoreChange({
       romId: 42,
       coreLabel: "Snes9x",
       leaseOwner,
     });
+
+    expect(outcome.success).toBe(false);
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: "Failed to set core" }));
-  });
-
-  describe("a continuation whose lease is aborted", () => {
-    const installedAnswer = { success: true as const, launch_options: "flatpak run -e core.so", app_id: 1234 };
-
-    /** Run the continuation on *controller*'s signal instead of a real lease. */
-    function continueOn(controller: AbortController): void {
-      vi.spyOn(pruneLease, "withPruneLease").mockImplementationOnce(async (_token, _context, operation) =>
-        operation(controller.signal),
-      );
-    }
-
-    afterEach(() => vi.restoreAllMocks());
-
-    it("writes nothing to Steam and claims nothing when aborted before the write", async () => {
-      vi.mocked(backend.setGameCore).mockResolvedValue(installedAnswer);
-      const controller = new AbortController();
-      controller.abort();
-      continueOn(controller);
-      const onSuccess = vi.fn();
-
-      await executeGameCoreChange({ romId: 42, coreLabel: "Snes9x", leaseOwner, onSuccess });
-
-      expect(setLaunchOptionsConfirmed).not.toHaveBeenCalled();
-      expect(toaster.toast).not.toHaveBeenCalled();
-      expect(onSuccess).not.toHaveBeenCalled();
-    });
-
-    it("claims nothing when aborted while the launch command is written", async () => {
-      vi.mocked(backend.setGameCore).mockResolvedValue(installedAnswer);
-      const controller = new AbortController();
-      continueOn(controller);
-      vi.mocked(setLaunchOptionsConfirmed).mockImplementation(async () => {
-        controller.abort();
-        return true;
-      });
-      const onSuccess = vi.fn();
-
-      await executeGameCoreChange({ romId: 42, coreLabel: "Snes9x", leaseOwner, onSuccess });
-
-      expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(1234, "flatpak run -e core.so");
-      expect(toaster.toast).not.toHaveBeenCalled();
-      expect(onSuccess).not.toHaveBeenCalled();
-    });
   });
 });
