@@ -13,39 +13,37 @@
 import { useState, useEffect, useRef, useCallback, type FC, type ReactNode } from "react";
 import { addEventListener, removeEventListener } from "../../api/host";
 import { FaCompactDisc, FaChevronDown, FaLayerGroup, FaTrash } from "react-icons/fa";
-import { getCachedGameDetail, getDiscSelection, selectDisc, logError, logWarn } from "../../api/backend";
+import { getCachedGameDetail, logError, logWarn } from "../../api/backend";
 import type { DiscSelection, VersionList, VersionInfo } from "../../api/backend";
-import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { detach } from "../../utils/detach";
-import { showToast } from "../../utils/toast";
 import { useOutsideClick } from "../../utils/useOutsideClick";
-import {
-  capturePruneLeaseAdmission,
-  isPruneLeaseCancellation,
-  mountPruneLeaseOwner,
-  releasePruneLeasesByOwner,
-  withPruneLease,
-} from "../../utils/pruneLease";
+import { mountPruneLeaseOwner, releasePruneLeasesByOwner } from "../../utils/pruneLease";
 import {
   executeVersionSwitch,
   loadVersionList as fetchVersionList,
   fetchVersionCovers,
 } from "../../utils/versionSwitch";
+import {
+  type DiscOptionData,
+  DISC_GREY,
+  DISC_ACCENT,
+  DiscStack,
+  DiscWithNumber,
+  computeDiscDisplayState,
+  buildDiscOptions,
+  fetchDiscSelection,
+  executeDiscSelection,
+} from "../../utils/discSelection";
 import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
 import type { RommDataChangedDetail, RommRomUninstalledDetail } from "../../types/events";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
 import { desktopUnsyncedSavesDialog } from "./dialogs/desktopDialogs";
 
+export type { DiscOptionData };
 export interface DiscSelectorProps {
   appId: number;
   ask?: AskDialog | undefined;
 }
-
-/** A disc option's data value: a disc filename, or null for the m3u default. */
-export type DiscOptionData = string | null;
-
-const DISC_GREY = "#dcdedf";
-const DISC_ACCENT = "#59b6ff";
 
 const BADGE_COLORS: Record<"accent" | "muted" | "good", { bg: string; fg: string }> = {
   accent: { bg: "rgba(89, 182, 255, 0.18)", fg: DISC_ACCENT },
@@ -79,25 +77,6 @@ const AvailabilityHint: FC<{ text: string }> = ({ text }) => (
   </span>
 );
 
-/** Two CDs stacked top-left -> bottom-right: the m3u "all discs" face. */
-const DiscStack: FC<{ size: number; color: string }> = ({ size, color }) => {
-  const step = Math.round(size * 0.3);
-  return (
-    <span style={{ position: "relative", display: "inline-block", width: size + step, height: size + step, color }}>
-      <FaCompactDisc size={size} style={{ position: "absolute", left: step, top: step, opacity: 0.55 }} />
-      <FaCompactDisc size={size} style={{ position: "absolute", left: 0, top: 0, opacity: 1 }} />
-    </span>
-  );
-};
-
-/** One CD + its number — the "Disc N" face. */
-const DiscWithNumber: FC<{ size: number; color: string; num: string }> = ({ size, color, num }) => (
-  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color }}>
-    <FaCompactDisc size={size} />
-    {num ? <span style={{ fontWeight: 600, fontSize: `${Math.round(size * 0.6)}px` }}>{num}</span> : null}
-  </span>
-);
-
 export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
   const leaseOwner = `desktop-disc-selector:${appId}`;
   const versionLeaseOwner = `version-picker:${appId}`;
@@ -124,15 +103,11 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const fetchDiscSelection = useCallback(async (rid: number): Promise<void> => {
-    try {
-      const result = await getDiscSelection(rid);
-      if (!isMountedRef.current) return;
-      setSelection(result);
-      setSelected(result.selected ?? null);
-    } catch (e) {
-      logError(`Desktop DiscSelector: getDiscSelection failed: ${e}`);
-    }
+  const fetchDiscSelectionCallback = useCallback(async (rid: number): Promise<void> => {
+    const result = await fetchDiscSelection(rid, "Desktop DiscSelector");
+    if (!isMountedRef.current || !result) return;
+    setSelection(result);
+    setSelected(result.selected ?? null);
   }, []);
 
   // NOTE: `switching` is intentionally NOT in the dep array. Its only use inside
@@ -172,11 +147,11 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
       if (!isMountedRef.current || !cached.found || cached.rom_id == null) return;
       setRomId(cached.rom_id);
       if (!cached.installed) return;
-      await fetchDiscSelection(cached.rom_id);
+      await fetchDiscSelectionCallback(cached.rom_id);
     } catch (e) {
       logError(`Desktop DiscSelector init error: ${e}`);
     }
-  }, [appId, fetchDiscSelection]);
+  }, [appId, fetchDiscSelectionCallback]);
 
   // Stable refs so the mount effect can depend on nothing that changes
   const initGameDetailRef = useRef(initGameDetail);
@@ -238,10 +213,10 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
   // Event listeners — use refs for callbacks so we never re-register just because
   // a callback identity changed. romId is a real dep: the download_complete and
   // uninstall handlers branch on it.
-  const fetchDiscSelectionRef = useRef(fetchDiscSelection);
+  const fetchDiscSelectionRef = useRef(fetchDiscSelectionCallback);
   useEffect(() => {
-    fetchDiscSelectionRef.current = fetchDiscSelection;
-  }, [fetchDiscSelection]);
+    fetchDiscSelectionRef.current = fetchDiscSelectionCallback;
+  }, [fetchDiscSelectionCallback]);
 
   useEffect(() => {
     const completeListener = addEventListener<DownloadCompleteEvent>(
@@ -309,35 +284,14 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
   const handleDiscChange = async (data: DiscOptionData): Promise<void> => {
     setShowMenu(false);
     if (romId == null) return;
-    const admission = capturePruneLeaseAdmission(leaseOwner);
-    try {
-      const result = await selectDisc(romId, data);
-      await withPruneLease(
-        result.prune_lease_token,
-        "DesktopDiscSelector",
-        async (signal) => {
-          if (result.success) {
-            if (result.launch_options !== undefined) {
-              if (signal.aborted) return;
-              await setLaunchOptionsConfirmed(appId, result.launch_options);
-            }
-            if (signal.aborted) return;
-            setSelected(result.selected ?? null);
-          } else {
-            showToast(result.message || "Failed to select disc");
-          }
-        },
-        leaseOwner,
-        admission,
-      );
-    } catch (e) {
-      if (isPruneLeaseCancellation(e, admission)) {
-        logWarn(`Desktop DiscSelector: disc selection continuation was cancelled: ${e}`);
-        return;
-      }
-      logError(`Desktop DiscSelector: selectDisc failed: ${e}`);
-      showToast("Failed to select disc");
-    }
+    await executeDiscSelection({
+      appId,
+      romId,
+      data,
+      leaseOwner,
+      onSelected: setSelected,
+      logTag: "Desktop DiscSelector",
+    });
   };
 
   const handleSwitch = async (target: VersionInfo): Promise<void> => {
@@ -353,36 +307,14 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
     });
   };
 
-  const hasDiscs = Boolean(selection?.multi_disc && selection.discs && selection.default);
+  const discDisplayState = computeDiscDisplayState(selection, selected);
+  const hasDiscs = discDisplayState !== null;
   const hasVersions = Boolean(versionList?.multi_version && versionList.versions && versionList.versions.length > 0);
 
   // Single-disc & single-version -> render nothing (zero DOM footprint)
   if (!hasDiscs && !hasVersions) return null;
 
-  // Prepare disc details
-  let isM3u = false;
-  let effectiveSelected: DiscOptionData = null;
-  let isPinned = false;
-  let showPlaylistFace = false;
-  let activeNum = "";
-  const discOptions: { data: DiscOptionData; icon: ReactNode; text: string }[] = [];
-
-  if (hasDiscs && selection?.discs && selection.default) {
-    const { discs, default: dflt } = selection;
-    isM3u = dflt.kind === "m3u";
-    effectiveSelected = selected ?? (isM3u ? null : dflt.filename);
-    isPinned = selected !== null;
-    showPlaylistFace = isM3u && selected === null;
-    const activeDisc = discs.find((d) => d.filename === effectiveSelected);
-    activeNum = activeDisc ? (activeDisc.label.match(/\d+/)?.[0] ?? String(activeDisc.index)) : "";
-
-    if (isM3u) {
-      discOptions.push({ data: null, icon: <DiscStack size={16} color={DISC_GREY} />, text: dflt.label });
-    }
-    for (const disc of discs) {
-      discOptions.push({ data: disc.filename, icon: <FaCompactDisc size={16} />, text: disc.label });
-    }
-  }
+  const discOptions = selection && hasDiscs ? buildDiscOptions(selection) : [];
 
   // Prepare version details
   const versions = versionList?.versions ?? [];
@@ -438,11 +370,15 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
           }}
           onClick={() => setShowMenu((prev) => !prev)}
         >
-          {hasDiscs ? (
-            showPlaylistFace ? (
+          {hasDiscs && discDisplayState ? (
+            discDisplayState.showPlaylistFace ? (
               <DiscStack size={20} color={DISC_GREY} />
             ) : (
-              <DiscWithNumber size={20} color={isPinned ? DISC_ACCENT : DISC_GREY} num={activeNum} />
+              <DiscWithNumber
+                size={20}
+                color={discDisplayState.isPinned ? DISC_ACCENT : DISC_GREY}
+                num={discDisplayState.activeNum}
+              />
             )
           ) : (
             <FaLayerGroup size={20} color={activeIsDefault ? DISC_GREY : DISC_ACCENT} />
@@ -476,8 +412,9 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
           >
             {/* Section 1: Discs (ordered first) */}
             {hasDiscs &&
+              discDisplayState &&
               discOptions.map((o) => {
-                const active = o.data === effectiveSelected;
+                const active = o.data === discDisplayState.effectiveSelected;
                 return (
                   <button
                     key={String(o.data)}
