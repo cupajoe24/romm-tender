@@ -180,6 +180,15 @@ describe("elementSelectors", () => {
       const doc = document.implementation.createHTMLDocument("Test");
       expect(findSteamPlayButton(doc)).toBeNull();
     });
+
+    it("handles elements with null textContent without error", () => {
+      const root = document.createElement("div");
+      const btn = document.createElement("button");
+      Object.defineProperty(btn, "textContent", { value: null });
+      root.appendChild(btn);
+
+      expect(findSteamPlayButton(root)).toBeNull();
+    });
   });
 
   describe("findSteamPlaySection", () => {
@@ -549,6 +558,16 @@ describe("elementSelectors", () => {
 
       const badges = findSteamPlayBarBadges(playBar, playBtn);
       expect(badges).not.toContain(playBtn);
+    });
+
+    it("handles elements with null textContent without error", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      const child = doc.createElement("div");
+      Object.defineProperty(child, "textContent", { value: null });
+      playBar.appendChild(child);
+
+      expect(findSteamPlayBarBadges(playBar)).toEqual([]);
     });
   });
 
