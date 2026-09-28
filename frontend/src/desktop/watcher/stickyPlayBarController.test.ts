@@ -54,7 +54,7 @@ describe("stickyPlayBarController", () => {
       const el = document.createElement("div");
       document.body.appendChild(el);
 
-      expect(findScrollContainer(el)).toBe(window);
+      expect(findScrollContainer(el) === el.ownerDocument.defaultView).toBe(true);
       el.remove();
     });
   });

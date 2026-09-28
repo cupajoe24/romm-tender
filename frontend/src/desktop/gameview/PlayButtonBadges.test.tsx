@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PlayButtonBadges } from "./PlayButtonBadges";
@@ -146,8 +147,9 @@ describe("PlayButtonBadges", () => {
   });
 
   it("switches to emulation-settings tab on click and Enter key when bios badge is clicked", () => {
-    const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
-    dispatchSpy.mockClear();
+    const received: Event[] = [];
+    const listener = (event: Event) => received.push(event);
+    globalThis.addEventListener("romm_tab_switch", listener);
     render(
       <PlayButtonBadges
         detail={{ ...baseDetail, biosRequiredMissing: true, biosLabel: "Missing" }}
@@ -161,14 +163,11 @@ describe("PlayButtonBadges", () => {
 
     const biosBadge = screen.getByText("BIOS").closest('[role="button"]')!;
     fireEvent.click(biosBadge);
-    expect(dispatchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "romm_tab_switch",
-        detail: { tab: "emulation-settings" },
-      }),
-    );
+    expect(received).toHaveLength(1);
+    expect((received[0] as CustomEvent).detail).toEqual({ tab: "emulation-settings" });
 
     fireEvent.keyDown(biosBadge, { key: "Enter" });
-    expect(dispatchSpy).toHaveBeenCalledTimes(2);
+    expect(received).toHaveLength(2);
+    globalThis.removeEventListener("romm_tab_switch", listener);
   });
 });
