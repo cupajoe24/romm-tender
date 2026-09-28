@@ -311,8 +311,8 @@ describe("GameView", () => {
     expect(leftColumn).toBeInTheDocument();
     expect(rightColumn).toBeInTheDocument();
     expect(leftColumn?.querySelector(".tender-desktop-about-card")).toBeInTheDocument();
+    expect(leftColumn?.querySelector(".tender-desktop-emulation-card")).toBeInTheDocument();
     expect(rightColumn?.querySelector(".tender-desktop-saves-card")).toBeInTheDocument();
-    expect(rightColumn?.querySelector(".tender-desktop-emulation-card")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(101, 101);
@@ -411,7 +411,7 @@ describe("GameView", () => {
     expect(columnsContainer?.style.gridTemplateColumns).toBe("2fr 1fr");
   });
 
-  it("renders AchievementsCard in Game Info tab when raId is present and skips when absent", async () => {
+  it("renders AchievementsCard in right column when raId is present and skips when absent", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 42,
       romName: "Mario Golf (USA)",
@@ -443,7 +443,7 @@ describe("GameView", () => {
       expect(screen.getAllByText("Mario Golf: Advance Tour").length).toBeGreaterThanOrEqual(1);
     });
     expect(
-      container.querySelector(".tender-desktop-left-column .tender-desktop-achievements-card"),
+      container.querySelector(".tender-desktop-right-column .tender-desktop-achievements-card"),
     ).toBeInTheDocument();
 
     // Absent raId skips rendering achievements card
