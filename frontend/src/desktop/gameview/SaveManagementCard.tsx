@@ -45,11 +45,12 @@ import {
   switchSlotFailureMessage,
   formatCopySaveToSlotFeedback,
   formatRollbackFeedback,
-  formatSlotDeleteLines,
 } from "../../utils/saveHelpers";
 import { executeManualSaveSync } from "../../utils/manualSaveSync";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
-import { DesktopDialog } from "./dialogs/DesktopDialog";
+import { DesktopNewSlotDialog } from "./dialogs/DesktopNewSlotDialog";
+import { DesktopCopySlotDialog } from "./dialogs/DesktopCopySlotDialog";
+import { DesktopDeleteSlotDialog } from "./dialogs/DesktopDeleteSlotDialog";
 import { desktopSaveConflictDialog } from "./dialogs/desktopDialogs";
 import type {
   SaveSlotSummary,
@@ -92,11 +93,9 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
 
   // Modals state
   const [showNewSlotModal, setShowNewSlotModal] = useState(false);
-  const [newSlotInput, setNewSlotInput] = useState("");
   const [newSlotError, setNewSlotError] = useState<string | null>(null);
 
   const [copyModalData, setCopyModalData] = useState<{ saveId: number; sourceSlot: string } | null>(null);
-  const [copyNewSlotInput, setCopyNewSlotInput] = useState("");
   const [deleteModalSlot, setDeleteModalSlot] = useState<SlotDeleteInfo | null>(null);
 
   // Version history sub-panels expansion & cache
@@ -261,18 +260,17 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   };
 
   // New slot submit
-  const handleCreateSlot = async () => {
-    const name = newSlotInput.trim();
-    if (!name || !romId) return;
+  const handleCreateSlot = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || !romId) return;
     try {
-      const result = await switchSlot(romId, name);
+      const result = await switchSlot(romId, trimmed);
       if (result.success && result.save_status) {
         reportServerReachable(true);
-        showToast(`Switched to slot '${name}'`);
-        setLocalActiveSlot(name);
+        showToast(`Switched to slot '${trimmed}'`);
+        setLocalActiveSlot(trimmed);
         setSlotSavesCache({});
         setShowNewSlotModal(false);
-        setNewSlotInput("");
         setNewSlotError(null);
         globalThis.dispatchEvent(
           new CustomEvent("romm_data_changed", {
@@ -369,7 +367,6 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     if (!copyModalData || !romId) return;
     const { saveId } = copyModalData;
     setCopyModalData(null);
-    setCopyNewSlotInput("");
     try {
       const result: CopySaveToSlotStatus = await copySaveToSlot(romId, saveId, target);
       const feedback = formatCopySaveToSlotFeedback(result, target);
@@ -476,7 +473,6 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
             }}
             disabled={isOffline}
             onClick={() => {
-              setNewSlotInput("");
               setNewSlotError(null);
               setShowNewSlotModal(true);
             }}
@@ -1045,173 +1041,33 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
 
       {/* New Slot Modal */}
       {showNewSlotModal && (
-        <DesktopDialog titleId="new-slot-title" title="New Save Slot" onDismiss={() => setShowNewSlotModal(false)}>
-          <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#a0b0c0" }}>
-            Enter a name for the new save slot. It will become the active slot immediately.
-          </p>
-
-          <input
-            type="text"
-            placeholder="Slot Name (e.g. speedrun, casual)"
-            value={newSlotInput}
-            onChange={(e) => setNewSlotInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleCreateSlot();
-              if (e.key === "Escape") setShowNewSlotModal(false);
-            }}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "8px 10px",
-              fontSize: "13px",
-              backgroundColor: "rgba(0, 0, 0, 0.4)",
-              border: "1px solid rgba(255, 255, 255, 0.2)",
-              borderRadius: "3px",
-              color: "#ffffff",
-              outline: "none",
-              marginBottom: "12px",
-            }}
-          />
-
-          {newSlotError && (
-            <div style={{ color: "#d94126", fontSize: "12px", marginBottom: "12px" }}>{newSlotError}</div>
-          )}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-            <button
-              type="button"
-              style={{ ...BUTTON_STYLE, backgroundColor: "transparent" }}
-              onClick={() => setShowNewSlotModal(false)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              style={{
-                ...BUTTON_STYLE,
-                backgroundColor: "#1a9fff",
-                borderColor: "#1a9fff",
-                opacity: newSlotInput.trim() === "" ? 0.6 : 1,
-              }}
-              disabled={newSlotInput.trim() === ""}
-              onClick={() => void handleCreateSlot()}
-            >
-              Create Slot
-            </button>
-          </div>
-        </DesktopDialog>
+        <DesktopNewSlotDialog
+          error={newSlotError}
+          onDismiss={() => {
+            setShowNewSlotModal(false);
+            setNewSlotError(null);
+          }}
+          onCreate={(name) => void handleCreateSlot(name)}
+        />
       )}
 
       {/* Copy To Slot Modal */}
       {copyModalData && (
-        <DesktopDialog titleId="copy-slot-title" title="Copy save to slot" onDismiss={() => setCopyModalData(null)}>
-          <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#a0b0c0", lineHeight: 1.4 }}>
-            Copies this save into the chosen slot, which becomes the active slot. The original save is kept.
-          </p>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
-            {availableSlots
-              .filter((s) => s.slot !== "" && s.slot !== copyModalData.sourceSlot)
-              .map((s) => (
-                <button
-                  key={`target-slot-${s.slot}`}
-                  type="button"
-                  style={{
-                    ...BUTTON_STYLE,
-                    textAlign: "left",
-                    padding: "8px 12px",
-                    width: "100%",
-                  }}
-                  onClick={() => void handleExecuteCopy(s.slot)}
-                >
-                  {displaySlot(s.slot)}
-                </button>
-              ))}
-          </div>
-
-          <div style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", paddingTop: "12px" }}>
-            <div style={{ fontSize: "12px", color: "#8f98a0", marginBottom: "6px" }}>Or copy to a new slot:</div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <input
-                type="text"
-                placeholder="New slot name…"
-                value={copyNewSlotInput}
-                onChange={(e) => setCopyNewSlotInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && copyNewSlotInput.trim() !== "") {
-                    void handleExecuteCopy(copyNewSlotInput.trim());
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: "6px 10px",
-                  fontSize: "12px",
-                  backgroundColor: "rgba(0, 0, 0, 0.4)",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  borderRadius: "3px",
-                  color: "#ffffff",
-                  outline: "none",
-                }}
-              />
-              <button
-                type="button"
-                style={{
-                  ...BUTTON_STYLE,
-                  opacity: copyNewSlotInput.trim() === "" ? 0.6 : 1,
-                }}
-                disabled={copyNewSlotInput.trim() === ""}
-                onClick={() => void handleExecuteCopy(copyNewSlotInput.trim())}
-              >
-                Create & Copy
-              </button>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "16px" }}>
-            <button
-              type="button"
-              style={{ ...BUTTON_STYLE, backgroundColor: "transparent" }}
-              onClick={() => setCopyModalData(null)}
-            >
-              Cancel
-            </button>
-          </div>
-        </DesktopDialog>
+        <DesktopCopySlotDialog
+          sourceSlot={copyModalData.sourceSlot}
+          availableSlots={availableSlots}
+          onDismiss={() => setCopyModalData(null)}
+          onCopy={(target) => void handleExecuteCopy(target)}
+        />
       )}
 
       {/* Delete Slot Confirmation Modal */}
       {deleteModalSlot && (
-        <DesktopDialog titleId="delete-slot-title" title="Delete Slot" onDismiss={() => setDeleteModalSlot(null)}>
-          {formatSlotDeleteLines(deleteModalSlot).map((line, idx) => (
-            <p key={idx} style={{ margin: "0 0 12px 0", fontSize: "13px", color: "#a0b0c0", lineHeight: 1.4 }}>
-              {line}
-            </p>
-          ))}
-          <p style={{ margin: "0 0 16px 0", fontSize: "13px", color: "#d94126", fontWeight: 600 }}>
-            This cannot be undone.
-          </p>
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-            <button
-              type="button"
-              style={{ ...BUTTON_STYLE, backgroundColor: "transparent" }}
-              onClick={() => setDeleteModalSlot(null)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              style={{
-                ...BUTTON_STYLE,
-                backgroundColor: "#d94126",
-                borderColor: "#d94126",
-              }}
-              onClick={() => void handleConfirmDeleteSlot()}
-            >
-              Delete
-            </button>
-          </div>
-        </DesktopDialog>
+        <DesktopDeleteSlotDialog
+          deleteInfo={deleteModalSlot}
+          onDismiss={() => setDeleteModalSlot(null)}
+          onConfirm={() => void handleConfirmDeleteSlot()}
+        />
       )}
       {ask ? null : fallbackHost.element}
     </div>
