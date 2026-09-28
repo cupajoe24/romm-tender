@@ -18,17 +18,25 @@ vi.mock("./steamOverview", () => ({
   overviewFor: vi.fn(),
 }));
 
+const overview = (fields: Omit<SteamAppOverview, "display_name" | "strDisplayName">): SteamAppOverview => ({
+  display_name: "",
+  strDisplayName: "",
+  ...fields,
+});
+
 describe("useGamePlaytime", () => {
   const mockAppId = 12345;
   const mockRomId = 999;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(steamOverview.overviewFor).mockReturnValue({
-      appid: mockAppId,
-      rt_last_time_played: 0,
-      minutes_playtime_forever: 0,
-    } as any);
+    vi.mocked(steamOverview.overviewFor).mockReturnValue(
+      overview({
+        appid: mockAppId,
+        rt_last_time_played: 0,
+        minutes_playtime_forever: 0,
+      }),
+    );
   });
 
   afterEach(() => {
@@ -36,11 +44,13 @@ describe("useGamePlaytime", () => {
   });
 
   it("initializes with overview values and does not call reconcilePlaytime if romId is null", () => {
-    vi.mocked(steamOverview.overviewFor).mockReturnValue({
-      appid: mockAppId,
-      rt_last_time_played: 1600000000,
-      minutes_playtime_forever: 125,
-    } as any);
+    vi.mocked(steamOverview.overviewFor).mockReturnValue(
+      overview({
+        appid: mockAppId,
+        rt_last_time_played: 1600000000,
+        minutes_playtime_forever: 125,
+      }),
+    );
 
     const { result } = renderHook(() => useGamePlaytime(mockAppId, null));
 
@@ -124,12 +134,12 @@ describe("useGamePlaytime", () => {
       server_query_failed: false,
     });
 
-    const mockOverview = {
+    const mockOverview = overview({
       appid: mockAppId,
       rt_last_time_played: 0,
       minutes_playtime_forever: 0,
-    };
-    vi.mocked(steamOverview.overviewFor).mockImplementation(() => mockOverview as any);
+    });
+    vi.mocked(steamOverview.overviewFor).mockImplementation(() => mockOverview);
 
     const { result } = renderHook(() => useGamePlaytime(mockAppId, mockRomId));
 
@@ -159,11 +169,13 @@ describe("useGamePlaytime", () => {
       initialProps: { appId: 100, romId: null as number | null },
     });
 
-    vi.mocked(steamOverview.overviewFor).mockReturnValue({
-      appid: 200,
-      rt_last_time_played: 1650000000,
-      minutes_playtime_forever: 60,
-    } as any);
+    vi.mocked(steamOverview.overviewFor).mockReturnValue(
+      overview({
+        appid: 200,
+        rt_last_time_played: 1650000000,
+        minutes_playtime_forever: 60,
+      }),
+    );
 
     rerender({ appId: 200, romId: null });
 

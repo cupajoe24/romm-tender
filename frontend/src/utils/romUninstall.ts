@@ -57,9 +57,9 @@ export async function executeRomUninstall(options: RomUninstallOptions): Promise
       result.prune_lease_token,
       context,
       async (signal) => {
-        if (signal.aborted || isPruneLeaseCancelled(signal)) return;
+        if (isPruneLeaseCancelled(signal)) return;
         await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-        if (signal.aborted || isPruneLeaseCancelled(signal)) return;
+        if (isPruneLeaseCancelled(signal)) return;
         globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
       },
       leaseOwner,

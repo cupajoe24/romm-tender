@@ -173,11 +173,14 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
     };
   }, [appId, loadVersionList]);
 
-  const runLoadVersionList = (source?: "normal" | "vanished_refusal"): Promise<void> => {
-    const loader = loadVersionListRef.current;
-    if (loader?.appId !== appId) return Promise.resolve();
-    return loader.load(source);
-  };
+  const runLoadVersionList = useCallback(
+    (source?: "normal" | "vanished_refusal"): Promise<void> => {
+      const loader = loadVersionListRef.current;
+      if (loader?.appId !== appId) return Promise.resolve();
+      return loader.load(source);
+    },
+    [appId],
+  );
 
   // Mount & initial load — intentionally empty dep array so this runs exactly
   // once and never releases the prune lease mid-switch when state changes cause
@@ -275,7 +278,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
       globalThis.removeEventListener("romm_rom_uninstalled", onUninstall);
       globalThis.removeEventListener("romm_data_changed", onDataChanged);
     };
-  }, [appId, romId]);
+  }, [appId, romId, runLoadVersionList]);
 
   // Close dropdown menu on outside click
   useOutsideClick(menuRef, () => setShowMenu(false), showMenu);
@@ -370,7 +373,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
           }}
           onClick={() => setShowMenu((prev) => !prev)}
         >
-          {hasDiscs && discDisplayState ? (
+          {discDisplayState ? (
             discDisplayState.showPlaylistFace ? (
               <DiscStack size={20} color={DISC_GREY} />
             ) : (
@@ -411,8 +414,7 @@ export const DiscSelector: FC<DiscSelectorProps> = ({ appId, ask }) => {
             }}
           >
             {/* Section 1: Discs (ordered first) */}
-            {hasDiscs &&
-              discDisplayState &&
+            {discDisplayState &&
               discOptions.map((o) => {
                 const active = o.data === discDisplayState.effectiveSelected;
                 return (

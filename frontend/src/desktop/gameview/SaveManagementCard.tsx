@@ -106,13 +106,15 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
 
   // Active slot determination
   const [localActiveSlot, setLocalActiveSlot] = useState<string | null | undefined>(undefined);
-  const activeSlot = localActiveSlot !== undefined ? localActiveSlot : (detail.saveStatus?.active_slot ?? null);
+  const serverActiveSlot = detail.saveStatus?.active_slot;
+  const [overrideBasis, setOverrideBasis] = useState({ romId, serverActiveSlot });
+  if (overrideBasis.romId !== romId || overrideBasis.serverActiveSlot !== serverActiveSlot) {
+    setOverrideBasis({ romId, serverActiveSlot });
+    setLocalActiveSlot(undefined);
+  }
+  const activeSlot = localActiveSlot !== undefined ? localActiveSlot : (serverActiveSlot ?? null);
   const saveStatus = detail.saveStatus;
   const conflicts: SyncConflict[] = saveStatus?.conflicts ?? [];
-
-  useEffect(() => {
-    setLocalActiveSlot(undefined);
-  }, [romId, detail.saveStatus?.active_slot]);
 
   // Fetch slots list
   const loadSlots = useCallback(async () => {
@@ -123,9 +125,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
         reportServerReachable(true);
         setAvailableSlots(result.slots);
         setActiveSlotKnown(result.active_slot !== null);
-        if (result.active_slot !== undefined) {
-          setLocalActiveSlot(result.active_slot);
-        }
+        setLocalActiveSlot(result.active_slot);
       } else {
         if (result.reason === "server_unreachable") {
           reportServerReachable(false);

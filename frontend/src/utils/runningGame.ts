@@ -37,10 +37,8 @@ export function activateRunningApp(appId: number, tag = "runningGame"): void {
   // running-app route directly. When the store was present and `SetRunningApp`
   // succeeded it already selected this app, so the foreground lands on it.
   try {
-    if (typeof Navigation !== "undefined" && Navigation?.Navigate) {
-      Navigation.Navigate("/apprunning");
-      detach(debugLog(`${tag}: resumed appId=${appId} via Navigation.Navigate`));
-    }
+    Navigation.Navigate("/apprunning");
+    detach(debugLog(`${tag}: resumed appId=${appId} via Navigation.Navigate`));
   } catch (e) {
     detach(debugLog(`${tag}: Navigation.Navigate threw: ${e}`));
   }
