@@ -27,11 +27,7 @@ export function findScrollContainer(el: HTMLElement): HTMLElement | Window {
   while (curr && curr !== el.ownerDocument.body && curr !== el.ownerDocument.documentElement) {
     const style = win.getComputedStyle(curr);
     const overflowY = style.overflowY || style.overflow;
-    if (
-      overflowY === "auto" ||
-      overflowY === "scroll" ||
-      (curr.scrollHeight > curr.clientHeight && curr.clientHeight > 0)
-    ) {
+    if (overflowY === "auto" || overflowY === "scroll") {
       return curr;
     }
     curr = curr.parentElement;
@@ -154,6 +150,7 @@ export function createStickyPlayBarController(
   }
 
   const scroller = findScrollContainer(playBarTop);
+  const win = playBarTop.ownerDocument.defaultView || window;
 
   const containHero = () => {
     if (!container || !steamPanel) return;
@@ -167,20 +164,52 @@ export function createStickyPlayBarController(
   const updatePinning = () => {
     if (!playBarTop.isConnected) return;
     applyBaselineStyles();
+    containHero();
     const pinned = isPlayBarPinned(playBarTop, scroller);
     applyPlayBarState(pinned);
-    containHero();
   };
 
+  const WinResizeObserver = (win as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver || ResizeObserver;
+  let ro: ResizeObserver | null = null;
+  if (typeof WinResizeObserver === "function") {
+    try {
+      ro = new WinResizeObserver(() => {
+        updatePinning();
+      });
+      ro.observe(playBarTop);
+      if ("nodeType" in scroller && (scroller as HTMLElement).nodeType === 1) {
+        ro.observe(scroller as HTMLElement);
+      }
+    } catch {
+      // Ignored in headless/test environments
+    }
+  }
+
   ledger.addListener(scroller, "scroll", updatePinning, { passive: true });
+  ledger.addListener(win, "resize", updatePinning, { passive: true });
   updatePinning();
+
+  // Async hero banner canvas rendering often completes 50-350ms after initial mount
+  if (typeof win.setTimeout === "function") {
+    win.setTimeout(updatePinning, 50);
+    win.setTimeout(updatePinning, 150);
+    win.setTimeout(updatePinning, 350);
+  }
 
   return {
     matches: (top: HTMLElement, sec: HTMLElement) =>
       top === playBarTop && sec === playSection && playBarTop.isConnected,
     updatePinning,
     dispose: () => {
+      if (ro) {
+        ro.disconnect();
+        ro = null;
+      }
       ledger.removeListener(scroller, "scroll", updatePinning);
+      ledger.removeListener(win, "resize", updatePinning);
+      if (playSection !== playBarTop && playSection.isConnected) {
+        ledger.style(playSection, "background-color", "transparent");
+      }
     },
   };
 }

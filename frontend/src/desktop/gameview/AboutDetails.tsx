@@ -12,15 +12,15 @@ export interface AboutDetailsProps {
 const CONTAINER_STYLE: CSSProperties = {
   display: "flex",
   gap: "24px",
-  color: "#c7d5e0",
-  fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  color: "#ffffff",
+  fontFamily: '"Motiva Sans", Arial, Helvetica, sans-serif',
 };
 
 const COVER_CONTAINER_STYLE: CSSProperties = {
   width: "160px",
   minWidth: "160px",
   height: "240px",
-  borderRadius: "4px",
+  borderRadius: "2px",
   overflow: "hidden",
   backgroundColor: "rgba(0, 0, 0, 0.4)",
   boxShadow: "0 2px 10px rgba(0, 0, 0, 0.5)",
