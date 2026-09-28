@@ -191,7 +191,7 @@ describe("stickyPlayBarController", () => {
       window.ResizeObserver = origRO;
     });
 
-    it("clips inflated hero wrapper when updatePinning is executed with container and steamPanel", () => {
+    it("maintains hero wrapper overflow visible so parallax and refraction persist when unpinned and pinned", () => {
       const scroller = document.createElement("div");
       scroller.style.overflowY = "scroll";
       document.body.appendChild(scroller);
@@ -205,6 +205,7 @@ describe("stickyPlayBarController", () => {
       hero.appendChild(canvas);
       Object.defineProperty(hero, "scrollHeight", { value: 1200, configurable: true });
       Object.defineProperty(hero, "offsetHeight", { value: 300, configurable: true });
+      hero.style.overflow = "hidden"; // Simulate any pre-existing or native hidden overflow
       panel.appendChild(hero);
 
       const content = document.createElement("div");
@@ -213,13 +214,29 @@ describe("stickyPlayBarController", () => {
       const playBar = document.createElement("div");
       content.appendChild(playBar);
 
+      // Start unpinned: playBar top is below scroller top
+      scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      playBar.getBoundingClientRect = () => ({ top: 150 }) as DOMRect;
+
       const controller = createStickyPlayBarController(playBar, playBar, ledger, content, panel);
 
-      expect(hero.style.overflow).toBe("hidden");
+      expect(hero.style.overflow).toBe("visible");
+
+      // Scroll so playBar pins to the top; hero continues scrolling in background for remaining cards
+      playBar.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      controller.updatePinning();
+
+      expect(hero.style.overflow).toBe("visible");
+
+      // Scroll back up so playBar unpins
+      playBar.getBoundingClientRect = () => ({ top: 150 }) as DOMRect;
+      controller.updatePinning();
+
+      expect(hero.style.overflow).toBe("visible");
 
       controller.dispose();
       ledger.restoreAll();
-      expect(hero.style.overflow).toBe("");
+      expect(hero.style.overflow).toBe("hidden"); // Restored to pre-existing style
       scroller.remove();
     });
 
