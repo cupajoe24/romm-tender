@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
 import { GameView, GameViewPage } from "./GameView";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
@@ -77,7 +77,7 @@ describe("GameView", () => {
     expect(GameViewPage).toBe(GameView);
   });
 
-  it("renders the navigation tab bar and game details with loaded metadata", async () => {
+  it("renders game details, emulation settings, and saves on a single page with loaded metadata", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 42,
       romName: "Mario Golf (USA)",
@@ -108,9 +108,9 @@ describe("GameView", () => {
     render(<GameView appId={12345} />);
 
     expect(screen.queryByText("About")).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Game Info" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Emulation Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Mario Golf: Advance Tour").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Saves")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText("Mocked RPG Summary")).toBeInTheDocument();
@@ -147,9 +147,7 @@ describe("GameView", () => {
     });
 
     render(<GameView appId={99999} />);
-
-    expect(screen.getByRole("tab", { name: "Game Info" })).toBeInTheDocument();
-    expect(screen.getByText("Fallback ROM Name")).toBeInTheDocument();
+    expect(screen.getAllByText("Fallback ROM Name").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("snes")).toBeInTheDocument();
   });
 
@@ -182,7 +180,7 @@ describe("GameView", () => {
     });
 
     render(<GameView appId={77777} />);
-    expect(screen.getByText("App 77777")).toBeInTheDocument();
+    expect(screen.getAllByText("App 77777").length).toBeGreaterThanOrEqual(1);
   });
 
   it("handles metadata rejection gracefully", async () => {
@@ -214,7 +212,6 @@ describe("GameView", () => {
     vi.mocked(sharedReads.getRomMetadataShared).mockRejectedValue(new Error("Network failure"));
 
     render(<GameView appId={88888} />);
-    expect(screen.getByRole("tab", { name: "Game Info" })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.queryByText("Mocked RPG Summary")).not.toBeInTheDocument();
@@ -258,7 +255,7 @@ describe("GameView", () => {
     expect(vi.mocked(artwork.cancelArtworkApply)).toHaveBeenCalledWith(55555);
   });
 
-  it("switches view when clicking between Game Info and Emulator Settings tabs", async () => {
+  it("renders Game Info in the left column (2/3) and Emulation Settings in the right column (1/3) simultaneously", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 101,
       romName: "Star Fox 64",
@@ -296,27 +293,26 @@ describe("GameView", () => {
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
-    render(<GameView appId={101} />);
+    const { container } = render(<GameView appId={101} />);
 
-    // Default tab is Game Info
-    expect(screen.getByRole("tab", { name: "Game Info" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+    // No tabs exist
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
 
-    // Click Emulation Settings tab
-    const emuTab = screen.getByRole("tab", { name: "Emulation Settings" });
-    fireEvent.click(emuTab);
-
-    expect(emuTab).toHaveAttribute("aria-selected", "true");
+    // Both Game Info and Emulation Settings are visible simultaneously
+    expect(screen.getAllByText("Mario Golf: Advance Tour").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("N64 EMULATION")).toBeInTheDocument();
     expect(screen.getByText("Active Core")).toBeInTheDocument();
     expect(screen.getAllByText("Mupen64Plus-Next").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Saves")).toBeInTheDocument();
 
-    // Click back to Game Info tab
-    const gameInfoTab = screen.getByRole("tab", { name: "Game Info" });
-    fireEvent.click(gameInfoTab);
-
-    expect(gameInfoTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByText("N64 EMULATION")).not.toBeInTheDocument();
+    // Left and right columns contain respective content
+    const leftColumn = container.querySelector(".tender-desktop-left-column");
+    const rightColumn = container.querySelector(".tender-desktop-right-column");
+    expect(leftColumn).toBeInTheDocument();
+    expect(rightColumn).toBeInTheDocument();
+    expect(leftColumn?.querySelector(".tender-desktop-about-card")).toBeInTheDocument();
+    expect(rightColumn?.querySelector(".tender-desktop-saves-card")).toBeInTheDocument();
+    expect(rightColumn?.querySelector(".tender-desktop-emulation-card")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(101, 101);
@@ -357,51 +353,6 @@ describe("GameView", () => {
     });
   });
 
-  it("switches to emulation-settings tab when romm_tab_switch event is dispatched", async () => {
-    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
-      romId: 42,
-      romName: "Mario Golf (USA)",
-      platformSlug: "gba",
-      installed: true,
-      fsSizeBytes: null,
-      saveSyncEnabled: false,
-      saveStatus: null,
-      saveSyncStatus: null,
-      saveSyncLabel: "",
-      savefilesInContentDir: false,
-      raId: null,
-      achievementEarned: 0,
-      achievementTotal: 0,
-      biosNeeded: false,
-      biosLabel: "",
-      biosRequiredMissing: false,
-      activeCoreLabel: null,
-      activeCoreIsDefault: true,
-      emulators: [],
-      emulatorDataAvailable: true,
-      platformCoreLabel: null,
-      hasGameOverride: false,
-    });
-    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
-
-    render(<GameView appId={12345} />);
-
-    const emuTab = screen.getByRole("tab", { name: "Emulation Settings" });
-    expect(emuTab).toHaveAttribute("aria-selected", "false");
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent("romm_tab_switch", {
-          detail: { tab: "emulation-settings" },
-        }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(emuTab).toHaveAttribute("aria-selected", "true");
-    });
-  });
-
   it("registers connection heartbeat on mount and unregisters on unmount", () => {
     const stopHeartbeat = vi.fn();
     vi.mocked(connectionHeartbeat.registerConnectionHeartbeat).mockReturnValue(stopHeartbeat);
@@ -413,7 +364,7 @@ describe("GameView", () => {
     expect(stopHeartbeat).toHaveBeenCalled();
   });
 
-  it("structures outer cards container, tab switcher, and tab content container", async () => {
+  it("structures outer cards container and two-column layout (2/3 left, 1/3 right)", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 42,
       romName: "Mario Golf (USA)",
@@ -442,13 +393,22 @@ describe("GameView", () => {
 
     const { container } = render(<GameView appId={12345} />);
     await waitFor(() => {
-      expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+      expect(screen.getAllByText("Mario Golf: Advance Tour").length).toBeGreaterThanOrEqual(1);
     });
     const outerContainer = container.querySelector(".tender-desktop-cards-container");
     expect(outerContainer).toBeInTheDocument();
-    const tabContainer = container.querySelector(".tender-desktop-tab-container");
-    expect(tabContainer).toBeInTheDocument();
-    expect(outerContainer?.contains(tabContainer)).toBe(true);
+    const columnsContainer = container.querySelector<HTMLElement>(".tender-desktop-columns-container");
+    expect(columnsContainer).toBeInTheDocument();
+    expect(outerContainer?.contains(columnsContainer)).toBe(true);
+
+    const leftCol = container.querySelector<HTMLElement>(".tender-desktop-left-column");
+    const rightCol = container.querySelector<HTMLElement>(".tender-desktop-right-column");
+    expect(leftCol).toBeInTheDocument();
+    expect(rightCol).toBeInTheDocument();
+    expect(columnsContainer?.contains(leftCol)).toBe(true);
+    expect(columnsContainer?.contains(rightCol)).toBe(true);
+    expect(columnsContainer?.style.display).toBe("grid");
+    expect(columnsContainer?.style.gridTemplateColumns).toBe("2fr 1fr");
   });
 
   it("renders AchievementsCard in Game Info tab when raId is present and skips when absent", async () => {
@@ -480,9 +440,11 @@ describe("GameView", () => {
 
     const { container, rerender } = render(<GameView appId={12345} />);
     await waitFor(() => {
-      expect(screen.getByText("Mario Golf: Advance Tour")).toBeInTheDocument();
+      expect(screen.getAllByText("Mario Golf: Advance Tour").length).toBeGreaterThanOrEqual(1);
     });
-    expect(container.querySelector(".tender-desktop-achievements-card")).toBeInTheDocument();
+    expect(
+      container.querySelector(".tender-desktop-left-column .tender-desktop-achievements-card"),
+    ).toBeInTheDocument();
 
     // Absent raId skips rendering achievements card
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
@@ -588,12 +550,14 @@ describe("GameView", () => {
       ).toBeInTheDocument();
 
       const alertContainer = container.querySelector(".tender-desktop-migration-alert-container");
-      const tabBar = container.querySelector('[role="tablist"]');
+      const columnsContainer = container.querySelector(".tender-desktop-columns-container");
       expect(alertContainer).toBeInTheDocument();
-      expect(tabBar).toBeInTheDocument();
+      expect(columnsContainer).toBeInTheDocument();
       expect(
         Boolean(
-          alertContainer && tabBar && alertContainer.compareDocumentPosition(tabBar) & Node.DOCUMENT_POSITION_FOLLOWING,
+          alertContainer &&
+          columnsContainer &&
+          alertContainer.compareDocumentPosition(columnsContainer) & Node.DOCUMENT_POSITION_FOLLOWING,
         ),
       ).toBe(true);
     });

@@ -1,4 +1,4 @@
-import { useState, useEffect, type FC } from "react";
+import { useEffect, type FC, type CSSProperties } from "react";
 import { useGameDetail } from "../../utils/gameDetailStore";
 import { useRomMetadata } from "../../utils/useRomMetadata";
 import { coverCandidates } from "../desktopWindow";
@@ -6,7 +6,6 @@ import { useAutoArtwork } from "../../utils/autoArtwork";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { resolveAppTitle } from "../../utils/steamOverview";
 import { useMigrationStatus } from "../../utils/migrationStore";
-import { GameViewTabBar, type GameViewTab } from "./GameViewTabBar";
 import { AboutDetails } from "./AboutDetails";
 import { AchievementsCard } from "./AchievementsCard";
 import { EmulationSettings } from "./EmulationSettings";
@@ -23,25 +22,30 @@ export interface GameViewProps {
 
 export type GameViewPageProps = GameViewProps;
 
+export const COLUMNS_CONTAINER_STYLE: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "2fr 1fr",
+  gap: "16px",
+  alignItems: "start",
+};
+
+export const LEFT_COLUMN_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+  minWidth: 0,
+};
+
+export const RIGHT_COLUMN_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "16px",
+  minWidth: 0,
+};
+
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
   const migration = useMigrationStatus();
-  const [activeTab, setActiveTab] = useState<GameViewTab>("game-info");
-
-  useEffect(() => {
-    const handleTabSwitch = (e: Event) => {
-      const customEvent = e as CustomEvent<{ tab?: string }>;
-      if (customEvent.detail.tab === "emulation-settings") {
-        setActiveTab("emulation-settings");
-      } else if (customEvent.detail.tab === "game-info") {
-        setActiveTab("game-info");
-      }
-    };
-    globalThis.addEventListener("romm_tab_switch", handleTabSwitch);
-    return () => {
-      globalThis.removeEventListener("romm_tab_switch", handleTabSwitch);
-    };
-  }, []);
 
   useEffect(() => registerConnectionHeartbeat(), []);
   useAutoArtwork(appId, detail.romId, "Desktop auto-artwork error");
@@ -69,36 +73,26 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
           <PlayButton appId={appId} />
         </div>
       )}
-      <GameViewTabBar activeTab={activeTab} onSelectTab={setActiveTab} />
-      <div className="tender-desktop-tab-container" style={{ marginTop: "12px" }}>
-        {activeTab === "game-info" ? (
-          <div
-            className="tender-desktop-game-info-tab-content"
-            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
-          >
-            <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
-              <AboutDetails
-                title={title}
-                platformName={detail.platformSlug || undefined}
-                metadata={metadata}
-                covers={covers}
-              />
-            </div>
-            {detail.romId && detail.raId ? (
-              <AchievementsCard appId={appId} romId={detail.romId} raId={detail.raId} title={title} covers={covers} />
-            ) : null}
+      <div className="tender-desktop-columns-container" style={COLUMNS_CONTAINER_STYLE}>
+        <div className="tender-desktop-left-column tender-desktop-game-info-column" style={LEFT_COLUMN_STYLE}>
+          <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
+            <AboutDetails
+              title={title}
+              platformName={detail.platformSlug || undefined}
+              metadata={metadata}
+              covers={covers}
+            />
           </div>
-        ) : (
-          <div
-            className="tender-desktop-emulation-tab-content"
-            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
-          >
-            <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
-            <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
-              <EmulationSettings title={title} detail={detail} appId={appId} />
-            </div>
+          {detail.romId && detail.raId ? (
+            <AchievementsCard appId={appId} romId={detail.romId} raId={detail.raId} title={title} covers={covers} />
+          ) : null}
+        </div>
+        <div className="tender-desktop-right-column tender-desktop-emulation-column" style={RIGHT_COLUMN_STYLE}>
+          <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
+          <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
+            <EmulationSettings title={title} detail={detail} appId={appId} />
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
