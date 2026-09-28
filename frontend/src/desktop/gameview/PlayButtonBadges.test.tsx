@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PlayButtonBadges } from "./PlayButtonBadges";
 import * as achievementsCard from "./AchievementsCard";
+import { BIOS_MISSING_RED } from "../../utils/biosColor";
 
 vi.mock("./AchievementsCard", () => ({
   requestOpenAchievementsModal: vi.fn(),
@@ -34,7 +35,6 @@ describe("PlayButtonBadges", () => {
         playtimeInfo={basePlaytime}
         achievementCounts={null}
         setupInfo={null}
-        biosAnswer={null}
         isOffline={false}
         romId={100}
       />,
@@ -53,7 +53,6 @@ describe("PlayButtonBadges", () => {
         playtimeInfo={basePlaytime}
         achievementCounts={null}
         setupInfo={null}
-        biosAnswer={null}
         isOffline={false}
         romId={100}
       />,
@@ -70,7 +69,6 @@ describe("PlayButtonBadges", () => {
         playtimeInfo={basePlaytime}
         achievementCounts={{ earned: 5, total: 10 }}
         setupInfo={null}
-        biosAnswer={null}
         isOffline={false}
         romId={100}
       />,
@@ -95,7 +93,6 @@ describe("PlayButtonBadges", () => {
         playtimeInfo={basePlaytime}
         achievementCounts={null}
         setupInfo={null}
-        biosAnswer={null}
         isOffline={false}
         romId={100}
       />,
@@ -114,20 +111,64 @@ describe("PlayButtonBadges", () => {
     );
   });
 
-  it("renders bios error when required bios is missing", () => {
+  it("renders bios badge with biosLabel and red dot when required bios is missing", () => {
     render(
       <PlayButtonBadges
-        detail={{ ...baseDetail, biosRequiredMissing: true }}
+        detail={{ ...baseDetail, biosRequiredMissing: true, biosLabel: "1/3 required" }}
         playtimeInfo={basePlaytime}
         achievementCounts={null}
         setupInfo={null}
-        biosAnswer={null}
         isOffline={false}
         romId={100}
       />,
     );
 
     expect(screen.getByText("BIOS")).toBeInTheDocument();
-    expect(screen.getByText("Error, see below")).toBeInTheDocument();
+    expect(screen.getByText("1/3 required")).toBeInTheDocument();
+    const biosBadge = screen.getByText("BIOS").closest(".tender-desktop-bios")!;
+    const dot = biosBadge.querySelector(".romm-status-dot")!;
+    expect(dot).toHaveStyle({ backgroundColor: BIOS_MISSING_RED });
+  });
+
+  it("does not render bios badge when required bios is not missing", () => {
+    render(
+      <PlayButtonBadges
+        detail={{ ...baseDetail, biosRequiredMissing: false, biosLabel: "OK" }}
+        playtimeInfo={basePlaytime}
+        achievementCounts={null}
+        setupInfo={null}
+        isOffline={false}
+        romId={100}
+      />,
+    );
+
+    expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
+  });
+
+  it("switches to emulation-settings tab on click and Enter key when bios badge is clicked", () => {
+    const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
+    dispatchSpy.mockClear();
+    render(
+      <PlayButtonBadges
+        detail={{ ...baseDetail, biosRequiredMissing: true, biosLabel: "Missing" }}
+        playtimeInfo={basePlaytime}
+        achievementCounts={null}
+        setupInfo={null}
+        isOffline={false}
+        romId={100}
+      />,
+    );
+
+    const biosBadge = screen.getByText("BIOS").closest('[role="button"]')!;
+    fireEvent.click(biosBadge);
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "romm_tab_switch",
+        detail: { tab: "emulation-settings" },
+      }),
+    );
+
+    fireEvent.keyDown(biosBadge, { key: "Enter" });
+    expect(dispatchSpy).toHaveBeenCalledTimes(2);
   });
 });
