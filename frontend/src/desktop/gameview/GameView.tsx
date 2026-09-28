@@ -20,8 +20,6 @@ export interface GameViewProps {
   showPlayButton?: boolean;
 }
 
-export type GameViewPageProps = GameViewProps;
-
 export const COLUMNS_CONTAINER_STYLE: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "2fr 1fr",
@@ -97,5 +95,3 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
     </div>
   );
 };
-
-export const GameViewPage = GameView;

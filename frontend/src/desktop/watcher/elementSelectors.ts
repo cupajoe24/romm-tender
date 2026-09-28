@@ -182,10 +182,8 @@ export function findSteamPlayButton(root: HTMLElement | Document): HTMLElement |
     }
 
     // Check direct text "PLAY" or "RESUME"
-    if (
-      candidate.children.length === 0 &&
-      (candidate.textContent.trim().toUpperCase() === "PLAY" || candidate.textContent.trim().toUpperCase() === "RESUME")
-    ) {
+    const text = (candidate.textContent || "").trim().toUpperCase();
+    if (candidate.children.length === 0 && (text === "PLAY" || text === "RESUME")) {
       const focusable = candidate.closest<HTMLElement>('[class*="Focusable"], [class*="Panel"]') ?? candidate;
       return focusable;
     }
@@ -501,14 +499,12 @@ export function isRightControlsElement(el: HTMLElement): boolean {
 export function findSteamPlayBarBadges(root: HTMLElement, nativePlayBtn?: HTMLElement | null): HTMLElement[] {
   const badges = new Set<HTMLElement>();
 
-  const isTender = (el: HTMLElement): boolean => isTenderElement(el);
-  const isRightControls = (el: HTMLElement): boolean => isRightControlsElement(el);
   const isPlayBtn = (el: HTMLElement): boolean => {
     if (!nativePlayBtn) return false;
     return el === nativePlayBtn || el.contains(nativePlayBtn) || nativePlayBtn.contains(el);
   };
 
-  const isExcluded = (el: HTMLElement): boolean => isTender(el) || isRightControls(el) || isPlayBtn(el);
+  const isExcluded = (el: HTMLElement): boolean => isTenderElement(el) || isRightControlsElement(el) || isPlayBtn(el);
 
   // 1. Primary badge / stats container
   const containerSelectors = [
@@ -580,7 +576,7 @@ export function findSteamPlayBarBadges(root: HTMLElement, nativePlayBtn?: HTMLEl
   const allElements = root.querySelectorAll<HTMLElement>("div, span");
   for (const el of Array.from(allElements)) {
     if (isExcluded(el)) continue;
-    const txt = el.textContent.trim().toUpperCase();
+    const txt = (el.textContent || "").trim().toUpperCase();
     if (txt === "LAST PLAYED" || txt === "PLAYTIME") {
       const parent = el.closest<HTMLElement>('[class*="GameStat"]') || el.parentElement;
       if (parent && parent !== root && !isExcluded(parent)) {

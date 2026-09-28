@@ -12,8 +12,7 @@ export { findSteamOverviewPanel, TENDER_SUBSTITUTE_ID } from "./watcher/elementS
 
 export { findDesktopWindow, findReactClient, coverCandidates, heroCandidates } from "./desktopWindow";
 
-export { GameView, GameViewPage, type GameViewProps, type GameViewPageProps } from "./gameview/GameView";
-export { GameViewTabBar, type GameViewTabBarProps, type GameViewTab } from "./gameview/GameViewTabBar";
+export { GameView, type GameViewProps } from "./gameview/GameView";
 export { AboutHeader, type AboutHeaderProps } from "./gameview/AboutHeader";
 export { AboutDetails, type AboutDetailsProps } from "./gameview/AboutDetails";
 export { EmulationSettings, type EmulationSettingsProps } from "./gameview/EmulationSettings";

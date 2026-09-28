@@ -80,19 +80,18 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     if (existingPb) {
       existingPb.remove();
     }
-
-    // Safety: ensure any accidentally hidden overview panel is visible again
-    const currentSteamPanel = findSteamOverviewPanel(d);
-    if (currentSteamPanel && currentSteamPanel.style.display === "none") {
-      currentSteamPanel.style.display = "";
-    }
   }
 
-  function reinject() {
+  /** Resolve the current navigation path from the browser manager or window location. */
+  function getCurrentPath(): string {
     const manager =
       (deskWin as unknown as WindowWithManager).MainWindowBrowserManager ||
       (window as unknown as WindowWithManager).MainWindowBrowserManager;
-    const path = manager?.m_lastLocation?.pathname || deskWin.location.pathname;
+    return manager?.m_lastLocation?.pathname || deskWin.location.pathname;
+  }
+
+  function reinject() {
+    const path = getCurrentPath();
     let appId = appIdOf(path);
 
     const existingSubstitute = d.getElementById(TENDER_SUBSTITUTE_ID);
@@ -178,7 +177,6 @@ function attachToDesktopWindow(deskWin: Window): () => void {
         }
 
         try {
-          ensurePulseStyles(d);
           const pbRoot = client.createRoot(playBtnHost);
           pbRoot.render(createElement(PlayButton, { appId }));
           ledger.recordRoot(pbRoot, playBtnHost);
@@ -286,10 +284,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     if (deskWin.closed) {
       return;
     }
-    const manager =
-      (deskWin as unknown as WindowWithManager).MainWindowBrowserManager ||
-      (window as unknown as WindowWithManager).MainWindowBrowserManager;
-    const p = manager?.m_lastLocation?.pathname || deskWin.location.pathname;
+    const p = getCurrentPath();
     const appId = appIdOf(p);
     const isRomM = appId ? isRomMAppId(appId) : false;
     const substitute = d.getElementById(TENDER_SUBSTITUTE_ID);
