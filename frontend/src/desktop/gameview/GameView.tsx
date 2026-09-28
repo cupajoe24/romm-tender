@@ -114,7 +114,7 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
           >
             <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
             <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
-              <EmulationSettings title={title} detail={detail} />
+              <EmulationSettings title={title} detail={detail} appId={appId} />
             </div>
           </div>
         )}
