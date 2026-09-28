@@ -6,16 +6,8 @@
  */
 
 import type { CSSProperties, FC, MouseEvent } from "react";
-import {
-  BUTTON_GROUP_STYLE,
-  BUTTON_BASE_STYLE,
-  SIDE_ACTION_STYLE,
-  BLUE_LEFT,
-  BLUE_RIGHT,
-  GREEN_LEFT,
-  GREEN_RIGHT,
-  lerpColor,
-} from "./styles";
+import { BUTTON_GROUP_STYLE, BUTTON_BASE_STYLE, SIDE_ACTION_STYLE } from "./styles";
+import { getDownloadFillGradient } from "../../utils/downloadProgress";
 
 export interface DownloadingButtonProps {
   progressPercent: number;
@@ -40,11 +32,7 @@ export const DownloadingButton: FC<DownloadingButtonProps> = ({
   if (isExtracting) progressLabel = `Extracting… ${progressPercent}%`;
   if (isPaused) progressLabel = `Paused (${progressPercent}%)`;
 
-  const t = Math.min(1, Math.max(0, progressRatio));
-
-  const fillGradient = isExtracting
-    ? "linear-gradient(90deg, #59bf43 0%, #409930 100%)"
-    : `linear-gradient(90deg, ${lerpColor(BLUE_LEFT, GREEN_LEFT, t)} 0%, ${lerpColor(BLUE_RIGHT, GREEN_RIGHT, t)} 100%)`;
+  const fillGradient = getDownloadFillGradient(progressRatio, isExtracting, "desktop");
 
   const { boxShadow: _baseShadow, ...buttonGroupNoShadow } = BUTTON_GROUP_STYLE;
 

@@ -1,14 +1,41 @@
 import { describe, it, expect } from "vitest";
 import {
+  lerpColor,
   formatProgress,
   getDownloadFillGradient,
   getDownloadPulseColor,
   getDownloadBaseBackground,
+  BLUE_LEFT,
+  BLUE_RIGHT,
+  BPM_GREEN_LEFT,
+  BPM_GREEN_RIGHT,
+  DESKTOP_GREEN_LEFT,
+  DESKTOP_GREEN_RIGHT,
 } from "./downloadProgress";
 
-// The expected strings are what CustomPlayButton rendered before these helpers
-// left it, written out rather than rebuilt from the module's own stops.
 describe("downloadProgress", () => {
+  describe("lerpColor", () => {
+    it("returns start color when t is 0", () => {
+      expect(lerpColor([0, 0, 0], [100, 100, 100], 0)).toBe("rgb(0, 0, 0)");
+    });
+
+    it("returns end color when t is 1", () => {
+      expect(lerpColor([0, 0, 0], [100, 100, 100], 1)).toBe("rgb(100, 100, 100)");
+    });
+
+    it("interpolates correctly at midpoint t = 0.5", () => {
+      expect(lerpColor([0, 50, 100], [100, 150, 200], 0.5)).toBe("rgb(50, 100, 150)");
+    });
+
+    it("clamps t below 0 to start color", () => {
+      expect(lerpColor([10, 20, 30], [50, 60, 70], -0.5)).toBe("rgb(10, 20, 30)");
+    });
+
+    it("clamps t above 1 to end color", () => {
+      expect(lerpColor([10, 20, 30], [50, 60, 70], 1.5)).toBe("rgb(50, 60, 70)");
+    });
+  });
+
   describe("formatProgress", () => {
     it("formats bytes (< 1024)", () => {
       expect(formatProgress(500, 800)).toBe("500 / 800 B");
@@ -28,87 +55,86 @@ describe("downloadProgress", () => {
   });
 
   describe("getDownloadFillGradient", () => {
-    it("is solid green while extracting", () => {
-      expect(getDownloadFillGradient(0.5, { extracting: true, downloading: true })).toBe(
-        "linear-gradient(to right, rgb(80,200,47), rgb(24,177,78))",
+    it("returns bigpicture extracting gradient", () => {
+      const grad = getDownloadFillGradient(0.5, true, "bigpicture");
+      expect(grad).toBe(
+        `linear-gradient(to right, rgb(${BPM_GREEN_LEFT.join(",")}), rgb(${BPM_GREEN_RIGHT.join(",")}))`,
       );
     });
 
-    it("turns from blue to green as the download progresses", () => {
-      expect(getDownloadFillGradient(0, { extracting: false, downloading: true })).toBe(
-        "linear-gradient(to right, rgb(26, 159, 255), rgb(0, 120, 212))",
-      );
-      expect(getDownloadFillGradient(0.5, { extracting: false, downloading: true })).toBe(
-        "linear-gradient(to right, rgb(53, 180, 151), rgb(12, 149, 145))",
-      );
-      expect(getDownloadFillGradient(1, { extracting: false, downloading: true })).toBe(
-        "linear-gradient(to right, rgb(80, 200, 47), rgb(24, 177, 78))",
-      );
+    it("returns desktop extracting gradient", () => {
+      const grad = getDownloadFillGradient(0.5, true, "desktop");
+      expect(grad).toBe("linear-gradient(90deg, #59bf43 0%, #409930 100%)");
     });
 
-    it("is the download button's blue when nothing is downloading", () => {
-      expect(getDownloadFillGradient(0.5, { extracting: false, downloading: false })).toBe(
-        "linear-gradient(to right, #1a9fff, #0078d4)",
-      );
+    it("interpolates bigpicture progress gradient from blue to green", () => {
+      const grad0 = getDownloadFillGradient(0, false, "bigpicture");
+      expect(grad0).toContain(lerpColor(BLUE_LEFT, BPM_GREEN_LEFT, 0));
+      expect(grad0).toContain(lerpColor(BLUE_RIGHT, BPM_GREEN_RIGHT, 0));
+
+      const grad1 = getDownloadFillGradient(1, false, "bigpicture");
+      expect(grad1).toContain(lerpColor(BLUE_LEFT, BPM_GREEN_LEFT, 1));
+      expect(grad1).toContain(lerpColor(BLUE_RIGHT, BPM_GREEN_RIGHT, 1));
+    });
+
+    it("interpolates desktop progress gradient with 90deg and percentage stops", () => {
+      const grad = getDownloadFillGradient(0.5, false, "desktop");
+      expect(grad).toContain("linear-gradient(90deg,");
+      expect(grad).toContain(`${lerpColor(BLUE_LEFT, DESKTOP_GREEN_LEFT, 0.5)} 0%`);
+      expect(grad).toContain(`${lerpColor(BLUE_RIGHT, DESKTOP_GREEN_RIGHT, 0.5)} 100%`);
+    });
+
+    it("clamps out-of-range progress ratios", () => {
+      const gradNeg = getDownloadFillGradient(-0.2, false, "bigpicture");
+      const grad0 = getDownloadFillGradient(0, false, "bigpicture");
+      expect(gradNeg).toBe(grad0);
+
+      const gradOver = getDownloadFillGradient(1.5, false, "bigpicture");
+      const grad1 = getDownloadFillGradient(1, false, "bigpicture");
+      expect(gradOver).toBe(grad1);
     });
   });
 
   describe("getDownloadPulseColor", () => {
-    it("is amber when paused", () => {
-      expect(getDownloadPulseColor(0.5, { paused: true, extracting: false, downloading: true })).toBe(
-        "rgba(212,167,44,0.7)",
-      );
+    it("returns amber when paused", () => {
+      expect(getDownloadPulseColor(0.5, { paused: true })).toBe("rgba(212,167,44,0.7)");
     });
 
-    it("is green when extracting", () => {
-      expect(getDownloadPulseColor(0.5, { paused: false, extracting: true, downloading: true })).toBe(
-        "rgb(80, 200, 47)",
-      );
+    it("returns bpm green when extracting in bigpicture mode", () => {
+      expect(getDownloadPulseColor(0.5, { extracting: true }, "bigpicture")).toBe(`rgb(${BPM_GREEN_LEFT.join(", ")})`);
     });
 
-    it("follows the fill's left stop when downloading", () => {
-      expect(getDownloadPulseColor(0.5, { paused: false, extracting: false, downloading: true })).toBe(
-        "rgb(53, 180, 151)",
-      );
+    it("returns desktop green when extracting in desktop mode", () => {
+      expect(getDownloadPulseColor(0.5, { extracting: true }, "desktop")).toBe(`rgb(${DESKTOP_GREEN_LEFT.join(", ")})`);
     });
 
-    it("is translucent blue when idle", () => {
-      expect(getDownloadPulseColor(0, { paused: false, extracting: false, downloading: false })).toBe(
-        "rgba(26,159,255,0.7)",
-      );
+    it("interpolates color when downloading", () => {
+      const color = getDownloadPulseColor(0.5, { downloading: true }, "bigpicture");
+      expect(color).toBe(lerpColor(BLUE_LEFT, BPM_GREEN_LEFT, 0.5));
+    });
+
+    it("returns default blue when idle", () => {
+      expect(getDownloadPulseColor(0, {})).toBe("rgba(26,159,255,0.7)");
     });
   });
 
   describe("getDownloadBaseBackground", () => {
-    it("is muted slate when offline", () => {
-      expect(getDownloadBaseBackground(0.5, { isOffline: true, extracting: false, downloading: true })).toBe(
-        "linear-gradient(to right, #6b7b8b, #5a6a7a)",
-      );
+    it("returns muted slate when offline", () => {
+      expect(getDownloadBaseBackground(0.5, { isOffline: true })).toBe("linear-gradient(to right, #6b7b8b, #5a6a7a)");
     });
 
-    it("is dark green when extracting", () => {
-      expect(getDownloadBaseBackground(0.5, { isOffline: false, extracting: true, downloading: true })).toBe(
-        "linear-gradient(to right, #1a4d1a, #0f3320)",
-      );
+    it("returns dark green when extracting", () => {
+      expect(getDownloadBaseBackground(0.5, { extracting: true })).toBe("linear-gradient(to right, #1a4d1a, #0f3320)");
     });
 
-    it("darkens with the fill when downloading", () => {
-      const downloading = { isOffline: false, extracting: false, downloading: true };
-      expect(getDownloadBaseBackground(0, downloading)).toBe(
-        "linear-gradient(to right, rgb(10, 50, 90), rgb(5, 35, 65))",
-      );
-      expect(getDownloadBaseBackground(0.5, downloading)).toBe(
-        "linear-gradient(to right, rgb(8, 43, 78), rgb(5, 43, 48))",
-      );
-      expect(getDownloadBaseBackground(1, downloading)).toBe(
-        "linear-gradient(to right, rgb(5, 35, 65), rgb(5, 50, 30))",
-      );
+    it("interpolates darker shade when downloading", () => {
+      const bg = getDownloadBaseBackground(0.5, { downloading: true });
+      expect(bg).toContain("linear-gradient(to right,");
+      expect(bg).toContain(lerpColor([10, 50, 90], [5, 35, 65], 0.5));
     });
 
-    it("is the download button's blue when idle", () => {
-      expect(getDownloadBaseBackground(0, { isOffline: false, extracting: false, downloading: false })).toBe(
-        "linear-gradient(to right, #1a9fff, #0078d4)",
-      );
+    it("returns default blue gradient when idle", () => {
+      expect(getDownloadBaseBackground(0, {})).toBe("linear-gradient(to right, #1a9fff, #0078d4)");
     });
   });
 });

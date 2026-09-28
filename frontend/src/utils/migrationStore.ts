@@ -24,6 +24,13 @@
 import { useSyncExternalStore } from "react";
 import type { MigrationStatus } from "../types";
 
+/** Default title for RetroDECK migration blocked warning cards. */
+export const MIGRATION_BLOCKED_DEFAULT_TITLE = "RetroDECK Migration Required";
+
+/** Default message for RetroDECK migration blocked warning cards. */
+export const MIGRATION_BLOCKED_DEFAULT_MESSAGE =
+  "Open the Tender menu (QAM) to migrate files or dismiss the migration before playing.";
+
 let _migration: MigrationStatus = { pending: false };
 let _listeners: Array<() => void> = [];
 

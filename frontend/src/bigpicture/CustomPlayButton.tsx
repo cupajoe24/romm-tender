@@ -93,6 +93,14 @@ import {
   type PruneLeaseAdmission,
 } from "../utils/pruneLease";
 import { reconfirmLaunchOptions } from "../utils/launchOptionsReconcile";
+import { saveSyncToastBody } from "../utils/saveSyncToast";
+import { boundedOr, withTimeout } from "../utils/withTimeout";
+import {
+  formatProgress,
+  getDownloadFillGradient,
+  getDownloadPulseColor,
+  getDownloadBaseBackground,
+} from "../utils/downloadProgress";
 
 type PlayButtonState =
   | "loading"
@@ -1289,12 +1297,12 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     // Fill color shifts from blue to green as download progresses. Extraction
     // begins right after the transfer hit 100% green, so it keeps the solid
     // green fill for visual continuity.
-    const fillColor = getDownloadFillGradient(t, { extracting, downloading: Boolean(downloading) });
+    const fillColor = getDownloadFillGradient(t, extracting, "bigpicture");
 
     // Pulse color shifts from blue to green with progress; a paused download
     // freezes to a dim amber so the whole group reads as "halted, not running".
     // Extraction holds the green pulse — it just finished the transfer.
-    const pulseColor = getDownloadPulseColor(t, { paused, extracting, downloading: Boolean(downloading) });
+    const pulseColor = getDownloadPulseColor(t, { paused, extracting, downloading: Boolean(downloading) }, "bigpicture");
 
     let dlLabel: string;
     if (extracting) {

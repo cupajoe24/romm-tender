@@ -26,6 +26,12 @@
 import { useSyncExternalStore } from "react";
 import { getPlaytimeScopeNotice } from "../api/backend";
 
+/** Title of the account-wide playtime-scope banner. */
+export const PLAYTIME_SCOPE_TITLE = "Cross-device playtime";
+
+/** Body text prompting the user to re-mint a scoped Client API Token. */
+export const PLAYTIME_SCOPE_MESSAGE = "Sign in again to enable cross-device playtime sync.";
+
 export interface PlaytimeScopeState {
   pending: boolean;
 }
