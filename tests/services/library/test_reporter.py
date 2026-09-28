@@ -374,17 +374,18 @@ class TestRegistryPlatformsReachableCount:
         assert entry["reachable_count"] == 1
 
     @pytest.mark.asyncio
-    async def test_a_version_the_last_fetch_did_not_return_is_not_reachable(self, plugin):
-        """RomM dropped a version; its row stays and stops counting.
+    async def test_a_version_the_last_fetch_did_not_return_is_not_counted(self, plugin):
+        """RomM dropped a version; its row stays reachable and stops counting.
 
         Nothing deletes it — ADR-0007 keeps the row as an identity anchor and
-        only the cleanup flow removes one — but the picker refuses a switch to
-        it, so no reader can reach it through the group's shortcut. Counting it
-        was the header claiming a version is in Steam that nothing can select.
+        only the cleanup flow removes one — and the group's shortcut still
+        reaches it, but RomM no longer serves it. Counting it was the header
+        claiming a version is in Steam that RomM has stopped serving.
         """
         uow = plugin._uow
         _seed_rom(uow, 10, app_id=1001, platform_slug="dc", group_key="igdb:1:2")
         _seed_rom(uow, 11, app_id=None, platform_slug="dc", group_key="igdb:1:2")
+        _stamp_fetch(uow, "dc", rom_count=2, fetch_id="fetch-1", seen=[10, 11])
         _stamp_fetch(uow, "dc", rom_count=1, fetch_id="fetch-2", seen=[10])
 
         entry = plugin.get_registry_platforms()["platforms"][0]
