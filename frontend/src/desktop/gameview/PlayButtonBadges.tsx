@@ -6,14 +6,13 @@
  *   - Last played timestamp and total playtime forever
  *   - RetroAchievements progress (with shortcut to open achievements modal)
  *   - Save sync status indicator (dot + label, shortcut to Emulation Settings)
- *   - BIOS status indicator (dot + label, shortcut to Emulation Settings)
+ *   - BIOS warning indicator (dot + label, shortcut to Emulation Settings, only shown when required BIOS missing)
  */
 
 import type { CSSProperties, FC } from "react";
-import type { BiosAnswer } from "../../api/backend";
 import type { SaveSetupInfo, SaveStatus } from "../../types";
 import { formatBytes, formatTimeAgo } from "../../utils/formatters";
-import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
+import { BIOS_MISSING_RED } from "../../utils/biosColor";
 import { hasAnySaveConflict } from "../../utils/saveStatus";
 import { applySaveSyncDisplay } from "../../utils/playSection";
 import { requestOpenAchievementsModal } from "./AchievementsCard";
@@ -39,7 +38,6 @@ export interface PlayButtonBadgesProps {
   };
   achievementCounts: { earned: number; total: number } | null;
   setupInfo: SaveSetupInfo | null;
-  biosAnswer: BiosAnswer | null;
   isOffline: boolean;
   romId: number | null;
 }
@@ -85,7 +83,6 @@ export const PlayButtonBadges: FC<PlayButtonBadgesProps> = ({
   playtimeInfo,
   achievementCounts,
   setupInfo,
-  biosAnswer,
   isOffline,
   romId,
 }) => {
@@ -147,41 +144,15 @@ export const PlayButtonBadges: FC<PlayButtonBadgesProps> = ({
     }
   }
 
-  // BIOS status calculation
-  let biosColor = biosColorForLevel("ok");
-  let biosText = "Ready (no BIOS)";
-
-  const isBiosError = detail.biosRequiredMissing || biosAnswer?.bios_level === "missing";
-  const isUnknown = biosAnswer?.bios_level === "unknown" || Boolean(biosAnswer?.bios_status_unknown);
-
-  if (isBiosError) {
-    biosColor = biosColorForLevel("missing");
-    biosText = "Error, see below";
-  } else if (isUnknown) {
-    biosColor = biosColorForLevel("unknown");
-    biosText = "Unknown";
-  } else if (!detail.biosNeeded) {
-    biosColor = biosColorForLevel("ok");
-    biosText = "Ready (no BIOS)";
-  } else {
-    const level = biosAnswer?.bios_level ?? null;
-    const requiredCount = biosAnswer?.bios_status?.required_count ?? 0;
-    const localCount = biosAnswer?.bios_status?.local_count ?? 0;
-    const isOptionalNotInstalled =
-      biosAnswer?.bios_status?.needs_bios === true && requiredCount === 0 && localCount === 0;
-
-    if (biosAnswer?.bios_status?.needs_bios === false || isOptionalNotInstalled) {
-      biosColor = biosColorForLevel("ok");
-      biosText = "Ready (no BIOS)";
-    } else if (level === "partial") {
-      biosColor = biosColorForLevel("partial");
-      biosText = detail.biosLabel || "Partial";
-    } else {
-      biosColor = biosColorForLevel(level ?? "ok");
-      biosText = "Ready";
-    }
-  }
-
+  // BIOS warning. What decides it is one question with two established
+  // absences behind it (`extractBiosInfo`): a file the launching emulator
+  // requires is not on disk, or the console cannot start without one of the
+  // images that emulator declares and none of them is there. Everything else
+  // the BIOS answer says is non-actionable here and lives in EmulationSettings.
+  //
+  // One appearance, always red. This badge is not rendering the four-valued
+  // verdict — it is a warning that shows only for a state that is never anything
+  // but bad.
   return (
     <div className="tender-desktop-badges" style={{ display: "flex", flexDirection: "row", alignItems: "center" }}>
       {!detail.installed && detail.fsSizeBytes != null && (
@@ -253,26 +224,28 @@ export const PlayButtonBadges: FC<PlayButtonBadgesProps> = ({
         </div>
       </div>
 
-      <div
-        role="button"
-        tabIndex={0}
-        className="tender-desktop-badge-item tender-desktop-bios"
-        style={{ ...BADGE_COLUMN_STYLE, cursor: "pointer" }}
-        onClick={() => {
-          globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
+      {detail.biosRequiredMissing && (
+        <div
+          role="button"
+          tabIndex={0}
+          className="tender-desktop-badge-item tender-desktop-bios"
+          style={{ ...BADGE_COLUMN_STYLE, cursor: "pointer" }}
+          onClick={() => {
             globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
-          }
-        }}
-      >
-        <div style={BADGE_HEADER_STYLE}>BIOS</div>
-        <div style={{ ...BADGE_VALUE_STYLE, color: biosColor }}>
-          <span className="romm-status-dot" style={{ ...STATUS_DOT_STYLE, backgroundColor: biosColor }} />
-          <span>{biosText}</span>
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "emulation-settings" } }));
+            }
+          }}
+        >
+          <div style={BADGE_HEADER_STYLE}>BIOS</div>
+          <div style={BADGE_VALUE_STYLE}>
+            <span className="romm-status-dot" style={{ ...STATUS_DOT_STYLE, backgroundColor: BIOS_MISSING_RED }} />
+            <span>{detail.biosLabel}</span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

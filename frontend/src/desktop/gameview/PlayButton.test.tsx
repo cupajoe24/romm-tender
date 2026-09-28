@@ -14,6 +14,7 @@ import * as metadataPatches from "../../utils/metadataPatches";
 import * as toast from "../../utils/toast";
 import { emitHostEvent } from "../../test-utils/host-event-bus";
 import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
+import { BIOS_MISSING_RED } from "../../utils/biosColor";
 import type { GameDetailState } from "../../utils/gameDetailStore";
 import type {
   AdoptionCandidate,
@@ -1291,67 +1292,19 @@ describe("PlayButton", () => {
       hasGameOverride: false,
     };
 
-    it("displays 'Ready (no BIOS)' in green when firmware is not needed", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: null,
-        bios_level: null,
-        bios_label: null,
-        bios_status_unknown: false,
-      });
+    it("does not render BIOS badge when firmware is not needed", () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
         ...baseDetail,
         biosNeeded: false,
+        biosRequiredMissing: false,
       });
 
       render(<PlayButton appId={123} />);
 
-      await waitFor(() => {
-        expect(screen.getByText("Ready (no BIOS)")).toBeInTheDocument();
-      });
+      expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
     });
 
-    it("displays 'Ready (no BIOS)' in green when firmware is optional and not installed", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: {
-          needs_bios: true,
-          platform_slug: "gba",
-          server_count: 1,
-          local_count: 0,
-          all_downloaded: false,
-          required_count: 0,
-          required_downloaded: 0,
-        },
-        bios_level: "ok",
-        bios_label: "BIOS optional",
-        bios_status_unknown: false,
-      });
-      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
-        ...baseDetail,
-        biosNeeded: true,
-      });
-
-      render(<PlayButton appId={123} />);
-
-      await waitFor(() => {
-        expect(screen.getByText("Ready (no BIOS)")).toBeInTheDocument();
-      });
-    });
-
-    it("displays 'Ready' in green when firmware is needed and correctly installed", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: {
-          needs_bios: true,
-          platform_slug: "psx",
-          server_count: 1,
-          local_count: 1,
-          all_downloaded: true,
-          required_count: 1,
-          required_downloaded: 1,
-        },
-        bios_level: "ok",
-        bios_label: "BIOS present",
-        bios_status_unknown: false,
-      });
+    it("does not render BIOS badge when firmware is optional and not installed", () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
         ...baseDetail,
         biosNeeded: true,
@@ -1360,76 +1313,54 @@ describe("PlayButton", () => {
 
       render(<PlayButton appId={123} />);
 
-      await waitFor(() => {
-        expect(screen.getByText("Ready")).toBeInTheDocument();
-      });
+      expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
     });
 
-    it("displays 'Error, see below' in red when firmware required is missing", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: {
-          needs_bios: true,
-          platform_slug: "psx",
-          server_count: 1,
-          local_count: 0,
-          all_downloaded: false,
-          required_count: 1,
-          required_downloaded: 0,
-        },
-        bios_level: "missing",
-        bios_label: "BIOS missing",
-        bios_status_unknown: false,
+    it("does not render BIOS badge when firmware is needed and correctly installed", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosNeeded: true,
+        biosRequiredMissing: false,
       });
+
+      render(<PlayButton appId={123} />);
+
+      expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
+    });
+
+    it("displays BIOS badge with biosLabel and red dot when firmware required is missing", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
         ...baseDetail,
         biosNeeded: true,
         biosRequiredMissing: true,
+        biosLabel: "0/3",
       });
 
       render(<PlayButton appId={123} />);
 
       await waitFor(() => {
-        expect(screen.getByText("Error, see below")).toBeInTheDocument();
+        expect(screen.getByText("BIOS")).toBeInTheDocument();
+        expect(screen.getByText("0/3")).toBeInTheDocument();
       });
+      const biosBadge = screen.getByText("BIOS").closest(".tender-desktop-bios")!;
+      const dot = biosBadge.querySelector(".romm-status-dot")!;
+      expect(dot).toHaveStyle({ backgroundColor: BIOS_MISSING_RED });
     });
 
-    it("displays 'Unknown' in grey when bios_level is unknown and no required files are missing", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: {
-          needs_bios: true,
-          platform_slug: "ps2",
-          server_count: 2,
-          local_count: 2,
-          all_downloaded: true,
-          required_count: 0,
-          required_downloaded: 0,
-        },
-        bios_level: "unknown",
-        bios_label: "Unknown",
-        bios_status_unknown: false,
-      });
+    it("does not render BIOS badge when bios_level is unknown and no required files are missing", () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
         ...baseDetail,
         biosNeeded: true,
         biosRequiredMissing: false,
+        biosLabel: "Unknown",
       });
 
       render(<PlayButton appId={123} />);
 
-      await waitFor(() => {
-        const textEl = screen.getByText("Unknown");
-        expect(textEl).toBeInTheDocument();
-        expect(textEl.closest(".tender-desktop-bios")).toHaveTextContent("Unknown");
-      });
+      expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
     });
 
-    it("displays 'unknown' in grey when bios_status_unknown is true", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: null,
-        bios_level: null,
-        bios_label: "",
-        bios_status_unknown: true,
-      });
+    it("does not render BIOS badge when bios_status_unknown is true", () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
         ...baseDetail,
         biosNeeded: false,
@@ -1438,28 +1369,10 @@ describe("PlayButton", () => {
 
       render(<PlayButton appId={123} />);
 
-      await waitFor(() => {
-        const textEl = screen.getByText("Unknown");
-        expect(textEl).toBeInTheDocument();
-        expect(textEl.closest(".tender-desktop-bios")).toHaveTextContent("Unknown");
-      });
+      expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
     });
 
-    it("displays 'Partial' in amber when bios_level is partial and no required files are missing", async () => {
-      vi.mocked(backend.getBiosStatus).mockResolvedValue({
-        bios_status: {
-          needs_bios: true,
-          platform_slug: "ps2",
-          server_count: 2,
-          local_count: 1,
-          all_downloaded: false,
-          required_count: 0,
-          required_downloaded: 0,
-        },
-        bios_level: "partial",
-        bios_label: "Partial",
-        bios_status_unknown: false,
-      });
+    it("does not render BIOS badge when bios_level is partial and no required files are missing", () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
         ...baseDetail,
         biosNeeded: true,
@@ -1469,14 +1382,16 @@ describe("PlayButton", () => {
 
       render(<PlayButton appId={123} />);
 
-      await waitFor(() => {
-        expect(screen.getByText("Partial")).toBeInTheDocument();
-      });
+      expect(screen.queryByText("BIOS")).not.toBeInTheDocument();
     });
 
     it("switches to emulation-settings tab on click", () => {
       const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
-      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(baseDetail);
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+        ...baseDetail,
+        biosRequiredMissing: true,
+        biosLabel: "1/3 required",
+      });
 
       render(<PlayButton appId={123} />);
       const biosBadge = screen.getByText("BIOS").closest(".tender-desktop-bios");
