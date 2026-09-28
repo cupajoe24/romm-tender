@@ -18,7 +18,7 @@ export const DesktopOfflineDriftDialog: FC<DesktopOfflineDriftDialogProps> = ({ 
     onDismiss={() => onChoice("cancel")}
   >
     <div style={DIALOG_TEXT_STYLE}>
-      Your local save has unsynced changes. Playing now may create a conflict you'll resolve later. Start anyway?
+      Your local save has unsynced changes. Playing now may create a conflict you&apos;ll resolve later. Start anyway?
     </div>
     <div style={DIALOG_ACTIONS_STYLE}>
       <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice("start_anyway")}>
