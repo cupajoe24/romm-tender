@@ -667,10 +667,28 @@ Format: **invariant** — tier — enforced by.
   one is invisible to the set comparison whatever the per-file symlink guard does; git records the link itself as mode
   120000, which is what makes it a review question rather than a silent one
 - **The release tarball is what the installer expects — one top-level `romm-tender/`, the files an install starts from
-  plus the version file and the licence texts a distributed copy carries, nothing the packager prunes, a sidecar
-  `sha256sum -c` accepts** — check — `scripts/check_release_tarball.py`, in CI's build job over a tarball packed from
-  that build and in the release job over the one uploaded. It reads names, modes and digests and starts nothing; the
-  script's docstring states what that misses
+  plus the version file, the installer an installed tree rolls back with and the licence texts a distributed copy
+  carries, nothing the packager prunes, a sidecar `sha256sum -c` accepts** — check — `scripts/check_release_tarball.py`,
+  in CI's build job over a tarball packed from that build and in the release job over the one uploaded. It reads names,
+  modes and digests and starts nothing; the script's docstring states what that misses
+- **A one-time step — an installer move such as the covers' move into the cache root, a backend backfill behind a
+  `kv_config` marker, a rung of the database's `user_version` ladder or of the settings' version ladder — stays safe to
+  run again and stays in every later release, so an update that skips releases still gets it; one leaves only
+  deliberately, with that release's notes naming the oldest version it can be updated from directly** — test +
+  prompt-only — `tests/scripts/test_install_sh.py::TestAnUpdateThatSkipsARelease` updates from one release straight to a
+  later one over covers still under the data root and asserts they reach the cache root with the database and settings
+  unchanged: it proves the covers move runs on every update, over data left in the older layout. It cannot see a step
+  being removed from a later release, so that half is prompt-only, and nothing mechanical sees the backend's steps.
+  **Why:** an update is a jump from whatever release a machine is on to the newest, not a walk through every release
+  between them — the installer downloads one tarball, and a device that was off for a month skips every release of that
+  month. A step that ran in 1.3 and was deleted in 1.4 is therefore never run on a machine that goes from 1.2 to 1.5,
+  and what that step moved or filled is simply missing there, with nothing failing. **Safe to run again** is the other
+  half: every update runs every step still present, so a step that assumes it has not run yet damages the machines where
+  it has. The installer's steps are idempotent by construction (`move_covers` in `install.sh` never moves over a file
+  the cache already holds); a backend backfill is guarded by its `kv_config` marker, a database rung by
+  `PRAGMA user_version` (`adapters/sqlite_migrations.py`), a settings rung by the stored `version`
+  (`domain/state_migrations.py`). A step retired deliberately takes its floor with it: that release's notes name the
+  oldest version it can be updated from directly
 - **Server-supplied path components pass `safe_join` (`lib/path_safety.py`)** — test + prompt-only — traversal tests per
   path builder; new call sites are prompt-only
 - **A firmware row's presence comes from the resolver wherever the resolver declared it; the plugin's own filesystem
@@ -870,24 +888,34 @@ Format: **invariant** — tier — enforced by.
 - **No sentinel objects on the wire — explicit JSON-representable tagged values only** — prompt-only — no sentinel
   survives on the wire today (`NO_MIGRATION` retired with #1004, legacy `slot:null` confirmation with #1276), so the
   rule now guards reintroduction; nothing mechanical detects a new one
-- **Every destructive op has backup-or-confirm; never delete data that exists nowhere else** — prompt-only — save-file
-  removals route through the `.romm-backup` funnel (`MatrixExecutor.quarantine_local_file`; the removed-game cleanup's
-  claimed variant is `PruneSaveSupport.quarantine_prune_saves`); every other delete path carries the rule unmechanized.
-  Removed-game cleanup takes the **confirm** leg for one case deliberately: installed ROM content the user did not
-  select for the recovery bundle is deleted with its row. The ROM is re-downloadable from RomM where a save is not, the
-  per-candidate opt-in and its consequence are stated in the confirmation dialog and the user guide, and the row cannot
-  be removed at all without a fresh 404 — so this is a disclosed choice, not an exception that drifted in. The adopt
-  dialog's **replace** exit is the second such case, and it does **not** rest on that justification: the premise is that
-  the content is the user's own — a different rip, a patch, a romhack — which is exactly what the server cannot hand
-  back. What carries it instead is that the user is shown both sides, offered a content check, and chooses between two
-  named outcomes behind a second confirmation ([ADR-0028](../adr/0028-adopted-install-is-an-install.md)). That reasoning
-  covers the **ROM** only: an adoption's Overwrite also replaces save and savestate files, and those take the **backup**
-  leg through the same `MatrixExecutor.quarantine_local_file` — every argument ADR-0028 gives for not quarantining a ROM
-  (gigabytes, no sensible retention, re-fetchable from RomM) inverts for a save, and a savestate is synced nowhere at
-  all. It is the first caller to hand that funnel a directory outside the saves root: it takes the directory it is
-  given, so a savestate's backup lands in `<states>/.romm-backup/`. Following a moved save directory
+- **Every destructive op has backup-or-confirm; never delete data that exists nowhere else** — test + prompt-only —
+  save-file removals route through the `.romm-backup` funnel (`MatrixExecutor.quarantine_local_file`; the removed-game
+  cleanup's claimed variant is `PruneSaveSupport.quarantine_prune_saves`); every other delete path carries the rule
+  unmechanized. Removed-game cleanup takes the **confirm** leg for one case deliberately: installed ROM content the user
+  did not select for the recovery bundle is deleted with its row. The ROM is re-downloadable from RomM where a save is
+  not, the per-candidate opt-in and its consequence are stated in the confirmation dialog and the user guide, and the
+  row cannot be removed at all without a fresh 404 — so this is a disclosed choice, not an exception that drifted in.
+  The adopt dialog's **replace** exit is the second such case, and it does **not** rest on that justification: the
+  premise is that the content is the user's own — a different rip, a patch, a romhack — which is exactly what the server
+  cannot hand back. What carries it instead is that the user is shown both sides, offered a content check, and chooses
+  between two named outcomes behind a second confirmation ([ADR-0028](../adr/0028-adopted-install-is-an-install.md)).
+  That reasoning covers the **ROM** only: an adoption's Overwrite also replaces save and savestate files, and those take
+  the **backup** leg through the same `MatrixExecutor.quarantine_local_file` — every argument ADR-0028 gives for not
+  quarantining a ROM (gigabytes, no sensible retention, re-fetchable from RomM) inverts for a save, and a savestate is
+  synced nowhere at all. It is the first caller to hand that funnel a directory outside the saves root: it takes the
+  directory it is given, so a savestate's backup lands in `<states>/.romm-backup/`. Following a moved save directory
   (`services/saves/save_directory.py`) takes the same **backup** leg on a collision — detail:
-  [Following a Moved Save Directory](save-file-sync-architecture.md#following-a-moved-save-directory)
+  [Following a Moved Save Directory](save-file-sync-architecture.md#following-a-moved-save-directory). The installer
+  replaces the user's database and settings on two paths, and they are held to the rule differently. A **rollback by
+  hand** (`install.sh --rollback`) takes the **backup** leg: it stops the unit and copies the database files and
+  `settings.json` it is about to replace into `rollback-backup/` under the data root — put in place over the previous
+  copy the same way as the update's backup, and never touched by an update — and a copy that cannot be made refuses the
+  rollback with nothing changed. No prompt: the copy is what makes asking unnecessary. The **automatic rollback** of an
+  update whose new version did not answer makes no such copy, because all it discards is what that version wrote while
+  the installer waited for it, and that version was never seen to answer. Both are pinned in
+  `tests/scripts/test_install_sh.py` (`TestRollingBackByHand`, and
+  `TestAnUpdateThatDoesNotStart::test_it_keeps_no_copy_of_what_the_failed_version_wrote`); what an update and a rollback
+  do, in order: [Running an installed one](../contributing/development.md#running-an-installed-one)
 - **A BIOS file is deleted only where a `downloaded_bios` record names it under one of the platform's firmware slugs,
   and only at the path that record holds** — test + prompt-only —
   `tests/services/test_firmware.py::TestDeletePlatformBios` and `::TestDeleteOneBiosFile` pin every direction

@@ -66,6 +66,46 @@ A WARNING line that says "Restart Steam to load" means the backend has stopped t
 backend may still be waiting because it cannot tell whether a game is running, or Steam's interface reloaded and the old
 panel went with it but the new one did not arrive — so the missing panel, not that line, is the reason to restart Steam.
 
+## An Update Was Rolled Back
+
+**Symptom**: An update marks the **Service** row failed, says **Rolled back** instead of **Done**, and ends with
+`install.sh: update to <new> failed; back on <previous>` and a line pointing at the log and at the journal.
+
+**Explanation**: The new version did not start within about a minute, so the installer put the version you had back,
+together with the library database and settings it had before the update, and started it again. Tender is running as it
+was. Anything the new version wrote in that minute is gone. The installer does not try again by itself, and it leaves
+`~/.local/state/romm-tender/update-failure.json` naming both versions and the time.
+
+**Fix**: Look at what the new version logged — the log is shared by both versions, so the lines just before the previous
+version's start are the new version's. A version that failed before it could open its log left nothing there, and its
+reason is only in the journal:
+
+```bash
+tail -n 100 ~/.local/state/romm-tender/backend.log
+journalctl --user -u romm-tender -n 100
+```
+
+Include that when you report it. Running the installer again tries the update again.
+
+### Going back to the previous version by hand
+
+If an update did start but you want the version before it back, the installed copy of the installer does that:
+
+```bash
+~/.local/lib/romm-tender/install.sh --rollback
+```
+
+It puts back the previous version and the database and settings as they were **before the update**, and says the date
+that was. Anything Tender recorded since, such as a download or a sync, is forgotten: ROM files downloaded since stay on
+disk and shortcuts created since stay in Steam, but the restored database no longer knows them. Before it puts anything
+back, it copies the database and settings it replaces to `~/.local/share/romm-tender/rollback-backup/`, and it says so.
+That copy stays until the next time you go back by hand.
+
+It works once per update — afterwards there is no previous version left to go back to — and refuses without changing
+anything when there is nothing to go back to. It also refuses when the previous version and the saved data do not belong
+together, which an update that was interrupted can leave behind: going back would run the older version over data a
+newer one wrote. Start Tender instead if it is not running, with `systemctl --user start romm-tender`.
+
 ## Games Won't Launch
 
 ### "RomM Sync" is still installed
