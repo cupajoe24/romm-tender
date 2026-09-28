@@ -2,9 +2,7 @@ import { useState, useEffect, type FC } from "react";
 import { useGameDetail } from "../../utils/gameDetailStore";
 import { useRomMetadata } from "../../utils/useRomMetadata";
 import { coverCandidates } from "../desktopWindow";
-import { applyArtwork, cancelArtworkApply } from "../../utils/artwork";
-import { debugLog } from "../../api/backend";
-import { detach } from "../../utils/detach";
+import { useAutoArtwork } from "../../utils/autoArtwork";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { resolveAppTitle } from "../../utils/steamOverview";
 import { useMigrationStatus } from "../../utils/migrationStore";
@@ -24,8 +22,6 @@ export interface GameViewProps {
 }
 
 export type GameViewPageProps = GameViewProps;
-
-const artworkApplied = new Map<number, number>();
 
 export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const detail = useGameDetail(appId);
@@ -47,23 +43,8 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      detach(cancelArtworkApply(appId));
-    };
-  }, [appId]);
-
   useEffect(() => registerConnectionHeartbeat(), []);
-
-  useEffect(() => {
-    const romId = detail.romId;
-    if (!romId || artworkApplied.get(appId) === romId) return;
-    applyArtwork(romId, appId)
-      .then(() => {
-        artworkApplied.set(appId, romId);
-      })
-      .catch((e) => debugLog(`Desktop auto-artwork error: ${e}`));
-  }, [appId, detail.romId]);
+  useAutoArtwork(appId, detail.romId, "Desktop auto-artwork error");
 
   const metadata = useRomMetadata(detail.romId);
   const title = resolveAppTitle(appId, detail.romName);

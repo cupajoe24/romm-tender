@@ -29,7 +29,8 @@ import { DiscSelector } from "./DiscSelector";
 import { VersionPicker } from "./VersionPicker";
 import { WarningCard } from "./WarningCard";
 import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
-import { applyArtwork, cancelArtworkApply } from "../utils/artwork";
+import { applyArtwork } from "../utils/artwork";
+import { useAutoArtwork } from "../utils/autoArtwork";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
 import { getEventTarget } from "../utils/events";
@@ -65,11 +66,6 @@ import {
   refreshSaveStatus,
   useGameDetail,
 } from "../utils/gameDetailStore";
-
-/** Which rom_id each appId has had auto-artwork applied for this session. Keyed
- *  on the pair, not the appId alone: a version switch re-binds the appId to a
- *  new rom_id whose artwork has to be applied afresh (#1298 item 3). */
-const artworkApplied = new Map<number, number>();
 
 /** How long the authoritative connection check may run before the wait itself is
  *  worth a log line. It is NOT a deadline after which the server counts as
@@ -166,23 +162,11 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   useEffect(() => {
     mountPruneLeaseOwner(`game-detail:${appId}`);
     return () => {
-      detach(cancelArtworkApply(appId));
       detach(releasePruneLeasesByOwner(`game-detail:${appId}`));
     };
   }, [appId]);
 
-  // Auto-apply SGDB artwork on first visit, once per (appId, rom_id) — so a
-  // version switch re-applies for the newly bound rom_id (#1298 item 3). Only
-  // marked applied after success, so a transient failure retries next visit.
-  useEffect(() => {
-    const romId = detail.romId;
-    if (!romId || artworkApplied.get(appId) === romId) return;
-    applyArtwork(romId, appId)
-      .then(() => {
-        artworkApplied.set(appId, romId);
-      })
-      .catch((e) => debugLog(`Auto-artwork error: ${e}`));
-  }, [appId, detail.romId]);
+  useAutoArtwork(appId, detail.romId, "Auto-artwork error");
 
   // Connection check — exactly one per mount, issued before this page's other
   // RomM reads rather than behind them. Keyed on appId alone: the verdict is
