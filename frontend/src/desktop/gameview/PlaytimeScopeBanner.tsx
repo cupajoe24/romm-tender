@@ -1,15 +1,17 @@
 import { useEffect, useSyncExternalStore, type CSSProperties, type FC } from "react";
 import { FaExclamationTriangle, FaGamepad } from "react-icons/fa";
-import { usePlaytimeScopeState, setPlaytimeScopeState, fetchPlaytimeScopeState } from "../../utils/playtimeScopeStore";
+import {
+  usePlaytimeScopeState,
+  setPlaytimeScopeState,
+  fetchPlaytimeScopeState,
+  PLAYTIME_SCOPE_TITLE,
+  PLAYTIME_SCOPE_MESSAGE,
+} from "../../utils/playtimeScopeStore";
 import { isSessionActive } from "../../utils/sessionManager";
 import { showToast } from "../../utils/toast";
 import { BUTTON_STYLE, ACTIVE_SESSION_CARD_STYLE, PLAYTIME_SCOPE_CARD_STYLE } from "./styles";
 
-/** Title of the account-wide playtime-scope banner. */
-export const PLAYTIME_SCOPE_TITLE = "Cross-device playtime";
-
-/** Body text prompting the user to re-mint a scoped Client API Token. */
-export const PLAYTIME_SCOPE_MESSAGE = "Sign in again to enable cross-device playtime sync.";
+export { PLAYTIME_SCOPE_TITLE, PLAYTIME_SCOPE_MESSAGE };
 
 /** Title of the active session banner. */
 export const ACTIVE_SESSION_DEFAULT_TITLE = "Active Session in Progress";
