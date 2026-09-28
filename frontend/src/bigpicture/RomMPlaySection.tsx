@@ -41,23 +41,18 @@ import {
   refreshCoverArtwork,
   downloadAllFirmware,
   deleteLocalSaves,
-  setGameCore,
-  clearGameCore,
   reconcilePlaytime,
   debugLog,
 } from "../api/backend";
 import { executeManualSaveSync } from "../utils/manualSaveSync";
 import { executeRomUninstall } from "../utils/romUninstall";
-import { setLaunchOptionsConfirmed } from "../utils/steamShortcuts";
 import {
   capturePruneLeaseAdmission,
-  isPruneLeaseCancelled,
   isPruneLeaseCancellation,
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
-  withPruneLease,
-  type PruneLeaseAdmission,
 } from "../utils/pruneLease";
+import { applyGameCoreChange } from "../utils/coreOverride";
 import { updatePlaytimeDisplay } from "../utils/metadataPatches";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
 import { formatBytes, formatLastPlayed, formatPlaytime } from "../utils/formatters";
@@ -673,80 +668,30 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     );
   };
 
-  /** Apply the result of a set/clear override call. The backend re-bakes the
-   *  launch_options + returns the bound app_id for an installed ROM; we
-   *  confirm-set them on the Steam shortcut BEFORE toasting success (R1). An
-   *  unconfirmed bake gets a DISTINCT "restart Steam" toast and the DB row is
-   *  KEPT — migration/re-sync re-bake from the pin. Uninstalled/unbound ROMs
-   *  carry no launch_options/app_id: persist-only, no SetAppLaunchOptions. */
-  const applyCoreResult = async (
-    result: Awaited<ReturnType<typeof setGameCore>>,
-    platformSlug: string,
-    successBody: string,
-    admission: PruneLeaseAdmission,
-  ) => {
-    await withPruneLease(result.prune_lease_token, "Core selection", async (signal) => {
-      if (!result.success) {
-        showToast(result.message || "Failed to set core");
-        return;
-      }
-      // Installed + bound: confirm the re-baked launch_options landed before
-      // claiming success. app_id can be null/undefined for an unbound ROM.
-      if (result.launch_options !== undefined && result.app_id != null) {
-        if (isPruneLeaseCancelled(signal)) return;
-        const confirmed = await setLaunchOptionsConfirmed(result.app_id, result.launch_options);
-        if (isPruneLeaseCancelled(signal)) return;
-        if (!confirmed) {
-          // Never toast success on an unconfirmed bake. Keep the DB row — a Steam
-          // restart (or the next migration/re-sync) re-bakes from the override.
-          showToast("Core saved — restart Steam to apply");
-          return;
-        }
-      }
-      // Confirmed (or uninstalled/unbound: nothing to confirm) → success.
-      showToast(successBody);
-      await refreshCoreDisplay(platformSlug);
-    }, `game-detail:${appId}`, admission);
-  };
-
   const handleChangeGameCore = async (coreLabel: string) => {
     const romId = detail.romId;
     if (!romId || !detail.platformSlug) return;
     const platformSlug = detail.platformSlug;
-    detach(debugLog(`handleChangeGameCore: romId=${romId} coreLabel=${coreLabel}`));
-    const admission = capturePruneLeaseAdmission(`game-detail:${appId}`);
-    try {
-      const result = await setGameCore(romId, coreLabel);
-      detach(debugLog(`handleChangeGameCore: result success=${result.success}`));
-      await applyCoreResult(result, platformSlug, `Core set to ${coreLabel}`, admission);
-    } catch (e) {
-      // The core pin is persisted before the Steam continuation runs, so a
-      // teardown cancellation is not a "failed to set core" the user must see.
-      if (isPruneLeaseCancellation(e, admission)) {
-        detach(debugLog(`handleChangeGameCore: continuation was cancelled: ${e}`));
-        return;
-      }
-      showToast("Failed to set core");
-    }
+    await applyGameCoreChange({
+      romId,
+      coreLabel,
+      leaseOwner: `game-detail:${appId}`,
+      onSuccess: () => refreshCoreDisplay(platformSlug),
+      logTag: "handleChangeGameCore",
+    });
   };
 
   const handleResetGameCore = async () => {
     const romId = detail.romId;
     if (!romId || !detail.platformSlug) return;
     const platformSlug = detail.platformSlug;
-    detach(debugLog(`handleResetGameCore: romId=${romId}`));
-    const admission = capturePruneLeaseAdmission(`game-detail:${appId}`);
-    try {
-      const result = await clearGameCore(romId);
-      detach(debugLog(`handleResetGameCore: result success=${result.success}`));
-      await applyCoreResult(result, platformSlug, "Now following the system core", admission);
-    } catch (e) {
-      if (isPruneLeaseCancellation(e, admission)) {
-        detach(debugLog(`handleResetGameCore: continuation was cancelled: ${e}`));
-        return;
-      }
-      showToast("Failed to reset core");
-    }
+    await applyGameCoreChange({
+      romId,
+      coreLabel: null,
+      leaseOwner: `game-detail:${appId}`,
+      onSuccess: () => refreshCoreDisplay(platformSlug),
+      logTag: "handleResetGameCore",
+    });
   };
 
   const showCoreMenu = (e: Event) => {

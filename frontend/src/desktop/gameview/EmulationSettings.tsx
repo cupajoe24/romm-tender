@@ -17,16 +17,18 @@
 import { useState, useEffect, useCallback, type FC } from "react";
 import type { GameDetailState } from "../../utils/gameDetailStore";
 import type { BiosAnswer } from "../../api/backend";
-import { getBiosStatus, setGameCore, clearGameCore, debugLog } from "../../api/backend";
-import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
+import { getBiosStatus, debugLog } from "../../api/backend";
 import { biosColorForLevel } from "../../utils/biosColor";
 import { biosSummary } from "../../utils/biosSummary";
 import type { BiosFileStatus, BiosLevel, EmulatorOption } from "../../types";
 import { detach } from "../../utils/detach";
+import { mountPruneLeaseOwner, releasePruneLeasesByOwner } from "../../utils/pruneLease";
+import { applyGameCoreChange } from "../../utils/coreOverride";
 
 export interface EmulationSettingsProps {
   title: string;
   detail: GameDetailState;
+  appId?: number;
 }
 
 // ─── Style constants ─────────────────────────────────────────────────────────
@@ -321,7 +323,16 @@ const BiosFileRow: FC<{ file: BiosFileStatus }> = ({ file }) => {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export const EmulationSettings: FC<EmulationSettingsProps> = ({ title, detail }) => {
+export const EmulationSettings: FC<EmulationSettingsProps> = ({ title, detail, appId }) => {
+  const leaseOwner = `game-detail:${appId ?? detail.romId ?? 0}`;
+
+  useEffect(() => {
+    mountPruneLeaseOwner(leaseOwner);
+    return () => {
+      detach(releasePruneLeasesByOwner(leaseOwner));
+    };
+  }, [leaseOwner]);
+
   const platform = detail.platformSlug ? detail.platformSlug.toUpperCase() : "Platform";
 
   // Full BIOS detail — GameDetailState only carries the 3 derived badge fields, so
@@ -369,31 +380,31 @@ export const EmulationSettings: FC<EmulationSettingsProps> = ({ title, detail })
       const romId = detail.romId;
       if (!romId || !emu.bakeable || actionLoading) return;
 
-      // Picking the default-marked core clears the override; any other pick sets it.
-      const pickingDefault = emu.is_default;
+      // Align core pinning behavior with Big Picture (#211):
+      // Selecting the default will pin it, but selecting the same option again unpins it.
+      const isAlreadyPinned = detail.hasGameOverride && detail.activeCoreLabel === emu.label;
+      const targetLabel = isAlreadyPinned ? null : emu.label;
 
       setActionLoading(true);
       setActionError(null);
       try {
-        const result = pickingDefault ? await clearGameCore(romId) : await setGameCore(romId, emu.label);
+        const result = await applyGameCoreChange({
+          romId,
+          coreLabel: targetLabel,
+          leaseOwner,
+          onSuccess: () => {
+            // Tell gameDetailStore to refresh core + BIOS state
+            globalThis.dispatchEvent(
+              new CustomEvent("romm_data_changed", {
+                detail: { type: "core_changed", platform_slug: detail.platformSlug },
+              }),
+            );
+          },
+          logTag: "EmulationSettings",
+        });
         if (!result.success) {
           setActionError(result.message ?? "Could not apply emulator change.");
-          return;
         }
-        // Apply the rebaked launch options when the ROM is installed and bound
-        if (result.launch_options !== undefined && result.app_id != null) {
-          try {
-            await setLaunchOptionsConfirmed(result.app_id, result.launch_options);
-          } catch (e) {
-            detach(debugLog(`EmulationSettings: setLaunchOptionsConfirmed threw: ${e}`));
-          }
-        }
-        // Tell gameDetailStore to refresh core + BIOS state
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", {
-            detail: { type: "core_changed" },
-          }),
-        );
       } catch (e) {
         setActionError("Failed to apply emulator change.");
         detach(debugLog(`EmulationSettings: handleSelectEmulator threw: ${e}`));
@@ -401,7 +412,7 @@ export const EmulationSettings: FC<EmulationSettingsProps> = ({ title, detail })
         setActionLoading(false);
       }
     },
-    [detail.romId, actionLoading],
+    [detail.romId, detail.hasGameOverride, detail.activeCoreLabel, detail.platformSlug, actionLoading, leaseOwner],
   );
 
   // ── Derived values ──────────────────────────────────────────────────────────
