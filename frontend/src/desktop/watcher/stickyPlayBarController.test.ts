@@ -32,6 +32,24 @@ describe("stickyPlayBarController", () => {
       outer.remove();
     });
 
+    it("skips non-scrollable overflow:visible elements even if scrollHeight exceeds clientHeight", () => {
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "scroll";
+
+      const wrapper = document.createElement("div");
+      wrapper.style.overflowY = "visible";
+      Object.defineProperty(wrapper, "scrollHeight", { value: 1000, configurable: true });
+      Object.defineProperty(wrapper, "clientHeight", { value: 300, configurable: true });
+
+      const inner = document.createElement("div");
+      wrapper.appendChild(inner);
+      scroller.appendChild(wrapper);
+      document.body.appendChild(scroller);
+
+      expect(findScrollContainer(inner)).toBe(scroller);
+      scroller.remove();
+    });
+
     it("falls back to window if no scrollable container", () => {
       const el = document.createElement("div");
       document.body.appendChild(el);
@@ -105,6 +123,72 @@ describe("stickyPlayBarController", () => {
       controller.dispose();
       ledger.restoreAll();
       scroller.remove();
+    });
+
+    it("resets playSection background to transparent on dispose if disposed while pinned", () => {
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "scroll";
+      document.body.appendChild(scroller);
+
+      const playBar = document.createElement("div");
+      const playSection = document.createElement("div");
+      scroller.appendChild(playBar);
+      scroller.appendChild(playSection);
+
+      scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      playBar.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+
+      const controller = createStickyPlayBarController(playBar, playSection, ledger);
+      expect(playSection.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
+
+      controller.dispose();
+      expect(playSection.style.backgroundColor).toBe("transparent");
+
+      ledger.restoreAll();
+      scroller.remove();
+    });
+
+    it("observes playBar via ResizeObserver and updates pinning when layout changes", () => {
+      let roCallback: (() => void) | null = null;
+      class MockResizeObserver {
+        constructor(cb: () => void) {
+          roCallback = cb;
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {
+          roCallback = null;
+        }
+      }
+      const origRO = window.ResizeObserver;
+      window.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "scroll";
+      document.body.appendChild(scroller);
+
+      const playBar = document.createElement("div");
+      scroller.appendChild(playBar);
+
+      scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      playBar.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+
+      const controller = createStickyPlayBarController(playBar, playBar, ledger);
+      expect(playBar.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
+
+      // Layout changes (hero expands) so playBar moves down
+      playBar.getBoundingClientRect = () => ({ top: 300 }) as DOMRect;
+      if (typeof roCallback === "function") {
+        (roCallback as () => void)();
+      }
+
+      expect(playBar.style.backgroundColor).toBe(GLASS_PLAY_BAR_BG);
+      expect(playBar.style.boxShadow).toBe("none");
+
+      controller.dispose();
+      ledger.restoreAll();
+      scroller.remove();
+      window.ResizeObserver = origRO;
     });
 
     it("clips inflated hero wrapper when updatePinning is executed with container and steamPanel", () => {
