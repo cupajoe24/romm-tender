@@ -83,15 +83,15 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
               covers={covers}
             />
           </div>
-          {detail.romId && detail.raId ? (
-            <AchievementsCard appId={appId} romId={detail.romId} raId={detail.raId} title={title} covers={covers} />
-          ) : null}
-        </div>
-        <div className="tender-desktop-right-column tender-desktop-emulation-column" style={RIGHT_COLUMN_STYLE}>
-          <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
           <div className="tender-desktop-emulation-card tender-desktop-info-card" style={CARD_STYLE}>
             <EmulationSettings title={title} detail={detail} appId={appId} />
           </div>
+        </div>
+        <div className="tender-desktop-right-column tender-desktop-emulation-column" style={RIGHT_COLUMN_STYLE}>
+          <SaveManagementCard appId={appId} romId={detail.romId} detail={detail} />
+          {detail.romId && detail.raId ? (
+            <AchievementsCard appId={appId} romId={detail.romId} raId={detail.raId} title={title} covers={covers} />
+          ) : null}
         </div>
       </div>
     </div>
