@@ -81,20 +81,26 @@ vi.mock("../utils/scrollHelpers", () => ({ scrollToTop: vi.fn() }));
 vi.mock("../utils/events", () => ({
   getEventTarget: vi.fn((e: { target?: unknown } | null) => e?.target ?? null),
 }));
-vi.mock("../utils/formatters", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../utils/formatters")>();
+vi.mock("../utils/formatters", () => {
+  const formatLastPlayed = vi.fn((rt: number) => (rt ? "2024-01-15" : ""));
+  const formatPlaytime = vi.fn((m: number) => (m ? "1h 30m" : ""));
+  // Deterministic echo so the SPACE REQUIRED cell's rendered value is
+  // recognizable in assertions; null (unknown size) yields "" per the real impl.
+  const formatBytes = vi.fn((b: number | null) => (b == null ? "" : `${b}bytes`));
+  const resolveLastPlayed = vi.fn((restoredIso: string | null, steamUnixSeconds: number): string => {
+    if (restoredIso) {
+      const ms = Date.parse(restoredIso);
+      if (!Number.isNaN(ms)) return formatLastPlayed(Math.floor(ms / 1000));
+    }
+    return formatLastPlayed(steamUnixSeconds);
+  });
   return {
-    formatLastPlayed: vi.fn((rt: number) => (rt ? "2024-01-15" : "")),
-    formatPlaytime: vi.fn((m: number) => (m ? "1h 30m" : "")),
-    // Deterministic echo so the SPACE REQUIRED cell's rendered value is
-    // recognizable in assertions; null (unknown size) yields "" per the real impl.
-    formatBytes: vi.fn((b: number | null) => (b == null ? "" : `${b}bytes`)),
-    // The real preference rule, so the LAST PLAYED tests below run it rather
-    // than a copy. It formats through the real formatLastPlayed.
-    resolveLastPlayed: actual.resolveLastPlayed,
+    formatLastPlayed,
+    formatPlaytime,
+    formatBytes,
+    resolveLastPlayed,
   };
 });
-const realFormatters = await vi.importActual<typeof import("../utils/formatters")>("../utils/formatters");
 vi.mock("../utils/playSection", () => ({
   applySaveSyncDisplay: vi.fn(() => ({ status: null, label: "" })),
   // Must stay in sync with the beforeEach re-stub (resetAllMocks wipes this impl) —

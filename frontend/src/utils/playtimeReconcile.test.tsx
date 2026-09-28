@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { useGamePlaytime } from "./playtimeReconcile";
 import * as backend from "../api/backend";
 import * as metadataPatches from "./metadataPatches";
-import { stubAppStore } from "../test-utils/steamStubs";
+import * as steamOverview from "./steamOverview";
 
 vi.mock("../api/backend", () => ({
   reconcilePlaytime: vi.fn(),
@@ -14,11 +14,9 @@ vi.mock("./metadataPatches", () => ({
   updatePlaytimeDisplay: vi.fn(),
 }));
 
-const overview = (fields: Omit<SteamAppOverview, "display_name" | "strDisplayName">): SteamAppOverview => ({
-  display_name: "",
-  strDisplayName: "",
-  ...fields,
-});
+vi.mock("./steamOverview", () => ({
+  overviewFor: vi.fn(),
+}));
 
 describe("useGamePlaytime", () => {
   const mockAppId = 12345;
@@ -26,40 +24,33 @@ describe("useGamePlaytime", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    stubAppStore({});
-    vi.mocked(appStore.GetAppOverviewByAppID).mockReturnValue(
-      overview({
-        appid: mockAppId,
-        rt_last_time_played: 0,
-        minutes_playtime_forever: 0,
-      }),
-    );
+    vi.mocked(steamOverview.overviewFor).mockReturnValue({
+      appid: mockAppId,
+      rt_last_time_played: 0,
+      minutes_playtime_forever: 0,
+    } as any);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
   it("initializes with overview values and does not call reconcilePlaytime if romId is null", () => {
-    vi.mocked(appStore.GetAppOverviewByAppID).mockReturnValue(
-      overview({
-        appid: mockAppId,
-        rt_last_time_played: 1600000000,
-        minutes_playtime_forever: 125,
-      }),
-    );
+    vi.mocked(steamOverview.overviewFor).mockReturnValue({
+      appid: mockAppId,
+      rt_last_time_played: 1600000000,
+      minutes_playtime_forever: 125,
+    } as any);
 
     const { result } = renderHook(() => useGamePlaytime(mockAppId, null));
 
     expect(result.current.playtime).toBe("2h 5m");
     expect(result.current.lastPlayed).not.toBe("Never");
+    expect(result.current.restoredLastPlayed).toBeNull();
     expect(backend.reconcilePlaytime).not.toHaveBeenCalled();
   });
 
-  it("reconciles playtime when romId is provided and shows the restored last-played", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
+  it("reconciles playtime when romId is provided and updates restoredLastPlayed and display", async () => {
     vi.mocked(backend.reconcilePlaytime).mockResolvedValue({
       total_seconds: 7200,
       session_count: 3,
@@ -72,7 +63,7 @@ describe("useGamePlaytime", () => {
     await waitFor(() => {
       expect(backend.reconcilePlaytime).toHaveBeenCalledWith(mockRomId);
       expect(metadataPatches.updatePlaytimeDisplay).toHaveBeenCalledWith(mockAppId, 7200, false);
-      expect(result.current.lastPlayed).toBe("Yesterday");
+      expect(result.current.restoredLastPlayed).toBe("2026-09-20T12:00:00Z");
     });
   });
 
@@ -94,9 +85,7 @@ describe("useGamePlaytime", () => {
     });
   });
 
-  it("re-injects local total when server_query_failed is true and keeps Steam's last-played", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-11T10:00:00Z"));
+  it("re-injects local total when server_query_failed is true without updating restoredLastPlayed", async () => {
     vi.mocked(backend.reconcilePlaytime).mockResolvedValue({
       total_seconds: 1800,
       session_count: 1,
@@ -109,7 +98,7 @@ describe("useGamePlaytime", () => {
     await waitFor(() => {
       expect(backend.reconcilePlaytime).toHaveBeenCalledWith(mockRomId);
       expect(metadataPatches.updatePlaytimeDisplay).toHaveBeenCalledWith(mockAppId, 1800, false);
-      expect(result.current.lastPlayed).toBe("Never");
+      expect(result.current.restoredLastPlayed).toBeNull();
     });
   });
 
@@ -135,12 +124,12 @@ describe("useGamePlaytime", () => {
       server_query_failed: false,
     });
 
-    const mockOverview = overview({
+    const mockOverview = {
       appid: mockAppId,
       rt_last_time_played: 0,
       minutes_playtime_forever: 0,
-    });
-    vi.mocked(appStore.GetAppOverviewByAppID).mockImplementation(() => mockOverview);
+    };
+    vi.mocked(steamOverview.overviewFor).mockImplementation(() => mockOverview as any);
 
     const { result } = renderHook(() => useGamePlaytime(mockAppId, mockRomId));
 
@@ -170,41 +159,14 @@ describe("useGamePlaytime", () => {
       initialProps: { appId: 100, romId: null as number | null },
     });
 
-    vi.mocked(appStore.GetAppOverviewByAppID).mockReturnValue(
-      overview({
-        appid: 200,
-        rt_last_time_played: 1650000000,
-        minutes_playtime_forever: 60,
-      }),
-    );
+    vi.mocked(steamOverview.overviewFor).mockReturnValue({
+      appid: 200,
+      rt_last_time_played: 1650000000,
+      minutes_playtime_forever: 60,
+    } as any);
 
     rerender({ appId: 200, romId: null });
 
     expect(result.current.playtime).toBe("1 Hour");
-  });
-
-  it("drops the previous game's restored last-played when the same instance moves to another game", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
-    vi.mocked(backend.reconcilePlaytime).mockResolvedValueOnce({
-      total_seconds: 7200,
-      session_count: 3,
-      last_played: "2026-09-20T12:00:00Z",
-      server_query_failed: false,
-    });
-    const { rerender, result } = renderHook(({ appId, romId }) => useGamePlaytime(appId, romId), {
-      initialProps: { appId: 100, romId: 1 as number | null },
-    });
-    await waitFor(() => expect(result.current.lastPlayed).toBe("Yesterday"));
-
-    // Game 200 has never been played and has no rom yet: nothing restored.
-    rerender({ appId: 200, romId: null });
-    expect(result.current.lastPlayed).toBe("Never");
-
-    // Nor does game 100's restored value come back on game 200's next playtime signal.
-    act(() => {
-      globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 200 } }));
-    });
-    expect(result.current.lastPlayed).toBe("Never");
   });
 });

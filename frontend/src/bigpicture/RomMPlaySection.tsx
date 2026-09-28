@@ -46,7 +46,6 @@ import {
   refreshCoverArtwork,
   downloadAllFirmware,
   deleteLocalSaves,
-  reconcilePlaytime,
   debugLog,
 } from "../api/backend";
 import { executeManualSaveSync } from "../utils/manualSaveSync";
@@ -58,7 +57,7 @@ import {
   releasePruneLeasesByOwner,
 } from "../utils/pruneLease";
 import { applyGameCoreChange } from "../utils/coreOverride";
-import { updatePlaytimeDisplay } from "../utils/metadataPatches";
+import { useGamePlaytime } from "../utils/playtimeReconcile";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
 import { formatBytes } from "../utils/formatters";
 import { BIOS_MISSING_RED } from "../utils/biosColor";
@@ -150,13 +149,13 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   // Subscribe to version error — re-renders when global state changes
   const versionError = useVersionError();
   const migration = useMigrationStatus();
-  const onTrigger = useTriggerHandler();
 
   // Every field the game page's surfaces share — rom identity, install state,
   // save sync, BIOS, core selection — comes from the per-appId store, which owns
   // the reads and the romm_data_changed fold for all of them (#993).
   const detail = useGameDetail(appId);
   const fileMissing = detail.fileMissingAt !== null;
+  const playtimeInfo = useGamePlaytime(appId, detail.romId, "RomMPlaySection");
   // Badge derives from the shared store so it appears/disappears live on any
   // reachability signal (mount check, a failed/succeeded call, or the offline
   // recovery probe), not just at this mount's check (#1345).
@@ -372,7 +371,17 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     };
   }, [appId]);
 
-  const playtimeInfo = useGamePlaytime(appId, detail.romId, "RomMPlaySection");
+  // Reconcile-on-view (#868) — pull-only: folds RomM's play-session history into
+  // the local total so a session played on another device shows up the moment the
+  // detail page opens. INTENTIONALLY NOT gated on connectivity (#1345): reconcile
+  // returns the LOCAL total even when the server is unreachable, so it re-injects
+  // real playtime into a rebuilt/rebound Steam overview instead of leaving it at
+  // "PLAYTIME None". Runs once romId is known (its own effect, so it fires after
+  // the store resolves romId rather than racing the connection check). Pushes
+  // the total through updatePlaytimeDisplay (the write-chokepoint), which emits
+  // romm_playtime_changed; the reactive PLAYTIME effect (#869) refreshes the
+  // display on the same mount. A 0 total no-ops in updatePlaytimeDisplay.
+
 
   // Helper: create an info item with header and value (Steam's two-line pattern)
   const infoItem = (key: string, header: string, value: string, extraClass?: string) => (
