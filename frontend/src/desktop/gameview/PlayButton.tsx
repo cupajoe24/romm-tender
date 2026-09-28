@@ -37,7 +37,6 @@ import {
   probeReachability,
   getCachedGameDetail,
   isTargetOccupied,
-  reconcilePlaytime,
   invalidateCachedGameDetail,
   type BiosAnswer,
 } from "../../api/backend";
@@ -57,9 +56,7 @@ import { usePruneLeaseOwner } from "../../utils/pruneLease";
 import { useOutsideClick } from "../../utils/useOutsideClick";
 import { showToast } from "../../utils/toast";
 import { detach } from "../../utils/detach";
-import { formatLastPlayed, formatPlaytime, resolveLastPlayed } from "../../utils/formatters";
-import { updatePlaytimeDisplay } from "../../utils/metadataPatches";
-import { overviewFor } from "../../utils/steamOverview";
+import { useGamePlaytime } from "../../utils/playtimeReconcile";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
 import { CONTAINER_STYLE, BUTTON_GROUP_STYLE, BUTTON_BASE_STYLE, SIDE_ACTION_STYLE, ensurePulseStyles } from "./styles";
@@ -84,12 +81,6 @@ export type PlayButtonState =
   | "running"
   | "conflict"
   | "uninstalling";
-
-interface PlaytimeState {
-  lastPlayed: string;
-  restoredLastPlayed: string | null;
-  playtime: string;
-}
 
 /**
  * A verdict this button reached itself — a conflict left unresolved, one just
@@ -187,17 +178,9 @@ export const PlayButton: FC<PlayButtonProps> = ({ appId }) => {
 
 const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, ask }) => {
   const detail = useGameDetail(appId);
+  const romId = detail.romId;
   const downloads = useDownloads();
-
-  const overview = overviewFor(appId);
-  const initialLastPlayed = formatLastPlayed(overview?.rt_last_time_played ?? 0);
-  const initialPlaytime = formatPlaytime(overview?.minutes_playtime_forever ?? 0);
-
-  const [playtimeInfo, setPlaytimeInfo] = useState<PlaytimeState>({
-    lastPlayed: initialLastPlayed,
-    restoredLastPlayed: null,
-    playtime: initialPlaytime,
-  });
+  const playtimeInfo = useGamePlaytime(appId, romId, "DesktopPlayButton");
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
   const [heldVerdict, setHeldVerdict] = useState<HeldVerdict | null>(null);
@@ -220,8 +203,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const [achievementCounts, setAchievementCounts] = useState<{ earned: number; total: number } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  const romId = detail.romId;
   const leaseOwner = `desktop-play-button:${appId}`;
 
   // Both answers belong to the ROM they were read for and mean nothing once it
@@ -438,59 +419,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
       removeEventListener("download_failed", handleFailed);
     };
   }, [appId, romId]);
-
-  // Reconcile-on-view: folds RomM's play-session history into local total
-  useEffect(() => {
-    if (!romId) return;
-    let cancelled = false;
-
-    async function doReconcilePlaytime(rid: number, isCancelled: () => boolean) {
-      try {
-        const result = await reconcilePlaytime(rid);
-        if (isCancelled()) return;
-        if ("success" in result) {
-          detach(debugLog(`DesktopPlayButton: playtime reconcile deferred: ${result.message}`));
-          return;
-        }
-        if (!result.server_query_failed) {
-          const ov = overviewFor(appId);
-          const steamSecs = ov?.rt_last_time_played ?? 0;
-          setPlaytimeInfo((prev) => ({
-            ...prev,
-            restoredLastPlayed: result.last_played,
-            lastPlayed: resolveLastPlayed(result.last_played, steamSecs),
-          }));
-        }
-        updatePlaytimeDisplay(appId, result.total_seconds, false);
-      } catch (e) {
-        detach(debugLog(`DesktopPlayButton: playtime reconcile error: ${e}`));
-      }
-    }
-
-    detach(doReconcilePlaytime(romId, () => cancelled));
-    return () => {
-      cancelled = true;
-    };
-  }, [romId, appId]);
-
-  // Reactive PLAYTIME display: re-read Steam's overview on romm_playtime_changed
-  useEffect(() => {
-    const onPlaytimeChanged = (e: Event) => {
-      const payload = (e as CustomEvent<{ appId?: number } | null>).detail;
-      if (payload?.appId !== appId) return;
-      const ov = overviewFor(appId);
-      if (!ov) return;
-      setPlaytimeInfo((prev) => ({
-        ...prev,
-        playtime: formatPlaytime(ov.minutes_playtime_forever ?? 0),
-        lastPlayed: resolveLastPlayed(prev.restoredLastPlayed, ov.rt_last_time_played ?? 0),
-      }));
-    };
-    globalThis.addEventListener("romm_playtime_changed", onPlaytimeChanged);
-    return () => {
-      globalThis.removeEventListener("romm_playtime_changed", onPlaytimeChanged);
-    };
-  }, [appId]);
 
   // Launch gate orchestration hook
   const { handlePlayClick, handleResolveConflictClick, handleStopClick, handleUninstallClick } = usePlayLaunch({

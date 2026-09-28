@@ -41,7 +41,6 @@ import {
   refreshCoverArtwork,
   downloadAllFirmware,
   deleteLocalSaves,
-  reconcilePlaytime,
   debugLog,
 } from "../api/backend";
 import { executeManualSaveSync } from "../utils/manualSaveSync";
@@ -53,9 +52,9 @@ import {
   releasePruneLeasesByOwner,
 } from "../utils/pruneLease";
 import { applyGameCoreChange } from "../utils/coreOverride";
-import { updatePlaytimeDisplay } from "../utils/metadataPatches";
+import { useGamePlaytime } from "../utils/playtimeReconcile";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
-import { formatBytes, formatLastPlayed, formatPlaytime } from "../utils/formatters";
+import { formatBytes } from "../utils/formatters";
 import { BIOS_MISSING_RED } from "../utils/biosColor";
 import { timeoutMs } from "../utils/playSection";
 import {
@@ -88,21 +87,6 @@ let connectionCheckSeq = 0;
  *  abandoned before it answers (its page closed while the server was still
  *  thinking) from silencing the verdict of a page that is still open. */
 let lastSettledCheckId = 0;
-
-/** Resolve the LAST PLAYED display, preferring our restored cross-device
- *  `last_played` (ISO-8601, from `reconcile_playtime` / native play sessions,
- *  #1294) over Steam's device-local `rt_last_time_played`. Steam synthesizes the
- *  latter to "now" after a device cutover, so the restored value wins whenever
- *  it parses; a null or unparseable restored value falls back to Steam's
- *  Unix-seconds value. Both route through `formatLastPlayed` so the rendered
- *  format is identical either way. */
-function resolveLastPlayed(restoredIso: string | null, steamUnixSeconds: number): string {
-  if (restoredIso) {
-    const ms = Date.parse(restoredIso);
-    if (!Number.isNaN(ms)) return formatLastPlayed(Math.floor(ms / 1000));
-  }
-  return formatLastPlayed(steamUnixSeconds);
-}
 
 /** Read this ROM's save status through the store and tell the other save-sync
  *  surfaces what came back.
@@ -142,21 +126,6 @@ async function readAndBroadcastSaveStatus(appId: number, isCancelled: () => bool
 interface RomMPlaySectionProps {
   appId: number;
 }
-
-/** The play section's own display state. Everything the game page's surfaces
- *  share — rom identity, install state, save sync, BIOS, core — lives in the
- *  per-appId game-detail store instead; what stays here is the PLAYTIME /
- *  LAST PLAYED pair, which is read from Steam's overview and belongs to this
- *  row alone. */
-interface PlaytimeState {
-  lastPlayed: string;
-  /** Restored cross-device `last_played` (ISO-8601) from `reconcile_playtime`,
-   *  or `null` until the server yields one. Preferred over Steam's device-local
-   *  `rt_last_time_played` when rendering LAST PLAYED (#1294). */
-  restoredLastPlayed: string | null;
-  playtime: string;
-}
-
 import {
   onRommConnectionChange,
   setRommConnectionState,
@@ -177,21 +146,11 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   const versionError = useVersionError();
   const migration = useMigrationStatus();
 
-  // Read playtime from Steam's own overview synchronously (already written by metadataPatches)
-  // This avoids an unnecessary render from setting it inside the async effect.
-  const overview = appStore.GetAppOverviewByAppID(appId);
-  const initialLastPlayed = formatLastPlayed(overview?.rt_last_time_played ?? 0);
-  const initialPlaytime = formatPlaytime(overview?.minutes_playtime_forever ?? 0);
-
   // Every field the game page's surfaces share — rom identity, install state,
   // save sync, BIOS, core selection — comes from the per-appId store, which owns
   // the reads and the romm_data_changed fold for all of them (#993).
   const detail = useGameDetail(appId);
-  const [playtimeInfo, setPlaytimeInfo] = useState<PlaytimeState>({
-    lastPlayed: initialLastPlayed,
-    restoredLastPlayed: null,
-    playtime: initialPlaytime,
-  });
+  const playtimeInfo = useGamePlaytime(appId, detail.romId, "RomMPlaySection");
   // Badge derives from the shared store so it appears/disappears live on any
   // reachability signal (mount check, a failed/succeeded call, or the offline
   // recovery probe), not just at this mount's check (#1345).
@@ -404,67 +363,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   // the total through updatePlaytimeDisplay (the write-chokepoint), which emits
   // romm_playtime_changed; the reactive PLAYTIME effect (#869) refreshes the
   // display on the same mount. A 0 total no-ops in updatePlaytimeDisplay.
-  useEffect(() => {
-    const romId = detail.romId;
-    if (!romId) return;
-    let cancelled = false;
 
-    async function doReconcilePlaytime(rid: number, isCancelled: () => boolean) {
-      try {
-        const result = await reconcilePlaytime(rid);
-        if (isCancelled()) return;
-        if ("success" in result) {
-          detach(debugLog(`RomMPlaySection: playtime reconcile deferred: ${result.message}`));
-          return;
-        }
-        if (!result.server_query_failed) {
-          // Connected: adopt the restored cross-device last_played (#1294) and
-          // refresh the display from it. Set BEFORE updatePlaytimeDisplay so the
-          // synchronous romm_playtime_changed handler reads the new value; also
-          // covers the sub-minute total case where updatePlaytimeDisplay emits no
-          // signal. Skipped on a failed read — no cross-device push offline.
-          const steamSecs = appStore.GetAppOverviewByAppID(appId)?.rt_last_time_played ?? 0;
-          setPlaytimeInfo((prev) => ({
-            ...prev,
-            restoredLastPlayed: result.last_played,
-            lastPlayed: resolveLastPlayed(result.last_played, steamSecs),
-          }));
-        }
-        // Re-inject the local total regardless of connectivity (offline fix #1345).
-        updatePlaytimeDisplay(appId, result.total_seconds, false);
-      } catch (e) {
-        detach(debugLog(`RomMPlaySection: playtime reconcile error: ${e}`));
-      }
-    }
-
-    detach(doReconcilePlaytime(romId, () => cancelled));
-    return () => {
-      cancelled = true;
-    };
-  }, [detail.romId, appId]);
-
-  // Reactive PLAYTIME display (#869) — re-read Steam's overview whenever the
-  // playtime write-chokepoint (updatePlaytimeDisplay) fires romm_playtime_changed
-  // for this appId. Drives the displayed PLAYTIME / LAST PLAYED from the source
-  // of truth (the overview) instead of a mount-only snapshot, so a session end
-  // (handleGameStop) or a multi-device reconcile-on-view refreshes the value on
-  // the SAME mount — no navigate-away/back remount required.
-  useEffect(() => {
-    const onPlaytimeChanged = (e: WindowEventMap["romm_playtime_changed"]) => {
-      if (e.detail.appId !== appId) return;
-      const ov = appStore.GetAppOverviewByAppID(appId);
-      if (!ov) return;
-      setPlaytimeInfo((prev) => ({
-        ...prev,
-        playtime: formatPlaytime(ov.minutes_playtime_forever ?? 0),
-        lastPlayed: resolveLastPlayed(prev.restoredLastPlayed, ov.rt_last_time_played ?? 0),
-      }));
-    };
-    globalThis.addEventListener("romm_playtime_changed", onPlaytimeChanged);
-    return () => {
-      globalThis.removeEventListener("romm_playtime_changed", onPlaytimeChanged);
-    };
-  }, [appId]);
 
   // Helper: create an info item with header and value (Steam's two-line pattern)
   const infoItem = (key: string, header: string, value: string, extraClass?: string) => (
