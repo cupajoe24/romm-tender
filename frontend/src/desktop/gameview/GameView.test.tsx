@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act, cleanup } from "@testing-library/react";
-import { GameView, GameViewPage } from "./GameView";
+import { GameView } from "./GameView";
 import * as gameDetailStore from "../../utils/gameDetailStore";
 import * as sharedReads from "../../api/sharedReads";
 import * as desktopWin from "../desktopWindow";
@@ -71,10 +71,6 @@ describe("GameView", () => {
     cleanup();
     (window as unknown as { appStore?: unknown }).appStore = originalAppStore;
     vi.restoreAllMocks();
-  });
-
-  it("exports GameViewPage as an alias to GameView", () => {
-    expect(GameViewPage).toBe(GameView);
   });
 
   it("renders game details, emulation settings, and saves on a single page with loaded metadata", async () => {
