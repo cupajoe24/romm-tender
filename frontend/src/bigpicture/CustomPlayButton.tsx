@@ -76,6 +76,12 @@ import {
 } from "../utils/pruneLease";
 import { reconfirmLaunchOptions } from "../utils/launchOptionsReconcile";
 import { saveSyncToastBody } from "../utils/saveSyncToast";
+import {
+  formatProgress,
+  getDownloadFillGradient,
+  getDownloadPulseColor,
+  getDownloadBaseBackground,
+} from "../utils/downloadProgress";
 
 type PlayButtonState =
   | "loading"
@@ -103,29 +109,6 @@ interface DownloadProgress {
    * Pause-Resume chevron.
    */
   extracting: boolean;
-}
-
-function lerpColor(a: [number, number, number], b: [number, number, number], t: number): string {
-  const r = Math.round(a[0] + (b[0] - a[0]) * t);
-  const g = Math.round(a[1] + (b[1] - a[1]) * t);
-  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
-  return `rgb(${r}, ${g}, ${bl})`;
-}
-
-// Download button blue gradient stops
-const BLUE_LEFT: [number, number, number] = [26, 159, 255]; // #1a9fff
-const BLUE_RIGHT: [number, number, number] = [0, 120, 212]; // #0078d4
-// Play button visible green (computed from gradient + backgroundSize 330% + backgroundPosition 25%)
-const GREEN_LEFT: [number, number, number] = [80, 200, 47]; // #50c82f
-const GREEN_RIGHT: [number, number, number] = [24, 177, 78]; // #18b14e
-
-function formatProgress(downloaded: number, total: number): string {
-  // Show "x / y MB" with unit only on the total
-  if (total < 1024) return `${downloaded} / ${total} B`;
-  if (total < 1024 * 1024) return `${(downloaded / 1024).toFixed(1)} / ${(total / 1024).toFixed(1)} KB`;
-  if (total < 1024 * 1024 * 1024)
-    return `${(downloaded / (1024 * 1024)).toFixed(1)} / ${(total / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(downloaded / (1024 * 1024 * 1024)).toFixed(2)} / ${(total / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 interface CustomPlayButtonProps {
@@ -1201,28 +1184,12 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     // Fill color shifts from blue to green as download progresses. Extraction
     // begins right after the transfer hit 100% green, so it keeps the solid
     // green fill for visual continuity.
-    let fillColor: string;
-    if (extracting) {
-      fillColor = `linear-gradient(to right, rgb(${GREEN_LEFT.join(",")}), rgb(${GREEN_RIGHT.join(",")}))`;
-    } else if (downloading) {
-      fillColor = `linear-gradient(to right, ${lerpColor(BLUE_LEFT, GREEN_LEFT, t)}, ${lerpColor(BLUE_RIGHT, GREEN_RIGHT, t)})`;
-    } else {
-      fillColor = "linear-gradient(to right, #1a9fff, #0078d4)";
-    }
+    const fillColor = getDownloadFillGradient(t, extracting, "bigpicture");
 
     // Pulse color shifts from blue to green with progress; a paused download
     // freezes to a dim amber so the whole group reads as "halted, not running".
     // Extraction holds the green pulse — it just finished the transfer.
-    let pulseColor: string;
-    if (paused) {
-      pulseColor = "rgba(212,167,44,0.7)";
-    } else if (extracting) {
-      pulseColor = `rgb(${GREEN_LEFT.join(", ")})`;
-    } else if (downloading) {
-      pulseColor = lerpColor(BLUE_LEFT, GREEN_LEFT, t);
-    } else {
-      pulseColor = "rgba(26,159,255,0.7)";
-    }
+    const pulseColor = getDownloadPulseColor(t, { paused, extracting, downloading: Boolean(downloading) }, "bigpicture");
 
     let dlLabel: string;
     if (extracting) {
@@ -1258,16 +1225,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
 
     // Unfilled portion: darker shade of the current fill color. Extraction
     // keeps a dim green base (the transfer just completed green).
-    let baseBg: string;
-    if (isOffline) {
-      baseBg = "linear-gradient(to right, #6b7b8b, #5a6a7a)";
-    } else if (extracting) {
-      baseBg = "linear-gradient(to right, #1a4d1a, #0f3320)";
-    } else if (downloading) {
-      baseBg = `linear-gradient(to right, ${lerpColor([10, 50, 90], [5, 35, 65], t)}, ${lerpColor([5, 35, 65], [5, 50, 30], t)})`;
-    } else {
-      baseBg = "linear-gradient(to right, #1a9fff, #0078d4)";
-    }
+    const baseBg = getDownloadBaseBackground(t, { isOffline, extracting, downloading: Boolean(downloading) });
 
     // While a download is actively running, the main button shares the row
     // with a right-side action section (the cancel X or a Pause/Resume

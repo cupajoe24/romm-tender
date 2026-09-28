@@ -1,10 +1,9 @@
 import type { CSSProperties, FC } from "react";
 import { FaExclamationTriangle } from "react-icons/fa";
+import { MIGRATION_BLOCKED_DEFAULT_TITLE, MIGRATION_BLOCKED_DEFAULT_MESSAGE } from "../../utils/migrationStore";
 import { WARNING_CARD_STYLE } from "./styles";
 
-export const MIGRATION_BLOCKED_DEFAULT_TITLE = "RetroDECK Migration Required";
-export const MIGRATION_BLOCKED_DEFAULT_MESSAGE =
-  "Open the plugin QAM to migrate files or dismiss the migration before playing.";
+export { MIGRATION_BLOCKED_DEFAULT_TITLE, MIGRATION_BLOCKED_DEFAULT_MESSAGE };
 
 export interface MigrationBlockedCardProps {
   /** Compact mode for narrow contexts. */

@@ -15,6 +15,7 @@ import type { SaveSetupInfo, SaveStatus } from "../../types";
 import { formatBytes, formatTimeAgo } from "../../utils/formatters";
 import { BIOS_MISSING_RED, biosColorForLevel } from "../../utils/biosColor";
 import { hasAnySaveConflict } from "../../utils/saveStatus";
+import { applySaveSyncDisplay } from "../../utils/playSection";
 import { requestOpenAchievementsModal } from "./AchievementsCard";
 
 export interface PlayButtonBadgesProps {
@@ -27,6 +28,7 @@ export interface PlayButtonBadgesProps {
     saveSyncEnabled: boolean;
     saveStatus: SaveStatus | null;
     saveSyncStatus: string | null;
+    saveSyncLabel?: string;
     biosRequiredMissing?: boolean;
     biosNeeded?: boolean;
     biosLabel?: string | null;
@@ -106,22 +108,15 @@ export const PlayButtonBadges: FC<PlayButtonBadgesProps> = ({
           detail.saveStatus.files.some((f) => Boolean(f.local_path || f.local_size || f.local_mtime)))),
     );
 
-    let lastSyncIso = detail.saveStatus?.last_sync_check_at;
-    if (!lastSyncIso && detail.saveStatus?.files) {
-      for (const f of detail.saveStatus.files) {
-        if (f.last_sync_at) {
-          if (!lastSyncIso || f.last_sync_at > lastSyncIso) {
-            lastSyncIso = f.last_sync_at;
-          }
-        }
-      }
-    }
+    const syncRes = applySaveSyncDisplay(detail.saveStatus?.save_sync_display, detail.saveStatus);
+    const lastSyncIso =
+      detail.saveStatus?.save_sync_display?.last_sync_check_at ?? detail.saveStatus?.last_sync_check_at;
     const formattedSyncTime = lastSyncIso ? formatTimeAgo(lastSyncIso) : null;
     const syncTimeText = formattedSyncTime
       ? formattedSyncTime.toLowerCase().startsWith("just now")
         ? "Synced just now"
         : `Synced ${formattedSyncTime}`
-      : null;
+      : detail.saveSyncLabel || null;
 
     if (!rommAvailable) {
       if (hasLocalSave) {
@@ -137,7 +132,10 @@ export const PlayButtonBadges: FC<PlayButtonBadgesProps> = ({
       );
       const isConflict =
         hasLocalSave &&
-        (isUnconfirmedWizard || detail.saveSyncStatus === "conflict" || hasAnySaveConflict(detail.saveStatus));
+        (isUnconfirmedWizard ||
+          syncRes.status === "conflict" ||
+          detail.saveSyncStatus === "conflict" ||
+          hasAnySaveConflict(detail.saveStatus));
 
       if (isConflict) {
         saveSyncColor = "#d4a72c";

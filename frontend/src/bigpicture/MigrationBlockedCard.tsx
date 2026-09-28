@@ -1,5 +1,6 @@
 import { FC } from "react";
 import { WarningCard } from "./WarningCard";
+import { MIGRATION_BLOCKED_DEFAULT_TITLE, MIGRATION_BLOCKED_DEFAULT_MESSAGE } from "../utils/migrationStore";
 
 interface MigrationBlockedCardProps {
   /** Compact mode for narrow contexts (QAM panel). */
@@ -8,9 +9,5 @@ interface MigrationBlockedCardProps {
 
 /** Polished warning card shown on the game detail page when a RetroDECK migration is pending. */
 export const MigrationBlockedCard: FC<MigrationBlockedCardProps> = ({ compact = false }) => (
-  <WarningCard
-    title="RetroDECK Migration Required"
-    message="Open the Tender menu (QAM) to migrate files or dismiss the migration before playing."
-    compact={compact}
-  />
+  <WarningCard title={MIGRATION_BLOCKED_DEFAULT_TITLE} message={MIGRATION_BLOCKED_DEFAULT_MESSAGE} compact={compact} />
 );

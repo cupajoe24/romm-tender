@@ -149,19 +149,13 @@ export const SIDE_ACTION_STYLE: CSSProperties = {
   transition: "background 0.15s ease",
 };
 
-// Download button blue gradient stops
-export const BLUE_LEFT: [number, number, number] = [26, 159, 255]; // #1a9fff
-export const BLUE_RIGHT: [number, number, number] = [0, 120, 212]; // #0078d4
-// Play button green gradient stops
-export const GREEN_LEFT: [number, number, number] = [89, 191, 67]; // #59bf43
-export const GREEN_RIGHT: [number, number, number] = [64, 153, 48]; // #409930
-
-export function lerpColor(a: [number, number, number], b: [number, number, number], t: number): string {
-  const r = Math.round(a[0] + (b[0] - a[0]) * t);
-  const g = Math.round(a[1] + (b[1] - a[1]) * t);
-  const bl = Math.round(a[2] + (b[2] - a[2]) * t);
-  return `rgb(${r}, ${g}, ${bl})`;
-}
+export {
+  BLUE_LEFT,
+  BLUE_RIGHT,
+  DESKTOP_GREEN_LEFT as GREEN_LEFT,
+  DESKTOP_GREEN_RIGHT as GREEN_RIGHT,
+  lerpColor,
+} from "../../utils/downloadProgress";
 
 export const PULSE_STYLE_ID = "tender-desktop-playbutton-pulse-styles";
 

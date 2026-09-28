@@ -1,12 +1,8 @@
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, DialogButton, Field, Focusable } from "@decky/ui";
-import { setPlaytimeScopeState } from "../utils/playtimeScopeStore";
+import { setPlaytimeScopeState, PLAYTIME_SCOPE_TITLE, PLAYTIME_SCOPE_MESSAGE } from "../utils/playtimeScopeStore";
 
-/** Title of the account-wide QAM playtime-scope banner. */
-export const PLAYTIME_SCOPE_TITLE = "Cross-device playtime";
-
-/** Body text prompting the user to re-mint a scoped Client API Token. */
-export const PLAYTIME_SCOPE_MESSAGE = "Sign in again to enable cross-device playtime sync.";
+export { PLAYTIME_SCOPE_TITLE, PLAYTIME_SCOPE_MESSAGE };
 
 /**
  * QAM PanelSection shown while the Client API Token lacks the `roms.user.read`
