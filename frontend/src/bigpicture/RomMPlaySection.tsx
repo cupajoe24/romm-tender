@@ -31,9 +31,8 @@ import { VanishedVersionBanner } from "./VanishedVersionBanner";
 import { WarningCard } from "./WarningCard";
 import { useTriggerHandler } from "./emulatorStepping";
 import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
-import { applyArtwork, cancelArtworkApply } from "../utils/artwork";
+import { applyArtwork } from "../utils/artwork";
 import { useAutoArtwork } from "../utils/autoArtwork";
-import { artworkApplyMessage } from "../utils/artworkApplyMessage";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
 import { getEventTarget } from "../utils/events";
@@ -172,7 +171,6 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   useEffect(() => {
     mountPruneLeaseOwner(`game-detail:${appId}`);
     return () => {
-      detach(cancelArtworkApply(appId));
       detach(releasePruneLeasesByOwner(`game-detail:${appId}`));
     };
   }, [appId]);
