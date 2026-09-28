@@ -257,6 +257,22 @@ describe("gameDetailStore", () => {
       });
     });
 
+    it("stores platformName from cached.platform_name when present, degrading to platform_slug", async () => {
+      vi.mocked(cachedStore.getCachedGameDetail).mockResolvedValue(
+        found({
+          platform_slug: "gba",
+          platform_name: "Gameboy Advance",
+        }),
+      );
+      subscribe(nextAppId);
+      await flush();
+
+      expect(getGameDetail(nextAppId)).toMatchObject({
+        platformSlug: "gba",
+        platformName: "Gameboy Advance",
+      });
+    });
+
     it("joins the info panel's open BIOS read rather than opening a second round trip", async () => {
       // The panel's load reaches this read off the same stale mark on the same
       // cached detail, microtasks away, on every page open. Standing in for it

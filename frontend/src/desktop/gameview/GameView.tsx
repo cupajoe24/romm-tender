@@ -78,7 +78,7 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
           <div className="tender-desktop-about-card tender-desktop-info-card" style={CARD_STYLE}>
             <AboutDetails
               title={title}
-              platformName={detail.platformSlug || undefined}
+              platformName={detail.platformName || detail.platformSlug || undefined}
               metadata={metadata}
               covers={covers}
             />

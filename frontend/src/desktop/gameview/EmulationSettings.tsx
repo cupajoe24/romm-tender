@@ -333,7 +333,7 @@ export const EmulationSettings: FC<EmulationSettingsProps> = ({ title, detail, a
     };
   }, [leaseOwner]);
 
-  const platform = detail.platformSlug ? detail.platformSlug.toUpperCase() : "Platform";
+  const platform = (detail.platformName || detail.platformSlug || "Platform").toUpperCase();
 
   // Full BIOS detail — GameDetailState only carries the 3 derived badge fields, so
   // we issue our own getBiosStatus call when the ROM is known and BIOS is needed.

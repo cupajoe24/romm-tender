@@ -63,6 +63,7 @@ export interface GameDetailState extends BiosInfoFields, CoreInfoFields {
   romId: number | null;
   romName: string;
   platformSlug: string;
+  platformName?: string;
   installed: boolean;
   /** Server-reported ROM size in bytes, or `null` when unknown. */
   fsSizeBytes: number | null;
@@ -88,6 +89,7 @@ const DEFAULT_STATE: GameDetailState = {
   romId: null,
   romName: "",
   platformSlug: "",
+  platformName: "",
   installed: false,
   fsSizeBytes: null,
   saveSyncEnabled: false,
@@ -298,6 +300,7 @@ async function loadDetail(appId: number, entry: Entry): Promise<void> {
       romId,
       romName: cached.rom_name || "",
       platformSlug: cached.platform_slug || "",
+      platformName: cached.platform_name || cached.platform_slug || "",
       installed: cached.installed ?? false,
       fsSizeBytes: cached.fs_size_bytes ?? null,
       saveSyncEnabled: cached.save_sync_enabled ?? false,

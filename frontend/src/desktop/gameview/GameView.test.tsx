@@ -118,6 +118,43 @@ describe("GameView", () => {
     });
   });
 
+  it("displays the platform display name instead of the platform slug when platformName is provided", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 42,
+      romName: "Mario Golf (USA)",
+      platformSlug: "gba",
+      platformName: "Gameboy Advance",
+      installed: true,
+      fsSizeBytes: null,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+
+    vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
+
+    render(<GameView appId={12345} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Gameboy Advance")).toBeInTheDocument();
+      expect(screen.getByText("GAMEBOY ADVANCE EMULATION")).toBeInTheDocument();
+    });
+  });
+
   it("falls back to romName and handles null metadata when romId is missing or metadata fetch fails", async () => {
     delete (window as unknown as { appStore?: unknown }).appStore;
 
