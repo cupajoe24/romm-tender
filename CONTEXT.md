@@ -886,6 +886,23 @@ A cleanup is **running** while a reservation or a run claim is held, and every c
 long. A start is refused while any operation or lease is held. _Avoid_: **admission** for this gate — that word already
 names the host's check of a connection's Host, Origin and token, and other guards in this program.
 
+### Conflict rules
+
+The conditions under which an endpoint is refused before it does anything. An endpoint names the rules that apply to it,
+and they are asked in this order:
+
+1. **Migration** — a RetroDECK home migration is pending (`blocked_by_migration`).
+2. **Sync** — a library sync is in flight, running or cancelling (`sync_active`).
+3. **Prune** — a removed-game cleanup is running (`prune_active`). An endpoint that names this rule holds an
+   **operation** named after itself for as long as its call runs (see **Prune conflicts**).
+
+The first named rule that holds answers with its refusal, and a refused call holds nothing. A cleanup's exclusive start
+is asked before all three.
+
+**`<verb>_unchecked`** — the service method an endpoint calls, without that endpoint's rules, for a peer service that
+calls it from inside a call that has already answered for its own. _Avoid_: **`do_<verb>`** for it — that names a
+synchronous twin run on the executor.
+
 ### Game-detail store
 
 The single holder of the state one Steam game page shares across its surfaces (`frontend/src/utils/gameDetailStore.ts`):

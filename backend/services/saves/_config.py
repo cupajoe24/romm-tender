@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         ActiveCoreReader,
         Clock,
         ComputeSyncActionFn,
+        ConflictRules,
         DebugLogger,
         EventEmitter,
         HostnameReader,
@@ -97,7 +98,12 @@ class SaveServiceConfig:
         Event emitter for pushing save-sync progress to the frontend.
     is_retrodeck_migration_pending:
         Callback returning ``True`` when a RetroDECK migration is in
-        flight; SaveService gates destructive operations on this signal.
+        flight; the sync engine's own backstop — it refuses a pre-launch or
+        post-exit sync and does not follow a save directory on this signal.
+    conflict_rules:
+        ``ConflictRules`` seam — the rules a save use case checks at its
+        entry under its endpoint's name, and the operation it retains for
+        detached work.
     log_debug:
         ``DebugLogger`` Protocol seam — routes through the user's QAM
         log-level filter. Injected directly into each sub-service that
@@ -129,4 +135,5 @@ class SaveServiceConfig:
     log_debug: DebugLogger
     emit: EventEmitter
     is_retrodeck_migration_pending: MigrationPendingFn
+    conflict_rules: ConflictRules
     uow_factory: UnitOfWorkFactory

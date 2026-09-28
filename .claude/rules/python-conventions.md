@@ -25,8 +25,11 @@ A sibling set that mixes suffixes reflects a shape difference, not an inconsiste
   re-entering a lock) is named `do_<verb>` if public/peer-called, `_<verb>_io` if private/internal-only. The async
   public method keeps the bare verb.
 
-The two idioms coexist by access level; converging them is open work, so match the idiom already used in the file you
-are editing rather than introducing the other one.
+The two twin idioms coexist by access level; converging them is open work, so match the idiom already used in the file
+you are editing rather than introducing the other one.
+
+`<verb>_unchecked` is not a synchronous twin: it is the method without its conflict rules (CONTEXT.md → Conflict rules),
+and is never spelled `do_<verb>`.
 
 ## Docstrings — intent over behavior
 
