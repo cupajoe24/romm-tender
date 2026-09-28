@@ -31,14 +31,12 @@ import {
   resumeDownload,
   debugLog,
   getSaveSetupInfo,
-  getBiosStatus,
   getAchievementProgress,
   getAchievements,
   probeReachability,
   getCachedGameDetail,
   isTargetOccupied,
   invalidateCachedGameDetail,
-  type BiosAnswer,
 } from "../../api/backend";
 import { runDownloadWithAdoption } from "../../utils/adoptFlow";
 import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
@@ -199,7 +197,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const connectionState = useRommConnectionState();
   const isOffline = connectionState === "offline";
   const [setupInfo, setSetupInfo] = useState<SaveSetupInfo | null>(null);
-  const [biosAnswer, setBiosAnswer] = useState<BiosAnswer | null>(null);
   const [achievementCounts, setAchievementCounts] = useState<{ earned: number; total: number } | null>(null);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -249,7 +246,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const heldVerdictApplies =
     heldVerdict !== null && heldVerdict.saveStatus === detail.saveStatus && heldVerdict.installed === detail.installed;
 
-  // Fetch SaveSetupInfo and BiosStatus for indicator badges
+  // Fetch SaveSetupInfo for indicator badges
   useEffect(() => {
     if (!romId) return;
 
@@ -265,14 +262,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             detach(debugLog(`PlayButton getSaveSetupInfo error: ${e}`));
           });
       }
-
-      getBiosStatus(romId)
-        .then((ans) => {
-          if (!cancelled) setBiosAnswer(ans);
-        })
-        .catch((e) => {
-          detach(debugLog(`PlayButton getBiosStatus error: ${e}`));
-        });
 
       if (detail.raId) {
         Promise.all([getAchievementProgress(romId).catch(() => null), getAchievements(romId).catch(() => null)])
@@ -660,7 +649,6 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
         playtimeInfo={playtimeInfo}
         achievementCounts={achievementCounts}
         setupInfo={romId ? setupInfo : null}
-        biosAnswer={romId ? biosAnswer : null}
         isOffline={isOffline}
         romId={romId}
       />
