@@ -142,21 +142,21 @@ sequenceDiagram
     Watcher->>SteamDOM: Find playBarTop, container, heroWrapper
     Watcher->>Ledger: Hide native content sections
     Watcher->>Ledger: Replace native Play Button
-    Watcher->>Ledger: Set heroWrapper overflow: hidden
+    Watcher->>Ledger: Ensure heroWrapper overflow: visible (3D parallax & card refraction)
     Watcher->>Ledger: Hide duplicate sticky header & badges
     Watcher->>ReactRoot: Mount GameView into #tender-desktop-cards-container
 
     Note over SteamDOM: Tick 1 (200ms later): Steam renders background canvases
     Note over Watcher: Interval / MutationObserver / Timeout fires reinject()
-    Watcher->>SteamDOM: Find heroWrapper (now inflated to 1978px)
-    Watcher->>Ledger: Set heroWrapper overflow: hidden (CONTAINED)
+    Watcher->>SteamDOM: Find heroWrapper
+    Watcher->>Ledger: Ensure heroWrapper overflow: visible
     Watcher->>Ledger: Re-hide any newly rendered native badges
     Watcher->>Watcher: Check: existingSubstitute already mounted for appId?
     Watcher-->>ReactRoot: Skip GameView remount (No-op)
 ```
 
-1. **Step 1–7 (Always Execute)**: Hide native content sections, replace Play button, clip hero wrapper overflow, hide
-   duplicate sticky headers, hide native badges, align right controls.
+1. **Step 1–7 (Always Execute)**: Hide native content sections, replace Play button, ensure hero wrapper overflow
+   remains visible, hide duplicate sticky headers, hide native badges, align right controls.
 2. **Step 8 (Gated)**: If `existingSubstitute` is connected for the current `appId`, return. Only instantiate or unmount
    the `GameView` React root when navigating to a new game or if the container detached.
 
@@ -168,7 +168,41 @@ To ensure layout containment remains locked regardless of when Steam finishes re
   still calls `reinject()` to catch asynchronous layout shifts.
 - **MutationObserver**: Observes `deskWin.document.body` for child list and subtree mutations.
 - **Scroll Synchronization (`stickyPlayBarController.ts`)**: When the user scrolls, `updatePinning()` recalculates play
-  bar glass/solid styling and validates that `heroWrapper` overflow remains clipped.
+  bar glass/solid styling while maintaining `heroWrapper` overflow `visible` to allow the hero banner to scroll in 3D
+  parallax behind the cards.
+
+---
+
+## Hero Banner Parallax & Glass Refraction Architecture
+
+Steam Desktop's game details page features a signature visual effect where the hero banner artwork bleeds through a
+semi-transparent glass play bar and scrolls at half speed behind content cards.
+
+### Mechanics & Stacking Context
+
+- **3D Parallax Perspective**:
+  - The scroller (`_3lDczhulqraStjCitLYJ1K`) defines a 3D perspective context via
+    `perspective: 1px; overflow-y: scroll;`.
+  - The hero banner ancestors (`_2gZXhRmKUk68pA28-5ZmGQ` and `NZMJ6g2iVnFsOOp-lDmIP`) declare
+    `transform-style: preserve-3d; overflow: visible;`.
+  - The hero image container (`_1IX7FPSY9Jb82KhBVBSkZa`) applies
+    `transform: matrix3d(2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, -1, 1)` (`scale(2) translateZ(-1px)`). In a 1px
+    perspective context, `translateZ(-1px)` halves the scroll rate (0.5x parallax) while `scale(2)` scales the image
+    back to 100% visual size.
+  - The hero layer sits on `z-index: -1000`, placing it below normal document flow.
+
+- **Play Bar Glass Overlay**:
+  - **Unpinned**: `GLASS_PLAY_BAR_BG` (`rgba(36, 40, 47, 0.15)`) + subtle `GLASS_PLAY_BAR_GRADIENT` with
+    `backdrop-filter: blur(12px)` on `z-index: 10`. The parallaxing hero banner bleeds through with a frosted refraction
+    effect.
+  - **Pinned**: When the play bar reaches the top of the scroller, `isPlayBarPinned` transitions the play bar to
+    `SOLID_PLAY_BAR_BG` (`rgb(39, 44, 53)`) with `PINNED_PLAY_BAR_SHADOW`.
+
+- **Card Refraction Persistence**:
+  - The Tender cards container sits at `z-index: 1`. Each card uses a semi-transparent radial gradient
+    (`STEAM_CARD_BG`).
+  - Because `heroWrapper` preserves `overflow: visible`, the hero banner continues to scroll in 3D parallax behind the
+    cards even after the play bar pins to the top, providing continuous artwork refraction across the remaining content.
 
 ---
 

@@ -122,9 +122,26 @@ export function createStickyPlayBarController(
 
   applyBaselineStyles();
 
+  const scroller = findScrollContainer(playBarTop);
+  const win = playBarTop.ownerDocument.defaultView || window;
+
+  const getHeroWrapper = (): HTMLElement | null => {
+    if (!container || !steamPanel) return null;
+    return findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
+  };
+
+  const ensureHeroVisible = () => {
+    const heroWrapper = getHeroWrapper();
+    if (!heroWrapper) return;
+    if (heroWrapper.style.overflow !== "visible") {
+      ledger.style(heroWrapper, "overflow", "visible");
+    }
+  };
+
   let isPinnedState: boolean | null = null;
 
   function applyPlayBarState(pinned: boolean) {
+    ensureHeroVisible();
     if (isPinnedState === pinned) return;
     isPinnedState = pinned;
 
@@ -149,22 +166,10 @@ export function createStickyPlayBarController(
     }
   }
 
-  const scroller = findScrollContainer(playBarTop);
-  const win = playBarTop.ownerDocument.defaultView || window;
-
-  const containHero = () => {
-    if (!container || !steamPanel) return;
-    const heroWrapper =
-      findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
-    if (heroWrapper && heroWrapper.style.overflow !== "hidden") {
-      ledger.style(heroWrapper, "overflow", "hidden");
-    }
-  };
-
   const updatePinning = () => {
     if (!playBarTop.isConnected) return;
     applyBaselineStyles();
-    containHero();
+    ensureHeroVisible();
     const pinned = isPlayBarPinned(playBarTop, scroller);
     applyPlayBarState(pinned);
   };

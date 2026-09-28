@@ -673,8 +673,8 @@ describe("navigationWatcher", () => {
       expect(inPagePlayBar.style.backgroundColor).toBe("rgb(39, 44, 53)");
       expect(inPagePlayBar.style.paddingBottom).toBe("2px");
 
-      // Hero banner overflow is set to hidden to eliminate bottom empty gap
-      expect(heroBanner.style.overflow).toBe("hidden");
+      // Hero banner overflow is set to visible to preserve 3D parallax and refraction effect
+      expect(heroBanner.style.overflow).toBe("visible");
 
       // Duplicate sticky header is hidden
       expect(duplicateStickyPlayBar.style.display).toBe("none");
@@ -764,9 +764,8 @@ describe("navigationWatcher", () => {
 
       const stop = startDesktopNavigationWatcher(mockWin);
 
-      // The hero wrapper should have overflow:hidden despite steamPanel.firstElementChild
-      // (overviewPanel) containing the play bar — findInflatedHeroWrapper finds it by scrollHeight
-      expect(heroWrapper.style.overflow).toBe("hidden");
+      // The hero wrapper should have overflow:visible to preserve parallax and card refraction
+      expect(heroWrapper.style.overflow).toBe("visible");
 
       stop();
 
@@ -848,8 +847,8 @@ describe("navigationWatcher", () => {
         intervalCallback();
       }
 
-      // On reinject pass, hero wrapper should now be clipped
-      expect(heroWrapper.style.overflow).toBe("hidden");
+      // On reinject pass, hero wrapper should preserve visible overflow
+      expect(heroWrapper.style.overflow).toBe("visible");
 
       stop();
       expect(heroWrapper.style.overflow).toBe("");

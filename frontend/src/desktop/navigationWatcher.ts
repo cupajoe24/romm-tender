@@ -199,12 +199,12 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       stickyController.updatePinning();
     }
 
-    // 4. Contain hero wrapper overflow (prevent canvas elements from inflating scrollHeight)
+    // 4. Ensure hero wrapper overflow is visible so background parallax and card refraction persist during scroll
     const scroller = findScrollContainer(playBarTop);
     const heroWrapper =
       findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
-    if (heroWrapper && heroWrapper.style.overflow !== "hidden") {
-      ledger.style(heroWrapper, "overflow", "hidden");
+    if (heroWrapper && heroWrapper.style.overflow !== "visible") {
+      ledger.style(heroWrapper, "overflow", "visible");
     }
 
     // 5. Hide Steam's duplicate sticky header
