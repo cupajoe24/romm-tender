@@ -8,7 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from _factories import _make_conflict_rules, _make_testable_plugin
+from _factories import _make_conflict_rules, _make_testable_plugin, _record_operations_at_lease
 from fakes.fake_core_info_provider import FakeCoreInfoProvider, FakeSandboxLauncher
 from fakes.fake_disc_resolver import FakeDiscResolver
 from fakes.fake_platform_core_reader import FakePlatformCoreReader
@@ -26,6 +26,7 @@ from adapters.download_file import DownloadFileAdapter
 from adapters.rom_files import RomFileAdapter
 from adapters.steam_config import SteamConfigAdapter
 from domain.rom import Rom
+from domain.rom_files import TMP_EXT, ZIP_TMP_EXT
 from domain.rom_install import RomInstall
 from domain.version_metadata import VersionMetadata
 from lib.list_result import ErrorCode
@@ -217,6 +218,7 @@ def plugin(emit, logger, home):
             log_debug=lambda msg: None,
             emit=emit,
             clock=FakeClock(now=datetime(2026, 1, 1, tzinfo=UTC)),
+            conflict_rules=_make_conflict_rules(prune_conflicts=p._prune_conflicts),
         ),
     )
     p._download_service = DownloadService(
@@ -239,6 +241,7 @@ def plugin(emit, logger, home):
             # Late-bound remover for the #1298 sibling supersede — resolved at call
             # time, by which point ``p._rom_removal_service`` is constructed below.
             rom_remover=lambda: p._rom_removal_service.remove_rom_unchecked,
+            conflict_rules=_make_conflict_rules(prune_conflicts=p._prune_conflicts),
         ),
     )
     p._rom_removal_service = RomRemovalService(
@@ -3824,129 +3827,6 @@ class TestUrlEncodedFilenameRename:
         assert (extract_dir / "disc2.bin").exists()
 
 
-class TestCleanupLeftoverTmpFiles:
-    def test_removes_tmp_file(self, plugin, tmp_path):
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-            bios=str(tmp_path / "retrodeck" / "bios"),
-        )
-        plugin._rom_removal_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-        )
-
-        system_dir = tmp_path / "retrodeck" / "roms" / "n64"
-        system_dir.mkdir(parents=True)
-        tmp_file = system_dir / "zelda.z64.tmp"
-        tmp_file.write_text("partial download")
-
-        plugin._download_service.cleanup_leftover_tmp_files()
-        assert not tmp_file.exists()
-
-    def test_removes_zip_tmp_file(self, plugin, tmp_path):
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-            bios=str(tmp_path / "retrodeck" / "bios"),
-        )
-        plugin._rom_removal_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-        )
-
-        system_dir = tmp_path / "retrodeck" / "roms" / "psx"
-        system_dir.mkdir(parents=True)
-        tmp_file = system_dir / "game.zip.tmp"
-        tmp_file.write_text("partial zip")
-
-        plugin._download_service.cleanup_leftover_tmp_files()
-        assert not tmp_file.exists()
-
-    def test_keeps_real_rom_files(self, plugin, tmp_path):
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-            bios=str(tmp_path / "retrodeck" / "bios"),
-        )
-        plugin._rom_removal_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-        )
-
-        system_dir = tmp_path / "retrodeck" / "roms" / "n64"
-        system_dir.mkdir(parents=True)
-        real_rom = system_dir / "zelda.z64"
-        real_rom.write_text("real rom")
-        bin_file = system_dir / "game.bin"
-        bin_file.write_text("real bin")
-        cue_file = system_dir / "game.cue"
-        cue_file.write_text("real cue")
-
-        plugin._download_service.cleanup_leftover_tmp_files()
-        assert real_rom.exists()
-        assert bin_file.exists()
-        assert cue_file.exists()
-
-    def test_removes_bios_tmp(self, plugin, tmp_path):
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-            bios=str(tmp_path / "retrodeck" / "bios"),
-        )
-        plugin._rom_removal_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-        )
-
-        bios_dir = tmp_path / "retrodeck" / "bios" / "dc"
-        bios_dir.mkdir(parents=True)
-        tmp_file = bios_dir / "dc_boot.bin.tmp"
-        tmp_file.write_text("partial bios")
-
-        plugin._download_service.cleanup_leftover_tmp_files()
-        assert not tmp_file.exists()
-
-    def test_no_roms_dir_no_crash(self, plugin, tmp_path):
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-            bios=str(tmp_path / "retrodeck" / "bios"),
-        )
-        plugin._rom_removal_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-        )
-        # No retrodeck/roms directory exists — should not crash
-        plugin._download_service.cleanup_leftover_tmp_files()
-
-    def test_handles_permission_error(self, plugin, tmp_path, caplog, logger):
-        from fakes.fake_download_file_store import FakeDownloadFileStore
-
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-            bios=str(tmp_path / "retrodeck" / "bios"),
-        )
-        plugin._rom_removal_service._retrodeck_paths = FakeRetroDeckPaths(
-            roms=str(tmp_path / "retrodeck" / "roms"),
-        )
-
-        # Stage a virtual tmp file via the fake adapter so the service can
-        # discover it via walk_files_matching_suffixes; the fake's
-        # ``remove_failures`` set makes the subsequent remove raise OSError.
-        roms_base = str(tmp_path / "retrodeck" / "roms")
-        bios_base = str(tmp_path / "retrodeck" / "bios")
-        tmp_file_path = os.path.join(roms_base, "n64", "zelda.z64.tmp")
-
-        fake = FakeDownloadFileStore()
-        fake.make_dirs(roms_base)
-        fake.make_dirs(bios_base)
-        fake.files[tmp_file_path] = b"partial"
-        fake.remove_failures.add(tmp_file_path)
-        plugin._download_service._download_file_store = fake
-
-        with caplog.at_level(logging.WARNING, logger=logger.name):
-            plugin._download_service.cleanup_leftover_tmp_files()
-
-        # Per-file warning must be emitted; sister-PR pattern in
-        # SteamGridService.prune_orphaned_artwork_cache.
-        assert any(
-            "Failed to remove tmp file" in rec.message and tmp_file_path in rec.message for rec in caplog.records
-        ), f"expected warning about {tmp_file_path}, got {[r.message for r in caplog.records]}"
-        # File still present in fake — service swallowed the OSError.
-        assert tmp_file_path in fake.files
-
-
 class TestPruneDownloadQueue:
     def test_keeps_active_downloads(self, plugin):
         """Active (downloading) items are never pruned."""
@@ -4083,28 +3963,6 @@ class TestShutdown:
         # No tasks registered — must not raise.
         await plugin._download_service.shutdown()
         assert plugin._download_service._download_tasks == {}
-
-
-class TestCleanupLeftoverTmpFilesNoRetrodeckPaths:
-    """Tests for cleanup_leftover_tmp_files when retrodeck paths resolve to empty.
-
-    Covers the early-return guard inside _clean_rom_tmp_files /
-    _clean_bios_tmp_files when retrodeck.json is absent (roms_path()
-    / bios_path() return ""). Service must not walk an empty path.
-    """
-
-    def test_empty_roms_and_bios_paths_skip_walk(self, plugin):
-        from fakes.fake_download_file_store import FakeDownloadFileStore
-
-        fake = FakeDownloadFileStore()
-        plugin._download_service._download_file_store = fake
-        # retrodeck_paths present but both helpers return empty (no
-        # retrodeck.json) — service must early-return on each branch.
-        plugin._download_service._retrodeck_paths = FakeRetroDeckPaths(roms="", bios="")
-
-        plugin._download_service.cleanup_leftover_tmp_files()
-
-        assert fake.walk_calls == []
 
 
 class TestMakeProgressCallback:
@@ -4373,10 +4231,10 @@ class TestCleanupPartialDownloadFailureInjection:
         # Stage the two transient candidates plus a pre-existing install at the
         # bare target. Cleanup must remove only the transients (the .tmp variant
         # is marked failing) and NEVER the bare target (#1049 data-loss guard).
-        fake.files[target + _ZIP_TMP_EXT_LITERAL] = b"junk1"
-        fake.files[target + _TMP_EXT_LITERAL] = b"junk2"
+        fake.files[target + ZIP_TMP_EXT] = b"junk1"
+        fake.files[target + TMP_EXT] = b"junk2"
         fake.files[target] = b"preexisting install"
-        fake.remove_failures.add(target + _TMP_EXT_LITERAL)
+        fake.remove_failures.add(target + TMP_EXT)
         plugin._download_service._download_file_store = fake
 
         with caplog.at_level(logging.WARNING, logger=logger.name):
@@ -4384,15 +4242,13 @@ class TestCleanupPartialDownloadFailureInjection:
 
         # The failing transient is still in the fake (remove raised); the
         # other transient was successfully removed.
-        assert (target + _TMP_EXT_LITERAL) in fake.files
-        assert (target + _ZIP_TMP_EXT_LITERAL) not in fake.files
+        assert (target + TMP_EXT) in fake.files
+        assert (target + ZIP_TMP_EXT) not in fake.files
         # The bare target is NEVER touched — a re-download that fails mid-stream
         # must not destroy a pre-existing (or just-committed) install.
         assert target in fake.files
         # Warning mentions the failing path.
-        assert any(
-            "Cleanup failed for" in rec.message and (target + _TMP_EXT_LITERAL) in rec.message for rec in caplog.records
-        )
+        assert any("Cleanup failed for" in rec.message and (target + TMP_EXT) in rec.message for rec in caplog.records)
 
     def test_remove_tree_failure_is_logged_and_swallowed(self, plugin, caplog, logger):
         from fakes.fake_download_file_store import FakeDownloadFileStore
@@ -5372,12 +5228,6 @@ class TestCooperativeCancel:
         assert plugin._download_service._download_queue[42]["bytes_downloaded"] == 1024
 
 
-# Internal constants — re-declared so the test file doesn't reach into
-# the service module's private names. Keep in sync with services/downloads.py.
-_ZIP_TMP_EXT_LITERAL = ".zip.tmp"
-_TMP_EXT_LITERAL = ".tmp"
-
-
 class TestPauseResume:
     """#1124: pause keeps the partial .tmp; resume re-begins with resume=True."""
 
@@ -5435,7 +5285,7 @@ class TestPauseResume:
 
         # Status flips to "paused" and the partial .tmp is KEPT for resume.
         assert plugin._download_service._download_queue[42]["status"] == "paused"
-        assert os.path.exists(target_path + _TMP_EXT_LITERAL)
+        assert os.path.exists(target_path + TMP_EXT)
         # A terminal "paused" frame reached the frontend, carrying resumable.
         paused_frames = [
             c for c in emit.call_args_list if c[0][0] == "download_progress" and c[0][1].get("status") == "paused"
@@ -5483,7 +5333,7 @@ class TestPauseResume:
         # Cancel evicts its entry (#149 downloads-round) and deletes the partial
         # .tmp — the contrast with pause, which keeps both for resume.
         assert 42 not in plugin._download_service._download_queue
-        assert not os.path.exists(target_path + _TMP_EXT_LITERAL)
+        assert not os.path.exists(target_path + TMP_EXT)
 
     @pytest.mark.asyncio
     async def test_on_meta_sets_resumable_and_emits(self, plugin, tmp_path, emit):
@@ -5585,7 +5435,7 @@ class TestPauseResume:
         roms_dir = tmp_path / "retrodeck" / "roms" / "n64"
         roms_dir.mkdir(parents=True)
         # A partial .tmp left by the paused download.
-        with open(str(roms_dir / "zelda.z64") + _TMP_EXT_LITERAL, "wb") as f:
+        with open(str(roms_dir / "zelda.z64") + TMP_EXT, "wb") as f:
             f.write(b"\x00" * 256)
 
         rom_detail = {
@@ -5637,7 +5487,7 @@ class TestPauseResume:
         roms_dir = tmp_path / "retrodeck" / "roms" / "n64"
         roms_dir.mkdir(parents=True)
         target_path = str(roms_dir / "zelda.z64")
-        with open(target_path + _TMP_EXT_LITERAL, "wb") as f:
+        with open(target_path + TMP_EXT, "wb") as f:
             f.write(b"\x00" * 256)
 
         rom_detail = {
@@ -6157,3 +6007,172 @@ class TestResumeSupersede:
         result = await plugin.resume_download(7)
         assert result["reason"] == "not_paused"
         provider.assert_not_called()
+
+
+# ── The start and resume use cases: rules, the retained task, the lease ───────
+
+
+def _begin_leaving_a_task(service: DownloadService, release: asyncio.Event, finish=None):
+    """A ``_begin_download`` that starts the download's task and answers success, as a started download does."""
+
+    async def begin(rom_id, *, resume, replace_existing=False, **answer):
+        async def run() -> None:
+            await release.wait()
+            if finish is not None:
+                await finish(rom_id)
+
+        service._download_tasks[rom_id] = asyncio.get_running_loop().create_task(run())
+        return {"success": True, "message": "Download started"}
+
+    return begin
+
+
+def _operation_labels(prune_conflicts) -> list[str]:
+    return sorted(holder.label for holder in prune_conflicts._operations.values())
+
+
+async def _let_the_task_end(service: DownloadService, rom_id: int, prune_conflicts, release: asyncio.Event) -> None:
+    release.set()
+    await service._download_tasks[rom_id]
+    await asyncio.gather(*prune_conflicts._release_tasks)
+
+
+class TestAStartedDownloadHoldsAnOperation:
+    """The task a start or resume leaves running holds an operation until it ends."""
+
+    async def test_a_started_download_holds_its_operation_until_its_task_ends(self, plugin, monkeypatch):
+        service = plugin._download_service
+        release = asyncio.Event()
+        monkeypatch.setattr(service, "_begin_download", _begin_leaving_a_task(service, release))
+
+        result = await service.start_download(42)
+
+        assert result["success"] is True
+        assert _operation_labels(plugin._prune_conflicts) == ["start_download"]
+        await _let_the_task_end(service, 42, plugin._prune_conflicts, release)
+        assert plugin._prune_conflicts.conflicting_operations == 0
+
+    async def test_a_resumed_download_holds_its_operation_until_its_task_ends(self, plugin, monkeypatch):
+        service = plugin._download_service
+        service._download_queue[42] = {"rom_id": 42, "status": "paused"}
+        release = asyncio.Event()
+        monkeypatch.setattr(service, "_begin_download", _begin_leaving_a_task(service, release))
+
+        result = await service.resume_download(42)
+
+        assert result["success"] is True
+        assert _operation_labels(plugin._prune_conflicts) == ["resume_download"]
+        await _let_the_task_end(service, 42, plugin._prune_conflicts, release)
+        assert plugin._prune_conflicts.conflicting_operations == 0
+
+    async def test_a_start_that_failed_holds_nothing(self, plugin):
+        service = plugin._download_service
+        service._download_in_progress.add(42)
+
+        result = await service.start_download(42)
+
+        assert result["reason"] == "already_downloading"
+        assert plugin._prune_conflicts.conflicting_operations == 0
+
+    @pytest.mark.parametrize("call", ["start_download", "resume_download"])
+    @pytest.mark.parametrize(
+        ("migration_pending", "cleanup_running", "reason"),
+        [(True, False, "blocked_by_migration"), (False, True, "prune_active")],
+    )
+    async def test_a_download_its_rules_refuse_begins_nothing(
+        self, plugin, monkeypatch, call, migration_pending, cleanup_running, reason
+    ):
+        service = plugin._download_service
+        service._download_queue[42] = {"rom_id": 42, "status": "paused"}
+        begun: list[int] = []
+
+        async def begin(rom_id, **_kwargs):
+            begun.append(rom_id)
+            return {"success": True}
+
+        monkeypatch.setattr(service, "_begin_download", begin)
+        if cleanup_running:
+            plugin._prune_conflicts.register_run("held-run")
+        service._rules = _make_conflict_rules(
+            prune_conflicts=plugin._prune_conflicts, migration_pending=migration_pending
+        )
+
+        result = await getattr(service, call)(42)
+
+        assert result["reason"] == reason
+        assert begun == []
+        assert plugin._prune_conflicts.conflicting_operations == 0
+
+
+class TestTheDownloadCompleteLease:
+    """A bound ROM's ``download_complete`` carries a lease for the frontend's write of its launch command.
+
+    An unbound ROM has no shortcut to write to, so its event carries none; a
+    lease on an event nobody heard, or whose emit raised, is given back.
+    """
+
+    @staticmethod
+    async def _finish(plugin, rom_id: int) -> None:
+        service = plugin._download_service
+        service._download_queue[rom_id] = {"rom_id": rom_id, "status": "downloading", "progress": 0}
+        detail = {"id": rom_id, "name": "Zelda", "fs_name": "zelda.z64", "platform_slug": "n64"}
+        await service._finalize_download_complete(rom_id, detail, "/roms/n64/zelda.z64", "Zelda", "N64")
+
+    @staticmethod
+    def _payload(emit) -> dict[str, Any]:
+        (payload,) = [c.args[1] for c in emit.call_args_list if c.args[0] == "download_complete"]
+        return payload
+
+    async def test_a_bound_roms_event_carries_a_lease(self, plugin, emit):
+        _seed_rom(plugin._uow, 42)
+        emit.return_value = True
+
+        await self._finish(plugin, 42)
+
+        assert self._payload(emit)["prune_lease_token"].startswith("download_complete:")
+        assert plugin._prune_conflicts.conflicting_operations == 1
+
+    async def test_an_unbound_roms_event_carries_none(self, plugin, emit):
+        with plugin._uow:
+            plugin._uow.roms.save(
+                Rom(
+                    rom_id=7,
+                    platform_slug="n64",
+                    name="Metroid",
+                    fs_name="metroid.z64",
+                    shortcut_app_id=None,
+                    last_synced_at="2025-01-01T00:00:00",
+                )
+            )
+
+        await self._finish(plugin, 7)
+
+        assert "prune_lease_token" not in self._payload(emit)
+        assert plugin._prune_conflicts.conflicting_operations == 0
+
+    async def test_an_event_nobody_heard_gives_its_lease_back(self, plugin, emit):
+        _seed_rom(plugin._uow, 42)
+        emit.return_value = False
+
+        await self._finish(plugin, 42)
+
+        assert self._payload(emit)["prune_lease_token"].startswith("download_complete:")
+        assert plugin._prune_conflicts.conflicting_operations == 0
+
+    async def test_the_lease_is_taken_while_the_downloads_operation_still_holds(self, plugin, emit, monkeypatch):
+        """No cleanup can start between the download's own operation and the lease that outlasts it."""
+        _seed_rom(plugin._uow, 42)
+        emit.return_value = True
+        service = plugin._download_service
+        release = asyncio.Event()
+
+        async def finish(rom_id: int) -> None:
+            await self._finish(plugin, rom_id)
+
+        monkeypatch.setattr(service, "_begin_download", _begin_leaving_a_task(service, release, finish))
+        seen = _record_operations_at_lease(plugin._prune_conflicts, monkeypatch)
+
+        await service.start_download(42)
+        await _let_the_task_end(service, 42, plugin._prune_conflicts, release)
+
+        assert seen == [["start_download"]]

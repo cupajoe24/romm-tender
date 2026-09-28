@@ -14,6 +14,7 @@ communication goes through ``RommPlaytimeApi``.
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -30,7 +31,6 @@ from lib.errors import RommForbiddenError, RommNotFoundError, RommUnprocessableE
 from lib.list_result import ErrorCode
 
 if TYPE_CHECKING:
-    import asyncio
     import logging
 
     from models.play_sessions import PlaySessionIngestEntry, PlaySessionIngestResult
@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from domain.playtime import PendingSessionRow
     from services.protocols import (
         Clock,
+        ConflictRules,
         DebugLogger,
         DeviceIdProvider,
         RetryStrategy,
@@ -70,7 +71,9 @@ class PlaytimeServiceConfig:
     runtime infrastructure, the clock/debug-logger seams, and the SQLite
     Unit-of-Work factory (the transactional seam over the ``rom_playtime``
     aggregate and the ``kv_config`` scope-notice flag this service reads and
-    writes).
+    writes), and the ``ConflictRules`` that
+    :meth:`PlaytimeService.record_session_start` and
+    :meth:`PlaytimeService.reconcile_playtime` check at their entry.
     """
 
     romm_api: RommPlaytimeApi
@@ -81,6 +84,7 @@ class PlaytimeServiceConfig:
     clock: Clock
     log_debug: DebugLogger
     uow_factory: UnitOfWorkFactory
+    conflict_rules: ConflictRules
 
 
 def _empty_reconcile_result(*, server_query_failed: bool) -> dict[str, Any]:
@@ -116,7 +120,12 @@ def _session_debug_line(
 
 
 class PlaytimeService:
-    """Playtime tracking: record sessions, flush the outbox, and reconcile with RomM."""
+    """Playtime tracking: record sessions, flush the outbox, and reconcile with RomM.
+
+    :meth:`record_session_start` and :meth:`reconcile_playtime` check their
+    conflict rules at their entry, under their endpoint's name, and answer the
+    canonical refusal when one holds (CONTEXT.md → Conflict rules).
+    """
 
     def __init__(self, *, config: PlaytimeServiceConfig) -> None:
         self._romm_api = config.romm_api
@@ -127,12 +136,45 @@ class PlaytimeService:
         self._clock = config.clock
         self._log_debug = config.log_debug
         self._uow_factory = config.uow_factory
+        self._rules = config.conflict_rules
+        # Strong refs to the detached outbox flushes a session start begins:
+        # ``create_task`` alone lets the loop collect a task before it ends.
+        self._flush_tasks: set[asyncio.Task[None]] = set()
+
+    async def shutdown(self) -> None:
+        """Cancel and await any outbox flush a session start left running.
+
+        Called from ``main._unload`` so a detached flush does not outlive the
+        backend. No-op when none is pending.
+        """
+        for task in self._flush_tasks:
+            task.cancel()
+        if self._flush_tasks:
+            await asyncio.gather(*self._flush_tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------
     # Session recording
     # ------------------------------------------------------------------
 
-    def record_session_start(self, rom_id: int) -> dict[str, Any]:
+    async def record_session_start(self, rom_id: int) -> dict[str, Any]:
+        """Record the start of a play session for the ``record_session_start`` endpoint.
+
+        Checks the endpoint's conflict rules, records the start, then begins an
+        outbox flush so an offline backlog reaches RomM's native ingest on the
+        next launch. The flush is detached — the launch is never held up on the
+        round trip — and holds an operation until it ends.
+        """
+        async with self._rules.hold("record_session_start", prune=True) as refusal:
+            if refusal is not None:
+                return refusal
+            result = self._record_session_start(rom_id)
+            flush = self._loop.create_task(self.flush_pending_sessions())
+            self._flush_tasks.add(flush)
+            flush.add_done_callback(self._flush_tasks.discard)
+            await self._rules.retain(flush, "record_session_start")
+            return result
+
+    def _record_session_start(self, rom_id: int) -> dict[str, Any]:
         """Record the start of a play session for playtime tracking.
 
         Opens (or re-opens) the session marker on the ROM's ``Playtime``
@@ -259,9 +301,8 @@ class PlaytimeService:
     async def flush_pending_sessions(self) -> None:
         """Flush the pending-session outbox to RomM's native ingest (best-effort).
 
-        Scheduled as a fire-and-forget background task (e.g. on session start)
-        so an offline backlog catches up on the next reconnect. Not a
-        callable — internal orchestration only.
+        Begun as a detached task by :meth:`record_session_start`. Not an
+        endpoint — internal orchestration only.
         """
         await self._loop.run_in_executor(None, self._flush_pending_sessions_io)
 
@@ -273,7 +314,8 @@ class PlaytimeService:
         debug and swallowed — the outbox stays intact and catches up on the next
         flush. The actual gather/POST/dequeue work lives in
         :meth:`_flush_pending_sessions_worker`; this wrapper is the single
-        never-raise boundary both callers (session-end, reconcile) rely on.
+        never-raise boundary every caller (session start, session end,
+        reconcile) relies on.
         """
         try:
             self._flush_pending_sessions_worker()
@@ -767,9 +809,13 @@ class PlaytimeService:
         regresses local play, so a fresh device restores ``session_count`` and
         ``last_played`` alongside ``total_seconds`` (#903). Read-only against the
         aggregate's server view; it never ingests here. The work runs in an
-        executor (the SQLite connection has thread affinity).
+        executor (the SQLite connection has thread affinity). Checks the
+        ``reconcile_playtime`` endpoint's conflict rules first.
         """
-        return await self._loop.run_in_executor(None, self._reconcile_playtime_io, int(rom_id))
+        async with self._rules.hold("reconcile_playtime", prune=True) as refusal:
+            if refusal is not None:
+                return refusal
+            return await self._loop.run_in_executor(None, self._reconcile_playtime_io, int(rom_id))
 
     def _reconcile_playtime_io(self, rom_id: int) -> dict[str, Any]:
         """Synchronous twin of :meth:`reconcile_playtime` (runs in the executor).

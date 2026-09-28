@@ -32,6 +32,7 @@ from services.firmware import FirmwareService, FirmwareServiceConfig
 from services.game_detail import GameDetailService, GameDetailServiceConfig
 from services.game_process import GameProcessService, GameProcessServiceConfig
 from services.launch_gate import LaunchGateService, LaunchGateServiceConfig
+from services.leftover_tmp_cleanup import LeftoverTmpCleanupService, LeftoverTmpCleanupServiceConfig
 from services.library import LibraryService, LibraryServiceConfig
 from services.metadata import MetadataService, MetadataServiceConfig
 from services.migration import MigrationService, MigrationServiceConfig
@@ -129,6 +130,7 @@ class ServicesBundle:
     session_lifecycle_service: SessionLifecycleService
     game_process_service: GameProcessService
     relaunch_options_resolver: RelaunchOptionsResolver
+    leftover_tmp_cleanup_service: LeftoverTmpCleanupService
 
 
 def wire_services(cfg: WiringConfig) -> ServicesBundle:
@@ -232,6 +234,8 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             uow_factory=cfg.callbacks.uow_factory,
             active_core=active_core_resolver,
             disc_resolver=disc_launch_resolver,
+            loop=cfg.runtime.loop,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -291,6 +295,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             clock=cfg.runtime.clock,
             log_debug=cfg.callbacks.log_debug,
             uow_factory=cfg.callbacks.uow_factory,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -386,6 +391,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             log_debug=cfg.callbacks.log_debug,
             emit=cfg.runtime.emit,
             clock=cfg.runtime.clock,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -405,6 +411,15 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             m3u_support=cfg.callbacks.m3u_support,
             uow_factory=cfg.callbacks.uow_factory,
             rom_remover=rom_remover_binding.get,
+            conflict_rules=conflict_rules,
+        ),
+    )
+
+    leftover_tmp_cleanup_service = LeftoverTmpCleanupService(
+        config=LeftoverTmpCleanupServiceConfig(
+            logger=cfg.runtime.logger,
+            download_file_store=cfg.adapters.download_file_store,
+            retrodeck_paths=cfg.callbacks.retrodeck_paths,
         ),
     )
 
@@ -440,6 +455,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             resolve_system=cfg.adapters.http_adapter.resolve_system,
             platform_core_reader=cfg.callbacks.platform_core_reader,
             uow_factory=cfg.callbacks.uow_factory,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -507,6 +523,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             uow_factory=cfg.callbacks.uow_factory,
             active_core=active_core_resolver,
             disc_resolver=disc_launch_resolver,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -517,6 +534,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             uow_factory=cfg.callbacks.uow_factory,
             disc_resolver=disc_launch_resolver,
             active_core=active_core_resolver,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -542,6 +560,8 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             resolve_path=cfg.adapters.resolve_path,
             uow_factory=cfg.callbacks.uow_factory,
             relaunch_options=relaunch_options_resolver,
+            loop=cfg.runtime.loop,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -565,6 +585,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             save_file_store=cfg.adapters.save_file_store,
             loop=cfg.runtime.loop,
             logger=cfg.runtime.logger,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -585,6 +606,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             reachability_probe=connection_service.probe_reachability,
             relaunch_resolver=relaunch_options_resolver,
             active_downloads=download_service.active_download_rom_ids,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -613,6 +635,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             achievement_sync=achievements_service,
             migration_reader=migration_service,
             logger=cfg.runtime.logger,
+            conflict_rules=conflict_rules,
         ),
     )
 
@@ -641,7 +664,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             active_downloads=download_service.active_download_rom_ids,
             drift_probe=launch_gate_service.check_local_drift,
             remove_installed_files=rom_removal_service.delete_rom_files,
-            switch_version=version_switch_service.switch_version,
+            switch_version=version_switch_service.switch_version_unchecked,
             settings=cfg.stores.settings,
             run_claim=prune_conflicts,
         )
@@ -691,4 +714,5 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
         session_lifecycle_service=session_lifecycle_service,
         game_process_service=game_process_service,
         relaunch_options_resolver=relaunch_options_resolver,
+        leftover_tmp_cleanup_service=leftover_tmp_cleanup_service,
     )
