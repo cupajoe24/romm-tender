@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from domain.collection_listing import collection_entry
 from domain.collection_owner import listing_is_own
-from domain.fetch_generation import backfill_needed, count_rows_for_skip
+from domain.fetch_generation import backfill_needed, bound_row_not_returned, count_rows_for_skip
 from domain.platform_prefs import materialize_enabled_platforms, resolve_sync_enabled
 from domain.skip_prediction import collapsed_shortcut_count, new_shortcut_count, predict_unit_skip
 from domain.sync_stage import SyncStage
@@ -90,6 +90,7 @@ class _SkipBaseline(NamedTuple):
     fetched_count: int
     persisted_count: int
     needs_backfill: bool
+    bound_row_not_returned: bool
 
 
 # Emit a ``fetching`` progress frame on the first page and every Nth page of a
@@ -585,10 +586,10 @@ class LibraryFetcher:
         Per unit slug: replay the wholesale-skip gate's LOCAL conditions
         (``predict_unit_skip`` — stamp present, the stamped count and the count
         of rows carrying the stamp's fetch generation both match the server
-        count, bound rows exist, no group-key backfill pending) and
-        derive the persisted post-collapse shortcut count
-        (``collapsed_shortcut_count`` over the rows' sibling-group keys +
-        bound flags). The collapsed count is emitted ONLY for slugs that carry
+        count, bound rows exist, no group-key backfill pending, no bound row the
+        stamp's fetch did not return) and derive the persisted post-collapse
+        shortcut count (``collapsed_shortcut_count`` over the rows' sibling-group
+        keys + bound flags). The collapsed count is emitted ONLY for slugs that carry
         a ``PlatformSyncState`` completion stamp (#1412): the stamp exists iff
         the local mirror is complete, so without it a never-synced platform's
         PARTIAL rows
@@ -644,6 +645,7 @@ class LibraryFetcher:
                     fetched_count=count_rows_for_skip(all_rows, fetch_id),
                     registry_count=bound_count,
                     needs_backfill=backfill_needed(all_rows, fetch_id),
+                    bound_row_not_returned=bound_row_not_returned(all_rows, fetch_id),
                 )
                 collapsed = (
                     collapsed_shortcut_count(
@@ -690,6 +692,9 @@ class LibraryFetcher:
           gated for the same reason ``fetched_count`` is: a dropped row is never
           returned again, so no fetch can ever backfill it. Falls back to every
           row for a stamp written before the generation contract.
+        * ``bound_row_not_returned`` — a bound row does not carry the stamp's
+          generation, a NULL one included (``bound_row_not_returned``). False for
+          a stamp written before the generation contract.
 
         Only one short read UoW is opened.
         """
@@ -718,6 +723,7 @@ class LibraryFetcher:
             fetched_count=count_rows_for_skip(all_rows, fetch_id),
             persisted_count=len(all_rows),
             needs_backfill=backfill_needed(all_rows, fetch_id),
+            bound_row_not_returned=bound_row_not_returned(all_rows, fetch_id),
         )
 
     @staticmethod
@@ -760,9 +766,9 @@ class LibraryFetcher:
         deliver — forever). Returns ``None`` to fall through to a full paginated
         fetch — no stamp (including every platform's first sync after this
         contract shipped — a one-time re-walk), no rows carrying the stamp's
-        generation, an un-backfilled row from that generation, a stamped ROM count
-        that no longer matches the server, the delta check raised, or the server
-        reports changes.
+        generation, an un-backfilled row from that generation, a bound row the
+        stamp's fetch did not return, a stamped ROM count that no longer matches
+        the server, the delta check raised, or the server reports changes.
 
         This gate is the SOLE skip authority (ADR-0023). The plan-time
         ``predicted_skip`` rider (``_read_plan_estimates`` /
@@ -812,8 +818,12 @@ class LibraryFetcher:
             self._logger.info(f"Per-unit fetch {platform_name}: version-metadata backfill needed — full fetch")
             return None
 
-        # Stamp-count guard (ADR-0023): the server ROM count captured at stamp
-        # time must still equal the unit's current ``rom_count``. A server-side
+        if baseline.bound_row_not_returned:
+            self._logger.info(f"Per-unit fetch {platform_name}: a bound row the last fetch did not return — full fetch")
+            return None
+
+        # Stamp-count guard (ADR-0023): the server ROM count the stamping run
+        # planned with must still equal the unit's current ``rom_count``. A server-side
         # count change since the stamp invalidates it — the platform must
         # re-fetch to reconcile.
         if stamp_rom_count != unit.rom_count:

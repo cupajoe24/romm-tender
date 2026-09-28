@@ -321,13 +321,9 @@ class SyncReporter:
         refresh + reads commit atomically.
         """
         with self._uow_factory() as uow:
-            # Stale removal only UNBINDS the row (ADR-0007 keeps it), so a
-            # platform's persisted-row count is unchanged and its completion stamp
-            # (ADR-0023) stays valid — deliberately NOT invalidated here. If the
-            # server actually dropped ROMs, the next skip catches it anyway: the
-            # dropped ROM lowers RomM's platform rom_count, which no longer matches
-            # the stamp's rom_count (nor the persisted-row count), so the platform
-            # full-fetches. So the stale path needs no stamp invalidation.
+            # Stale removal only UNBINDS the row (ADR-0007 keeps it) and
+            # deliberately leaves every completion stamp in place; why is in
+            # docs/architecture/backend-architecture.md, "Incremental skip".
             for rid in stale_rom_ids or []:
                 rom = uow.roms.get(rid)
                 if rom is None or rom.shortcut_app_id is None:

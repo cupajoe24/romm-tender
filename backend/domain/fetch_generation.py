@@ -1,11 +1,9 @@
-"""How many locally persisted rows the platform incremental skip may count.
+"""Which of a platform's persisted rows its completion stamp's fetch returned.
 
 The generation marker's read side: given a platform's ``roms`` rows and the
-generation its completion stamp recorded, decide the row count the skip's
-"local mirror matches the server" condition compares against RomM's platform ROM
-count. Anything that decides whether to skip belongs to the fetcher, and
-anything that writes a generation belongs to the reporter; this module only
-decides which rows still count.
+generation its completion stamp recorded, answer which rows that fetch returned
+and which it did not. Anything that decides whether to skip belongs to the
+fetcher, and anything that writes a generation belongs to the reporter.
 """
 
 from __future__ import annotations
@@ -66,6 +64,23 @@ def backfill_needed(rows: Sequence[Rom], fetch_id: str | None) -> bool:
     if not fetch_id:
         return any(rom.sibling_group_key is None for rom in rows)
     return any(rom.sibling_group_key is None and rom.last_fetch_id == fetch_id for rom in rows)
+
+
+def bound_row_not_returned(rows: Sequence[Rom], fetch_id: str | None) -> bool:
+    """Whether a bound row among *rows* is one the stamp's fetch did not return.
+
+    True when a row carrying a ``shortcut_app_id`` has a ``last_fetch_id`` other
+    than *fetch_id*, a NULL one included. Why the incremental skip must not
+    rebuild such a row is in ``docs/architecture/backend-architecture.md``,
+    "Incremental skip".
+
+    A stamp with **no** generation (``fetch_id`` falsy) predates the contract and
+    cannot say what its fetch saw, so the answer is False — the same legacy path
+    :func:`count_rows_for_skip` takes.
+    """
+    if not fetch_id:
+        return False
+    return any(rom.shortcut_app_id is not None and rom.last_fetch_id != fetch_id for rom in rows)
 
 
 def prune_candidate_ids(rows: Sequence[Rom], stamp: PlatformSyncState | None) -> set[int]:
