@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 from dataclasses import asdict
-from typing import Any, Protocol
+from typing import Any
 
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, backend_dir)
@@ -10,7 +10,7 @@ sys.path.insert(0, backend_dir)
 # Where the program sits, used only when nothing in the environment says. The
 # installed case always says — the installer resolves the directories once and
 # writes them into the unit — so this answers for a start by hand from a
-# checkout, where the manifest and the shipped launcher sit one level up.
+# checkout, where the built panel and the shipped launcher sit one level up.
 _CODE_DIR_FALLBACK = os.path.dirname(backend_dir)
 
 from bootstrap import (
@@ -38,31 +38,24 @@ from host import (
     route,
     run_backend,
 )
-
-
-class PluginEventSink(Protocol):
-    """Where an event leaves this process; answers whether anybody heard it."""
-
-    async def emit(self, name: str, payload: object, /) -> bool: ...
+from services.protocols import EventEmitter
 
 
 class Plugin:
-    settings: dict[str, Any]
     loop: asyncio.AbstractEventLoop
+    # What the process hosting this backend knows about its own run. Set by the
+    # entry point once the build is through, for the one endpoint that reads it
+    # (``get_host_status``).
+    _host_status: HostStatus
 
-    # Test-only attribute slots — production ``Plugin`` does not read
-    # these after ``_main`` (the wired services own them), but the
-    # test suite constructs ``Plugin()`` bare and pokes the same handles
-    # the production wiring would set. Annotated as ``Any`` because
-    # tests pass real adapters, ``MagicMock``s, or fakes interchangeably.
-    # Annotations alone do not create the attribute, so bare access still
-    # raises ``AttributeError`` (the ``TestPersistenceAttributeIsLoud``
-    # regression remains green).
+    # Test-only attribute slots — production never sets or reads these. The
+    # test suite constructs ``Plugin()`` bare and holds its own handles on it.
+    # Most are ``Any`` because tests pass real adapters, ``MagicMock``s, or fakes
+    # interchangeably. Annotations alone do not create the attribute, so bare
+    # access still raises ``AttributeError``.
+    settings: dict[str, Any]
     _persistence: Any
     _settings_persister: Any
-    # What the process hosting this backend knows about its own run. Set by the
-    # entry point once the build is through, for the one callable that reads it.
-    _host_status: HostStatus
     _http_adapter: Any
     _romm_api: Any
     _steam_config: Any
@@ -93,7 +86,7 @@ class Plugin:
         """
         self._debug_logger(msg)
 
-    async def _main(self, *, directories, update_source, user_home, logger, events: PluginEventSink, status):
+    async def _main(self, *, directories, update_source, user_home, logger, emit: EventEmitter, status):
         """Bring the backend up: adapters, services, then the start-up repairs.
 
         Everything here must be through before the port is bound, which is what
@@ -111,15 +104,7 @@ class Plugin:
             user_home=user_home,
             logger=logger,
         )
-        self.settings = result.stores.settings
         self._debug_logger = result.handles.debug_logger
-        # Persistence adapter — held directly for the disk-touching callable
-        # paths that read/write settings without routing through a service.
-        self._persistence = result.handles.persistence
-        # RetroDECK path resolver — held directly so the get_retrodeck_status
-        # callable can read the resolution health without routing through a
-        # service (it's a pure adapter read, no orchestration).
-        self._retrodeck_paths = result.callbacks.retrodeck_paths
 
         # ── 4. Wire services ────────────────────────────────────────────────
         services = wire_services(
@@ -129,7 +114,7 @@ class Plugin:
                 runtime=RuntimeBundle(
                     loop=self.loop,
                     logger=logger,
-                    emit=events.emit,
+                    emit=emit,
                     clock=result.runtime_adapters.clock,
                     uuid_gen=result.runtime_adapters.uuid_gen,
                     sleeper=result.runtime_adapters.sleeper,
@@ -301,18 +286,7 @@ class Plugin:
 
     @route
     def get_retrodeck_status(self):
-        """Report RetroDECK path-resolution health for the frontend banner.
-
-        Discriminated-status union (Callable response shapes carve-out):
-        ``status`` carries one of ``ok`` / ``absent`` / ``unreadable`` /
-        ``root_missing``. The frontend owns the human-readable copy; the
-        backend returns the discriminant plus the probed paths.
-        """
-        return {
-            "status": self._retrodeck_paths.config_health().value,
-            "config_path": self._retrodeck_paths.config_path(),
-            "resolved_home": self._retrodeck_paths.retrodeck_home(),
-        }
+        return self._migration_service.get_retrodeck_status()
 
     @route
     def get_whitelist_settings(self):
@@ -324,15 +298,7 @@ class Plugin:
 
     @route
     async def get_cached_game_detail(self, app_id):
-        """Return the game page's whole payload, assembled off the loop thread.
-
-        Network-free but not free: a read UoW, a firmware-cache read, and for an
-        uninstalled ROM a ``stat`` and a directory listing on storage that may
-        have to wake up. Every game page opens this, so it goes to a worker —
-        which is also where a `SqliteUnitOfWork` connection is meant to live
-        (ADR-0004).
-        """
-        return await self.loop.run_in_executor(None, self._game_detail_service.get_cached_game_detail, app_id)
+        return await self._game_detail_service.get_cached_game_detail(app_id)
 
     @route
     async def set_system_core(self, platform_slug, core_label):
@@ -830,7 +796,7 @@ class Plugin:
         cross-device playtime" banner. Non-consuming (mirrors
         ``get_settings_reset_notice``): the durable flag is cleared only by a
         later successful reconcile GET or a fresh sign-in, so the banner stays up
-        across reloads until the user re-authenticates.
+        across backend restarts until the user re-authenticates.
         """
         return self._playtime_service.get_scope_notice()
 
@@ -916,28 +882,10 @@ class Plugin:
 
     @route
     def get_settings_reset_notice(self):
-        """Report whether a corrupt ``settings.json`` was reset at boot.
-
-        Reads the persistent ``_settings_reset_notice`` marker from the live
-        settings dict (written by bootstrap when ``load_settings`` quarantined an
-        unparseable file). Returns ``{"pending": bool, "backed_up_to": str |
-        None}``. Non-consuming — the marker survives a plugin reload and is
-        cleared only by an explicit user acknowledgement in the QAM
-        (``dismiss_settings_reset_notice``), so the frontend banner + game-detail
-        cards stay up until the user dismisses. A clean boot returns
-        ``{"pending": False, "backed_up_to": None}``.
-        """
-        notice = self.settings.get("_settings_reset_notice")
-        return {"pending": notice is not None, "backed_up_to": (notice or {}).get("backed_up_to")}
+        return self._settings_service.get_settings_reset_notice()
 
     @route
     def dismiss_settings_reset_notice(self):
-        """Acknowledge the corrupt-settings reset, clearing the persistent marker.
-
-        The user's explicit ack in the QAM — pops ``_settings_reset_notice`` and
-        persists, so the banner and game-detail cards stay down across reloads.
-        Returns ``{"success": True}``.
-        """
         return self._settings_service.dismiss_settings_reset_notice()
 
     @route
@@ -1067,7 +1015,7 @@ class Plugin:
                 update_source=update_source,
                 user_home=user_home,
                 logger=logger,
-                events=events,
+                emit=events.emit,
                 status=status,
             )
             plugin._host_status = status

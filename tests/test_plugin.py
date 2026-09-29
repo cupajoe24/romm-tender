@@ -28,7 +28,6 @@ from adapters.debug_logger import SettingsAwareDebugLogger
 from adapters.persistence import PersistenceAdapter, SettingsPersisterAdapter
 from adapters.steam_config import SteamConfigAdapter
 from host import HostStatus
-from lib.retrodeck_health import RetroDeckConfigHealth
 from main import Plugin
 from services.connection import ConnectionService, ConnectionServiceConfig
 from services.library import LibraryService, LibraryServiceConfig
@@ -142,25 +141,11 @@ def plugin(logger, home, data_dir):
     return p
 
 
-class TestPersistenceAttributeIsLoud:
-    """Regression for #350: dropped the lazy-property fallback.
-
-    Pre-``_main()`` access to ``self._persistence`` must raise
-    ``AttributeError`` instead of silently constructing a second
-    ``PersistenceAdapter`` instance.
-    """
-
-    def test_attribute_missing_on_bare_plugin(self):
-        """Direct access to _persistence pre-_main() raises — no lazy fallback."""
-        from main import Plugin
-
-        bare = Plugin()
-
-        with pytest.raises(AttributeError, match="_persistence"):
-            _ = bare._persistence
+class TestUnsetSlotsAreLoud:
+    """A test-only slot on ``Plugin`` is an annotation, not an attribute: bare access raises."""
 
     def test_settings_persister_missing_on_bare_plugin(self):
-        """``_settings_persister`` is bound only by ``_main()``; bare access raises."""
+        """``_settings_persister`` is never set by production; bare access raises."""
         from main import Plugin
 
         bare = Plugin()
@@ -444,42 +429,6 @@ class TestInsecureSslSetting:
         plugin.settings["romm_allow_insecure_ssl"] = True
         await plugin.save_server_url("https://romm.local", False)
         assert plugin.settings["romm_allow_insecure_ssl"] is False
-
-
-class TestGetSettingsResetNotice:
-    """The get_settings_reset_notice callable reads the persistent
-    ``_settings_reset_notice`` marker from the live settings dict (non-consuming).
-    """
-
-    @pytest.mark.asyncio
-    async def test_no_marker_returns_not_pending(self, plugin):
-        plugin.settings = {"romm_url": "http://romm.local"}
-        result = plugin.get_settings_reset_notice()
-        assert result == {"pending": False, "backed_up_to": None}
-
-    @pytest.mark.asyncio
-    async def test_marker_present_returns_pending_with_backup(self, plugin):
-        plugin.settings = {"_settings_reset_notice": {"backed_up_to": "settings.json.corrupt-1781697600"}}
-        result = plugin.get_settings_reset_notice()
-        assert result == {"pending": True, "backed_up_to": "settings.json.corrupt-1781697600"}
-
-    @pytest.mark.asyncio
-    async def test_non_consuming_repeated_reads_stay_pending(self, plugin):
-        """Unlike the old one-shot drain, repeated reads keep reporting pending —
-        the marker is cleared only by an explicit ack, not by reading."""
-        plugin.settings = {"_settings_reset_notice": {"backed_up_to": "settings.json.corrupt-42"}}
-        first = plugin.get_settings_reset_notice()
-        second = plugin.get_settings_reset_notice()
-        assert first == {"pending": True, "backed_up_to": "settings.json.corrupt-42"}
-        assert second == first
-
-    @pytest.mark.asyncio
-    async def test_marker_without_backup_key_returns_none_backup(self, plugin):
-        """A malformed marker (missing backed_up_to) still reports pending with a
-        None backup rather than raising."""
-        plugin.settings = {"_settings_reset_notice": {}}
-        result = plugin.get_settings_reset_notice()
-        assert result == {"pending": True, "backed_up_to": None}
 
 
 class TestDismissSettingsResetNotice:
@@ -1088,7 +1037,7 @@ class TestMainStartupOrdering:
                 hostname_provider=MagicMock(),
                 machine_id_provider=MagicMock(),
             ),
-            handles=BootstrapHandles(debug_logger=MagicMock(), persistence=MagicMock()),
+            handles=BootstrapHandles(debug_logger=MagicMock()),
             directories=AppDirectories(
                 config_dir="/fake/config",
                 data_dir="/fake/data",
@@ -1112,7 +1061,7 @@ class TestMainStartupOrdering:
                 update_source=UpdateSource(release_api="http://127.0.0.1:9/", installed_program=False),
                 user_home="/fake/home",
                 logger=logging.getLogger("test_startup_order"),
-                events=events,
+                emit=events.emit,
                 status=HostStatus(),
             )
 
@@ -1130,43 +1079,3 @@ class TestMainStartupOrdering:
         events.delivers = True
         assert await service_emit("probe", {"n": 2}) is True
         assert events.events == [("probe", {"n": 1}), ("probe", {"n": 2})]
-
-
-class TestRetroDeckStatus:
-    @pytest.mark.asyncio
-    async def test_ok_status_carries_paths(self, plugin):
-        plugin._retrodeck_paths = FakeRetroDeckPaths(
-            home="/retrodeck",
-            config_path="/cfg/retrodeck.json",
-            health=RetroDeckConfigHealth.OK,
-        )
-        result = plugin.get_retrodeck_status()
-        assert result == {
-            "status": "ok",
-            "config_path": "/cfg/retrodeck.json",
-            "resolved_home": "/retrodeck",
-        }
-
-    @pytest.mark.asyncio
-    async def test_status_is_plain_string_not_enum(self, plugin):
-        """The discriminant must serialize as a plain str for the WebSocket bridge."""
-        plugin._retrodeck_paths = FakeRetroDeckPaths(health=RetroDeckConfigHealth.UNREADABLE)
-        result = plugin.get_retrodeck_status()
-        assert result["status"] == "unreadable"
-        assert type(result["status"]) is str
-
-    @pytest.mark.asyncio
-    async def test_root_missing_status(self, plugin):
-        plugin._retrodeck_paths = FakeRetroDeckPaths(
-            home="/missing",
-            health=RetroDeckConfigHealth.ROOT_MISSING,
-        )
-        result = plugin.get_retrodeck_status()
-        assert result["status"] == "root_missing"
-        assert result["resolved_home"] == "/missing"
-
-    @pytest.mark.asyncio
-    async def test_absent_status(self, plugin):
-        plugin._retrodeck_paths = FakeRetroDeckPaths(health=RetroDeckConfigHealth.ABSENT)
-        result = plugin.get_retrodeck_status()
-        assert result["status"] == "absent"
