@@ -14,8 +14,9 @@ checks if the server has a newer save and downloads it. When you stop playing, i
 > If Tender answers that first time but a later step of the check before the start gets no answer in time — or, with
 > Tender's Play button, any step does — a **Save Sync Unavailable** dialog asks "Couldn't check your saves in time —
 > launch with local saves?". **Launch Anyway** starts the game on the save already on the device, and **Cancel** starts
-> nothing. Tender runs in **Desktop Mode** too: the Play button on the desktop client's game page syncs before it
-> launches, and a game's save is uploaded when it exits, whichever mode it was started from.
+> nothing. Tender runs in **Desktop Mode** too, so a game's save is uploaded when it exits, whichever mode it was started
+> from. Tender's own game page in the desktop client, with its own Play button, is **coming soon** — until then, the
+> desktop client shows Steam's own page for these games.
 
 Sync uses a **newest-wins** model with a hash-divergence guard:
 
@@ -127,10 +128,10 @@ The modal blocks the Play action until you choose. If a post-exit sync detects a
 opens the next time you tap Play, where it blocks launch until resolved. There is no longer a separate "pending
 conflicts" list on the settings page.
 
-The **desktop client's game page** shows the same dialog, with the same three actions: when **PLAY** finds a conflict,
-and when you press **RESOLVE CONFLICT**, which takes Play's place while a conflict is known. Pressing **Escape** or
-clicking outside it is the same as **Cancel**, except while a choice is being applied, when the dialog stays until it
-finishes. A choice that fails keeps the dialog open with the reason, so you can try again or cancel.
+**Coming soon:** the **desktop client's game page** shows the same dialog, with the same three actions: when **PLAY**
+finds a conflict, and when you press **RESOLVE CONFLICT**, which takes Play's place while a conflict is known. Pressing
+**Escape** or clicking outside it is the same as **Cancel**, except while a choice is being applied, when the dialog
+stays until it finishes. A choice that fails keeps the dialog open with the reason, so you can try again or cancel.
 
 ## Copying a Save to Another Slot
 
