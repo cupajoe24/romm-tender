@@ -26,7 +26,6 @@ from domain.sync_state import SyncCancelled, SyncState
 from domain.virtual_collection_id import virtual_types_to_list
 from domain.work_unit import WorkUnit, collection_units
 from lib.errors import classify_error
-from lib.list_result import ErrorCode
 from lib.romm_paging import LIST_PAGE_SIZE
 
 if TYPE_CHECKING:
@@ -147,22 +146,11 @@ class LibraryFetcher:
 
     async def get_platforms(self):
         try:
-            # Typed ``object`` so the isinstance guard below is genuine
-            # narrowing — the RomM API return type is a JSON-shape promise
-            # the server can break (malformed payload, schema drift).
-            platforms: object = await self._loop.run_in_executor(None, self._romm_api.list_platforms)
+            platforms = await self._loop.run_in_executor(None, self._romm_api.list_platforms)
         except Exception as e:
             self._logger.error(f"Failed to fetch platforms: {e}")
             _reason, _msg = classify_error(e)
             return {"success": False, "reason": _reason, "message": _msg}
-
-        if not isinstance(platforms, list):
-            self._logger.error(f"Unexpected platforms response type: {type(platforms).__name__}")
-            return {
-                "success": False,
-                "reason": ErrorCode.SERVER_UNREACHABLE.value,
-                "message": "Invalid server response",
-            }
 
         # Only platforms with ROMs are shown (and thus toggleable), so the
         # materialized map covers exactly the set the user can act on.
@@ -346,12 +334,7 @@ class LibraryFetcher:
 
     async def _fetch_enabled_platforms(self):
         """Fetch and filter platforms by enabled_platforms setting."""
-        # Typed ``object`` so the isinstance guard below is genuine narrowing —
-        # the RomM API return type is a JSON-shape promise the server can break.
-        platforms: object = await self._loop.run_in_executor(None, self._romm_api.list_platforms)
-        if not isinstance(platforms, list):
-            self._logger.error(f"Unexpected platforms response type: {type(platforms).__name__}")
-            return []
+        platforms = await self._loop.run_in_executor(None, self._romm_api.list_platforms)
 
         # Empty map = "all platforms enabled" (the safety floor for a user who
         # syncs without ever opening the Platforms page). ``get_platforms``
@@ -384,9 +367,9 @@ class LibraryFetcher:
         platform units, ``bound_count`` on both kinds (#1511). Estimate-only:
         they never feed the actual skip decision (ADR-0023).
 
-        A collection listing that fails raises rather than reading as empty.
-        Why is in docs/architecture/backend-architecture.md, "A collection
-        listing that fails stops the run".
+        A platform or collection listing that fails raises rather than
+        reading as empty. Why is in docs/architecture/backend-architecture.md,
+        "A listing that fails stops the run".
         """
         units: list[WorkUnit] = []
 
