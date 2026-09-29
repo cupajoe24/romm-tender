@@ -193,7 +193,6 @@ _SOURCE = """
   return loadAll().then(
     () => ({ ok: true }),
     (error) => {
-      delete win[T.marker];
       const reason = redact((error && error.stack) || error);
       try {
         showLoadFailure(reason);
