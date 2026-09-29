@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Collection, Iterator
 
     from domain.answered_save_directory import AnsweredSaveDirectory
     from domain.bios_file import BiosFile
@@ -457,21 +457,22 @@ class CollectionSyncStateRepository(Protocol):
         """Upsert the completion stamp. (library/reporter.py final-chunk commit)"""
         ...
 
-    def delete(self, collection_id: str, collection_kind: str) -> None:
-        """Drop the collection's stamp so it full-fetches next run. A no-op when absent.
+    def delete_intersecting(self, rom_ids: Collection[int]) -> None:
+        """Drop every stamp whose ``member_rom_ids`` hold one of *rom_ids*, of either kind.
 
-        Called by the local destructive flows (services/shortcut_removal.py) for
-        every stamp whose member set intersects a removed ROM (ADR-0023).
+        A no-op for an empty *rom_ids* or when no stamp holds one. The ``roms``
+        table records no collection membership, so the stored member sets are
+        the only way to find the stamps. Called in the write UoW that removes,
+        unbinds or deletes those ROMs: the local destructive flows
+        (services/shortcut_removal.py), the end-of-run stale removal
+        (library/reporter.py) and removed-game cleanup's row delete
+        (prune/registry.py). There is no single-stamp delete: one would let a
+        caller drop one stamp and leave another holding the same ROM.
         """
         ...
 
     def iter_all(self) -> Iterator[CollectionSyncState]:
-        """Iterate every collection stamp.
-
-        Backs the removal flows' surgical invalidation: they scan the stamps and
-        delete the ones whose ``member_rom_ids`` contain a removed ROM.
-        (services/shortcut_removal.py)
-        """
+        """Iterate every collection stamp. (prune/recovery.py snapshot)"""
         ...
 
     def has_any(self) -> bool:
