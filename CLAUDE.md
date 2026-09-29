@@ -2,8 +2,9 @@
 
 ## What This Is
 
-Syncs a self-hosted RomM library into Steam as Non-Steam shortcuts. Games launch via RetroDECK. The QAM panel handles
-settings, sync, downloads, and BIOS management.
+A standalone Steam plugin and service that syncs a self-hosted RomM library into Steam as Non-Steam shortcuts. Operates
+independently from Decky Loader via CEF remote debugging injection, supporting both Steam Desktop and Big Picture /
+Steam Deck modes. Games launch via RetroDECK. The panel handles settings, sync, downloads, and BIOS management.
 
 The backend runs as **its own process** and hosts the panel itself over a loopback port
 ([ADR-0036](docs/adr/0036-the-backend-hosts-itself.md)); it was a Decky Loader plugin up to 0.33. It also LOADS the
@@ -53,6 +54,10 @@ is invisible at the citation site), so reach it through the page that owns the t
 - Emulator and core selection — [core-emulator-selection.md](docs/architecture/core-emulator-selection.md)
 - RetroArch/ES-DE config parsing — [config-source-parsers.md](docs/architecture/config-source-parsers.md)
 - Steam Remote Play — [steam-remote-play.md](docs/architecture/steam-remote-play.md)
+- Desktop Mode DOM adaptation — [desktop-dom-architecture.md](docs/architecture/desktop-dom-architecture.md)
+- Desktop Feature Parity Matrix — [desktop-parity-matrix.md](docs/architecture/desktop-parity-matrix.md)
+- Invariants register in full — the historical rationale, failure modes, and test coverage behind every invariant —
+  [invariants.md](docs/architecture/invariants.md)
 - **End-user-facing behavior and UI** — setup, configuration, syncing, save-sync, BIOS, troubleshooting —
   `docs/user-guide/`
 - Dev setup, dependency management, frontend loop — `docs/contributing/`
@@ -94,6 +99,10 @@ new code in it.
   constraint the code cannot express. A fact has one home, and how a value was arrived at goes in the commit rather than
   the file. Re-read the comment on the line you touch — a stale one is worse than none, because it is believed and
   nothing in the toolchain contradicts it. **No mechanical check exists.**
+- `steam-ui.md` — Steam DevTools inspection requirement (never blind/automated scraping), standalone architecture (no
+  Decky dependency), and desktop DOM adaptation guidance.
+- `desktop-dom.md` — atomic restoration ledger required for all desktop DOM mutations, read-only Fiber introspection
+  across realms, strict ban on minified CSS hashes, and continuous adaptation pass order before substitute mount guard.
 
 ## Documentation
 
@@ -135,6 +144,22 @@ locally with `mise run docs`.
 
 ## Traps — non-obvious rules that bite silently
 
+- **No Decky Dependency**: Do not assume Decky Loader is installed, running, or required. Tender's backend runs as a
+  standalone daemon (`backend/main.py`), binds loopback, and injects `dist/globals.js` and `dist/index.js` directly into
+  Steam's `SharedJSContext` via the CEF debugging port (`8080` default, `8081` beside Decky). Deployments, startup
+  instructions, and runtime checks must target this standalone architecture.
+- **Steam UI Probing**: Never attempt autonomous, blind, or automated headless scraping of the Steam UI or CEF DOM
+  structure. When investigating Steam UI elements (e.g. play buttons, overview panels, class name hashes, popup
+  windows), **always ask the user for the Steam DevTools inspector URL** (`http://<ip>:8080/devtools/...` or
+  `http://<ip>:8081/devtools/...`). Asking the user is faster, avoids context races, and provides immediate, reliable
+  DOM access.
+- **Desktop DOM adaptation pass order & Hero Parallax**: In desktop `reinject()`, continuous DOM adaptations (hero
+  wrapper visible overflow preservation for 3D parallax/refraction, native badge hiding, duplicate sticky suppression,
+  right controls margin alignment) MUST run before the `existingSubstitute` early-return guard. Steam renders hero
+  banner gradient canvases and play bar elements asynchronously (100–500ms after initial mount); returning early because
+  the React root is already mounted skips critical styling passes. Crucially, the hero banner wrapper MUST maintain
+  `overflow: visible` — setting `overflow: hidden` flattens CSS 3D transforms (`perspective: 1px` / `preserve-3d`),
+  destroying Steam's native 0.5x parallax and truncating the artwork bleed-through behind the play bar and cards.
 - **The build output lives at `<repo>/dist/`, not under `frontend/`** — and the frontend package writes one directory UP
   to put it there (`OUT_DIR` in `frontend/rollup.config.js`). `dist/` is the SEAM between the two halves rather than the
   frontend's property: the backend serves it as `os.path.join(directories.code_dir, "dist")` (`backend/main.py`), and a
