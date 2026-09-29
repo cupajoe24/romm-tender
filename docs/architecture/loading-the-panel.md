@@ -33,7 +33,7 @@ From the debugger port answering to the panel being there:
 
 | Step               | What it is                                                                                                                                                                       |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| List the targets   | `GET /json` on `127.0.0.1:8080` (see [the debugger's port](#the-debuggers-port)), retried until Steam has named its renderer                                                     |
+| List the targets   | `GET /json` on `127.0.0.1:8080`, retried until Steam has named its renderer                                                                                                      |
 | Attach             | one WebSocket to the `SharedJSContext` target's `webSocketDebuggerUrl`                                                                                                           |
 | `Page.enable`      | so `Page.domContentEventFired` arrives; subscribed to before it is enabled, so none is missed                                                                                    |
 | Ask for the marker | `typeof window["__tender_panel__"] !== "undefined"`, and if it is there, whose it is — see [a panel an earlier backend left behind](#a-panel-an-earlier-backend-left-behind)     |
@@ -51,15 +51,6 @@ a target appears at **+0.20 s with an empty title**, the **same** target is rena
 `webpackChunksteamui` is ready at **+0.84 s**. Discovery that read the first miss as a verdict would give up half a
 second before the answer existed, which is why every miss here is retried and the log distinguishes "targets, none named
 yet" from "nothing there".
-
-### The debugger's port
-
-The port is 8080 unless the environment says otherwise: `STEAM_DEBUGGER_PORT`, then `TENDER_DEBUGGER_PORT`, is read once
-by `InjectionSetup.from_environment` (`backend/host/inject/injector.py`), and a value that is not all digits is ignored.
-With no override, a discovery attempt that finds nothing listening on the port in use asks the other of 8080 and 8081
-once; if that one answers, the injector keeps it for every later request, and if it does not, the attempt ends as it
-would have on the first port alone. With an override there is no fallback. The session budget's own debugger read
-(`adapters/renderer_gc.py`) reads neither variable and always asks 8080.
 
 ## Which bundles, and the rule that cannot bend
 
