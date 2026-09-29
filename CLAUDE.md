@@ -3,8 +3,9 @@
 ## What This Is
 
 A standalone Steam plugin and service that syncs a self-hosted RomM library into Steam as Non-Steam shortcuts. Operates
-independently from Decky Loader via CEF remote debugging injection, supporting both Steam Desktop and Big Picture /
-Steam Deck modes. Games launch via RetroDECK. The panel handles settings, sync, downloads, and BIOS management.
+independently from Decky Loader via CEF remote debugging injection. Games launch via RetroDECK. The panel handles
+settings, sync, downloads, and BIOS management. A desktop client surface (`frontend/src/desktop/`) exists and is **dev
+build only**: `pnpm -C frontend build:desktop` is the one build that carries it.
 
 The backend runs as **its own process** and hosts the panel itself over a loopback port
 ([ADR-0036](docs/adr/0036-the-backend-hosts-itself.md)); it was a Decky Loader plugin up to 0.33. It also LOADS the
@@ -145,21 +146,23 @@ locally with `mise run docs`.
 ## Traps — non-obvious rules that bite silently
 
 - **No Decky Dependency**: Do not assume Decky Loader is installed, running, or required. Tender's backend runs as a
-  standalone daemon (`backend/main.py`), binds loopback, and injects `dist/globals.js` and `dist/index.js` directly into
-  Steam's `SharedJSContext` via the CEF debugging port (`8080` default, `8081` beside Decky). Deployments, startup
-  instructions, and runtime checks must target this standalone architecture.
+  standalone daemon (`backend/main.py`), binds loopback, and injects the panel directly into Steam's `SharedJSContext`
+  via the CEF debugging port (`8080` by default; see `docs/architecture/loading-the-panel.md` for the fallback and the
+  override) — `dist/globals.js` then `dist/index.js`, or `dist/index-coexistence.js` alone where Decky is serving.
+  Deployments, startup instructions, and runtime checks must target this standalone architecture.
 - **Steam UI Probing**: Never attempt autonomous, blind, or automated headless scraping of the Steam UI or CEF DOM
   structure. When investigating Steam UI elements (e.g. play buttons, overview panels, class name hashes, popup
   windows), **always ask the user for the Steam DevTools inspector URL** (`http://<ip>:8080/devtools/...` or
   `http://<ip>:8081/devtools/...`). Asking the user is faster, avoids context races, and provides immediate, reliable
   DOM access.
-- **Desktop DOM adaptation pass order & Hero Parallax**: In desktop `reinject()`, continuous DOM adaptations (hero
-  wrapper visible overflow preservation for 3D parallax/refraction, native badge hiding, duplicate sticky suppression,
-  right controls margin alignment) MUST run before the `existingSubstitute` early-return guard. Steam renders hero
-  banner gradient canvases and play bar elements asynchronously (100–500ms after initial mount); returning early because
-  the React root is already mounted skips critical styling passes. Crucially, the hero banner wrapper MUST maintain
-  `overflow: visible` — setting `overflow: hidden` flattens CSS 3D transforms (`perspective: 1px` / `preserve-3d`),
-  destroying Steam's native 0.5x parallax and truncating the artwork bleed-through behind the play bar and cards.
+- **Desktop DOM adaptation pass order & Hero Parallax** (dev build only): In desktop `reinject()`, continuous DOM
+  adaptations (hero wrapper visible overflow preservation for 3D parallax/refraction, native badge hiding, duplicate
+  sticky suppression, right controls margin alignment) MUST run before the `existingSubstitute` early-return guard.
+  Steam renders hero banner gradient canvases and play bar elements asynchronously (100–500ms after initial mount);
+  returning early because the React root is already mounted skips critical styling passes. Crucially, the hero banner
+  wrapper MUST maintain `overflow: visible` — setting `overflow: hidden` flattens CSS 3D transforms (`perspective: 1px`
+  / `preserve-3d`), destroying Steam's native 0.5x parallax and truncating the artwork bleed-through behind the play bar
+  and cards.
 - **The build output lives at `<repo>/dist/`, not under `frontend/`** — and the frontend package writes one directory UP
   to put it there (`OUT_DIR` in `frontend/rollup.config.js`). `dist/` is the SEAM between the two halves rather than the
   frontend's property: the backend serves it as `os.path.join(directories.code_dir, "dist")` (`backend/main.py`), and a

@@ -18,6 +18,31 @@ once for each panel bundle.
 `dist/` sits at the repository root rather than under `frontend/`, because it is the seam between the two halves: the
 backend serves it as `<code_dir>/dist` and must not reach into the frontend's directory to find it.
 
+### One rewrite of `@decky/ui`, applied at build time
+
+Every build runs `patchDeckyUi` (`frontend/rollup.config.js`) over the bundled `@decky/ui` source. It rewrites one
+expression in `dist/utils/react/react.js`, which runs at module scope on import:
+
+```js
+Object.values(window.SP_REACT?.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE);
+```
+
+becomes `Object.values(... || {})`. Upstream evaluates it only when the older `__SECRET_INTERNALS_…` dispatcher is
+absent, and where the newer property is absent too, `Object.values(undefined)` throws — at import, so the module that
+imported `@decky/ui` never finishes evaluating. With the rewrite that lookup answers `undefined` instead. The rewrite is
+a string match on upstream's exact text: a `@decky/ui` release that respells the expression leaves it unmatched and the
+build silently ships the original.
+
+### The desktop dev build (dev build only)
+
+`pnpm -C frontend build:desktop` (`frontend/rollup.desktop.config.js`) runs the same three builds with sourcemaps and
+one more transform: it rewrites `src/index.tsx` as it is bundled to import `./desktop` and start and stop
+`startDesktopNavigationWatcher` beside the panel's own mount and dismount. That is the **only** way the desktop client
+surface (`frontend/src/desktop/`) reaches a bundle — `pnpm build`, `build:dev`, CI, `mise run dev` and the release
+tarball all ship without it. The transform anchors on two literal statements in `index.tsx` (`mountPruneLeasePlugin();`,
+`collapseQamOnDismount();`); renaming either leaves the watcher out of the build with nothing said. Unlike `build`, it
+does not empty `dist/` first.
+
 ## Why two copies of the panel
 
 `@decky/ui` is not a component library. Almost every member is a search predicate over Steam's own minified bundle, and

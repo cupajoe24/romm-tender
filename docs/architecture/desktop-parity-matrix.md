@@ -6,17 +6,21 @@ A living architecture and tracking document comparing features implemented in th
 This document serves as the roadmap and reference for contributors and agents working towards full desktop feature
 parity.
 
+> **Dev build only.** Every "Desktop Implementation" below exists in the source tree and reaches Steam only through
+> `pnpm -C frontend build:desktop` ([the desktop dev build](frontend-bundles.md#the-desktop-dev-build-dev-build-only)).
+> No shipped bundle carries it, so for an installed release every desktop row is still missing.
+
 ---
 
 ## Architectural Context & Surface Differences
 
-| Dimension                       | Big Picture / Steam Deck Mode                                       | Desktop Client Mode                                                  |
-| :------------------------------ | :------------------------------------------------------------------ | :------------------------------------------------------------------- |
-| **Primary Input**               | Gamepad (D-pad, Joystick, A/B/X/Y)                                  | Mouse, Keyboard, Touch                                               |
-| **Host Entry Point**            | Quick Access Menu (QAM) overlay + Game Detail route                 | Desktop Library Window (`vgui_root` / Library view)                  |
-| **Injection Mechanism**         | React Fiber Tree Patcher (`createReactTreePatcher` via `@decky/ui`) | CEF DOM Watcher & React Root Mount (`startDesktopNavigationWatcher`) |
-| **Dialog / Modal Host**         | Steam's native gamepad modal stack (`showModal()`)                  | Hand-rolled modals portaled into `deskWin.document.body`             |
-| **Global Plugin Configuration** | QAM Tab (`QuickAccessRoot.tsx`, `SettingsPage.tsx`)                 | ❌ _Pending_ (No desktop settings window yet)                        |
+| Dimension                       | Big Picture / Steam Deck Mode                                                  | Desktop Client Mode                                                 |
+| :------------------------------ | :----------------------------------------------------------------------------- | :------------------------------------------------------------------ |
+| **Primary Input**               | Gamepad (D-pad, Joystick, A/B/X/Y)                                             | Mouse, Keyboard, Touch                                              |
+| **Host Entry Point**            | Quick Access entry (`qam/quickAccessEntry.tsx`) + Game Detail route            | Desktop library window (the `SP Desktop …` popup)                   |
+| **Injection Mechanism**         | Route patch through `createReactTreePatcher` (`bigpicture/patches/`)           | DOM watcher mounting React roots (`startDesktopNavigationWatcher`)  |
+| **Dialog / Modal Host**         | Steam's gamepad modal stack (`showModal()`)                                    | `DesktopDialog`, portaled into the desktop window's `document.body` |
+| **Global Plugin Configuration** | Settings page (`SettingsPage.tsx`, `bigpicture/settings/*`) behind the QAM tab | ❌ _Pending_ (No desktop settings window yet)                       |
 
 ---
 
@@ -24,38 +28,43 @@ parity.
 
 ### 1. In-Game Details View (`/library/app/<appId>`)
 
-| Feature / Capability                 | Big Picture Implementation                                             | Desktop Implementation                                                                               |     Status     | Notes & Roadmap                                                                                                                                                                      |
-| :----------------------------------- | :--------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------- | :------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Host UI Injection & Mounting**     | `gameDetailPatch.tsx` replaces `AppDetailsOverviewPanel` in React tree | `navigationWatcher.ts` mounts dual React roots (`PlayButton` + `GameView`)                           | ✅ **Parity**  | Both inject cleanly without Decky Loader dependencies. Desktop `GameView` presents a unified 2-column layout (2/3 Game Info & Emulation on left, 1/3 Saves & Achievements on right). |
-| **Play / Download Button**           | `CustomPlayButton.tsx` (Action button container)                       | `PlayButton.tsx` (Replaces native Steam button)                                                      | ✅ **Parity**  | Supports Play, Download, Extracting, Launching, and Conflict states.                                                                                                                 |
-| **Sticky Play Bar & Glassmorphism**  | Native Steam sticky header adaptation                                  | `stickyPlayBarController.ts` with pinned solid / glass transition                                    | ✅ **Parity**  | Clips hero wrapper canvas overflow (`overflow: hidden`).                                                                                                                             |
-| **Game Information & Metadata**      | `AboutHeader.tsx` & `AboutDetails.tsx` (Steam deck style cards)        | `AboutHeader.tsx` & `AboutDetails.tsx` (`desktop/gameview/`)                                         | ✅ **Parity**  | Developer, publisher, release date, genres, description.                                                                                                                             |
-| **Multi-Disc & Variant Selector**    | `DiscSelector.tsx`                                                     | `DiscSelector.tsx` (`desktop/gameview/`)                                                             | ✅ **Parity**  | Disc switching, variant selection, file list display.                                                                                                                                |
-| **Save Management (Cloud / Local)**  | `SaveManagementCard.tsx` + slot modals                                 | `SaveManagementCard.tsx` (`desktop/gameview/`)                                                       | ✅ **Parity**  | Slot switching, server vs. local status, download/upload.                                                                                                                            |
-| **Emulation & Core Selection**       | `EmulationSettings.tsx` + `CoreChangeModal.tsx`                        | `EmulationSettings.tsx` (`desktop/gameview/`)                                                        | ⚠️ **Partial** | Desktop displays core/standalone configs, but core picker modal is not yet portaled.                                                                                                 |
-| **Achievements Display & Modal**     | `AchievementsCard.tsx` + `AchievementsModal.tsx`                       | `AchievementsCard.tsx` + `AchievementsModal.tsx`                                                     | ✅ **Parity**  | Unlocked/locked breakdown, progress bar, portaled desktop modal.                                                                                                                     |
-| **File Adoption & Conflict Dialogs** | `AdoptCandidateModal`, `AdoptCollisionModal`, etc.                     | `dialogs/DesktopAdoptDialogs.tsx`, `DesktopSaveConflictDialog.tsx`                                   | ✅ **Parity**  | Surface-independent logic in `utils/adoptFlow.ts` and `saveConflictFlow.ts`.                                                                                                         |
-| **RetroDECK Path Migration Alert**   | `MigrationBlockedCard.tsx` (Card alert in game detail)                 | `MigrationBlockedCard.tsx` (`desktop/gameview/`)                                                     | ✅ **Parity**  | Renders amber warning card atop desktop `GameView` when migration is blocked.                                                                                                        |
-| **Offline Drift / Unsynced Warning** | `OfflineDriftModal.tsx`, `UnsyncedSavesSwitchModal.tsx`                | `DesktopOfflineDriftDialog.tsx`, `DesktopUnsyncedSavesDialog.tsx`, `DesktopFallbackLaunchDialog.tsx` | ✅ **Parity**  | Portaled desktop dialogs for offline drift warning, retry loop, fallback launch, and unsynced save switch.                                                                           |
+| Feature / Capability                 | Big Picture Implementation                                                         | Desktop Implementation                                                                                                                    |    Status     | Notes & Roadmap                                                                                                                 |
+| :----------------------------------- | :--------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :-----------: | :------------------------------------------------------------------------------------------------------------------------------ |
+| **Host UI Injection & Mounting**     | `gameDetailPatch.tsx` replaces `AppDetailsOverviewPanel` in the React tree         | `navigationWatcher.ts` mounts two React roots (`PlayButton` in the play bar, `GameView` below it)                                         | ✅ **Parity** | Desktop `GameView` is a two-column grid (`2fr 1fr`): About and Emulation on the left, Saves and Achievements on the right.      |
+| **Play / Download Button**           | `CustomPlayButton.tsx` inside `RomMPlaySection.tsx`                                | `PlayButton.tsx` (replaces the native Steam button)                                                                                       | ✅ **Parity** | Download, Downloading (incl. queued and extracting), Use Existing Files, Play, Syncing, Launching, and Resolve Conflict states. |
+| **Sticky Play Bar & Glassmorphism**  | Native Steam sticky header                                                         | `watcher/stickyPlayBarController.ts` with pinned solid / unpinned glass transition                                                        | ✅ **Parity** | Keeps the hero wrapper at `overflow: visible` so the banner parallaxes behind the glass bar and cards.                          |
+| **Game Information & Metadata**      | `GameInfoTab.tsx` (in `RomMGameInfoPanel.tsx`)                                     | `AboutDetails.tsx` (`desktop/gameview/`)                                                                                                  | ✅ **Parity** | Developer, publisher, release date, genres, description. `AboutHeader.tsx` exists but nothing renders it.                       |
+| **Multi-Disc & Variant Selector**    | `DiscSelector.tsx`, `VersionPicker.tsx`                                            | `DiscSelector.tsx` (`desktop/gameview/`)                                                                                                  | ✅ **Parity** | Disc switching, variant selection, file list display.                                                                           |
+| **Save Management (Cloud / Local)**  | `SavesTab.tsx` + `bigpicture/saves/*` and slot modals                              | `SaveManagementCard.tsx` + `DesktopNewSlotDialog`, `DesktopCopySlotDialog`, `DesktopDeleteSlotDialog`                                     | ✅ **Parity** | Slot switching, server vs. local status, download/upload.                                                                       |
+| **Emulation & Core Selection**       | Core picker in `RomMPlaySection.tsx`; `CoreChangeModal.tsx` before launch          | `EmulationSettings.tsx` (in-card emulator picker); `DesktopCoreChangeDialog.tsx` before launch                                            | ✅ **Parity** | Both pickers apply through `utils/coreOverride.ts`; on desktop, picking the pinned emulator unpins it.                          |
+| **Achievements Display & Modal**     | `AchievementsTab.tsx`                                                              | `AchievementsCard.tsx` + `AchievementsModal.tsx`                                                                                          | ✅ **Parity** | Unlocked/locked breakdown, progress bar, portaled desktop modal. Shown only for a ROM with a RetroAchievements id.              |
+| **File Adoption & Conflict Dialogs** | `Adopt*Modal.tsx` (five), `SyncConflictModal.tsx`                                  | `DesktopAdoptCandidatesDialog`, `…CollisionsDialog`, `…ExistingDialog`, `…UnusableDialog`, `…VanishedDialog`, `DesktopSaveConflictDialog` | ✅ **Parity** | Surface-independent logic in `utils/adoptFlow.ts`, `utils/adoptWording.ts` and `utils/saveConflictFlow.ts`.                     |
+| **RetroDECK Path Migration Alert**   | `MigrationBlockedCard.tsx` (card alert in game detail)                             | `MigrationBlockedCard.tsx` (`desktop/gameview/`)                                                                                          | ✅ **Parity** | Renders an amber warning card atop desktop `GameView` while a migration is pending.                                             |
+| **Offline Drift / Unsynced Warning** | `OfflineDriftModal.tsx`, `FallbackLaunchModal.tsx`, `UnsyncedSavesSwitchModal.tsx` | `DesktopOfflineDriftDialog.tsx`, `DesktopFallbackLaunchDialog.tsx`, `DesktopUnsyncedSavesDialog.tsx`                                      | ✅ **Parity** | Offline drift warning, retry loop, fallback launch, and unsynced save switch.                                                   |
 
 ---
 
 ### 2. Global Library, Sync & Settings
 
-| Feature / Capability                 | Big Picture Implementation                                        | Desktop Implementation |     Status     | Notes & Roadmap                                                                     |
-| :----------------------------------- | :---------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------- |
-| **RomM Connection Settings**         | `ConnectionSection.tsx` (Host URL, Username, Password, Token)     | ❌ _Not Implemented_   | ❌ **Missing** | No desktop settings UI exists. Currently configured via BPM QAM or CLI.             |
-| **SteamGridDB API Key & Settings**   | `SteamGridDBSection.tsx` & `SgdbApiKeyModal.tsx`                  | ❌ _Not Implemented_   | ❌ **Missing** | Needs desktop input dialog or settings tab.                                         |
-| **Save Sync Global Options**         | `SaveSyncSection.tsx` (Auto-upload, slot limits, conflict policy) | ❌ _Not Implemented_   | ❌ **Missing** | Currently inherits settings configured in BPM/backend.                              |
-| **Library Browser & Full Sync**      | `LibraryPage.tsx` (Browse RomM library, trigger full sync)        | ❌ _Not Implemented_   | ❌ **Missing** | Users cannot browse uninstalled RomM games from Steam Desktop.                      |
-| **BIOS & Firmware Manager**          | `BiosManagementPage.tsx` (Audit cores, missing BIOS, download)    | ❌ _Not Implemented_   | ❌ **Missing** | Comprehensive BIOS audit currently restricted to Big Picture.                       |
-| **Data Management & Cache Pruning**  | `DataManagementPage.tsx` (Prune old saves, delete cached art)     | ❌ _Not Implemented_   | ❌ **Missing** | Bulk cache cleanup not yet surfaced in desktop.                                     |
-| **Download Queue & Active Progress** | `DownloadProgressRow.tsx`, `downloadStore.ts`                     | ⚠️ **Partial**         | ⚠️ **Partial** | Individual game progress renders on desktop `PlayButton`, but no global queue list. |
-| **Controller & Emulator Overrides**  | `ControllerSection.tsx`, `AdvancedSection.tsx`                    | ❌ _Not Implemented_   | ❌ **Missing** | Global RetroDECK emulator mapping and controller profile tweaks.                    |
+| Feature / Capability                 | Big Picture Implementation                                         | Desktop Implementation |     Status     | Notes & Roadmap                                                                     |
+| :----------------------------------- | :----------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------- |
+| **RomM Connection Settings**         | `ConnectionSection.tsx` (Host URL, Username, Password, Token)      | ❌ _Not Implemented_   | ❌ **Missing** | No desktop settings UI exists. Configured through the Big Picture settings page.    |
+| **SteamGridDB API Key & Settings**   | `SteamGridDBSection.tsx` & `SgdbApiKeyModal.tsx`                   | ❌ _Not Implemented_   | ❌ **Missing** | Needs desktop input dialog or settings tab.                                         |
+| **Save Sync Global Options**         | `SaveSyncSection.tsx` (Auto-upload, slot limits, conflict policy)  | ❌ _Not Implemented_   | ❌ **Missing** | Currently inherits settings configured in Big Picture.                              |
+| **Library Browser & Full Sync**      | `LibraryPage.tsx`, `SyncPage.tsx`                                  | ❌ _Not Implemented_   | ❌ **Missing** | Users cannot browse uninstalled RomM games from Steam Desktop.                      |
+| **BIOS & Firmware Manager**          | `BiosTab.tsx`, `library/PlatformsTab.tsx` / `PlatformDetail.tsx`   | ❌ _Not Implemented_   | ❌ **Missing** | The desktop Emulation card shows one ROM's BIOS summary; no platform-wide view.     |
+| **Data Management & Cache Pruning**  | `DataManagementPage.tsx`, `RemovedGamesCleanup.tsx`                | ❌ _Not Implemented_   | ❌ **Missing** | Bulk cache cleanup not yet surfaced in desktop.                                     |
+| **Download Queue & Active Progress** | `DownloadQueue.tsx`, `DownloadProgressRow.tsx`, `downloadStore.ts` | ⚠️ **Partial**         | ⚠️ **Partial** | Individual game progress renders on desktop `PlayButton`, but no global queue list. |
+| **Controller & Emulator Overrides**  | `ControllerSection.tsx`, `AdvancedSection.tsx`                     | ❌ _Not Implemented_   | ❌ **Missing** | Global RetroDECK emulator mapping and controller profile tweaks.                    |
 
 ---
 
 ## Development Roadmap for Desktop Parity
+
+### Phase 0: Ship the Desktop Surface
+
+Nothing below reaches a user until the watcher is started from the production entry (`src/index.tsx`) rather than added
+by `build:desktop` at build time.
 
 ### Phase 1: In-Page Game Detail Completeness (High Priority)
 
@@ -63,26 +72,25 @@ Enhance the existing desktop `GameView` (`frontend/src/desktop/gameview/`) to ma
 and alerts:
 
 1. **Migration & Path Alerts** (✅ Completed):
-   - Port `MigrationBlockedCard.tsx` into `desktop/gameview/MigrationBlockedCard.tsx`.
-   - Render atop `GameView` when `migrationStore` reports active path blocks.
-2. **Session & Remote Play Scope Banners** (✅ Completed):
-   - Port `PlaytimeScopeBanner.tsx` into `desktop/gameview/PlaytimeScopeBanner.tsx`.
-   - Subscribe to `sessionManager.ts` and `romm_session_changed` to warn when a game session is active.
-3. **Core Selection Modal**:
-   - Create a desktop portaled equivalent of `CoreChangeModal.tsx` allowing users to switch emulator cores directly from
-     `desktop/gameview/EmulationSettings.tsx`.
-4. **Offline Drift & Save Switch Dialogs**:
-   - Portaled desktop dialogs (`DesktopOfflineDriftDialog.tsx`, `DesktopFallbackLaunchDialog.tsx`,
-     `DesktopUnsyncedSavesDialog.tsx`) wired to `PlayButton.tsx` and `DiscSelector.tsx` with full test coverage (✅
-     Completed).
+   - `desktop/gameview/MigrationBlockedCard.tsx`, rendered atop `GameView` when `migrationStore` reports a pending
+     migration.
+2. **Session & Playtime Scope Banners** (✅ Completed):
+   - `desktop/gameview/PlaytimeScopeBanner.tsx`: an active-session banner (from `sessionManager.ts` and
+     `romm_session_changed`) and the cross-device playtime re-sign-in banner (from `playtimeScopeStore.ts`).
+3. **Core Selection** (✅ Completed):
+   - In-card emulator picker in `desktop/gameview/EmulationSettings.tsx`, and `DesktopCoreChangeDialog.tsx` before a
+     launch whose core changed.
+4. **Offline Drift & Save Switch Dialogs** (✅ Completed):
+   - `DesktopOfflineDriftDialog.tsx`, `DesktopFallbackLaunchDialog.tsx` and `DesktopUnsyncedSavesDialog.tsx`, wired to
+     `PlayButton.tsx` and `DiscSelector.tsx`.
 
 ### Phase 2: Global Settings Access in Desktop Mode (Medium Priority)
 
 Provide a way to access plugin settings without requiring Big Picture / Steam Deck Game Mode:
 
 1. **Desktop Entry Point**:
-   - Add a settings button to the desktop play bar (e.g. gear icon in `desktop/gameview/AboutHeader.tsx` or adjacent to
-     right controls) or a persistent menu bar hook.
+   - Add a settings button to the desktop play bar (e.g. a gear icon beside the right controls) or a persistent menu bar
+     hook.
 2. **Portaled Settings Modal (`desktop/settings/DesktopSettingsModal.tsx`)**:
    - Mount a multi-tab settings dialog portaled to `deskWin.document.body`.
    - Host `ConnectionSection`, `SteamGridDBSection`, `SaveSyncSection`, and `ControllerSection`.

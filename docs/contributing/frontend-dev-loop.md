@@ -366,37 +366,53 @@ it automatically — measured on this Deck the same QAM panel ranged from **255 
 
 Validate a panel at 1.5 (the device) and at 2.4 (the worst case) before calling a layout done.
 
-## Desktop client UI dev loop
+## Desktop client UI dev loop (dev build only)
 
-While the loop above targets the Big Picture / Game Mode gamepad surface, the desktop client surface
-(`frontend/src/desktop/`) targets Steam's desktop library window in Desktop Mode.
-
-To iterate on desktop views without altering the production bundle config:
+The desktop client surface (`frontend/src/desktop/`) is Tender's own game page in Steam's desktop library window. No
+shipped bundle carries it, and neither does anything the loop above builds: `mise run dev` and its siblings build with
+`build:dev`, which leaves it out. It reaches Steam only through its own build
+([the desktop dev build](../architecture/frontend-bundles.md#the-desktop-dev-build-dev-build-only)), and this loop is
+the one on this page that deploys to another machine rather than running beside Steam on the Deck itself.
 
 1. **Build the desktop dev bundle**:
+
    ```bash
-   pnpm run build:desktop
+   pnpm -C frontend build:desktop
    ```
-   Uses `rollup.desktop.config.js`, which enables sourcemaps for CEF debugging and injects the desktop navigation
-   watcher (`startDesktopNavigationWatcher`) into the bundle at build time.
 
-2. **Deploy from your workstation to the Deck or remote Linux PC**: Push the bundle (and optional backend files) over
-   SSH/SCP:
-   - **PowerShell (Windows)**:
-     ```powershell
-     .\scripts\dev_push_remote.ps1 <remote-ip>
-     ```
-     Use `-Frontend` or `-Backend` to push specific components, or `-Dest` to customize the remote target directory.
-     Shell scripts (including `bin/tender-rom-launcher` and `*.sh`) are automatically normalized to Unix encoding (LF
-     line endings, UTF-8 without BOM) before push.
-   - **Bash (Linux/macOS)**:
-     ```bash
-     ./scripts/dev_push_remote.sh <remote-ip>
-     ```
-     Accepts `--frontend`, `--backend`, and `--dest`.
+   The three usual files with sourcemaps, and the desktop navigation watcher started beside the panel.
 
-3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view. Inspect the DOM and console output via
-   CEF DevTools at `http://<remote-ip>:8080` (or `8081` beside Decky).
+2. **Push from your workstation to a Deck or another Linux machine** over SSH/SCP. Both scripts run step 1 themselves
+   unless told not to, stage `dist/` (and, for the backend, `backend/`, `bin/` and `defaults/`), and copy them to
+   `~/romm-tender` on the remote by default:
+
+   ```powershell
+   .\scripts\dev_push_remote.ps1 [user@]<remote-ip>     # Windows
+   ```
+
+   ```bash
+   ./scripts/dev_push_remote.sh [user@]<remote-ip>      # Linux/macOS
+   ```
+
+   | PowerShell      | Bash              | Does                                                                                                                                                            |
+   | --------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `-Frontend`     | `--frontend`      | Build and push only `dist/`                                                                                                                                     |
+   | `-Backend`      | `--backend`       | Push only `backend/`, `bin/` and `defaults/`                                                                                                                    |
+   | `-Dest <dir>`   | `--dest <dir>`    | Remote directory (default `~/romm-tender`)                                                                                                                      |
+   | `-User <user>`  | `--user <user>`   | SSH user when the target names none (default `deck`)                                                                                                            |
+   | `-Port <port>`  | `--port <port>`   | SSH port (default 22)                                                                                                                                           |
+   | `-SkipBuild`    | `--skip-build`    | Push the `dist/` already there                                                                                                                                  |
+   | `-SetupRemote`  | `--setup-remote`  | Create the remote directories and Steam's remote-debugging marker first (the PowerShell script also adds your SSH public key to the remote's `authorized_keys`) |
+   | `-RestartSteam` | `--restart-steam` | Shut Steam down on the remote and start it again after the push                                                                                                 |
+
+   The PowerShell script also rewrites every shell script it stages (and the local `bin/`) to LF line endings without a
+   BOM, and strips CRs from the remote `bin/` after the push; the Bash script only marks `bin/` executable. The remote
+   backend is not the installed service: the scripts end by printing the command that starts `backend/main.py` from the
+   pushed directory by hand.
+
+3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view, and inspect it in DevTools (below) at
+   `http://<remote-ip>:8080` — or `8081`, the port the injector falls back to
+   ([the debugger's port](../architecture/loading-the-panel.md#the-debuggers-port)).
 
 ## DevTools
 
@@ -404,8 +420,8 @@ With `~/.steam/steam/.cef-enable-remote-debugging` present, Steam exposes the CE
 <http://localhost:8080>:
 
 - The **SharedJSContext** target is where all plugin JS runs — console output and JS debugging live here.
-- The **Steam Big Picture Mode** target is the rendered UI — element inspection and live CSS editing. For desktop-mode
-  views, select the main Steam desktop client window target to inspect mounted DOM nodes.
+- The **Steam Big Picture Mode** target is the rendered UI — element inspection and live CSS editing. For the desktop
+  client surface (dev build only), select the desktop client window's target instead.
 
 The backend drives the same protocol on the same port, so a DevTools window open on `SharedJSContext` and the injector
 are two clients of one debugger; both work at once. What the backend did and why is in its own log — `backend.log` under

@@ -5,22 +5,27 @@ paths:
 
 # Desktop Mode DOM Adaptation & Lifecycle Rules
 
+**Dev build only.** This surface reaches Steam only through `pnpm -C frontend build:desktop`; no shipped bundle carries
+it (`docs/architecture/frontend-bundles.md`, "The desktop dev build").
+
 ## 1. Ban on Ephemeral Minified CSS Class Hashes
 
 - **Never** hardcode ephemeral Webpack hashes (e.g. `_3fLoY...`, `_3by_V...`). These hashes change arbitrarily with
   Steam client updates.
-- Always resolve elements using the multi-tier ladder in `watcher/elementSelectors.ts`:
-  1. CSS module tokens from `deckyUiInternals` (`appDetailsClasses`, `appActionButtonClasses`).
-  2. Read-only React Fiber component names (`displayName`, `name`).
-  3. Structural landmark attributes (`role="main"`, `aria-label`).
-  4. Structural ancestor / sibling tree walks.
+- Always resolve elements through the ladder in `watcher/elementSelectors.ts`, whose rungs and order are listed on
+  `docs/architecture/desktop-dom-architecture.md` ("Multi-Tier Resilient Selection Ladder"): CSS module tokens from
+  `deckyUiInternals`, then the readable part of a class name (`[class*="PlayBar"]`), then read-only Fiber names, then
+  ARIA labels and text, then structural walks.
 
 ## 2. Mandatory Atomic Restoration
 
 - **Never** perform untracked DOM mutations. Injected inline styles, hidden elements, attached event listeners, and
   mounted React roots must be recorded via `DomRestorationLedger`.
 - Direct element assignments (e.g. bare `el.style.display = "none"` or `el.style.overflow = "hidden"`) or untracked
-  `addEventListener` calls are strictly prohibited.
+  `addEventListener` calls on Steam's elements are strictly prohibited. This covers what the watcher does to Steam's
+  DOM; a React component's own listener, removed by its effect's cleanup (`DesktopDialog`'s Escape key), and styles on
+  hosts Tender creates itself are outside it. One site breaks the rule today: `reinject()` clears
+  `steamPanel.style.display` directly.
 - All adaptations must tear down cleanly via `ledger.restoreAll()` on route changes, non-RomM navigation, or window
   close.
 

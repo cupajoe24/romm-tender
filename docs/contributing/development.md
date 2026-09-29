@@ -193,9 +193,9 @@ Steam's remote-debugging marker has to exist, and the backend creates it when it
 so the task's own restart is what picks up a marker that has just been created
 ([the marker](../architecture/loading-the-panel.md#steams-remote-debugging-marker)).
 
-The whole loop, the Big Picture window, the desktop-client dev loop, and how to judge layout at the Deck's real metrics are in
-[Frontend dev loop](frontend-dev-loop.md); what the injector does and how it protects the Steam UI from itself is in
-[How the panel gets into Steam](../architecture/loading-the-panel.md).
+The whole loop, the Big Picture window, the desktop client surface's own loop (dev build only), and how to judge layout
+at the Deck's real metrics are in [Frontend dev loop](frontend-dev-loop.md); what the injector does and how it protects
+the Steam UI from itself is in [How the panel gets into Steam](../architecture/loading-the-panel.md).
 
 Two switches exist, both read from the environment at start-up: `TENDER_INJECT=off` serves the panel and loads it
 nowhere, and `TENDER_INJECT=force` loads it even where the crash watchdog has stopped.

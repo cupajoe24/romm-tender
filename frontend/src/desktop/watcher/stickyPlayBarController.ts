@@ -5,7 +5,8 @@
  *  - Discovering the scroll container for the game overview
  *  - Monitoring scroll position to toggle between semi-transparent glass
  *    and solid background with drop shadow when pinned
- *  - Constraining hero canvas overflow to prevent container scroll inflation
+ *  - Keeping the hero wrapper at `overflow: visible`, which the banner's 3D parallax needs
+ *    (docs/architecture/desktop-dom-architecture.md, "Hero Banner Parallax")
  */
 
 import {
