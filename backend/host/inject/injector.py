@@ -178,15 +178,12 @@ class InjectionSetup:
         over a typo in a unit file.
         """
         asked = environ.get(INJECT_ENV, "").strip().lower()
-        port_env = environ.get("STEAM_DEBUGGER_PORT", "").strip() or environ.get("TENDER_DEBUGGER_PORT", "").strip()
-        debugger_port = int(port_env) if port_env.isdigit() else DEBUGGER_PORT
         return cls(
             static_root=static_root,
             state_dir=state_dir,
             user_home=user_home,
             version=version,
             override=asked if asked in (INJECT_OFF, INJECT_FORCE) else "",
-            debugger_port=debugger_port,
         )
 
 
@@ -204,7 +201,6 @@ class PanelInjector:
         logger: logging.Logger,
     ) -> None:
         self._setup = setup
-        self._effective_port = setup.debugger_port
         self._asset_url = asset_url
         self._token = token
         self._logger = logger
@@ -352,15 +348,7 @@ class PanelInjector:
         try:
             async with asyncio.timeout(DISCOVERY_WINDOW_SECONDS):
                 while True:
-                    try:
-                        targets = await list_targets(self._effective_port)
-                    except CdpUnavailableError:
-                        if self._setup.debugger_port == DEBUGGER_PORT:
-                            alternate = 8081 if self._effective_port == DEBUGGER_PORT else DEBUGGER_PORT
-                            targets = await list_targets(alternate)
-                            self._effective_port = alternate
-                        else:
-                            raise
+                    targets = await list_targets(self._setup.debugger_port)
                     found = find_shared_context(targets)
                     if found is not None:
                         return found
@@ -634,7 +622,7 @@ class PanelInjector:
 
     async def _targets_now(self) -> tuple[Target, ...]:
         """The debugger's current target list."""
-        return await list_targets(self._effective_port)
+        return await list_targets(self._setup.debugger_port)
 
     async def _abandon_alive_check(self) -> None:
         """Drop a pending alive check and close a record nobody answered for.

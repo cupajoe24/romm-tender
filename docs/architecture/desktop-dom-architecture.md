@@ -17,7 +17,7 @@ Tender operates across two separate Chromium Embedded Framework (CEF) window con
 ```mermaid
 flowchart TD
     subgraph Daemon ["Backend (backend/main.py)"]
-        CEF["CEF remote debugging, port 8080 (8081 fallback)"]
+        CEF["CEF remote debugging"]
     end
 
     subgraph SharedContext ["SharedJSContext window"]

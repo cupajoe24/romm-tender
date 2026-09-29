@@ -350,5 +350,5 @@ if ($Dest -match "homebrew/plugins") {
 }
 
 Write-Host "`nRemote DevTools URL (SharedJSContext):" -ForegroundColor White
-Write-Host "   http://${RemoteHost}:8080 (Standalone) or http://${RemoteHost}:8081 (Decky)" -ForegroundColor Yellow
+Write-Host "   http://${RemoteHost}:8081" -ForegroundColor Yellow
 Write-Host ""

@@ -411,8 +411,8 @@ the one on this page that deploys to another machine rather than running beside 
    pushed directory by hand.
 
 3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view, and inspect it in DevTools (below) at
-   `http://<remote-ip>:8080` — or `8081`, the port the injector falls back to
-   ([the debugger's port](../architecture/loading-the-panel.md#the-debuggers-port)).
+   `http://<remote-ip>:8081`. From another machine the debugger is reached on 8081; on the device itself, and for the
+   backend there, it is 8080 (below).
 
 ## DevTools
 

@@ -235,5 +235,5 @@ fi
 
 echo ""
 echo "Remote DevTools URL (SharedJSContext):"
-echo -e "   \033[33mhttp://${REMOTE_HOST}:8080 (Standalone) or http://${REMOTE_HOST}:8081 (Decky)\033[0m"
+echo -e "   \033[33mhttp://${REMOTE_HOST}:8081\033[0m"
 echo ""
