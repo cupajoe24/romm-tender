@@ -361,6 +361,15 @@ entry — why the rule exists, what breaks without it, and where it lives — is
 - **Every backend `emit` event name has a frontend listener, and vice versa** — check — `scripts/check_event_parity.py`
 - **`settings.json` is written only by its owner (`adapters/persistence.py`)** — check —
   `scripts/check_settings_owner.py`
+- **The backend never writes or removes `update-failure.json`; only the installer does — `install.sh` writes it on an
+  automatic rollback and removes it after an update whose new version answered** — test + prompt-only —
+  `tests/adapters/test_update_failure.py::TestOnlyTheInstallerWritesTheRecord`: no backend module but
+  `adapters/update_failure.py` and `domain/update_outcome.py` names `UPDATE_FAILURE_FILENAME` or the literal, and the
+  adapter calls nothing named like a write, move or removal and opens nothing with a writing mode, nor with a mode or
+  flags it cannot read off the call. Unseen by it: a call in `domain/update_outcome.py`, which may name the record and
+  whose calls it does not read; a write under a name not on its list; a runtime mode passed as `Path.open`'s first
+  argument; a record path assembled from pieces or handed in from elsewhere; a write through a helper in another module;
+  a call reached through `getattr`; and a subprocess
 - **Where this program's directories are is resolved once from the environment, and every consumer reads them off
   `AppDirectories`** — prompt-only — `domain/app_directories.py` is the pure ladder (`TENDER_*`, then XDG, then the
   built-in defaults); `Plugin.run` resolves it once and hands it to `bootstrap()`, which derives nothing, and

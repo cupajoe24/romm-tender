@@ -87,7 +87,7 @@ class Plugin:
         self._debug_logger(msg)
 
     async def _main(self, *, directories, update_source, user_home, logger, emit: EventEmitter, status):
-        """Bring the backend up: adapters, services, then the start-up repairs.
+        """Bring the backend up: adapters, services, then the start-up steps.
 
         Everything here must be through before the port is bound, which is what
         makes the port file mean "ready". The one start-up step that talks to the
@@ -153,17 +153,19 @@ class Plugin:
         self._startup_healing_service = services.startup_healing_service
         self._shortcut_relocation_service = services.shortcut_relocation_service
         self._update_check_service = services.update_check_service
+        self._update_outcome_service = services.update_outcome_service
         self._launch_gate_service = services.launch_gate_service
         self._session_lifecycle_service = services.session_lifecycle_service
         self._game_process_service = services.game_process_service
         self._relaunch_options_resolver = services.relaunch_options_resolver
         self._leftover_tmp_cleanup_service = services.leftover_tmp_cleanup_service
 
-        # ── 5. Startup repairs ──────────────────────────────────────────────
-        # Each runs through the reporting wrapper: these are repairs, not
-        # prerequisites, and six of the nine catch nothing themselves — hosted,
-        # one raising would end the process and a restart policy would loop.
+        # ── 5. Startup steps ────────────────────────────────────────────────
+        # Each runs through the reporting wrapper: these are not prerequisites,
+        # and most catch nothing themselves — hosted, one raising would end the
+        # process and a restart policy would loop.
         steps = StartupSteps(logger, status.record_failed_step)
+        steps.run("note_update_outcome", self._update_outcome_service.note_start)
         # The prune may run only after a SUCCESSFUL detection: it reads the
         # pending homes the detection writes, and without them it takes every
         # install under the home RetroDECK just left for orphaned.
@@ -894,12 +896,12 @@ class Plugin:
 
         Returns ``{"available", "newer", "latest_version", "current_version",
         "enabled", "installed_program"}``. ``available`` is the card itself: a
-        newer release with its tarball attached exists, the user has not
-        dismissed that exact version, and the check is switched on. ``newer`` is
-        the first of those alone, for the Settings section that states the
-        versions whether or not the card was dismissed. ``installed_program``
-        says whether this process is the installed program an update could
-        replace — False for a run from a checkout.
+        newer release with its tarball and checksum file attached exists, the
+        user has not dismissed that exact version, and the check is switched on.
+        ``newer`` is the first of those alone, for the Settings section that
+        states the versions whether or not the card was dismissed.
+        ``installed_program`` says whether this process is the installed program
+        an update could replace — False for a run from a checkout.
 
         GitHub is asked at most once a day and the answer is kept, so a reload
         inside that window shows the card without a request. Every failure is
@@ -940,6 +942,53 @@ class Plugin:
         value.
         """
         return self._update_check_service.set_update_check_enabled(enabled)
+
+    @route
+    async def get_update_outcome(self):
+        """Report what the panel owes the user about the last update.
+
+        Returns ``{"announce_version", "announce_direction", "toast_owed",
+        "failure", "failure_dismissed"}``. ``announce_version`` is the version
+        this process moved to, until :meth:`dismiss_update_announcement` says
+        the user waved its card away — ``None`` on every other start — and
+        ``announce_direction`` which way it moved: ``"updated"`` to a later
+        release, ``"back"`` to an earlier one, ``None`` exactly when
+        ``announce_version`` is. ``toast_owed`` is true until
+        :meth:`acknowledge_update_toast` says the panel raised its toast, and
+        false whenever ``announce_version`` is ``None``. ``failure`` is the
+        installer's record of an update it rolled back, ``{"attempted_version",
+        "restored_version", "rolled_back_at"}``, read afresh so it goes when the
+        installer removes it; ``None`` where there is none, or where the running
+        version is not the one it restored. ``failure_dismissed`` says the user
+        waved away that exact record.
+        """
+        return await self._update_outcome_service.get_update_outcome()
+
+    @route
+    def acknowledge_update_toast(self):
+        """Record that the panel raised the announcement's toast, so a reloaded panel does not raise it again.
+
+        The card stays. Returns ``{"success": True}``.
+        """
+        return self._update_outcome_service.acknowledge_update_toast()
+
+    @route
+    def dismiss_update_announcement(self):
+        """Record that the user waved away the announcement's card, for the rest of this process.
+
+        Returns ``{"success": True}``.
+        """
+        return self._update_outcome_service.dismiss_update_announcement()
+
+    @route
+    def dismiss_update_failure(self, rolled_back_at):
+        """Record that the user waved away the card for one rolled-back update.
+
+        Per record — named by its ``rolled_back_at`` — so the next rollback
+        raises the card again. Returns ``{"success": True}``, or the canonical
+        failure shape for a stamp that is not a non-empty string.
+        """
+        return self._update_outcome_service.dismiss_update_failure(rolled_back_at)
 
     @route
     async def get_shortcut_relocation(self):
