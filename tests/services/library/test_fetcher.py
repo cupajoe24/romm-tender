@@ -8,7 +8,11 @@ per-method ``*_side_effect`` attributes (persistent) — no
 ``run_in_executor`` patching, no ``MagicMock(romm_api)``.
 """
 
+import base64
+import json
+import logging
 from dataclasses import replace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -194,8 +198,8 @@ class TestBuildWorkQueueErrorPaths:
     """Tests for build_work_queue() collection-list failure / filter branches."""
 
     @pytest.mark.asyncio
-    async def test_standard_collection_list_failure_continues_with_empty(self, library, fake_romm_api):
-        """User-collection fetch raises => warning logged, treated as empty."""
+    async def test_standard_collection_list_failure_fails_the_build(self, library, fake_romm_api):
+        """A failed standard listing raises instead of reading as no collections."""
         _wire_fake(library, fake_romm_api)
         library.settings["enabled_platforms"] = {}
         library.settings["enabled_collections"] = {
@@ -211,14 +215,12 @@ class TestBuildWorkQueueErrorPaths:
             ],
         }
 
-        units = await library.sync._fetcher.build_work_queue()
-
-        # User-collections branch swallowed the failure; virtual collection still listed.
-        assert [u.name for u in units] == ["Faves"]
+        with pytest.raises(RuntimeError, match="standard collections boom"):
+            await library.sync._fetcher.build_work_queue()
 
     @pytest.mark.asyncio
-    async def test_virtual_collection_list_failure_continues_with_empty(self, library, fake_romm_api):
-        """Virtual-collection fetch raises for every type => warning logged, treated as empty."""
+    async def test_virtual_collection_list_failure_fails_the_build(self, library, fake_romm_api):
+        """A virtual listing that fails for every type raises instead of reading as no collections."""
         _wire_fake(library, fake_romm_api)
         library.settings["enabled_platforms"] = {}
         library.settings["enabled_collections"] = {
@@ -230,14 +232,12 @@ class TestBuildWorkQueueErrorPaths:
         fake_romm_api.collections = [{"id": "7", "name": "Faves", "slug": "faves", "rom_count": 4}]
         fake_romm_api.list_virtual_collections_side_effect = RuntimeError("virtual collections boom")
 
-        units = await library.sync._fetcher.build_work_queue()
-
-        # User collection survives; both virtual-type branches swallowed the failure.
-        assert [u.name for u in units] == ["Faves"]
+        with pytest.raises(RuntimeError, match="virtual collections boom"):
+            await library.sync._fetcher.build_work_queue()
 
     @pytest.mark.asyncio
-    async def test_one_virtual_type_failure_still_lists_the_other(self, library, fake_romm_api):
-        """AC1 fail-open: a single failing virtual type never drops the other type's collections."""
+    async def test_one_virtual_type_failure_fails_the_build(self, library, fake_romm_api):
+        """One failing virtual type fails the build even though the other type answers."""
         _wire_fake(library, fake_romm_api)
         library.settings["enabled_platforms"] = {}
         library.settings["enabled_collections"] = {
@@ -253,10 +253,8 @@ class TestBuildWorkQueueErrorPaths:
             "franchise": RuntimeError("franchise endpoint down"),
         }
 
-        units = await library.sync._fetcher.build_work_queue()
-
-        assert [u.name for u in units] == ["Series One"]
-        assert [u.collection_kind for u in units] == ["virtual"]
+        with pytest.raises(RuntimeError, match="franchise endpoint down"):
+            await library.sync._fetcher.build_work_queue()
 
     @pytest.mark.asyncio
     async def test_virtual_type_threads_onto_work_units(self, library, fake_romm_api):
@@ -283,8 +281,8 @@ class TestBuildWorkQueueErrorPaths:
         assert by_name["Faves"].virtual_type is None
 
     @pytest.mark.asyncio
-    async def test_smart_collection_list_failure_continues_with_empty(self, library, fake_romm_api):
-        """Smart-collection fetch raises => warning logged, treated as empty."""
+    async def test_smart_collection_list_failure_fails_the_build(self, library, fake_romm_api):
+        """A failed smart listing raises instead of reading as no collections."""
         _wire_fake(library, fake_romm_api)
         library.settings["enabled_platforms"] = {}
         library.settings["enabled_collections"] = {
@@ -296,9 +294,82 @@ class TestBuildWorkQueueErrorPaths:
         fake_romm_api.collections = [{"id": "7", "name": "Faves", "slug": "faves", "rom_count": 4}]
         fake_romm_api.list_smart_collections_side_effect = RuntimeError("smart collections boom")
 
+        with pytest.raises(RuntimeError, match="smart collections boom"):
+            await library.sync._fetcher.build_work_queue()
+
+    @pytest.mark.parametrize(
+        ("kind", "listing"),
+        [
+            ("standard", "list_collections"),
+            ("smart", "list_smart_collections"),
+            ("virtual", "list_virtual_collections"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_kind_with_no_enabled_id_is_never_listed(self, library, fake_romm_api, kind, listing):
+        """A kind the user syncs nothing of is not listed, so its listing failing cannot fail the build."""
+        _wire_fake(library, fake_romm_api)
+        library.settings["enabled_platforms"] = {}
+        # Every kind has an enabled collection except *kind*, whose only id is off.
+        enabled = {"standard": {"7": True}, "smart": {"5": True}, "virtual": {"fr-1": True}}
+        enabled[kind] = {next(iter(enabled[kind])): False}
+        library.settings["enabled_collections"] = enabled
+        fake_romm_api.collections = [{"id": "7", "name": "Faves", "slug": "faves", "rom_count": 4}]
+        fake_romm_api.smart_collections = [{"id": "5", "name": "Recent", "slug": "recent", "rom_count": 2}]
+        fake_romm_api.virtual_collections = {
+            "franchise": [{"id": "fr-1", "name": "Series", "slug": "series", "rom_count": 3}],
+        }
+        boom = RuntimeError(f"{listing} boom")
+        fake_romm_api.list_collections_side_effect = boom if kind == "standard" else None
+        fake_romm_api.list_smart_collections_side_effect = boom if kind == "smart" else None
+        fake_romm_api.list_virtual_collections_side_effect = boom if kind == "virtual" else None
+
         units = await library.sync._fetcher.build_work_queue()
 
-        assert [u.name for u in units] == ["Faves"]
+        assert {u.collection_kind for u in units} == {"standard", "smart", "virtual"} - {kind}
+        assert listing not in {name for name, _args, _kwargs in fake_romm_api.call_log}
+
+    @pytest.mark.asyncio
+    async def test_a_virtual_type_with_no_enabled_id_is_never_listed(self, library, fake_romm_api):
+        """Only the virtual types the enabled ids encode are listed, so another type failing cannot fail the build."""
+        _wire_fake(library, fake_romm_api)
+        series_id = base64.urlsafe_b64encode(json.dumps({"name": "Halo", "type": "collection"}).encode()).decode()
+        library.settings["enabled_platforms"] = {}
+        library.settings["enabled_collections"] = {"standard": {}, "smart": {}, "virtual": {series_id: True}}
+        fake_romm_api.virtual_collections = {
+            "collection": [{"id": series_id, "name": "Halo", "slug": "halo", "rom_count": 2}],
+        }
+        fake_romm_api.list_virtual_collections_side_effect_by_type = {
+            "franchise": RuntimeError("franchise endpoint down"),
+        }
+
+        units = await library.sync._fetcher.build_work_queue()
+
+        assert [(u.name, u.virtual_type) for u in units] == [("Halo", "collection")]
+        listed = [args for name, args, _kwargs in fake_romm_api.call_log if name == "list_virtual_collections"]
+        assert listed == [("collection",)]
+
+    @pytest.mark.parametrize(
+        ("kind", "failing_listing", "label"),
+        [
+            ("standard", "list_collections_side_effect", "standard"),
+            ("smart", "list_smart_collections_side_effect", "smart"),
+            ("virtual", "list_virtual_collections_side_effect", "franchise"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_log_names_the_listing_that_failed(
+        self, library, fake_romm_api, caplog, kind, failing_listing, label
+    ):
+        _wire_fake(library, fake_romm_api)
+        library.settings["enabled_platforms"] = {}
+        library.settings["enabled_collections"] = {kind: {"7": True}}
+        setattr(fake_romm_api, failing_listing, RuntimeError("Connection refused"))
+
+        with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError):
+            await library.sync._fetcher.build_work_queue()
+
+        assert f"Failed to list {label} collections for the work queue: Connection refused" in caplog.text
 
     @pytest.mark.asyncio
     async def test_skips_disabled_collections_in_all_buckets(self, library, fake_romm_api):
@@ -361,6 +432,25 @@ class TestGetCollectionsVirtualFailOpen:
         assert by_id["vc-1"]["is_own"] is True
         # ...and the failed franchise type contributes nothing (no franchise-typed row).
         assert not [c for c in result["collections"] if c.get("virtual_type") == "franchise"]
+
+
+class TestGetCollectionsMalformedListing:
+    @pytest.mark.asyncio
+    async def test_a_standard_listing_that_is_not_a_list_fails_the_call(self, library):
+        """The adapter raises on a non-list answer, and the standard listing's failure fails the whole call."""
+        from adapters.romm.romm_api import RommApiAdapter
+
+        client = MagicMock()
+        client.request.side_effect = lambda path: {"detail": "not a list"} if path == "/api/collections" else []
+        library.sync._fetcher._romm_api = RommApiAdapter(client)
+
+        result = await library.sync._fetcher.get_collections()
+
+        assert result == {
+            "success": False,
+            "reason": "server_unreachable",
+            "message": "Unexpected response from /api/collections: dict",
+        }
 
 
 class TestSaveCollectionsSync:

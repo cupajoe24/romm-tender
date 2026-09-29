@@ -379,6 +379,11 @@ away with the next change that works there.
 
 If the collection list cannot be read, the pane shows what went wrong. Leave the tab and come back to try again.
 
+If you have switched on any collection of a kind and RomM cannot list that kind, the sync stops with an error before it
+changes anything in Steam, rather than reading the kind as empty and removing the games only its collections brought in.
+A collection deleted in RomM is different: it is missing from a list RomM did give, so the sync removes its Steam
+collection, and the games only it brought in, as usual.
+
 The **Show collection games in platform groups** setting — whether games pulled in via a collection also get added to
 their platform's Steam group — lives on the **Settings** page under **Steam Library**, alongside the preferred-region
 preference. It applies to every sync, so it sits with the other set-and-forget preferences rather than on this tab.
