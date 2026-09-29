@@ -147,14 +147,14 @@ locally with `mise run docs`.
 
 - **No Decky Dependency**: Do not assume Decky Loader is installed, running, or required. Tender's backend runs as a
   standalone daemon (`backend/main.py`), binds loopback, and injects the panel directly into Steam's `SharedJSContext`
-  via the CEF debugging port (`8080` by default; see `docs/architecture/loading-the-panel.md` for the fallback and the
-  override) — `dist/globals.js` then `dist/index.js`, or `dist/index-coexistence.js` alone where Decky is serving.
-  Deployments, startup instructions, and runtime checks must target this standalone architecture.
+  via the CEF debugging port (`8080`, always, for anything running on the device) — `dist/globals.js` then
+  `dist/index.js`, or `dist/index-coexistence.js` alone where Decky is serving. Deployments, startup instructions, and
+  runtime checks must target this standalone architecture.
 - **Steam UI Probing**: Never attempt autonomous, blind, or automated headless scraping of the Steam UI or CEF DOM
   structure. When investigating Steam UI elements (e.g. play buttons, overview panels, class name hashes, popup
-  windows), **always ask the user for the Steam DevTools inspector URL** (`http://<ip>:8080/devtools/...` or
-  `http://<ip>:8081/devtools/...`). Asking the user is faster, avoids context races, and provides immediate, reliable
-  DOM access.
+  windows), **always ask the user for the Steam DevTools inspector URL** (`http://<ip>:8081/devtools/...` from another
+  machine; `http://localhost:8080/devtools/...` on the device itself). Asking the user is faster, avoids context races,
+  and provides immediate, reliable DOM access.
 - **Desktop DOM adaptation pass order & Hero Parallax** (dev build only): In desktop `reinject()`, continuous DOM
   adaptations (hero wrapper visible overflow preservation for 3D parallax/refraction, native badge hiding, duplicate
   sticky suppression, right controls margin alignment) MUST run before the `existingSubstitute` early-return guard.
