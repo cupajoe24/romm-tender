@@ -393,6 +393,20 @@ class TestRegistryPlatformsReachableCount:
         assert entry["reachable_count"] == 1
 
     @pytest.mark.asyncio
+    async def test_a_revoked_stamp_still_rules_out_what_its_fetch_did_not_return(self, library):
+        """A revoked skip says nothing about what RomM served, so the exclusion stands."""
+        uow = library.uow
+        _seed_rom(uow, 10, app_id=1001, platform_slug="dc", group_key="igdb:1:2")
+        _seed_rom(uow, 11, app_id=None, platform_slug="dc", group_key="igdb:1:2")
+        _stamp_fetch(uow, "dc", rom_count=2, fetch_id="fetch-1", seen=[10, 11])
+        _stamp_fetch(uow, "dc", rom_count=1, fetch_id="fetch-2", seen=[10])
+        with uow:
+            uow.platform_sync_state.revoke_skip("dc")
+
+        entry = library.sync.get_registry_platforms()["platforms"][0]
+        assert entry["reachable_count"] == 1
+
+    @pytest.mark.asyncio
     async def test_a_group_still_reaches_its_survivors_when_the_binding_vanished(self, library):
         """The exclusion is from the COUNT, never from the grouping.
 
@@ -1651,6 +1665,19 @@ class TestGetSyncStatsResumeInputs:
         assert stats["has_completion_stamp"] is True
 
     @pytest.mark.asyncio
+    async def test_a_platform_stamp_whose_skip_was_revoked_is_no_resume(self, library):
+        """The next run full-fetches that platform, so the stamp saves it nothing."""
+        uow = library.uow
+        _seed_rom(uow, 10, app_id=1001, platform_slug="n64")
+        _stamp_platform(uow, "n64")
+        with uow:
+            uow.platform_sync_state.revoke_skip("n64")
+
+        stats = library.sync.get_sync_stats()
+        assert stats["roms"] == 1
+        assert stats["has_completion_stamp"] is False
+
+    @pytest.mark.asyncio
     async def test_the_stamp_flag_follows_a_dropped_stamp(self, library):
         """Read live, not cached — an apply-start clear shows up at once."""
         uow = library.uow
@@ -1712,6 +1739,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         collections_events = [c for c in emit.call_args_list if c[0][0] == "sync_collections"]
@@ -1739,6 +1767,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
         )
 
         collections_events = [c for c in emit.call_args_list if c[0][0] == "sync_collections"]
@@ -1763,6 +1792,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1785,6 +1815,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1811,6 +1842,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1832,6 +1864,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1858,6 +1891,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1883,6 +1917,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1911,6 +1946,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1939,6 +1975,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1967,6 +2004,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -1988,6 +2026,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2015,6 +2054,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2042,6 +2082,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2072,6 +2113,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids=set(range(1, 8)),
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2094,6 +2136,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2118,6 +2161,7 @@ class TestFinalizePerUnitRun:
             },
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2139,6 +2183,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1, 2},
             platform_names={"a": "Retro", "b": "retro"},
+            processed_platform_slugs={"a", "b"},
         )
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
@@ -2319,6 +2364,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids=set(),
             platform_names={},
+            processed_platform_slugs=set(),
         )
 
         assert library.sync._sync_state == SyncState.RUNNING
@@ -2337,6 +2383,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
             stale_rom_ids=[2, 3],
         )
 
@@ -2361,6 +2408,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1, 2},
             platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64", "snes"},
             stale_rom_ids=[2],
         )
 
@@ -2382,6 +2430,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
             stale_rom_ids=[2, 5, 99],  # 2 bound, 5 already unbound, 99 missing
         )
 
@@ -2407,11 +2456,108 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1, 2},
             platform_names={},
+            processed_platform_slugs=set(),
         )
 
         with uow:
             assert uow.roms.get(1).shortcut_app_id == 1001
             assert uow.roms.get(2).shortcut_app_id == 1002
+
+    @pytest.mark.asyncio
+    async def test_stale_unbind_revokes_the_skip_of_a_platform_the_run_did_not_process(self, library, emit):
+        uow = library.uow
+        _seed_rom(uow, 1, app_id=1001, platform_slug="n64", name="A")
+        _seed_rom(uow, 2, app_id=1002, platform_slug="snes", name="B")
+        _stamp_fetch(uow, "n64", rom_count=1, fetch_id="run-1", seen=[1])
+        _stamp_fetch(uow, "snes", rom_count=1, fetch_id="run-0", seen=[2])
+
+        await library.sync._reporter.finalize_per_unit_run(
+            pending_collection_memberships={},
+            pending_platform_rom_ids={1},
+            platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
+            stale_rom_ids=[2],
+        )
+
+        with uow:
+            assert uow.roms.get(2).shortcut_app_id is None
+            snes = uow.platform_sync_state.get("snes")
+            n64 = uow.platform_sync_state.get("n64")
+        assert snes is not None
+        assert (snes.fetch_id, snes.skip_revoked) == ("run-0", True)
+        assert n64 is not None
+        assert n64.skip_revoked is False
+
+    @pytest.mark.asyncio
+    async def test_stale_unbind_leaves_the_skip_of_a_platform_the_run_processed(self, library, emit):
+        """A row RomM dropped goes stale on a platform the run fetched and stamped."""
+        uow = library.uow
+        _seed_rom(uow, 1, app_id=1001, platform_slug="n64", name="A")
+        _seed_rom(uow, 2, app_id=1002, platform_slug="n64", name="Dropped")
+        _stamp_fetch(uow, "n64", rom_count=1, fetch_id="run-1", seen=[1])
+
+        await library.sync._reporter.finalize_per_unit_run(
+            pending_collection_memberships={},
+            pending_platform_rom_ids={1},
+            platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
+            stale_rom_ids=[2],
+        )
+
+        with uow:
+            assert uow.roms.get(2).shortcut_app_id is None
+            stamp = uow.platform_sync_state.get("n64")
+        assert stamp is not None
+        assert (stamp.fetch_id, stamp.skip_revoked) == ("run-1", False)
+
+    @pytest.mark.asyncio
+    async def test_a_platform_the_run_did_not_process_keeps_its_skip_when_nothing_on_it_is_unbound(self, library, emit):
+        uow = library.uow
+        _seed_rom(uow, 1, app_id=1001, platform_slug="n64", name="A")
+        _seed_rom(uow, 5, app_id=None, platform_slug="snes", name="Already unbound")
+        _seed_rom(uow, 6, app_id=1006, platform_slug="gba", name="Not stale")
+        _stamp_fetch(uow, "n64", rom_count=1, fetch_id="run-1", seen=[1])
+        _stamp_fetch(uow, "snes", rom_count=1, fetch_id="run-0", seen=[5])
+        _stamp_fetch(uow, "gba", rom_count=1, fetch_id="run-0", seen=[6])
+
+        await library.sync._reporter.finalize_per_unit_run(
+            pending_collection_memberships={},
+            pending_platform_rom_ids={1},
+            platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
+            stale_rom_ids=[5],
+        )
+
+        with uow:
+            snes = uow.platform_sync_state.get("snes")
+            gba = uow.platform_sync_state.get("gba")
+            assert uow.roms.get(6).shortcut_app_id == 1006
+        assert snes is not None
+        assert snes.skip_revoked is False
+        assert gba is not None
+        assert gba.skip_revoked is False
+
+    @pytest.mark.asyncio
+    async def test_the_processed_platforms_are_the_ones_named_as_processed(self, library, emit):
+        """The display-name cache may name a platform the run did not process; only the processed set decides."""
+        uow = library.uow
+        _seed_rom(uow, 1, app_id=1001, platform_slug="n64", name="A")
+        _seed_rom(uow, 2, app_id=1002, platform_slug="snes", name="B")
+        _stamp_fetch(uow, "n64", rom_count=1, fetch_id="run-1", seen=[1])
+        _stamp_fetch(uow, "snes", rom_count=1, fetch_id="run-0", seen=[2])
+
+        await library.sync._reporter.finalize_per_unit_run(
+            pending_collection_memberships={},
+            pending_platform_rom_ids={1},
+            platform_names={"n64": "Nintendo 64", "snes": "Super Nintendo"},
+            processed_platform_slugs={"n64"},
+            stale_rom_ids=[2],
+        )
+
+        with uow:
+            snes = uow.platform_sync_state.get("snes")
+        assert snes is not None
+        assert snes.skip_revoked is True
 
     @pytest.mark.asyncio
     async def test_get_sync_stats_reflects_unbound_count(self, library, emit):
@@ -2432,6 +2578,7 @@ class TestFinalizePerUnitRun:
             pending_collection_memberships={},
             pending_platform_rom_ids={1},
             platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
             stale_rom_ids=[2, 3],
         )
 
