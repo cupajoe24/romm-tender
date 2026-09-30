@@ -388,6 +388,148 @@ class TestSyncPreview:
         assert library.sync._sync_state == SyncState.IDLE
 
 
+class TestPreviewCollectionDiff:
+    """The preview's collection diffs compare the Steam collections' name-parts on both sides.
+
+    The last completed run records the keys the reporter built, so the preview's
+    current set has to be built the same way — under ``by_label`` a smart or
+    virtual collection's key carries its type label — and folded the same way.
+    """
+
+    @staticmethod
+    def _seed_three_kinds(library, fake_romm_api):
+        """Enable a standard, a smart and a franchise collection, one game each."""
+        _use_fake_romm(library, fake_romm_api)
+        for rid in (20, 21, 22):
+            fake_romm_api.roms[rid] = {
+                "id": rid,
+                "name": f"Game {rid}",
+                "fs_name": f"g{rid}.gba",
+                "platform_id": 2,
+                "platform_name": "GBA",
+                "platform_slug": "gba",
+            }
+        _seed_collection(fake_romm_api, collection_id=7, name="Favorites", rom_ids=[20], is_favorite=True)
+        fake_romm_api.smart_collections = [{"id": 5, "name": "Filter", "rom_count": 1}]
+        fake_romm_api.roms[21]["smart_collection_ids"] = [5]
+        _seed_collection(
+            fake_romm_api,
+            collection_id="9",
+            name="Metroid",
+            rom_ids=[22],
+            is_virtual=True,
+            virtual_category="franchise",
+        )
+        library.settings["enabled_platforms"] = {}
+        library.settings["enabled_collections"] = {
+            "standard": {"7": True},
+            "smart": {"5": True},
+            "virtual": {"9": True},
+        }
+
+    @pytest.mark.asyncio
+    async def test_by_label_unchanged_collections_show_no_diff(self, library, fake_romm_api):
+        self._seed_three_kinds(library, fake_romm_api)
+        library.settings["collection_naming_mode"] = "by_label"
+        _seed_completed_run(
+            library, at="2026-01-01T00:00:00", collections=["Favorites", "Filter (Smart)", "Metroid (Franchise)"]
+        )
+
+        result = await library.sync.sync_preview()
+
+        assert result["success"] is True
+        diff = result["summary"]["collection_diff"]
+        assert diff["added"] == []
+        assert diff["removed"] == []
+
+    @pytest.mark.asyncio
+    async def test_merge_unchanged_collections_show_no_diff(self, library, fake_romm_api):
+        self._seed_three_kinds(library, fake_romm_api)
+        library.settings["collection_naming_mode"] = "merge"
+        _seed_completed_run(library, at="2026-01-01T00:00:00", collections=["Favorites", "Filter", "Metroid"])
+
+        result = await library.sync.sync_preview()
+
+        diff = result["summary"]["collection_diff"]
+        assert diff["added"] == []
+        assert diff["removed"] == []
+
+    @pytest.mark.asyncio
+    async def test_by_label_a_real_change_shows_under_the_steam_names(self, library, fake_romm_api):
+        self._seed_three_kinds(library, fake_romm_api)
+        library.settings["collection_naming_mode"] = "by_label"
+        _seed_completed_run(
+            library, at="2026-01-01T00:00:00", collections=["Favorites", "Metroid (Franchise)", "Gone (Smart)"]
+        )
+
+        result = await library.sync.sync_preview()
+
+        diff = result["summary"]["collection_diff"]
+        assert diff["added"] == ["Filter (Smart)"]
+        assert diff["removed"] == ["Gone (Smart)"]
+
+    @pytest.mark.asyncio
+    async def test_switching_the_naming_mode_shows_the_renamed_collections(self, library, fake_romm_api):
+        """A mode switch renames the labelled kinds' Steam collections, so they read as added and removed.
+
+        A standard collection's Steam name is the same in both modes and stays out of the diff.
+        """
+        self._seed_three_kinds(library, fake_romm_api)
+        library.settings["collection_naming_mode"] = "by_label"
+        _seed_completed_run(library, at="2026-01-01T00:00:00", collections=["Favorites", "Filter", "Metroid"])
+
+        result = await library.sync.sync_preview()
+
+        diff = result["summary"]["collection_diff"]
+        assert diff["added"] == ["Filter (Smart)", "Metroid (Franchise)"]
+        assert diff["removed"] == ["Filter", "Metroid"]
+
+    @pytest.mark.asyncio
+    async def test_collections_differing_only_in_case_match_their_one_recorded_name(self, library, fake_romm_api):
+        """The reporter merges the two into one Steam collection and records one spelling of it."""
+        _use_fake_romm(library, fake_romm_api)
+        for rid in (20, 21):
+            fake_romm_api.roms[rid] = {
+                "id": rid,
+                "name": f"Game {rid}",
+                "fs_name": f"g{rid}.gba",
+                "platform_id": 2,
+                "platform_name": "GBA",
+                "platform_slug": "gba",
+            }
+        _seed_collection(fake_romm_api, collection_id=7, name="7 up", rom_ids=[20])
+        _seed_collection(fake_romm_api, collection_id=8, name="7 Up", rom_ids=[21])
+        library.settings["enabled_platforms"] = {}
+        library.settings["enabled_collections"] = {"standard": {"7": True, "8": True}}
+        _seed_completed_run(library, at="2026-01-01T00:00:00", collections=["7 up"])
+
+        result = await library.sync.sync_preview()
+
+        diff = result["summary"]["collection_diff"]
+        assert diff["added"] == []
+        assert diff["removed"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_platform_name_whose_case_changed_is_no_platform_collection_change(self, library, fake_romm_api):
+        """Steam's collection identity ignores case, so the platform's Steam collection stays the same one."""
+        _use_fake_romm(library, fake_romm_api)
+        _seed_platform(
+            fake_romm_api,
+            platform_id=1,
+            name="Nintendo 64",
+            slug="n64",
+            roms=[{"id": 1, "name": "Game A", "fs_name": "a.z64"}],
+        )
+        library.settings["enabled_platforms"] = {"1": True}
+        _seed_rom_row(library, 1, app_id=1001, platform_slug="n64", name="Game A", fs_name="a.z64")
+        _seed_completed_run(library, at="2026-01-01T00:00:00", platforms=["NINTENDO 64"])
+
+        result = await library.sync.sync_preview()
+
+        diff = result["summary"]["platform_collection_diff"]
+        assert diff == {"has_changes": False, "added_count": 0, "removed_count": 0}
+
+
 class TestPreviewCoverRefreshCount:
     """The preview's cover-only work count (#1386 flow gap).
 

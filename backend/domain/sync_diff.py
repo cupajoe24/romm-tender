@@ -12,9 +12,12 @@ slices as primitive parameters and returns primitives or NamedTuple results.
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from domain.sibling_resolution import AUTO_REGION, canonical_group_name, resolve_group_representative
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # Marker key a rebind entry carries so the per-unit commit moves the DB binding
 # from the vanished bound sibling (the entry's ``rom_id``, kept so the frontend
@@ -377,26 +380,46 @@ def compute_collection_diff(
     current_collection_names: set[str],
     last_synced_collections: list[str],
 ) -> dict[str, Any]:
-    """Diff enabled collections (by name) against the last-synced set.
+    """Diff enabled collections (by Steam-collection key) against the last-synced set.
 
-    ``current_collection_names`` is the set of DISTINCT display names present in
-    this run's collection accumulator — a name counts as present iff at least one
-    collection carries it, so two same-named collections (RomM permits them across
-    kinds/users, #1503) collapse to one entry, matching the by-name Steam
-    collection they merge into. Returns
-    ``{"has_changes": bool, "added": [...], "removed": [...]}``; ``has_changes`` is
-    True if there are any added/removed collections, or if there are any current
-    collections at all (covers first-sync case).
+    ``current_collection_names`` is the set of DISTINCT keys
+    (:func:`domain.collection_label.steam_collection_key`, the name-part of each
+    Steam collection) of this run's collection accumulator — a key counts as
+    present iff at least one collection carries it, so two collections sharing
+    one (RomM permits same-named ones across kinds/users, #1503) collapse to one
+    entry, matching the by-name Steam collection they merge into.
+    ``last_synced_collections`` is the last completed run's record of the same
+    keys. The reporter records no key for a collection none of whose members
+    resolved to a Steam appId, so such a collection reads as added.
+
+    Names are compared **case-insensitively** (``str.casefold``), because Steam's
+    collection identity ignores case: the reporter merges keys that differ only in
+    case into one Steam collection and records one spelling of it. So a change of
+    case alone is no change, and case variants on one side count once. An added
+    name is spelled as the current side has it and a removed one as the record
+    has it; of several variants on one side the sorted-first spelling is listed.
+
+    Returns ``{"has_changes": bool, "added": [...], "removed": [...]}``;
+    ``has_changes`` is True if there are any added/removed collections, or if
+    there are any current collections at all (covers first-sync case).
     """
-    current = current_collection_names
-    previous = set(last_synced_collections)
-    added = sorted(current - previous)
-    removed = sorted(previous - current)
+    current = _spelling_by_fold(current_collection_names)
+    previous = _spelling_by_fold(last_synced_collections)
+    added = sorted(name for fold, name in current.items() if fold not in previous)
+    removed = sorted(name for fold, name in previous.items() if fold not in current)
     return {
         "has_changes": bool(added or removed or current),
         "added": added,
         "removed": removed,
     }
+
+
+def _spelling_by_fold(names: Iterable[str]) -> dict[str, str]:
+    """Map each case-folded name to its sorted-first spelling among *names*."""
+    spelling: dict[str, str] = {}
+    for name in sorted(names):
+        spelling.setdefault(name.casefold(), name)
+    return spelling
 
 
 def should_include_in_platform_collection(
@@ -428,7 +451,9 @@ def compute_platform_collection_diff(
 
     Returns ``{"has_changes": bool, "added_count": int, "removed_count": int}``.
     Uses ``should_include_in_platform_collection`` to decide which ROMs
-    qualify under the current ``create_platform_groups`` setting.
+    qualify under the current ``create_platform_groups`` setting. Platform
+    names are compared case-insensitively, for the reason
+    :func:`compute_collection_diff` gives.
 
     A rebind entry (see :func:`_rebind_entry`) is keyed to the vanished bound
     ``rom_id`` so the frontend reuses its existing shortcut, but that id is never
@@ -447,11 +472,12 @@ def compute_platform_collection_diff(
             if pname:
                 future_platforms.add(pname)
 
-    current_platforms = set(last_synced_platforms)
-    added = sorted(future_platforms - current_platforms)
-    removed = sorted(current_platforms - future_platforms)
+    future = _spelling_by_fold(future_platforms).keys()
+    previous = _spelling_by_fold(last_synced_platforms).keys()
+    added_count = len(future - previous)
+    removed_count = len(previous - future)
     return {
-        "has_changes": bool(added or removed),
-        "added_count": len(added),
-        "removed_count": len(removed),
+        "has_changes": bool(added_count or removed_count),
+        "added_count": added_count,
+        "removed_count": removed_count,
     }

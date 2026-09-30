@@ -402,9 +402,9 @@ the safe behavior on a partial/cancelled run is to delete nothing.
 
 The `romm_collection_app_ids` wire payload is `name → appIds` **only** — kind/virtual_type are collapsed away before the
 frontend sees them, and the frontend simply wraps each key as `RomM: [<key>] (<hostname>)`. So the Steam-collection name
-is decided **entirely by the reporter's dict key**, computed backend-side in
-`SyncReporter._resolve_collection_memberships` (`services/library/reporter.py`) from the `collection_naming_mode`
-setting:
+is decided **entirely by the reporter's dict key**, which `SyncReporter._resolve_collection_memberships`
+(`services/library/reporter.py`) takes from `domain/collection_label.py::steam_collection_key` under the
+`collection_naming_mode` setting:
 
 - **`merge`** (default) — the key is the bare collection display name. Same-named RomM collections of any kind union
   into one `RomM: [<name>]` Steam collection (RomM permits same-named collections across kinds/users, #1503).
@@ -449,17 +449,29 @@ invalidation is involved (same mechanism owner-scope reshaping uses). A change t
 sync that reaches the collection creates it under its new name, and the first sync that finishes in full (its
 `sync_complete` carries no `cancelled`) deletes the old one — a new Steam collection, not the old one renamed.
 
+**The preview names collections by the same key.** A completed run records the reporter's keys as its
+`collections_completed`, and the preview's `collection_diff` builds its current set with the same
+`steam_collection_key`, so an unchanged set of Steam collections shows no collection change in either mode, and the
+Added and Removed names the Sync page lists are those keys, the name-part of each Steam collection (`Filter (Smart)`
+under `by_label`). It compares them without regard to case ("Name identity is case-insensitive", below). A mode flip is
+a real rename: the preview lists each labelled collection's new name as added and its old name as removed, except a name
+another collection already carries on that side; this holds until a run completes. Under `by_label` the same holds for a
+standard collection over a run recorded while standard collections still carried a `(Standard)` label.
+
 **Name identity is case-insensitive (#1569).** Steam collapses collection names by a **case-insensitive** identity — two
 collections whose display names differ only in case (`RomM: [7 up]` vs `RomM: [7 Up]`) are the same Steam collection, so
-creating the second silently overwrites the first and loses its games. To match, collection **and** platform name
-identity is treated case-insensitively **everywhere** the plugin compares names: the reporter groups both
+creating the second silently overwrites the first and loses its games. To match, the plugin compares collection **and**
+platform names case-insensitively wherever it asks whether two names are one Steam collection: the reporter groups both
 `romm_collection_app_ids` and `platform_app_ids` by a case-folded key (`str.casefold()`), keeping the first-seen
 original casing for display (which exact casing wins is irrelevant — Steam uppercases collection names anyway); the
-frontend create/find (`createOrUpdateCollections` / `createOrUpdateRomMCollections`), the cleanup matchers
-(`clearPlatformCollection` / `clearAllRomMCollections`), and the `onSyncComplete` stale-delete comparisons all match by
-`toLowerCase()`. This is always safe precisely because Steam's identity is case-insensitive: two collections differing
-only by case can never coexist, so there is never an ambiguous match to disambiguate. The DB is unaffected —
-`collection_sync_state` is keyed by `(collection_id, collection_kind)`, never by name — so there is no migration.
+preview's `collection_diff` and `platform_collection_diff` compare case-folded names the same way; the frontend
+create/find (`createOrUpdateCollections` / `createOrUpdateRomMCollections`) and the cleanup matchers
+(`clearPlatformCollection` / `clearAllRomMCollections`) match by `toLowerCase()`; and the `onSyncComplete` stale-delete
+(`removeStaleCollections`, `frontend/src/index.tsx`) matches the platform or collection name by `toLowerCase()`, while
+its `RomM:` prefix and host-suffix checks are exact. This is always safe precisely because Steam's identity is
+case-insensitive: two collections differing only by case can never coexist, so there is never an ambiguous match to
+disambiguate. The DB is unaffected — `collection_sync_state` is keyed by `(collection_id, collection_kind)`, never by
+name — so there is no migration.
 
 ## App IDs and Artwork
 
