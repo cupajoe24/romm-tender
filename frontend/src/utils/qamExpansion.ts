@@ -10,8 +10,7 @@
  * The flag the first lever sets is Steam's own and global, so whoever sets it
  * clears it: a wide page that leaks it leaves Steam's QAM expanded until the
  * Friends tab toggles it back. `useWideQamPanel` covers the three paths a
- * mounted page can observe. `collapseQamOnDismount` was the fourth, reached
- * from Decky's teardown hook; nothing calls it now.
+ * mounted page can observe.
  *
  * The injected sheet carries two rules that are not about width: a focus
  * outline for a DISABLED button, which Steam's own stylesheet omits, and a
@@ -154,17 +153,6 @@ function expandWidePanel(root: HTMLElement): void {
   style.textContent = WIDE_PANEL_CSS;
   doc.head.appendChild(style);
   injectedStyle = style;
-}
-
-/**
- * Collapse the panel from outside React's own cleanup.
- *
- * Written for Decky's `onDismount`, which has no caller behind Tender's own
- * Quick Access entry. Kept because the flag it clears is Steam's and global,
- * so a lever that reaches it without a mounted component is worth having.
- */
-export function collapseQamOnDismount(): void {
-  collapseWidePanel();
 }
 
 /**

@@ -167,12 +167,12 @@ describe("useWideQamPanel", () => {
     const panelDoc = document.implementation.createHTMLDocument("qam");
     const { host } = mountQamDom("panel", panelDoc);
 
-    renderWidePage(mod, host);
+    const { unmount } = renderWidePage(mod, host);
 
     expect(wideStyles(mod.WIDE_ROOT_CLASS, panelDoc)).toHaveLength(1);
     expect(wideStyles(mod.WIDE_ROOT_CLASS)).toHaveLength(0);
 
-    mod.collapseQamOnDismount();
+    unmount();
 
     expect(wideStyles(mod.WIDE_ROOT_CLASS, panelDoc)).toHaveLength(0);
   });
@@ -194,25 +194,15 @@ describe("useWideQamPanel", () => {
     expect(lastMessage()).toBe("QamFriendsHidden");
   });
 
-  it("posts nothing from dismount when no wide page took the panel", async () => {
-    const mod = await loadQamExpansion(PROBE_CLASSES);
-
-    // The flag is Steam's own: an unconditional hide would retract a Friends
-    // panel the user opened, and the frame has no consumer yet, so every plugin
-    // dismount would do exactly that.
-    mod.collapseQamOnDismount();
-
-    expect(post).not.toHaveBeenCalled();
-  });
-
   it("never expands when the page mounts under an inactive Decky tab", async () => {
     const mod = await loadQamExpansion(PROBE_CLASSES);
     const { host, panelParent } = mountQamDom();
     panelParent.classList.remove(ACTIVE_TAB_CLASS);
 
-    // The plugin's panel renders on while another QAM tab is active
-    // (`alwaysRender`), so a wide page can mount here. Expanding and retracting
-    // across two renders would flash Steam's own panel open.
+    // A panel can render on while another QAM tab is active — Steam's tab group
+    // decides whether an unselected panel stays mounted — so a wide page can
+    // mount here. Expanding and retracting across two renders would flash
+    // Steam's own panel open.
     renderWidePage(mod, host);
 
     expect(post).not.toHaveBeenCalled();
@@ -236,7 +226,9 @@ describe("useWideQamPanel", () => {
     renderWidePage(mod, host);
 
     // A QAM tab switch is a class change on the panel's parent, not an unmount:
-    // the plugin's panel renders on (`alwaysRender`), so only the observer sees it.
+    // a panel can render on while another QAM tab is active — Steam's tab group
+    // decides whether an unselected panel stays mounted — so only the observer
+    // sees it.
     await act(async () => {
       panelParent.classList.remove(ACTIVE_TAB_CLASS);
     });
@@ -261,17 +253,6 @@ describe("useWideQamPanel", () => {
       qamVisible = false;
       for (const listener of visibilityListeners) listener();
     });
-
-    expect(lastMessage()).toBe("QamFriendsHidden");
-    expect(wideStyles(mod.WIDE_ROOT_CLASS)).toHaveLength(0);
-  });
-
-  it("clears from the plugin's dismount, where no React cleanup runs", async () => {
-    const mod = await loadQamExpansion(PROBE_CLASSES);
-    const { host } = mountQamDom();
-    renderWidePage(mod, host);
-
-    mod.collapseQamOnDismount();
 
     expect(lastMessage()).toBe("QamFriendsHidden");
     expect(wideStyles(mod.WIDE_ROOT_CLASS)).toHaveLength(0);

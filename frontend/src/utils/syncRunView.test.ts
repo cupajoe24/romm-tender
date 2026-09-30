@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { useSyncRunView } from "./syncRunView";
 import {
@@ -10,7 +10,7 @@ import {
   APPLY_SHARE,
 } from "./syncProgress";
 import { beginEtaRun, liveEtaSeconds, resetEta } from "./syncEta";
-import { attachRunUnitsMirror, recordUnitCreated, resetRunUnitsStoreForTests, seedRunUnits } from "./runUnitsStore";
+import { recordUnitCreated, resetRunUnitsStoreForTests, seedRunUnits } from "./runUnitsStore";
 import type { SyncPlanUnit } from "../types";
 
 function planUnit(name: string): SyncPlanUnit {
@@ -18,19 +18,12 @@ function planUnit(name: string): SyncPlanUnit {
 }
 
 describe("useSyncRunView", () => {
-  let detachMirror: () => void;
-
   beforeEach(() => {
     resetEta();
     resetRunUnitsStoreForTests();
     // Not an idle frame but the whole store: these cases reuse one run id, and a
     // run this store has seen END can never be put back in flight.
     resetSyncProgressStoreForTests();
-    detachMirror = attachRunUnitsMirror();
-  });
-
-  afterEach(() => {
-    detachMirror();
   });
 
   describe("the coarse bar", () => {

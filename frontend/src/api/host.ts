@@ -63,7 +63,7 @@ export interface Toaster {
   toast(toast: ToastData): ToastNotification;
 }
 
-/** What `definePlugin`'s factory answers with — the panel, and its teardown. */
+/** What `definePlugin`'s factory answers with — the panel. */
 export interface Plugin {
   /** The entry's title, which Steam files the panel under. */
   name: string;
@@ -71,23 +71,6 @@ export interface Plugin {
   icon: ReactNode;
   /** Drawn in the panel below the strip. */
   content?: ReactNode;
-  /**
-   * Decky Loader's word for "render this panel even while another tab is
-   * active". **Nothing reads it since the panel stopped being a Decky plugin**:
-   * behind Tender's own entry, whether an unselected tab's panel stays mounted
-   * is Steam's tab group's decision and there is no flag to ask it with. It
-   * stays because it records what a page may still rely on — `qamExpansion.ts`
-   * is written against a panel that can render while its tab is not active —
-   * and deleting it would delete the question with it.
-   */
-  alwaysRender?: boolean;
-  /**
-   * Decky Loader's teardown hook. **Nothing calls it for the same reason**: a
-   * JS-context rebuild is what ends this panel, and it takes the whole context
-   * rather than unloading anything. The panel's own suite calls it to exercise
-   * the teardown paths it registers.
-   */
-  onDismount?(): void;
 }
 
 // -- the connection -----------------------------------------------------------
@@ -133,7 +116,8 @@ export const endpoint =
  * Subscribe to a backend event, and answer with the listener unchanged.
  *
  * Returning it is what lets a caller hand the same reference straight to
- * `removeEventListener`, which is how every teardown in `index.tsx` is written.
+ * `removeEventListener`, which is how a view that subscribes while it is
+ * mounted unsubscribes when it unmounts.
  */
 export const addEventListener = <Payload = unknown>(
   event: string,
