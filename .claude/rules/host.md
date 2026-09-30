@@ -90,7 +90,10 @@ covers stderr and the page, which it does not.
 **The marker is claimed before anything is imported, and kept when the import fails.** `window.__tender_panel__` is the
 whole of how a context says it already carries the panel — a JS-context rebuild wipes it and nothing short of one does —
 so claiming it afterwards lets a second evaluation load the panel twice, and dropping it on failure retries a broken
-bundle into the same context for ever.
+bundle into the same context for ever. It keeps a restarted backend out of that context too
+([the marker](../../docs/architecture/loading-the-panel.md#the-marker)). Pinned in `tests/host/inject/test_bootstrap.py`
+— `TestTheMarker` for the order, `TestWhoseMarkerItIs::test_a_load_that_failed_keeps_the_marker` for two causes of a
+failed load, a refused global and a panel that throws, run under node.
 
 **The load-failure card may not take the machine over.** Whether Steam's controller focus reaches a node appended to its
 document from outside its React tree is not established here, so the card is built so that it does not matter: drawn
