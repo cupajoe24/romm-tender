@@ -287,7 +287,7 @@ class MigrationService:
     def get_retrodeck_status(self) -> dict[str, Any]:
         """Report RetroDECK path-resolution health for the frontend banner.
 
-        Discriminated-status union (Callable response shapes carve-out):
+        Discriminated-status union (Endpoint response shapes carve-out):
         ``status`` carries one of ``ok`` / ``absent`` / ``unreadable`` /
         ``root_missing``. The frontend owns the human-readable copy; the
         backend returns the discriminant plus the probed paths.
@@ -773,7 +773,7 @@ class MigrationService:
         except Exception:
             # The files are already moved. A failed re-record leaves the old
             # records standing, which is what it exists to prevent, but it must
-            # not turn a finished migration into a failed callable.
+            # not turn a finished migration into a failed endpoint call.
             self._logger.exception("Recording the save directories after the home migration failed")
 
     def _record_migration_applied_io(self, items: list[dict[str, Any]]) -> None:

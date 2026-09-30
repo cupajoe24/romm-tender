@@ -299,21 +299,18 @@ Decky's copy carries a name whose value this check never reads.
 
 ## Talking to the backend
 
-`frontend/src/api/host.ts` is what the panel imports for everything `@decky/api` used to give it, under five of the same
-names — `callable`, `addEventListener`, `removeEventListener`, `toaster`, `definePlugin` — so a call site reads the same
-as before. `@decky/api` itself is gone from the package, and so is the sixth name it forwarded: `routerHook` was Decky
-Loader's route installer, and Tender's section reaches Steam's game page through a seam of its own instead
-([below](#tenders-section-on-steams-game-page)).
+`frontend/src/api/host.ts` is the one module the panel imports for what it gets from its host: `endpoint`,
+`addEventListener`, `removeEventListener`, `definePlugin`, `toaster`.
 
-**Three of the five are the wire.** `callable`, `addEventListener` and `removeEventListener` go through
+**Three of them are the wire.** `endpoint`, `addEventListener` and `removeEventListener` go through
 `frontend/src/api/hostSocket.ts`, one WebSocket per bundle instance, on the protocol defined once on the other side in
 `backend/host/protocol.py`. The port and the token are read off the URL this bundle was loaded from: the host mints
 exactly that address, so they arrive with the code that needs them and cannot be stale.
 
 Three properties are worth knowing before changing anything there:
 
-- **A transport failure is thrown, never returned.** `error.reason` names something that went wrong _carrying_ a call; a
-  callable's own failure is a perfectly successful transport and arrives inside `result` as
+- **A transport failure is thrown, never returned.** `error.reason` names something that went wrong _carrying_ a call;
+  an endpoint's own failure is a perfectly successful transport and arrives inside `result` as
   `{success, reason,
   message}`. The frontend keeps them apart by throwing `HostTransportError` for the first, so it
   cannot reach a reader of the second.
@@ -325,14 +322,13 @@ Three properties are worth knowing before changing anything there:
 **A fourth opens no socket and is the one the panel reaches the screen through.** `definePlugin` answers with the
 factory unchanged; `index.tsx` hands that factory to `frontend/src/qam/installEntry.tsx`, which calls it exactly once
 and mounts what it answers with behind Tender's own Quick Access entry ([qam-panel.md](qam-panel.md) → The entry). The
-seam is arranged that way so this module stays the wire and reaches no view — the name is upstream's contract and the
-declaration is all of it that belongs here. Under Decky Loader the call was Decky's; nothing else in the tree makes it,
-so without that line the panel is built for nobody.
+seam is arranged that way so this module stays the wire and reaches no view — the declaration is all of it that belongs
+here. Under Decky Loader the call was Decky's; nothing else in the tree makes it, so without that line the panel is
+built for nobody.
 
-**The fifth reaches Steam instead.** `toaster` was Decky Loader's own, and `@decky/api` only forwarded it, so it needs a
-replacement of Tender's rather than a backend route: `utils/steamToaster.tsx` pushes a notification into Steam's own
-`NotificationStore`, which then owns the popup window and its animation, the queue behind it, the sound, and the entry
-left in the Quick Access notifications tab.
+**The fifth reaches Steam instead.** `toaster` has no host answer, so it is Tender's own rather than a backend route:
+`utils/steamToaster.tsx` pushes a notification into Steam's own `NotificationStore`, which then owns the popup window
+and its animation, the queue behind it, the sound, and the entry left in the Quick Access notifications tab.
 
 The toaster is two halves and the push is useless without the other one. Steam's renderer has no `case` for the type
 these notifications carry; its `default` arm resolves to Steam's server-notification component, which reads fields our

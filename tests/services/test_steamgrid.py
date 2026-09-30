@@ -401,7 +401,8 @@ class TestLogLevel:
 
 
 class TestConflictRulesAtTheUseCase:
-    """Each SteamGridDB use case checks its endpoint's prune rule, and the artwork answer's lease is taken inside it."""
+    """Each SteamGridDB use case checks the prune rule of the endpoint that calls it, and the artwork
+    answer's lease is taken inside it."""
 
     @pytest.mark.asyncio
     async def test_an_image_carries_a_lease_taken_inside_the_use_cases_operation(
@@ -962,7 +963,7 @@ class TestSaveShortcutIcon:
         assert steamgrid.service._save_icon_to_grid(12345, b"data") is None
 
     @pytest.mark.asyncio
-    async def test_save_shortcut_icon_callable_returns_icon_path(self, steamgrid, tmp_path):
+    async def test_save_shortcut_icon_use_case_returns_icon_path(self, steamgrid, tmp_path):
         """save_shortcut_icon decodes base64, writes the PNG, returns its path."""
         import base64
 

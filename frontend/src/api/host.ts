@@ -1,12 +1,10 @@
 /**
- * What the panel used to get from `@decky/api`, from Tender's own host instead.
- *
- * Five names, so no call site changes meaning: `callable`, `addEventListener`,
- * `removeEventListener`, `toaster` and `definePlugin`. Three of them are the
- * wire — they go over the WebSocket in `hostSocket.ts`. **Two of them reach no
- * socket at all**, and they live here anyway because this module replaces one
- * import specifier with another: making the reader distinguish would put two
- * imports at every call site for a distinction the call sites do not have.
+ * The one module the panel imports for what it gets from its host: `endpoint`,
+ * `addEventListener`, `removeEventListener`, `toaster` and `definePlugin`.
+ * Three of them are the wire — they go over the WebSocket in `hostSocket.ts`.
+ * **Two of them reach no socket at all**, and they live here anyway: `index.tsx`
+ * takes both kinds, and splitting the module would give it two imports for a
+ * distinction it does not have.
  *
  * ## The two that are not the wire
  *
@@ -14,10 +12,9 @@
  * opens no socket; it sits beside the three because a call site importing it
  * asks for the same thing the others answer.
  *
- * `toaster` was Decky Loader's own — `@decky/api` only forwarded it
- * (`api.toaster`). There is no host answer for it, so it gets a replacement of
- * Tender's own rather than a backend route: it pushes through Steam's own
- * notification store (`utils/steamToaster.tsx`).
+ * `toaster` has no host answer, so it is Tender's own rather than a backend
+ * route: it pushes through Steam's own notification store
+ * (`utils/steamToaster.tsx`).
  *
  * **It does not reach Decky Loader's API when one is running.** Why, once:
  * `docs/architecture/frontend-bundles.md`.
@@ -25,10 +22,11 @@
  * ## The types
  *
  * Written from what this project's call sites actually require, not copied from
- * upstream's declarations. A copied declaration would carry upstream's licence
- * for no benefit, and a derived one describes what we use rather than what they
- * offer — so when a call site needs a field that is not here, the compiler says
- * so, which is a better conversation than inheriting fields nobody reads.
+ * another library's declarations. A copied declaration would carry that
+ * library's licence for no benefit, and a derived one describes what we use
+ * rather than what it offers — so when a call site needs a field that is not
+ * here, the compiler says so, which is a better conversation than inheriting
+ * fields nobody reads.
  */
 
 import type { ReactNode } from "react";
@@ -44,8 +42,7 @@ export { HostTransportError } from "./hostSocket";
  * What a toast carries.
  *
  * Four fields, because four are passed: `title` and `body` by `showToast`,
- * `subtext` by the cleanup summary, `duration` by the launch prompts. Upstream
- * declares fourteen.
+ * `subtext` by the cleanup summary, `duration` by the launch prompts.
  */
 export interface ToastData {
   title: ReactNode;
@@ -124,10 +121,10 @@ function socket(): HostSocket {
  * Declare one backend method, and answer with a function that calls it.
  *
  * Arguments are positional, which is the wire's shape: a named form would have
- * to agree with every backend callable's parameter names, and those are an
+ * to agree with every endpoint's parameter names, and those are an
  * implementation detail on that side.
  */
-export const callable =
+export const endpoint =
   <Args extends unknown[] = [], Return = void>(route: string) =>
   (...args: Args): Promise<Return> =>
     socket().call(route, args) as Promise<Return>;
@@ -161,8 +158,7 @@ export const removeEventListener = <Payload = unknown>(
  * `index.tsx` hands it to `qam/installEntry.tsx`, which calls it exactly once
  * and mounts what it answers with behind Tender's own Quick Access entry. That
  * seam is where it is so this module stays the wire and reaches no view — the
- * name is upstream's contract and the declaration is all of it that belongs
- * here.
+ * declaration is all of it that belongs here.
  */
 export const definePlugin = (fn: () => Plugin): (() => Plugin) => fn;
 

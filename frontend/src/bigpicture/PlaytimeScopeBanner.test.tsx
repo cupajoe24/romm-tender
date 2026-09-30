@@ -20,8 +20,8 @@ const flushAsync = () =>
 
 /**
  * Minimal harness mirroring MainPage's `{playtimeScope.pending && <Banner/>}`
- * conditional + its mount fetch, so the callable → store → render pipeline is
- * exercised end-to-end without mounting all of MainPage's unrelated callables.
+ * conditional + its mount fetch, so the endpoint → store → render pipeline is
+ * exercised end-to-end without mounting all of MainPage's unrelated endpoints.
  */
 const ScopeBannerHost: FC = () => {
   const [scope, setScope] = useState(getPlaytimeScopeState());
@@ -73,7 +73,7 @@ describe("PlaytimeScopeBanner component", () => {
       await flushAsync();
     });
     // Store flips to not-pending → the MainPage conditional drops the banner.
-    // No backend dismiss callable exists — the click must not have invoked one.
+    // No backend dismiss endpoint exists — the click must not have invoked one.
     expect(getPlaytimeScopeState()).toEqual({ pending: false });
     expect(getPlaytimeScopeNotice).not.toHaveBeenCalled();
   });
@@ -85,14 +85,14 @@ describe("PlaytimeScopeBanner store-driven visibility", () => {
     setPlaytimeScopeState({ pending: false });
   });
 
-  it("shows the banner when the callable reports pending:true", async () => {
+  it("shows the banner when the endpoint reports pending:true", async () => {
     vi.mocked(getPlaytimeScopeNotice).mockResolvedValue({ pending: true });
     const { queryByText } = render(<ScopeBannerHost />);
     await flushAsync();
     expect(queryByText(PLAYTIME_SCOPE_MESSAGE)).toBeInTheDocument();
   });
 
-  it("keeps the banner absent when the callable reports pending:false", async () => {
+  it("keeps the banner absent when the endpoint reports pending:false", async () => {
     vi.mocked(getPlaytimeScopeNotice).mockResolvedValue({ pending: false });
     const { queryByText } = render(<ScopeBannerHost />);
     await flushAsync();

@@ -9,7 +9,7 @@
  * with the event-handler tests in syncManager.test.ts.
  *
  * steamShortcuts is mocked so the ownership scan is controllable; the backend
- * reconcileShortcuts callable uses the global test-setup mock.
+ * reconcileShortcuts endpoint uses the global test-setup mock.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -35,7 +35,7 @@ describe("reconcileStaleShortcuts (#1046)", () => {
     vi.mocked(backend.reconcileShortcuts).mockResolvedValue({ success: true, message: "", unbound_count: 0 });
   });
 
-  it("passes the live appId set to the backend reconcile callable", async () => {
+  it("passes the live appId set to the backend reconcile endpoint", async () => {
     scanShortcutOwnership.mockResolvedValue({ owned: [100, 200], unresolved: [] });
 
     await reconcileStaleShortcuts();

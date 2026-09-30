@@ -1,6 +1,6 @@
-"""Contract tests for the offline launch-path callables.
+"""Contract tests for the offline launch-path endpoints.
 
-Drives the new launch-gate funnel callables exactly as the frontend does
+Drives the new launch-gate funnel endpoints exactly as the frontend does
 (``frontend/src/api/backend.ts``), asserting only the response SHAPE +
 behaviour:
 
@@ -12,7 +12,7 @@ behaviour:
 * ``refresh_save_status(rom_id)`` → ``{"success": True}`` — fire-and-forget
   trigger for the background ``save_status_updated`` emit (the F7 fix).
 
-The manifest-parity contract test (``tests/contract/test_callable_manifest.py``)
+The endpoint-parity contract test (``tests/contract/test_endpoint_parity.py``)
 asserts all three names + arities match the frontend declarations; these tests
 cover the runtime shape + behaviour.
 """

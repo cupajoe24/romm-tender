@@ -166,7 +166,7 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "get_host_status",
     # Read-only RetroDECK path-resolution health probe (for the frontend banner).
     "get_retrodeck_status",
-    # Cancel / pause operations — must remain callable mid-operation when
+    # Cancel / pause operations — must not be refused mid-operation when
     # migration marker fires so the user can stop in-flight work. (Resume,
     # which re-begins a filesystem transfer, IS migration-blocked.)
     "cancel_sync",
@@ -222,7 +222,7 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "cancel_prune",
     # Disowning leases a dead frontend context stranded touches no RetroDECK
     # path either, and must run at mount regardless of migration state — a
-    # stranded lease is precisely what would otherwise refuse the callables
+    # stranded lease is precisely what would otherwise refuse the endpoints
     # that resolve the migration.
     "release_orphaned_prune_leases",
     # Sync-start reconcile of Steam-UI-deleted shortcut bindings (#1046) — clears
@@ -231,7 +231,7 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "reconcile_shortcuts",
     "get_artwork_base64",
     # Cache-first per-ROM cover fetch for the version picker (#1346) — a
-    # read-only data callable (fills the cover cache on a miss), never mutates
+    # read-only data endpoint (fills the cover cache on a miss), never mutates
     # RetroDECK state.
     "fetch_cover_base64",
     "get_sync_status",
@@ -255,7 +255,7 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     # Launch-gate offline funnel: a local-only drift hash check, a version-free
     # reachability heartbeat, a fire-and-forget read-only save-status refresh,
     # and the pre-launch relaunch re-confirm read (#1150). None mutate RetroDECK
-    # state, so all stay callable mid-migration.
+    # state, so they are never refused during a migration.
     "check_local_drift",
     "probe_reachability",
     "refresh_save_status",
@@ -317,7 +317,7 @@ class TestMigrationRuleCoverage:
     it calls. Prevents a new endpoint from being silently unguarded against
     pending migration corruption."""
 
-    def test_all_callables_either_whitelisted_or_declaring_the_rule(self):
+    def test_all_endpoints_either_whitelisted_or_declaring_the_rule(self):
         migration_ruled = endpoints_with_rule("migration")
         unclassified: list[str] = []
         for name in route_names(Endpoints):
@@ -333,7 +333,7 @@ class TestMigrationRuleCoverage:
             f"{sorted(unclassified)}"
         )
 
-    def test_no_callable_both_declares_the_rule_and_is_whitelisted(self):
+    def test_no_endpoint_both_declares_the_rule_and_is_whitelisted(self):
         """An endpoint that both declares the migration rule AND is whitelisted
         is silently passing the coverage check — likely a misclassification.
         Catch it."""
@@ -347,7 +347,7 @@ class TestMigrationRuleCoverage:
             f"remove from one: {sorted(double_classified)}"
         )
 
-    def test_whitelisted_callables_are_endpoints_declaring_no_rule(self):
+    def test_whitelisted_names_are_endpoints_declaring_no_rule(self):
         """Every name in _MIGRATION_RULE_WHITELIST must be an endpoint on
         Endpoints and must NOT declare the migration rule. Reads from the
         whitelist side, so a name left behind by a removed or renamed endpoint

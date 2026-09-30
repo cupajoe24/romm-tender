@@ -1,9 +1,9 @@
 /**
- * The five exports, against the real module.
+ * The five things the panel takes from `api/host`, against the real module.
  *
  * `test-setup.ts` replaces `api/host` for the whole suite, so this file has to
  * take the stub off again — otherwise it would assert that a `vi.fn()` behaves
- * like a `vi.fn()`. Every member here is a one-line delegation: `callable`,
+ * like a `vi.fn()`. Every member here is a one-line delegation: `endpoint`,
  * `addEventListener` and `removeEventListener` to `HostSocket`, which
  * `hostSocket.test.ts` drives against a socket of its own, and `toaster` to
  * `utils/steamToaster.tsx`, which its own file drives against supplied seams.
@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.unmock("./host");
 
-import { addEventListener, callable, definePlugin, removeEventListener, toaster, type Plugin } from "./host";
+import { addEventListener, definePlugin, endpoint, removeEventListener, toaster, type Plugin } from "./host";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -88,7 +88,7 @@ describe("a bundle served without a token", () => {
     // are written to `await` and `.catch()`, so the failure has to arrive as a
     // rejection; a synchronous throw would sail past all of them.
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const askBackend = callable<[], unknown>("get_sync_stats");
+    const askBackend = endpoint<[], unknown>("get_sync_stats");
 
     let threw = false;
     const answer = (() => {

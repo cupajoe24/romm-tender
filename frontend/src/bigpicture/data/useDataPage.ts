@@ -21,7 +21,7 @@ import {
   getDataInventory,
   getSyncStats,
   getWhitelistSettings,
-  isCallableFailure,
+  isEndpointFailure,
   logError,
   logInfo,
   logWarn,
@@ -281,10 +281,10 @@ export function useDataPage(): DataPageState {
   // reopen, never a wrong number.
   const readInventory = useCallback(() => {
     getDataInventory()
-      // No callable reached here resolves `{success: false}` today — a raising
+      // No endpoint reached here resolves `{success: false}` today — a raising
       // one rejects instead — so this test is defensive: were one to, it would
       // carry none of the figures its declared type names.
-      .then((answer) => setInventory(isCallableFailure(answer) ? FAILED : { state: "answered", value: answer }))
+      .then((answer) => setInventory(isEndpointFailure(answer) ? FAILED : { state: "answered", value: answer }))
       .catch((e) => {
         logError(`Failed to read the data inventory: ${e}`);
         setInventory(FAILED);
@@ -310,7 +310,7 @@ export function useDataPage(): DataPageState {
     getSyncStats()
       // The failure-shape test is defensive, for the reason at `readInventory`.
       .then((stats) =>
-        setShortcutCount(isCallableFailure(stats) ? FAILED : { state: "answered", value: stats.total_shortcuts }),
+        setShortcutCount(isEndpointFailure(stats) ? FAILED : { state: "answered", value: stats.total_shortcuts }),
       )
       .catch((e) => {
         logError(`Failed to read the shortcut count: ${e}`);
