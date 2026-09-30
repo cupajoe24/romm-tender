@@ -19,24 +19,27 @@
 
 import { FC } from "react";
 import { ModalRoot, DialogButton, showModal } from "@decky/ui";
-import type { CollisionChoice, RenameCollision } from "../types";
+import {
+  COLLISIONS_CONSEQUENCES,
+  COLLISIONS_INTRO,
+  COLLISIONS_KEEP_LABEL,
+  COLLISIONS_REPLACE_LABEL,
+  COLLISIONS_TITLE,
+  COLLISION_KIND_LABEL,
+} from "../utils/adoptWording";
+import type { CollisionAnswer } from "../utils/adoptFlow";
+import type { RenameCollision } from "../types";
 
 interface AdoptCollisionModalProps {
   collisions: RenameCollision[];
   closeModal?: () => void;
-  onChoice: (choice: CollisionChoice | "cancel") => void;
+  onChoice: (choice: CollisionAnswer) => void;
 }
 
 const LABEL_STYLE = { fontSize: "12px", color: "rgba(255,255,255,0.55)" };
 
-const KIND_LABEL: Record<RenameCollision["kind"], string> = {
-  rom: "game file",
-  save: "save",
-  savestate: "savestate",
-};
-
 export const AdoptCollisionModal: FC<AdoptCollisionModalProps> = ({ collisions, closeModal, onChoice }) => {
-  const choose = (choice: CollisionChoice | "cancel") => {
+  const choose = (choice: CollisionAnswer) => {
     closeModal?.();
     onChoice(choice);
   };
@@ -45,29 +48,22 @@ export const AdoptCollisionModal: FC<AdoptCollisionModalProps> = ({ collisions, 
     <ModalRoot closeModal={closeModal}>
       <div style={{ padding: "16px", minWidth: "420px" }}>
         <div style={{ fontSize: "16px", fontWeight: "bold", color: "#fff", marginBottom: "4px" }}>
-          Some of These Names Are Taken
+          {COLLISIONS_TITLE}
         </div>
-        <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)", marginBottom: "12px" }}>
-          Moving this game&apos;s files to the name your server uses would land on files that already exist. Nothing has
-          been moved yet.
-        </div>
+        <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)", marginBottom: "12px" }}>{COLLISIONS_INTRO}</div>
 
         <div style={{ marginBottom: "12px" }}>
           {collisions.map((collision) => (
             <div key={collision.path} style={{ fontSize: "13px", color: "#fff", marginBottom: "2px" }}>
-              {collision.name} <span style={LABEL_STYLE}>({KIND_LABEL[collision.kind]})</span>
+              {collision.name} <span style={LABEL_STYLE}>({COLLISION_KIND_LABEL[collision.kind]})</span>
             </div>
           ))}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <DialogButton onClick={() => choose("overwrite")}>Replace Them</DialogButton>
-          <DialogButton onClick={() => choose("keep")}>Keep Them</DialogButton>
-          <div style={LABEL_STYLE}>
-            Replace does not delete the files listed above — each is moved into a .romm-backup folder beside it, so you
-            can put one back by hand if you pick wrong. Keep leaves them alone and leaves this game&apos;s old-named
-            saves where they are — nothing is lost, but nothing will be reading them either.
-          </div>
+          <DialogButton onClick={() => choose("overwrite")}>{COLLISIONS_REPLACE_LABEL}</DialogButton>
+          <DialogButton onClick={() => choose("keep")}>{COLLISIONS_KEEP_LABEL}</DialogButton>
+          <div style={LABEL_STYLE}>{COLLISIONS_CONSEQUENCES}</div>
           <DialogButton onClick={() => choose("cancel")} style={{ opacity: 0.5 }}>
             Cancel
           </DialogButton>
@@ -82,8 +78,8 @@ export const AdoptCollisionModal: FC<AdoptCollisionModalProps> = ({ collisions, 
  * Dismissing it without pressing anything never resolves, so the caller keeps
  * its "nothing happened" state.
  */
-export function showAdoptCollisionModal(collisions: RenameCollision[]): Promise<CollisionChoice | "cancel"> {
-  return new Promise<CollisionChoice | "cancel">((resolve) => {
+export function showAdoptCollisionModal(collisions: RenameCollision[]): Promise<CollisionAnswer> {
+  return new Promise<CollisionAnswer>((resolve) => {
     showModal(<AdoptCollisionModal collisions={collisions} onChoice={resolve} />);
   });
 }

@@ -21,9 +21,15 @@
 import { FC } from "react";
 import { ModalRoot, DialogButton, showModal } from "@decky/ui";
 import { ENTRY_KIND_LABEL } from "../utils/formatters";
+import {
+  UNUSABLE_DOWNLOAD_NOTE,
+  UNUSABLE_TITLE,
+  unusableDownloadLabel,
+  unusableIntro,
+  unusableTruncatedNote,
+} from "../utils/adoptWording";
+import type { UnusableChoice } from "../utils/adoptFlow";
 import type { UnusableNamesakeResult } from "../types";
-
-export type UnusableChoice = "download" | "cancel";
 
 interface AdoptUnusableModalProps {
   unusable: UnusableNamesakeResult;
@@ -39,17 +45,12 @@ export const AdoptUnusableModal: FC<AdoptUnusableModalProps> = ({ unusable, clos
     onChoice(choice);
   };
 
-  const servedWord = unusable.served_is_dir ? "a folder of several files" : "a single file";
-
   return (
     <ModalRoot closeModal={closeModal}>
       <div style={{ padding: "16px", minWidth: "420px" }}>
-        <div style={{ fontSize: "16px", fontWeight: "bold", color: "#fff", marginBottom: "4px" }}>
-          Something With This Name Is Already Here
-        </div>
+        <div style={{ fontSize: "16px", fontWeight: "bold", color: "#fff", marginBottom: "4px" }}>{UNUSABLE_TITLE}</div>
         <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.7)", marginBottom: "12px" }}>
-          Your server sends this game as {servedWord}, and what is in this folder is not something Tender can use as
-          this game. Downloading leaves you with two copies — the one below, and the one it fetches.
+          {unusableIntro(unusable)}
         </div>
 
         <div style={{ marginBottom: "12px" }}>
@@ -61,16 +62,12 @@ export const AdoptUnusableModal: FC<AdoptUnusableModalProps> = ({ unusable, clos
         </div>
 
         {unusable.truncated && (
-          <div style={{ ...LABEL_STYLE, marginBottom: "12px" }}>
-            Only the first {unusable.existing.length} are shown — there are more in this folder.
-          </div>
+          <div style={{ ...LABEL_STYLE, marginBottom: "12px" }}>{unusableTruncatedNote(unusable)}</div>
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <DialogButton onClick={() => choose("download")}>Download {unusable.incoming.name} Anyway</DialogButton>
-          <div style={LABEL_STYLE}>
-            Nothing above is renamed, moved or deleted — the download lands beside it under your server&apos;s name.
-          </div>
+          <DialogButton onClick={() => choose("download")}>{unusableDownloadLabel(unusable)}</DialogButton>
+          <div style={LABEL_STYLE}>{UNUSABLE_DOWNLOAD_NOTE}</div>
           <DialogButton onClick={() => choose("cancel")} style={{ opacity: 0.5 }}>
             Cancel
           </DialogButton>

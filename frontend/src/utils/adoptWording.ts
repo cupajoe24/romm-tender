@@ -1,0 +1,249 @@
+/**
+ * The words of the "already on your device" dialogs a download opens (#260,
+ * ADR-0028) — every sentence, title and data-dependent label they build from a
+ * backend answer. One home, so every surface that draws those dialogs states the
+ * same case the same way; the drawing itself stays with each surface.
+ */
+
+import { ENTRY_KIND_LABEL, formatBytes } from "./formatters";
+import type {
+  AdoptionCandidate,
+  CandidatesFoundResult,
+  CandidateVanishedResult,
+  RenameCollision,
+  TargetOccupiedResult,
+  UnusableNamesakeResult,
+} from "../types";
+
+// ── The comparison dialog: content at the game's location, or one candidate ──
+
+export const EXISTING_TITLE = "This Game Is Already on Your Device";
+
+/** "2026-08-06 14:31" from POSIX epoch seconds; the empty string for a zero stamp. */
+export function formatModifiedAt(epochSeconds: number): string {
+  if (!epochSeconds) return "";
+  return new Date(epochSeconds * 1000).toLocaleString();
+}
+
+/**
+ * The noun for what is in the way. A `null` kind is something the backend looked
+ * at and has no word for — a named pipe, a socket — so this has none either,
+ * rather than calling it a file: that guess is what let one be offered as a game.
+ */
+export function nounFor(occupied: TargetOccupiedResult): string {
+  const kind = occupied.existing.kind;
+  return kind === null ? "thing" : ENTRY_KIND_LABEL[kind];
+}
+
+/**
+ * Whether what is at the path is the game's own content, and so whether the
+ * numbers `stat` returned describe the game at all. Only a file or a directory
+ * is: a symlink's size and mtime are the link's own — when it was pointed
+ * somewhere, not when the game was last touched — and a kindless entry's belong
+ * to something the plugin has no word for.
+ *
+ * Everything under "On this device" is read as being about this game's copy, so
+ * a measurement that is not gets left out rather than qualified. Half that
+ * column already says so where the size would be; a bare "Last changed" beside
+ * it is the one line still implying otherwise.
+ */
+export function describesTheGame(occupied: TargetOccupiedResult): boolean {
+  return occupied.existing.kind === "file" || occupied.existing.kind === "dir";
+}
+
+/**
+ * The "Last changed …" line under the existing side, or `null` when it must not
+ * be shown — no stamp, or a stamp that is not the game's (`describesTheGame`).
+ */
+export function lastChangedLine(occupied: TargetOccupiedResult): string | null {
+  const modified = formatModifiedAt(occupied.existing.modified_at);
+  return modified && describesTheGame(occupied) ? `Last changed ${modified}` : null;
+}
+
+/**
+ * The sentence under the title. `candidate` is whether `occupied` describes a
+ * candidate found elsewhere in the platform folder rather than content at the
+ * game's own location — the two differ in exactly this sentence.
+ */
+export function existingIntro(occupied: TargetOccupiedResult, candidate: boolean): string {
+  const noun = nounFor(occupied);
+  return candidate
+    ? `This ${noun} carries this game's name. Tender did not put it there, so it will not be touched until you decide.`
+    : `A ${noun} is already where this game would be downloaded. Tender did not put it there, so it will not be ` +
+        "touched until you decide.";
+}
+
+/**
+ * How the existing side's size is stated. Only a file or a folder has a byte
+ * count that is the game's; a shortcut's `stat` reports the length of the path
+ * it stores, which is a real-looking number about nothing the user is deciding
+ * on, and a kindless entry's is not the game's either. Those say so instead —
+ * printing the number and disclaiming it two lines below still puts it beside
+ * the server's real one, to be read as a comparison.
+ *
+ * A candidate folder is the third case and a different reason: the search stays
+ * on the platform folder's top level, because descending into one multi-file
+ * game can mean tens of thousands of files, so nothing measured it. "0 B" about
+ * something that may be gigabytes is the one thing this must not print.
+ */
+export function existingSize(occupied: TargetOccupiedResult, candidate: boolean): string {
+  if (candidate && occupied.existing.kind === "dir") return "Folder — not measured";
+  if (occupied.existing.kind === "link") return "Shortcut — no size of its own";
+  if (occupied.existing.kind === null) return "No size to show";
+  return formatBytes(occupied.existing.size_bytes);
+}
+
+/** How the server side's size is stated; a zero is the server stating none. */
+export function incomingSize(occupied: TargetOccupiedResult): string {
+  return occupied.incoming.size_bytes ? formatBytes(occupied.incoming.size_bytes) : "Size unknown";
+}
+
+/**
+ * One sentence on how the two sizes relate — never two bare numbers to subtract,
+ * and never our own choice not to measure reported as the server's silence.
+ */
+export function sizeVerdict(occupied: TargetOccupiedResult, candidate: boolean): string {
+  if (candidate && occupied.existing.kind === "dir") {
+    return "Folders are not measured before you open this, so the two sizes are not compared.";
+  }
+  if (occupied.existing.kind === "link") {
+    return "A shortcut is not the game's bytes, so there is nothing here to compare.";
+  }
+  if (occupied.existing.kind === null) return "This is not a file or a folder, so there is nothing here to compare.";
+  if (occupied.sizes_match === null) return "The server did not state a size, so the two cannot be compared.";
+  if (occupied.sizes_match) return "Both are the same size.";
+  const delta = occupied.existing.size_bytes - occupied.incoming.size_bytes;
+  return delta > 0
+    ? `What is here is ${formatBytes(delta)} larger than what the server would send.`
+    : `What is here is ${formatBytes(-delta)} smaller than what the server would send.`;
+}
+
+/** Shown only for a candidate: content at the game's own location is used where it lies. */
+export function renameNotice(occupied: TargetOccupiedResult): string {
+  return (
+    `Using it renames it to ${occupied.incoming.name}, and moves any saves and savestates named after it with it, ` +
+    "so this game works the same as one Tender downloaded."
+  );
+}
+
+/** The adopt exit's label: the offer, or — disabled — why it is not one. */
+export function adoptButtonLabel(occupied: TargetOccupiedResult): string {
+  return occupied.adoptable ? "Use These Files" : `Can't use this ${nounFor(occupied)} for this game`;
+}
+
+/** The content check's in-flight line; `progress` is 0..1, or `null` before the first frame. */
+export function verifyProgressLabel(progress: number | null): string {
+  return progress === null || progress === 0
+    ? "Checking the files…"
+    : `Checking the files… ${Math.round(progress * 100)}%`;
+}
+
+/** The verdict shown when the content check never reached the server. */
+export const VERIFY_UNREACHABLE_MESSAGE = "Couldn't reach the server to check these files";
+
+/**
+ * What the second confirmation promises will be destroyed. Three sentences,
+ * because three different things are: a file or folder may be the user's own
+ * dump and is gone for good, a shortcut is one line of filesystem bookkeeping
+ * whose target survives, and a kindless entry is something the plugin can only
+ * say it is removing.
+ */
+export function replaceWarning(occupied: TargetOccupiedResult, candidate: boolean): string {
+  const name = occupied.existing.name;
+  if (occupied.existing.kind === "link") {
+    return `Downloading deletes the shortcut that is here now — ${name}. Whatever it points at is left alone. Continue?`;
+  }
+  if (occupied.existing.kind === null) {
+    return `Downloading removes what is here now — ${name}. Tender cannot tell what it is, only that it goes. Continue?`;
+  }
+  return (
+    `Downloading deletes the ${nounFor(occupied)} that is here now — ${name}, ${existingSize(occupied, candidate)}. ` +
+    "If it is your own dump, patch or romhack, it is gone. Continue?"
+  );
+}
+
+/** The toast for a paused download whose resume found something else at the game's location. */
+export const RESUME_TARGET_OCCUPIED_TOAST =
+  "Something else is at this game's location now — cancel the download and start again";
+
+// ── The candidate list: two or more files under another name ──
+
+export const CANDIDATES_TITLE = "This Game May Already Be on Your Device";
+
+export const CANDIDATES_INTRO =
+  "These files sit in the same folder and carry this game's name. Tender did not put them there, so nothing is " +
+  "touched until you pick one.";
+
+/** The line under a candidate's name: what its offer rests on, then its size. */
+export function candidateDetail(candidate: AdoptionCandidate): string {
+  return `${candidate.detail}${candidate.is_dir ? " — folder" : ` — ${formatBytes(candidate.size_bytes)}`}`;
+}
+
+/** Shown only when `found.truncated`. */
+export function candidatesTruncatedNote(found: CandidatesFoundResult): string {
+  return `Only the ${found.candidates.length} strongest matches are shown — there are more in this folder.`;
+}
+
+export function noneOfTheseLabel(found: CandidatesFoundResult): string {
+  return `None of These — Download ${found.incoming.name}`;
+}
+
+// ── The collision decision: names the rename needs are taken ──
+
+export const COLLISIONS_TITLE = "Some of These Names Are Taken";
+
+export const COLLISIONS_INTRO =
+  "Moving this game's files to the name your server uses would land on files that already exist. Nothing has been " +
+  "moved yet.";
+
+export const COLLISION_KIND_LABEL: Record<RenameCollision["kind"], string> = {
+  rom: "game file",
+  save: "save",
+  savestate: "savestate",
+};
+
+export const COLLISIONS_REPLACE_LABEL = "Replace Them";
+export const COLLISIONS_KEEP_LABEL = "Keep Them";
+
+export const COLLISIONS_CONSEQUENCES =
+  "Replace does not delete the files listed above — each is moved into a .romm-backup folder beside it, so you can " +
+  "put one back by hand if you pick wrong. Keep leaves them alone and leaves this game's old-named saves where they " +
+  "are — nothing is lost, but nothing will be reading them either.";
+
+// ── The namesake nothing can adopt ──
+
+export const UNUSABLE_TITLE = "Something With This Name Is Already Here";
+
+export function unusableIntro(unusable: UnusableNamesakeResult): string {
+  const servedWord = unusable.served_is_dir ? "a folder of several files" : "a single file";
+  return (
+    `Your server sends this game as ${servedWord}, and what is in this folder is not something Tender can use as ` +
+    "this game. Downloading leaves you with two copies — the one below, and the one it fetches."
+  );
+}
+
+/** Shown only when `unusable.truncated`. */
+export function unusableTruncatedNote(unusable: UnusableNamesakeResult): string {
+  return `Only the first ${unusable.existing.length} are shown — there are more in this folder.`;
+}
+
+export function unusableDownloadLabel(unusable: UnusableNamesakeResult): string {
+  return `Download ${unusable.incoming.name} Anyway`;
+}
+
+export const UNUSABLE_DOWNLOAD_NOTE =
+  "Nothing above is renamed, moved or deleted — the download lands beside it under your server's name.";
+
+// ── The backstop: the page found a copy and the search now finds nothing ──
+
+export const VANISHED_TITLE = "The Copy on This Device Cannot Be Found";
+
+export const VANISHED_INTRO =
+  "This game's page found a copy on this device, and looking again now turns up nothing that matches. Nothing has " +
+  "been changed on your device.";
+
+export function vanishedDownloadLabel(vanished: CandidateVanishedResult): string {
+  return `Download ${vanished.incoming.name}`;
+}
+
+export const VANISHED_DOWNLOAD_NOTE = "Or cancel and look in the folder yourself first.";
