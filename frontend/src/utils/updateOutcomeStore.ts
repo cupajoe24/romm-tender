@@ -4,6 +4,9 @@
  * Updated by:
  *   - panel load in index.tsx (fetchUpdateOutcome), detached — which is also
  *     where the toast for a version that moved is raised, once
+ *   - the `update_failure_recorded` listener in index.tsx
+ *     (takePushedUpdateFailure), for a refusal by the pre-install check the
+ *     backend saw while it ran
  *   - the announcement card's Dismiss (dismissUpdateAnnouncementCard), after
  *     the backend recorded it
  *   - the rolled-back card's Dismiss (dismissUpdateFailureRecord), after the
@@ -36,12 +39,13 @@ import {
 import { TOAST_READINESS_DEADLINE_MS, waitUntilSteamCanShowToasts } from "./steamReadyForToasts";
 import { showToast } from "./toast";
 
-/** An update the installer rolled back, in this store's spelling. */
+/** An update the installer rolled back, or its pre-install check refused, in this store's spelling. */
 export interface RolledBackUpdate {
   attemptedVersion: string;
   restoredVersion: string;
   /** The record's own ISO-8601 UTC text — what tells one record from the next. */
   rolledBackAt: string;
+  kind: UpdateFailure["kind"];
 }
 
 /** A version this backend process moved to, and which way it moved. */
@@ -53,7 +57,7 @@ export interface UpdateAnnouncement {
 export interface UpdateOutcomeState {
   /** The version that moved, until its card was dismissed. `null` where none, or before the backend answered. */
   announcement: UpdateAnnouncement | null;
-  /** The installer's record of a rolled-back update. `null` where none stands, or before the backend answered. */
+  /** The installer's record of an update that did not go through. `null` where none stands, or before the backend answered. */
   failure: RolledBackUpdate | null;
   /** The user waved away the card for this exact record. */
   failureDismissed: boolean;
@@ -69,6 +73,16 @@ const INITIAL: UpdateOutcomeState = { announcement: null, failure: null, failure
 export const UPDATE_FAILURE_REASON =
   "Tender's log, backend.log, says why — or the journal (journalctl --user -u romm-tender), if the new version failed before it could write to the log.";
 
+/** Where the installer's own output is. */
+const INSTALLER_OUTPUT =
+  "The installer's output says why: journalctl --user -u romm-tender-update, or the terminal it was run in.";
+
+/** The same line for an update the pre-install check refused, which never ran the new version as a service. */
+export const UPDATE_CHECK_FAILURE_REASON = `The new version did not start, so nothing was changed. ${INSTALLER_OUTPUT}`;
+
+/** The same line for a record of a kind this version does not know: no cause is named, only where it is. */
+export const UPDATE_UNKNOWN_FAILURE_REASON = INSTALLER_OUTPUT;
+
 let _state: UpdateOutcomeState = INITIAL;
 let _listeners: Array<() => void> = [];
 
@@ -76,8 +90,9 @@ let _listeners: Array<() => void> = [];
  * Ordering fence for the read: it takes the number before its `await` and
  * writes nothing if the number moved meanwhile. Either Dismiss moves it, so a
  * read that was in flight when Dismiss was pressed cannot put a card back up.
- * Dismiss itself is not fenced — once the backend recorded it, the card is
- * dismissed whatever was read around it.
+ * Dismiss is fenced by the record instead: once the backend recorded it, the
+ * card it was pressed on is dismissed whatever was read around it, and a
+ * different record pushed meanwhile keeps its own.
  */
 let _seq = 0;
 
@@ -119,6 +134,7 @@ function failureFromWire(failure: UpdateFailure | null): RolledBackUpdate | null
     attemptedVersion: failure.attempted_version,
     restoredVersion: failure.restored_version,
     rolledBackAt: failure.rolled_back_at,
+    kind: failure.kind,
   };
 }
 
@@ -133,12 +149,23 @@ function stateFromOutcome(outcome: UpdateOutcome): UpdateOutcomeState {
   };
 }
 
-/** The one sentence a rolled-back update is stated in, wherever it is stated. */
+const FAILURE_REASONS: Record<RolledBackUpdate["kind"], string> = {
+  rollback: UPDATE_FAILURE_REASON,
+  check: UPDATE_CHECK_FAILURE_REASON,
+  unknown: UPDATE_UNKNOWN_FAILURE_REASON,
+};
+
+/** The line under {@link updateFailureSentence}, for the kind of record it states. */
+export function updateFailureReason(failure: RolledBackUpdate): string {
+  return FAILURE_REASONS[failure.kind];
+}
+
+/** The one sentence an update that did not go through is stated in, whatever the installer's record says of why. */
 export function updateFailureSentence(failure: RolledBackUpdate): string {
   return updateDidNotGoThrough(failure.attemptedVersion, failure.restoredVersion);
 }
 
-/** An update to *attempted* that did not go through, on *stillOn* — rolled back, or its installer stopped. */
+/** An update to *attempted* that did not go through, on *stillOn* — rolled back, refused, or its installer stopped. */
 export function updateDidNotGoThrough(attempted: string, stillOn: string): string {
   return `Update to ${attempted} failed — you are still on ${stillOn}.`;
 }
@@ -161,7 +188,7 @@ export function failureCardShows(state: UpdateOutcomeState): boolean {
 }
 
 /**
- * Whether the rolled-back record takes the place of the "is available" card for
+ * Whether the installer's record takes the place of the "is available" card for
  * *latestVersion*: true exactly when a record stands and names that version as
  * the one it tried, whether or not its card was dismissed.
  */
@@ -209,13 +236,24 @@ export async function dismissUpdateAnnouncementCard(): Promise<void> {
 }
 
 /**
+ * Take the record of a refusal by the pre-install check the backend pushed. It
+ * outranks a read still in flight, and it is a new record, so its card is up.
+ */
+export function takePushedUpdateFailure(pushed: UpdateFailure): void {
+  ++_seq;
+  setUpdateOutcomeState({ ..._state, failure: failureFromWire(pushed), failureDismissed: false });
+}
+
+/**
  * Wave the rolled-back card away for one record, then take it down here — only
- * once the backend answered that it persisted the dismissal. A refused or
- * failed write rejects and leaves the card up.
+ * once the backend answered that it persisted the dismissal, and only while the
+ * store still holds that record or none. A refused or failed write rejects and
+ * leaves the card up.
  */
 export async function dismissUpdateFailureRecord(rolledBackAt: string): Promise<void> {
   ++_seq;
   const write = await dismissUpdateFailure(rolledBackAt);
   if (!write.success) throw new Error(`${write.reason}: ${write.message}`);
+  if (_state.failure !== null && _state.failure.rolledBackAt !== rolledBackAt) return;
   setUpdateOutcomeState({ ..._state, failureDismissed: true });
 }

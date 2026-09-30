@@ -73,11 +73,11 @@ panel went with it but the new one did not arrive — so the missing panel, not 
 main panel says the same — that the update to the new version failed and you are still on the one you had — until you
 dismiss it there or a later update goes through.
 
-**Explanation**: The new version did not start within about a minute, so the installer put the version you had back,
-together with the library database and settings it had before the update, and started it again. Tender is running as it
-was. Anything the new version wrote in that minute is gone. The installer does not try again by itself, and it leaves
-`~/.local/state/romm-tender/update-failure.json` naming both versions and the time. That note is what the panel's notice
-and **Settings › Updates** show, and what Tender's log repeats in one line each time it starts
+**Explanation**: The new version did not answer within about a minute of being started, so the installer put the version
+you had back, together with the library database and settings it had before the update, and started it again. Tender is
+running as it was. Anything the new version wrote in that minute is gone. The installer does not try again by itself,
+and it leaves `~/.local/state/romm-tender/update-failure.json` naming both versions and the time. That note is what the
+panel's notice and **Settings › Updates** show, and what Tender's log repeats in one line each time it starts
 (`the update to <new> was rolled back at <time>; back on <previous> — …`); the next update whose new version answers
 removes it. Where the installer also said `could not record the rolled-back update`, there is no note of this rollback,
 and neither the panel nor Tender's log says anything about it.
@@ -113,6 +113,66 @@ anything when there is nothing to go back to. It also refuses when the previous 
 together, which an update that was interrupted can leave behind: going back would run the older version over data a
 newer one wrote. Start Tender instead if it is not running, with `systemctl --user start romm-tender`.
 
+## The New Version Does Not Start
+
+**Symptom**: An update, or a first install, marks the **Installing** row failed with **the new version does not start**,
+prints what the pre-install check said, and ends with `install.sh: the new version does not start` and
+`nothing was changed`. After an update, Tender's main panel says **Update to X failed — you are still on Y.** with **The
+new version did not start, so nothing was changed.** under it, and **Settings › Updates** says the same until a later
+update goes through.
+
+**Explanation**: Before it stops anything, the installer runs the new version's pre-install check: it builds Tender from
+the new files on copies of your library database and settings, the way a start would, without starting it. That failed,
+or crashed, so the installer removed the new files and stopped there. Tender was not stopped, nothing was replaced, and
+Steam's interface did not reload. An update leaves `~/.local/state/romm-tender/update-failure.json` naming both versions
+and the time, marked as refused (`"kind": "check"`); Tender's log repeats it in one line each time Tender starts
+(`the pre-install check refused <new> at <time>: …`). A first install leaves nothing behind.
+
+The check catches a new version that cannot be put together at all: a file of it that does not load, a part of it built
+for another system, an upgrade of your database or settings that fails on your data. It cannot catch a failure that only
+shows once Tender runs — answering the panel, loading it into Steam, talking to your server. Those are still caught
+after the update, by the rollback above.
+
+**Fix**: The installer printed the check's reason, and the last lines the check printed, just above its last two lines —
+for a crash, after a line naming the signal that ended it (`the pre-install check crashed (SIGSEGV)`). For an update
+from **Settings › Updates** that output is in the installer's journal:
+
+```bash
+journalctl --user -u romm-tender-update
+```
+
+Include it when you report it. The same release refuses the same way on the same data, so **Try again** in **Settings ›
+Updates**, or running the installer again, helps only once something has changed: a newer release, or the data the
+reason names.
+
+### The check did not finish
+
+The installer ends with `install.sh: the check did not finish` and `nothing was changed`, after
+`the pre-install check was stopped after 120s`, `the pre-install check was killed` or
+`the pre-install check ended with status <N>`. Building Tender takes seconds; a check still running after two minutes
+was waiting on something — usually the library database, held by another program, or storage that stopped answering. A
+check that was killed was ended by force: by the installer, when it did not stop ten seconds after it was told to, or by
+something else, such as the system running out of memory. Any other status is one the installer cannot put down to the
+new version — a check stopped from outside, for example, or one that could not be run at all. None of these is a verdict
+on the new version, so nothing is recorded and the main panel does not mention it. An update started from **Settings ›
+Updates** says **The installer stopped without updating.** there, and these lines are in the installer's journal
+(`journalctl --user -u romm-tender-update`). Run the installer again once the cause is resolved.
+
+### Your data could not be copied
+
+The installer ends with `install.sh: could not try the new version: your data could not be copied` and
+`nothing was changed`, with the reason just above. The check could not copy your library database or settings to try the
+new version on — a full disk, or a file it could not read. That is about your data, not the new version, so nothing is
+recorded and the main panel does not mention it. An update started from **Settings › Updates** says **The installer
+stopped without updating.** there, and these lines are in the installer's journal
+(`journalctl --user -u romm-tender-update`). Free space, or fix the file the reason names, and run the installer again.
+
+### No pre-install check
+
+A release from before the pre-install check has none. The installer installs it without one and says
+`this version has no pre-install check`; an update to it that does not start is still rolled back
+([An Update Was Rolled Back](#an-update-was-rolled-back)).
+
 ## An Update From Settings Did Not Go Through
 
 **Symptom**: After **Install update X** in **Settings › Updates**, one of the steps is marked **Failed**, a line under
@@ -127,11 +187,15 @@ have:
 - **The installer could not be started.** The installer could not be taken out of the download, or could not be started
   — for example because an earlier one is still running.
 - **The installer stopped without updating.** The installer started, but ended before it replaced Tender — it refused,
-  or it failed.
+  or it failed. A pre-install check that did not finish ([The check did not finish](#the-check-did-not-finish)), and
+  data it could not copy ([Your data could not be copied](#your-data-could-not-be-copied)), end this way.
 - **A game was started — nothing was changed. Try again once it has closed.** A game was started while the update
   downloaded; Tender checks right before the installer starts, and does not start it under a running game.
 - **Could not check whether a game is running — nothing was changed.** At that same check Tender could not ask Steam,
   and did not start the installer on a guess.
+- **The new version does not start — nothing was changed.** The installer's pre-install check tried the new version
+  before stopping Tender, and it could not be built, or it crashed
+  ([The New Version Does Not Start](#the-new-version-does-not-start)).
 
 Nothing tries again by itself; what the attempt downloaded is removed.
 

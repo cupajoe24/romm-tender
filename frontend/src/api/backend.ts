@@ -1205,12 +1205,22 @@ export const dismissUpdateNotice = endpoint<[string], UpdateSettingWrite>("dismi
 /** Switch the daily release check on or off. On by default. */
 export const setUpdateCheckEnabled = endpoint<[boolean], UpdateSettingWrite>("set_update_check_enabled");
 
-/** An update the installer rolled back, as its record states it. `rolled_back_at` is ISO-8601 UTC text. */
+/**
+ * An update that did not go through, as the installer's record states it: rolled back, or refused by the
+ * pre-install check before anything was replaced — or `unknown`, a kind a later installer wrote that this
+ * version cannot word. `restored_version` is the version still running; `rolled_back_at` is when, as
+ * ISO-8601 UTC text, for every kind. The `get_update_outcome` answer carries it, and so does the
+ * `update_failure_recorded` push for a refusal seen while this process ran.
+ */
 export interface UpdateFailure {
   attempted_version: string;
   restored_version: string;
   rolled_back_at: string;
+  kind: UpdateFailureKind;
 }
+
+/** What the installer's record says became of the update. */
+export type UpdateFailureKind = "rollback" | "check" | "unknown";
 
 /** Which way the version moved: to a later release, or back to an earlier one. */
 export type UpdateDirection = "updated" | "back";
@@ -1223,9 +1233,9 @@ export type UpdateDirection = "updated" | "back";
  * `announce_direction` which way it moved, `null` exactly when the version is.
  * `toast_owed` says its toast has not been raised yet, and is `false` whenever
  * there is no version to name. `failure` is the installer's record of an update
- * it rolled back, read afresh on every call, so it is gone once the installer
- * removes it, and `null` too where the running version is not the one it
- * restored. `failure_dismissed` says the user waved away that exact record.
+ * that did not go through, read afresh on every call, so it is gone once the
+ * installer removes it, and `null` too where the running version is not the one
+ * it restored. `failure_dismissed` says the user waved away that exact record.
  */
 export type UpdateOutcome = (
   | { announce_version: null; announce_direction: null; toast_owed: false }
@@ -1243,7 +1253,7 @@ export const acknowledgeUpdateToast = endpoint<[], { success: true }>("acknowled
 /** Wave the announcement's card away for the rest of this backend process. */
 export const dismissUpdateAnnouncement = endpoint<[], { success: true }>("dismiss_update_announcement");
 
-/** Wave the rolled-back card away for one record, named by its `rolled_back_at`; the next rollback raises it again. */
+/** Wave the rolled-back card away for one record, named by its `rolled_back_at`; the next record raises it again. */
 export const dismissUpdateFailure = endpoint<[string], UpdateSettingWrite>("dismiss_update_failure");
 
 /**
@@ -1279,7 +1289,8 @@ export type UpdateInstallFailure =
   | "installer_not_started"
   | "installer_stopped"
   | "game_started"
-  | "running_apps_unknown";
+  | "running_apps_unknown"
+  | "new_version_does_not_start";
 
 /** One press of Install, as far as it got — the state answer's `attempt` and the progress event's payload. */
 export interface UpdateInstallAttempt {
@@ -1300,7 +1311,7 @@ export interface UpdateInstallAttempt {
  * empty while nothing is offered or an attempt is under way.
  * `paused_downloads` counts the paused ROM downloads the restart cancels.
  * `try_again` says the offered version already failed once — here, or in an
- * update the installer rolled back.
+ * update the installer rolled back or its pre-install check refused.
  */
 export interface UpdateInstallState {
   offered: boolean;

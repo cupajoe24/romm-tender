@@ -1,6 +1,6 @@
 /**
  * Updates — the home of the two update notices on Main: the installed and the
- * available version, an update the installer rolled back, the install, the
+ * available version, an update that did not go through, the install, the
  * daily-check switch and Check now. The page owns the notice and outcome reads,
  * Check now's press and its result line; the install's state is read here,
  * because it is polled only while this section is on screen.
@@ -13,14 +13,14 @@ import { UpdateInstallRows, installButtonShown, installStateUnread } from "./Upd
 import { useUpdateInstall } from "./useUpdateInstall";
 import { INSTALL_STATE_UNREAD } from "../../utils/updateInstallView";
 import type { UpdateNoticeState } from "../../utils/updateNoticeStore";
-import { UPDATE_FAILURE_REASON, updateFailureSentence, type UpdateOutcomeState } from "../../utils/updateOutcomeStore";
+import { updateFailureReason, updateFailureSentence, type UpdateOutcomeState } from "../../utils/updateOutcomeStore";
 
 /** Shown only to a run from a checkout, which is never offered an install. */
 export const NOT_INSTALLED_PROGRAM = "Development build — install updates with the installer.";
 
 interface UpdatesSectionProps {
   update: UpdateNoticeState;
-  /** A rolled-back update is stated here whether or not its notice on Main was dismissed. */
+  /** An update that did not go through is stated here whether or not its notice on Main was dismissed. */
   outcome: UpdateOutcomeState;
   /** A Check now is in flight; the button is dead and says so while it is. */
   checking: boolean;
@@ -77,7 +77,7 @@ export const UpdatesSection: FC<UpdatesSectionProps> = ({
                 {updateFailureSentence(outcome.failure)}
               </span>
             }
-            description={UPDATE_FAILURE_REASON}
+            description={updateFailureReason(outcome.failure)}
             focusable={true}
           />
         </PanelSectionRow>

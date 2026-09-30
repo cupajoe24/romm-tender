@@ -24,9 +24,10 @@ from domain.update_install import (
     installer_command,
     installer_environment,
     new_attempt_record,
+    refused_by_the_check,
     stopped_attempt,
 )
-from domain.update_outcome import UpdateFailure
+from domain.update_outcome import UpdateFailure, UpdateFailureKind
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -149,6 +150,17 @@ class TestTheAttemptVocabularyAgreesAcrossTheWire:
         assert _frontend_literals("UpdateInstallFailure") == {failure.value for failure in InstallFailure}
 
 
+class TestTheFailureKindsAgreeAcrossTheWire:
+    """The backend's ``UpdateFailureKind`` values and the frontend's union are the same set.
+
+    The panel words the line under a failed update by its kind, so a kind added
+    on the backend alone reaches a panel with no line for it.
+    """
+
+    def test_both_sides_carry_the_same_kinds(self):
+        assert _frontend_literals("UpdateFailureKind") == {kind.value for kind in UpdateFailureKind}
+
+
 class TestAttemptOnTheWire:
     def test_a_download_in_progress(self):
         attempt = InstallAttempt(version="1.1.0", step=InstallStep.DOWNLOADING, bytes_done=10, bytes_total=100)
@@ -242,3 +254,46 @@ class TestAStoppedAttempt:
 
     def test_no_record_is_nothing(self):
         assert stopped_attempt(None, "1.0.0", None) is None
+
+    def test_a_refusal_of_that_attempt_by_the_check_is_the_installer_s_record_to_tell(self):
+        failure = UpdateFailure("1.1.0", "1.0.0", "2026-09-29T10:00:05Z", UpdateFailureKind.CHECK)
+
+        assert stopped_attempt(_ATTEMPT, "1.0.0", failure) is None
+
+    @pytest.mark.parametrize("kind", list(UpdateFailureKind))
+    def test_a_record_of_the_same_version_written_before_it_started_is_an_earlier_attempt_s(self, kind):
+        """It stands until a later update goes through, and would otherwise hide that this installer stopped."""
+        failure = UpdateFailure("1.1.0", "1.0.0", "2026-09-29T09:59:59Z", kind)
+
+        assert stopped_attempt(_ATTEMPT, "1.0.0", failure) == _ATTEMPT
+
+
+_REFUSED = UpdateFailure("1.1.0", "1.0.0", "2026-09-29T10:00:05Z", UpdateFailureKind.CHECK)
+
+
+class TestRefusedByTheCheck:
+    """Whether the installer's record answers for the attempt at 1.1.0 that 1.0.0 started at 10:00:00."""
+
+    def test_a_refusal_written_since_the_attempt_started_answers_for_it(self):
+        assert refused_by_the_check(_REFUSED, "1.1.0", "1.0.0", "2026-09-29T10:00:00Z") is True
+
+    def test_one_written_in_the_second_the_attempt_started_answers_for_it(self):
+        """Both stamps are to the second, and the installer's is never the earlier."""
+        assert refused_by_the_check(_REFUSED, "1.1.0", "1.0.0", "2026-09-29T10:00:05Z") is True
+
+    def test_one_written_before_the_attempt_started_is_an_earlier_attempt_s(self):
+        assert refused_by_the_check(_REFUSED, "1.1.0", "1.0.0", "2026-09-29T10:00:06Z") is False
+
+    def test_a_refusal_of_another_version_is_not_this_attempt_s(self):
+        assert refused_by_the_check(_REFUSED, "1.2.0", "1.0.0", "2026-09-29T10:00:00Z") is False
+
+    def test_a_refusal_that_left_another_version_running_is_a_leftover(self):
+        assert refused_by_the_check(_REFUSED, "1.1.0", "0.9.0", "2026-09-29T10:00:00Z") is False
+
+    def test_a_rollback_is_not_a_refusal(self):
+        rollback = UpdateFailure("1.1.0", "1.0.0", "2026-09-29T10:00:05Z", UpdateFailureKind.ROLLBACK)
+
+        assert refused_by_the_check(rollback, "1.1.0", "1.0.0", "2026-09-29T10:00:00Z") is False
+
+    def test_no_record_is_no_refusal(self):
+        assert refused_by_the_check(None, "1.1.0", "1.0.0", "2026-09-29T10:00:00Z") is False

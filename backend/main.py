@@ -787,11 +787,13 @@ class Endpoints:
         ``announce_version`` is. ``toast_owed`` is true until
         :meth:`acknowledge_update_toast` says the panel raised its toast, and
         false whenever ``announce_version`` is ``None``. ``failure`` is the
-        installer's record of an update it rolled back, ``{"attempted_version",
-        "restored_version", "rolled_back_at"}``, read afresh so it goes when the
-        installer removes it; ``None`` where there is none, or where the running
-        version is not the one it restored. ``failure_dismissed`` says the user
-        waved away that exact record.
+        installer's record of an update that did not go through,
+        ``{"attempted_version", "restored_version", "rolled_back_at", "kind"}``
+        with ``kind`` ``"rollback"``, ``"check"`` (refused by the pre-install
+        check) or ``"unknown"`` (a kind a later installer wrote), read afresh so
+        it goes when the installer removes it; ``None`` where there is none, or
+        where the running version is not the one it names as still running.
+        ``failure_dismissed`` says the user waved away that exact record.
         """
         return await self._services.update_outcome_service.get_update_outcome()
 
@@ -813,11 +815,12 @@ class Endpoints:
 
     @route
     def dismiss_update_failure(self, rolled_back_at):
-        """Record that the user waved away the card for one rolled-back update.
+        """Record that the user waved away the card for one update that did not go through.
 
-        Per record — named by its ``rolled_back_at`` — so the next rollback
-        raises the card again. Returns ``{"success": True}``, or the canonical
-        failure shape for a stamp that is not a non-empty string.
+        Per record — named by its ``rolled_back_at`` — so the next record the
+        installer writes raises the card again. Returns ``{"success": True}``,
+        or the canonical failure shape for a stamp that is not a non-empty
+        string.
         """
         return self._services.update_outcome_service.dismiss_update_failure(rolled_back_at)
 

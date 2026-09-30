@@ -7,6 +7,7 @@ import {
   getUpdateOutcome,
   logWarn,
   type UpdateOutcome,
+  type UpdateSettingWrite,
 } from "../api/backend";
 import { TOAST_READINESS_DEADLINE_MS, TOAST_READINESS_POLL_MS } from "./steamReadyForToasts";
 import {
@@ -18,6 +19,12 @@ import {
   getUpdateOutcomeState,
   onUpdateOutcomeChange,
   resetUpdateOutcomeStoreForTests,
+  setUpdateOutcomeState,
+  UPDATE_CHECK_FAILURE_REASON,
+  UPDATE_FAILURE_REASON,
+  UPDATE_UNKNOWN_FAILURE_REASON,
+  takePushedUpdateFailure,
+  updateFailureReason,
   updateAnnouncementSentence,
   updateFailureSentence,
   type UpdateOutcomeState,
@@ -44,13 +51,23 @@ const ROLLED_BACK_WIRE: UpdateOutcome = {
   announce_version: null,
   announce_direction: null,
   toast_owed: false,
-  failure: { attempted_version: "1.3.0", restored_version: "1.2.3", rolled_back_at: "2026-09-25T10:15:00Z" },
+  failure: {
+    attempted_version: "1.3.0",
+    restored_version: "1.2.3",
+    rolled_back_at: "2026-09-25T10:15:00Z",
+    kind: "rollback",
+  },
   failure_dismissed: false,
 };
 
 const ROLLED_BACK: UpdateOutcomeState = {
   announcement: null,
-  failure: { attemptedVersion: "1.3.0", restoredVersion: "1.2.3", rolledBackAt: "2026-09-25T10:15:00Z" },
+  failure: {
+    attemptedVersion: "1.3.0",
+    restoredVersion: "1.2.3",
+    rolledBackAt: "2026-09-25T10:15:00Z",
+    kind: "rollback",
+  },
   failureDismissed: false,
 };
 
@@ -105,6 +122,42 @@ describe("updateOutcomeStore", () => {
 
   it("starts with no record", () => {
     expect(getUpdateOutcomeState()).toEqual({ announcement: null, failure: null, failureDismissed: false });
+  });
+
+  it("takes a pushed refusal as the record its card shows, over a read still in flight", async () => {
+    let answer: (outcome: UpdateOutcome) => void = () => {};
+    vi.mocked(getUpdateOutcome).mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const listener = vi.fn();
+    onUpdateOutcomeChange(listener);
+    const read = fetchUpdateOutcome();
+
+    takePushedUpdateFailure({ ...ROLLED_BACK_WIRE.failure!, kind: "check" });
+    answer({ ...ROLLED_BACK_WIRE, failure: null });
+    await read;
+
+    expect(getUpdateOutcomeState().failure).toEqual({ ...ROLLED_BACK.failure!, kind: "check" });
+    expect(getUpdateOutcomeState().failureDismissed).toBe(false);
+    expect(listener).toHaveBeenCalled();
+  });
+
+  it("takes a pushed refusal with its card up, even where an earlier record's card was dismissed", () => {
+    setUpdateOutcomeState({ ...ROLLED_BACK, failureDismissed: true });
+
+    takePushedUpdateFailure({ ...ROLLED_BACK_WIRE.failure!, rolled_back_at: "2026-09-26T08:00:00Z", kind: "check" });
+
+    expect(getUpdateOutcomeState().failureDismissed).toBe(false);
+    expect(getUpdateOutcomeState().failure?.rolledBackAt).toBe("2026-09-26T08:00:00Z");
+  });
+
+  it("keeps the record's kind", async () => {
+    vi.mocked(getUpdateOutcome).mockResolvedValue({
+      ...ROLLED_BACK_WIRE,
+      failure: { ...ROLLED_BACK_WIRE.failure!, kind: "check" },
+    });
+
+    await fetchUpdateOutcome();
+
+    expect(getUpdateOutcomeState().failure?.kind).toBe("check");
   });
 
   it("maps the backend's record onto the store and notifies", async () => {
@@ -265,6 +318,21 @@ describe("updateOutcomeStore", () => {
       expect(getUpdateOutcomeState().failureDismissed).toBe(false);
     });
 
+    it("a record pushed while the dismissal was in flight keeps its card up", async () => {
+      vi.mocked(getUpdateOutcome).mockResolvedValue(ROLLED_BACK_WIRE);
+      await fetchUpdateOutcome();
+      const write = deferred<UpdateSettingWrite>();
+      vi.mocked(dismissUpdateFailure).mockReturnValue(write.promise);
+
+      const dismissing = dismissUpdateFailureRecord("2026-09-25T10:15:00Z");
+      takePushedUpdateFailure({ ...ROLLED_BACK_WIRE.failure!, rolled_back_at: "2026-09-26T08:00:00Z", kind: "check" });
+      write.resolve({ success: true });
+      await dismissing;
+
+      expect(getUpdateOutcomeState().failure?.rolledBackAt).toBe("2026-09-26T08:00:00Z");
+      expect(failureCardShows(getUpdateOutcomeState())).toBe(true);
+    });
+
     it("a read that was in flight when Dismiss landed writes nothing over it", async () => {
       const read = deferred<UpdateOutcome>();
       vi.mocked(getUpdateOutcome).mockReturnValue(read.promise);
@@ -321,6 +389,24 @@ describe("updateOutcomeStore", () => {
 
     it("words a rolled-back update in one sentence", () => {
       expect(updateFailureSentence(ROLLED_BACK.failure!)).toBe("Update to 1.3.0 failed — you are still on 1.2.3.");
+    });
+
+    it("says where the reason is in the words of the record's kind", () => {
+      expect(updateFailureReason(ROLLED_BACK.failure!)).toBe(UPDATE_FAILURE_REASON);
+      expect(updateFailureReason({ ...ROLLED_BACK.failure!, kind: "check" })).toBe(UPDATE_CHECK_FAILURE_REASON);
+      expect(updateFailureReason({ ...ROLLED_BACK.failure!, kind: "unknown" })).toBe(UPDATE_UNKNOWN_FAILURE_REASON);
+    });
+
+    it("names no cause for a record of a kind this version does not know, only the installer's output", () => {
+      expect(UPDATE_UNKNOWN_FAILURE_REASON).toBe(
+        "The installer's output says why: journalctl --user -u romm-tender-update, or the terminal it was run in.",
+      );
+    });
+
+    it("words a refusal by the pre-install check as nothing changed, and sends the reader to the installer's output", () => {
+      expect(UPDATE_CHECK_FAILURE_REASON).toBe(
+        "The new version did not start, so nothing was changed. The installer's output says why: journalctl --user -u romm-tender-update, or the terminal it was run in.",
+      );
     });
 
     it("the rolled-back card stands while a record does and was not dismissed", () => {
