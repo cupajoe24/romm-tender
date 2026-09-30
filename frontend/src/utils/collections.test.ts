@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createOrUpdateRomMCollections, createOrUpdateCollections, clearPlatformCollection } from "./collections";
+import {
+  createOrUpdateRomMCollections,
+  createOrUpdateCollections,
+  clearPlatformCollection,
+  clearAllRomMCollections,
+} from "./collections";
 
 // Steam's collection identity is case-insensitive, so a collection whose
 // displayName differs only by case from the one we're syncing is the SAME Steam
@@ -52,6 +57,17 @@ describe("createOrUpdateRomMCollections — case-insensitive identity (#1569)", 
     expect(NewUnsavedCollection).not.toHaveBeenCalled();
     expect(existing.Save).toHaveBeenCalledTimes(1);
     expect(existing.dnd.AddApps).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates an existing collection whose name differs only by case folding (#2131)", async () => {
+    const existing = fakeCollection("RomM: [STRASSE] (test)");
+    const NewUnsavedCollection = vi.fn(() => fakeCollection("RomM: [Straße] (test)"));
+    vi.stubGlobal("collectionStore", { userCollections: [existing], NewUnsavedCollection });
+
+    await createOrUpdateRomMCollections({ Straße: [1001] });
+
+    expect(NewUnsavedCollection).not.toHaveBeenCalled();
+    expect(existing.Save).toHaveBeenCalledTimes(1);
   });
 
   it("creates a new collection when nothing matches even case-insensitively", async () => {
@@ -120,5 +136,37 @@ describe("clearPlatformCollection — case-insensitive identity (#1569)", () => 
     await clearPlatformCollection("game boy");
 
     expect(scoped.Delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes a scoped and a legacy collection whose names differ only by case folding (#2131)", async () => {
+    const scoped = fakeCollection("RomM: STRASSE (test)");
+    const legacy = fakeCollection("RomM: STRASSE");
+    const other = fakeCollection("RomM: Strasse Racer (test)");
+    vi.stubGlobal("collectionStore", { userCollections: [scoped, legacy, other] });
+
+    await clearPlatformCollection("Straße");
+
+    expect(scoped.Delete).toHaveBeenCalledTimes(1);
+    expect(legacy.Delete).toHaveBeenCalledTimes(1);
+    expect(other.Delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("clearAllRomMCollections — case-insensitive identity (#1569)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sweeps this host's case variants and spares another host's", async () => {
+    const shouted = fakeCollection("ROMM: [Faves] (TEST)");
+    const theirs = fakeCollection("ROMM: [Faves] (othermachine)");
+    const mine = fakeCollection("My Games (test)");
+    vi.stubGlobal("collectionStore", { userCollections: [shouted, theirs, mine] });
+
+    await clearAllRomMCollections();
+
+    expect(shouted.Delete).toHaveBeenCalledTimes(1);
+    expect(theirs.Delete).not.toHaveBeenCalled();
+    expect(mine.Delete).not.toHaveBeenCalled();
   });
 });

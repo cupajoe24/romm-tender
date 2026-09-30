@@ -1742,6 +1742,92 @@ describe("index.tsx — sync_complete stale-collection cleanup (#1040)", () => {
     plugin.onDismount();
   });
 
+  it("sweeps a stale RomM collection whose prefix is a case variant of ours (#2131)", async () => {
+    const shouted = { id: "shouted-id", displayName: "ROMM: [Faves] (steamdeck)", Delete: vi.fn() };
+    vi.stubGlobal("collectionStore", { userCollections: [shouted] });
+    const plugin = pluginFactory();
+
+    emitSyncComplete({ platform_app_ids: { "Nintendo 64": [1] }, total_games: 1 });
+    await flush();
+
+    expect(shouted.Delete).toHaveBeenCalledTimes(1);
+    plugin.onDismount();
+  });
+
+  it("sweeps a stale RomM collection whose host suffix is a case variant of ours (#2131)", async () => {
+    const shouted = { id: "shouted-id", displayName: "RomM: [Faves] (STEAMDECK)", Delete: vi.fn() };
+    vi.stubGlobal("collectionStore", { userCollections: [shouted] });
+    const plugin = pluginFactory();
+
+    emitSyncComplete({ platform_app_ids: { "Nintendo 64": [1] }, total_games: 1 });
+    await flush();
+
+    expect(shouted.Delete).toHaveBeenCalledTimes(1);
+    plugin.onDismount();
+  });
+
+  it("spares a case variant of our prefix that carries another host's suffix (#2131)", async () => {
+    const theirs = { id: "theirs-id", displayName: "ROMM: [Faves] (othermachine)", Delete: vi.fn() };
+    const ours = { id: "ours-id", displayName: "ROMM: [Gone] (STEAMDECK)", Delete: vi.fn() };
+    vi.stubGlobal("collectionStore", { userCollections: [theirs, ours] });
+    const plugin = pluginFactory();
+
+    emitSyncComplete({ platform_app_ids: { "Nintendo 64": [1] }, total_games: 1 });
+    await flush();
+
+    expect(theirs.Delete).not.toHaveBeenCalled();
+    // Non-vacuous: the cleanup ran and swept this host's case variant.
+    expect(ours.Delete).toHaveBeenCalledTimes(1);
+    plugin.onDismount();
+  });
+
+  it("clears a stale platform collection whose prefix and host suffix are case variants of ours (#2131)", async () => {
+    const shouted = { id: "shouted-id", displayName: "ROMM: Super Nintendo (STEAMDECK)", Delete: vi.fn() };
+    vi.stubGlobal("collectionStore", { userCollections: [shouted] });
+    const plugin = pluginFactory();
+
+    emitSyncComplete({ platform_app_ids: { "Nintendo 64": [1] }, total_games: 1 });
+    await flush();
+
+    expect(clearPlatformCollection).toHaveBeenCalledWith("Super Nintendo", expect.any(AbortSignal));
+    plugin.onDismount();
+  });
+
+  it("keeps an active RomM collection whose name differs from the active key only by case folding (#2131)", async () => {
+    const strasse = { id: "strasse-id", displayName: "RomM: [STRASSE] (steamdeck)", Delete: vi.fn() };
+    const gone = { id: "gone-id", displayName: "RomM: [Gone] (steamdeck)", Delete: vi.fn() };
+    vi.stubGlobal("collectionStore", { userCollections: [strasse, gone] });
+    const plugin = pluginFactory();
+
+    emitSyncComplete({
+      platform_app_ids: { "Nintendo 64": [1] },
+      romm_collection_app_ids: { Straße: [1] },
+      total_games: 1,
+    });
+    await flush();
+
+    expect(strasse.Delete).not.toHaveBeenCalled();
+    // Non-vacuous: the cleanup ran and still sweeps a collection with no key.
+    expect(gone.Delete).toHaveBeenCalledTimes(1);
+    plugin.onDismount();
+  });
+
+  it("keeps an active platform collection whose name differs from the active key only by case folding (#2131)", async () => {
+    const strasse = { id: "strasse-id", displayName: "RomM: STRASSE (steamdeck)", Delete: vi.fn() };
+    const gone = { id: "gone-id", displayName: "RomM: Super Nintendo (steamdeck)", Delete: vi.fn() };
+    vi.stubGlobal("collectionStore", { userCollections: [strasse, gone] });
+    const plugin = pluginFactory();
+
+    emitSyncComplete({ platform_app_ids: { Straße: [1] }, total_games: 1 });
+    await flush();
+
+    expect(clearPlatformCollection).not.toHaveBeenCalledWith("STRASSE", expect.any(AbortSignal));
+    // Non-vacuous: the cleanup ran and still clears a platform with no key.
+    expect(clearPlatformCollection).toHaveBeenCalledWith("Super Nintendo", expect.any(AbortSignal));
+    expect(clearPlatformCollection).toHaveBeenCalledTimes(1);
+    plugin.onDismount();
+  });
+
   it("removes a RomM collection whose key lost its label and keeps the bare-named one", async () => {
     // Steam still holds a standard collection under a "(Standard)"-labelled
     // name, and the active set keys it by its bare name "Kids".
