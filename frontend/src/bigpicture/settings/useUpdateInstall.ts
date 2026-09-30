@@ -12,7 +12,7 @@ import { endStoppedAttempt } from "../../utils/stoppedUpdateStore";
 import {
   getUpdateInstallAttempt,
   installerSeenAt,
-  noteInstaller,
+  noteAttempt,
   setUpdateInstallAttempt,
   useUpdateInstallAttempt,
 } from "../../utils/updateInstallStore";
@@ -34,6 +34,8 @@ export const UPDATE_INSTALL_POLL_MS = 3000;
 export const UPDATE_INSTALL_READ_DEADLINE_MS = 5000;
 
 export interface UpdateInstall {
+  /** A read has answered since the section mounted; until one has, `offered` and `version` say nothing. */
+  answered: boolean;
   offered: boolean;
   version: string | null;
   waitReasons: UpdateWaitReason[];
@@ -48,7 +50,7 @@ export interface UpdateInstall {
   underWay: boolean;
   /** The installer is running, so this backend is going away and its connection with it. */
   restarting: boolean;
-  /** Five minutes have passed since this panel first saw the installer started, and it is still restarting. */
+  /** Seven minutes have passed since this panel first saw the installer started, and it is still restarting. */
   overdue: boolean;
   /** The last read failed, or has not answered within {@link UPDATE_INSTALL_READ_DEADLINE_MS}. */
   readFailed: boolean;
@@ -88,7 +90,7 @@ export function useUpdateInstall(): UpdateInstall {
 
   const take = useCallback((next: UpdateInstallState) => {
     lastReading.current = next;
-    noteInstaller(next.attempt);
+    noteAttempt(next.attempt);
     setReading(next);
     setRefusal((held) => (held !== null && !refusalStands(held, next) ? null : held));
   }, []);
@@ -136,7 +138,7 @@ export function useUpdateInstall(): UpdateInstall {
   const restarting = attempt?.step === "installer_started";
   const underWay = attempt !== null && attempt.step !== "failed";
 
-  // The restarting line gives way once the installer has had five minutes.
+  // The line under the steps gives way once the installer has had seven minutes.
   // Timed from the first time this panel saw it started, which the store
   // keeps across the section's unmounts.
   useEffect(() => {
@@ -183,12 +185,15 @@ export function useUpdateInstall(): UpdateInstall {
   };
 
   return {
+    answered: reading !== null,
     offered: reading?.offered ?? false,
     version,
     waitReasons: reading?.wait_reasons ?? [],
     pausedDownloads: reading?.paused_downloads ?? 0,
     attempt,
-    tryAgain: (reading?.try_again ?? false) || (attempt?.step === "failed" && attempt.version === version),
+    tryAgain:
+      (reading?.try_again ?? false) ||
+      (attempt?.step === "failed" && (reading === null || attempt.version === version)),
     pressing,
     refusal: refusal === null ? "" : INSTALL_REFUSAL_SENTENCES[refusal.reason],
     underWay,

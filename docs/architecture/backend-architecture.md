@@ -1717,10 +1717,12 @@ release the checks found stays standing, and a check that reached nothing at all
   timeout at every panel load; a stamp dated in the future is due at once.
 - **The user's two keys** are in `settings.json` and are written only through the `SettingsPersister`:
   `update_check_enabled` (absent means on) and `update_notice_dismissed_version`, which holds a version rather than a
-  flag so the next release raises the card again. With the switch off nothing is requested — not by the daily check and
-  not by Check now either.
-- **Check now** (`check_for_update_now`) skips the throttle and forgets the dismissal, and adds `reached` to the answer,
-  so the Settings section can tell "nothing newer" from "nothing found out".
+  flag so the next release raises the card again. The switch governs only what the program asks by itself: with it off
+  neither the panel-load read nor the running check requests anything, and `get_update_notice` reports the stored answer
+  however old it is — card, version and all. What a check found is offered to install whatever the switch says.
+- **Check now** (`check_for_update_now`) skips the throttle and forgets the dismissal whatever the switch says — a press
+  is the user asking — and adds `reached` to the answer, so the Settings section can tell "nothing newer" from "nothing
+  found out".
 - **While the backend runs, it checks by itself** (`run_due_checks`, started with the background tasks and cancelled in
   `Application.shutdown`). It wakes once an hour on the injected `Sleeper` and asks for the notice exactly as the panel
   load does, so the stamp still decides whether GitHub is asked and a check that reached nothing stays silent. A notice
@@ -1786,8 +1788,8 @@ The service tells the user what the last update did, in one of two ways, and nev
 - **A record stands only while the running version is the one it restored**
   (`domain/update_outcome.py::standing_update_failure`). One that names another `restored_version` — the installer's
   removal did not happen, and a later update went through anyway — is a leftover: no WARNING, `failure` is `None`, and
-  so there is no card and no row under Settings › Updates. The file is left where it is, since removing it is the
-  installer's.
+  so there is no card and no failure block under Settings › Updates. The file is left where it is, since removing it is
+  the installer's.
 - **Dismiss is per record.** `update_failure_dismissed_at` in `settings.json` holds the dismissed record's
   `rolled_back_at`, written only through the `SettingsPersister`, so the next record the installer writes raises the
   card again.
@@ -1801,9 +1803,9 @@ anything itself: it hands a verified tarball to the same `install.sh` a user run
 swaps the tree and rolls back what does not answer
 ([Running an installed one](../contributing/development.md#running-an-installed-one)).
 
-- **What is offered.** `get_update_install_state` offers an install where this process is the installed program, the
-  check is switched on, and the stored release (`LastSeenReleaseReader.last_seen_release`) is strictly newer than the
-  running version. A run from a checkout is offered nothing.
+- **What is offered.** `get_update_install_state` offers an install where this process is the installed program and the
+  stored release (`LastSeenReleaseReader.last_seen_release`) is strictly newer than the running version, whatever the
+  check's switch says. A run from a checkout is offered nothing.
 - **What a press waits for** is listed as `wait_reasons`, each a discriminant the panel words: an app Steam lists as
   running (`app_running`, with the names), a running-apps reading that could not be taken (`running_apps_unknown` —
   never read as "nothing running"; with `TENDER_INJECT=off` the injector never attaches, so no reading is ever taken), a
@@ -1863,7 +1865,7 @@ swaps the tree and rolls back what does not answer
   cannot be read included — it fails as `installer_stopped`. What the installer said is in its journal either way. A
   user manager that cannot be asked is not taken for the unit ending: the first such reading is a WARNING, later ones go
   to the debug log, and the watch goes on with the update rule held, for as long as this process lives — it is never
-  given back on a guess. The panel says what that looks like after five minutes ([QAM panel](qam-panel.md#settings)).
+  given back on a guess. The panel says what that looks like after seven minutes ([QAM panel](qam-panel.md#settings)).
 - **Something unforeseen** — an exception the steps above do not name — is logged with its trace. Before the installer
   was asked to start it fails the attempt, as `download_failed` while downloading and as `installer_not_started` after;
   from that moment on it leaves the rule held, since the installer may be running. A running-apps reader that raises is

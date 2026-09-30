@@ -291,6 +291,17 @@ describe("useUpdateInstall", () => {
     expect(result.current.tryAgain).toBe(true);
   });
 
+  it("says Try again for a pushed failure before the first read answers", async () => {
+    vi.mocked(getUpdateInstallState).mockReturnValue(deferred<UpdateInstallState>().promise);
+    const { result } = renderHook(() => useUpdateInstall());
+    await flush();
+
+    act(() => setUpdateInstallAttempt(FAILED));
+
+    expect(result.current.answered).toBe(false);
+    expect(result.current.tryAgain).toBe(true);
+  });
+
   it("logs a read that failed while no installer is running", async () => {
     vi.mocked(getUpdateInstallState).mockRejectedValue(new Error("boom"));
     renderHook(() => useUpdateInstall());
@@ -459,6 +470,18 @@ describe("useUpdateInstall", () => {
       expect(result.current.offered).toBe(true);
     });
 
+    it("leaves the state unanswered until a read answers, a failed one included", async () => {
+      vi.mocked(getUpdateInstallState).mockRejectedValueOnce(new Error("boom"));
+      const { result } = renderHook(() => useUpdateInstall());
+      expect(result.current.answered).toBe(false);
+
+      await flush();
+      expect(result.current.answered).toBe(false);
+
+      await tick();
+      expect(result.current.answered).toBe(true);
+    });
+
     it("is said, and is no longer once a read answers again", async () => {
       vi.mocked(getUpdateInstallState).mockRejectedValue(new Error("boom"));
       const { result } = renderHook(() => useUpdateInstall());
@@ -473,10 +496,10 @@ describe("useUpdateInstall", () => {
     });
   });
 
-  describe("an installer that has not stopped this backend within five minutes", () => {
+  describe("an installer that has not stopped this backend within seven minutes", () => {
     const INSTALLER_STARTED: UpdateInstallAttempt = { ...DOWNLOADING, step: "installer_started" };
 
-    it("is not overdue before five minutes have passed since the panel first saw it", async () => {
+    it("is not overdue before seven minutes have passed since the panel first saw it", async () => {
       const { result } = renderHook(() => useUpdateInstall());
       await flush();
       act(() => setUpdateInstallAttempt(INSTALLER_STARTED));
@@ -489,7 +512,7 @@ describe("useUpdateInstall", () => {
       expect(result.current.overdue).toBe(false);
     });
 
-    it("is overdue after five minutes, with reads failing where the backend is gone", async () => {
+    it("is overdue after seven minutes, with reads failing where the backend is gone", async () => {
       const { result } = renderHook(() => useUpdateInstall());
       await flush();
       act(() => setUpdateInstallAttempt(INSTALLER_STARTED));
@@ -503,7 +526,7 @@ describe("useUpdateInstall", () => {
       expect(result.current.readFailed).toBe(true);
     });
 
-    it("is overdue after five minutes with the backend gone, where a read never settles rather than failing", async () => {
+    it("is overdue after seven minutes with the backend gone, where a read never settles rather than failing", async () => {
       const { result } = renderHook(() => useUpdateInstall());
       await flush();
       act(() => setUpdateInstallAttempt(INSTALLER_STARTED));
@@ -517,7 +540,7 @@ describe("useUpdateInstall", () => {
       expect(result.current.readFailed).toBe(true);
     });
 
-    it("is overdue after five minutes with reads still answering where the installer has not stopped it", async () => {
+    it("is overdue after seven minutes with reads still answering where the installer has not stopped it", async () => {
       vi.mocked(getUpdateInstallState).mockResolvedValue({ ...OFFERED, attempt: INSTALLER_STARTED });
       const { result } = renderHook(() => useUpdateInstall());
       await flush();
@@ -530,7 +553,7 @@ describe("useUpdateInstall", () => {
       expect(result.current.readFailed).toBe(false);
     });
 
-    it("counts the five minutes from when the panel first saw it, across the section leaving the screen", async () => {
+    it("counts the seven minutes from when the panel first saw it, across the section leaving the screen", async () => {
       const first = renderHook(() => useUpdateInstall());
       await flush();
       act(() => setUpdateInstallAttempt(INSTALLER_STARTED));

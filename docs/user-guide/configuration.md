@@ -281,10 +281,11 @@ problems.
 
 ## Updates
 
-Tender asks GitHub whether a newer release is out — at most once a day, when Steam loads it and again while it runs.
-When there is one, a notice on the main panel says **Tender X is available** and names the version you have — a check
-made while the panel is open brings it up there and then. **Open Updates** takes you to **Settings › Updates**, where
-you can install it, and **Dismiss** puts the notice away for that version only — the next release brings it back.
+Tender asks GitHub whether a newer release is out — at most once a day, when Steam loads it and again while it runs,
+unless you switch the daily check off. When there is one, a notice on the main panel says **Tender X is available** and
+names the version you have — a check made while the panel is open brings it up there and then. **Open Updates** takes
+you to **Settings › Updates**, where you can install it, and **Dismiss** puts the notice away for that version only —
+the next release brings it back.
 
 After an update, once Steam has finished starting, it says **Tender updated to X** in a message that goes by itself;
 after installing an earlier version, it says **Tender is back on X** instead. It says it once: reopening the panel, or
@@ -303,37 +304,39 @@ release.
 **Settings › Updates** shows:
 
 - **Installed** — the version you are running.
-- **Available** — the release the last successful check found, **None newer** when you already have it, **Not known
-  yet** before a check has found anything, or **Not checked — the daily check is off** while the check is switched off.
-- **Update to X failed — you are still on Y.**, with where the reason is under it, while the installer's note of a
-  rolled-back update, or of one its pre-install check refused, is there and you are still on Y — whether or not you
-  dismissed the notice on the main panel.
-- **Install update X** — installs the release **Available** names; see [Installing an update](#installing-an-update).
+- **Available** — the release the last successful check found, in green, **None newer** when you already have it, or
+  **Not known yet** before a check has found anything — whether or not the daily check is switched on.
+- **Install update** — installs the release **Available** names; see [Installing an update](#installing-an-update).
   **Try again** instead, for a version whose install already failed, was rolled back or was refused. A copy of Tender
   run from a source checkout says **Development build — install updates with the installer.** in its place.
-- **Check for updates daily** — on by default. Switch it off and Tender asks GitHub nothing at all, not even when you
-  press **Check now**, and offers nothing to install.
-- **Check now** — asks straight away rather than waiting for the day to pass, and brings back a notice you dismissed.
-  The line under the button says what it found: a newer release, that you have the newest one, or that GitHub gave no
-  usable answer.
+- Below the versions and the button, one block for what is happening: an install under way, or an update that did not go
+  through. While the installer's note of a rolled-back update, or of one its pre-install check refused, is there and you
+  are still on the version it names, the block says so — **Update to X failed — Tender went back to Y.** or **Update to
+  X failed — nothing was changed.** — with the step it failed at and where the reason is, whether or not you dismissed
+  the notice on the main panel.
+- **Check for updates daily** — on by default. Switch it off and Tender no longer asks GitHub by itself; what the last
+  check found stays in **Available** and can still be installed.
+- **Check now** — asks straight away rather than waiting for the day to pass, whether or not the daily check is switched
+  on, and brings back a notice you dismissed. What it found shows in **Available**; a line under the button appears only
+  when there is more to say: that GitHub gave no usable answer, or that the check failed.
 
 A release counts as out only once its download is attached together with GitHub's checksum for it and the checksum file
 the installer verifies it against, which happens a few minutes after the release is published; until then Tender says
 nothing about it. A release whose download comes without a valid checksum, or without that file, does not count as out
 while either is missing, because it could not be verified.
 
-**What the check sends where.** When a day has passed since the last check — Tender looks when Steam loads it and once
-an hour while it runs — and whenever you press **Check now**, Tender asks GitHub's public API for the newest release of
-`danielcopper/romm-tender`. The request names the program and its version (for example `romm-tender/1.0.0`), and GitHub
-sees your IP address, as it does for any request. Nothing about your library, your RomM server or your accounts is sent.
-If the check gets no usable answer — you are offline, GitHub is down, or it refuses the request — nothing changes:
-whatever the last successful check found stays as it was, and Tender tries again once a day has passed.
+**What the check sends where.** When a day has passed since the last check — while the daily check is on, Tender looks
+when Steam loads it and once an hour while it runs — and whenever you press **Check now**, Tender asks GitHub's public
+API for the newest release of `danielcopper/romm-tender`. The request names the program and its version (for example
+`romm-tender/1.0.0`), and GitHub sees your IP address, as it does for any request. Nothing about your library, your RomM
+server or your accounts is sent. If the check gets no usable answer — you are offline, GitHub is down, or it refuses the
+request — nothing changes: whatever the last successful check found stays as it was, and Tender tries again once a day
+has passed.
 
 ### Installing an update
 
-**Install update X** downloads the release, checks it against GitHub's checksum and starts the installer, which replaces
-Tender and restarts it. It is there only for the release **Available** names, and only while the daily check is switched
-on.
+**Install update** downloads the release, checks it against GitHub's checksum and starts the installer, which replaces
+Tender and restarts it. It is there for the release **Available** names, whether or not the daily check is switched on.
 
 The button waits while an update would cut something short, and says what under **Waiting for:** — a game to close
 (named), library sync, game downloads, save sync (a slot switch or a save deletion counts too), BIOS downloads, a save
@@ -347,26 +350,34 @@ nothing is left on it. A RetroDECK migration that is only waiting for your answe
 question is still there after the update. Paused game downloads do not hold it back either — a line under the button
 says how many there are, because the restart cancels them.
 
-Once you press it, the button says **Installing…** and the steps are listed under it: **Downloading**, with how far it
-got, **Verifying** and **Starting the installer**. While it downloads and verifies, a line under the steps says
-**Starting a game now cancels the update.** — Tender checks once more right before the installer starts, and stops
-there, with nothing changed, if a game is running. When the installer has started, the section says **Tender is
-restarting — Steam's interface will reload in a moment.** From then on the panel loses touch with the old Tender, which
-is expected; after the reload Tender says it was updated, or, if the new version did not answer once started, that the
-installer [went back to the version you had](troubleshooting.md#an-update-was-rolled-back). Before any of that the
-installer runs the new version's pre-install check, without stopping Tender — the restarting line is already up while it
-runs, though nothing restarts until it has passed. Where the new version cannot even be put together, the installer
-stops there: nothing is replaced, Steam's interface does not reload, **Starting the installer** is marked **Failed**
-with **The new version does not start — nothing was changed.**, and the main panel says the update failed
+Once you press it, the button says **Installing…** and a block under it shows how far the install got: what is
+happening, with the percent of the download and the time since you pressed, a bar, and the four steps **Download**,
+**Verify**, **Check the new version** and **Install**, each marked `✓` done, `●` under way, `○` still to come or `✕`
+failed. While it downloads and verifies, the block says **Starting a game now cancels the update.** — Tender checks once
+more right before the installer starts, and stops there, with nothing changed, if a game is running.
+
+When the installer has started, it first runs the new version's pre-install check, without stopping Tender: the block
+says **Checking the new version**. Once the check has passed, the installer stops Tender and the block says **Tender is
+restarting**, with **Steam's interface reloads when it is done — usually within a minute, and up to about 5 minutes if
+Tender has to go back to Y.** Tender reports nothing once the installer has started, so the panel tells the two apart by
+whether Tender still answers. From then on the panel loses touch with the old Tender, which is expected; after the
+reload Tender says it was updated, or, if the new version did not answer once started, that the installer
+[went back to the version you had](troubleshooting.md#an-update-was-rolled-back). The check may take up to two minutes;
+the installer then waits up to a minute for the new version to answer, and up to a minute more for the one you had if it
+goes back; stopping Tender, saving your data and reloading Steam's interface come on top. Where the new version cannot
+even be put together, the check stops the installer there: nothing is replaced, Steam's interface does not reload, and
+the block says **Update to X failed — nothing was changed.** with **Check the new version** marked failed and **The new
+version does not start.**, and the main panel says the update failed
 ([The New Version Does Not Start](troubleshooting.md#the-new-version-does-not-start)). While the install runs, Tender
 refuses to start a library sync, a game download or a save sync.
 
-If Tender is not back five minutes after the installer started, the restarting line changes: **Tender has not come
+If Tender is not back seven minutes after the installer started, the line in the block changes: **Tender has not come
 back.** when it no longer answers — the line names the journal to read and the command that starts it again — or **The
 installer is taking unusually long.** when it still answers and the installer has not stopped it yet.
 
-If a step fails, it is marked **Failed** and the section says why, and the button comes back as **Try again**. Nothing
-tries again by itself.
+If the install fails, the block turns amber, says **Update to X failed** — or **Update to X was cancelled**, where a
+game was started or Tender could not check whether one runs — marks the step that failed with `✕` where it was one of
+the four, and says why, and the button comes back as **Try again**. Nothing tries again by itself.
 [An update from Settings did not go through](troubleshooting.md#an-update-from-settings-did-not-go-through) says what
 each failure means and where to read more.
 
