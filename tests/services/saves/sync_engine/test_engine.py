@@ -12,7 +12,7 @@ import struct
 import threading
 import time
 import zipfile
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fakes.fake_active_core_resolver import FakeActiveCoreResolver
@@ -20,7 +20,7 @@ from fakes.fake_save_location_reader import FakeSaveLocationReader
 
 from domain.rom_save_sync_state import RomSaveSyncState
 from domain.save_answer import SaveAnswer
-from lib.conflict_rules import migration_refusal
+from lib.conflict_rules import migration_refusal, update_refusal
 from lib.errors import (
     RommApiError,
     RommAuthError,
@@ -53,6 +53,9 @@ from tests.services.saves._helpers import (
     _set_device_id,
     make_service,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def _corrupt_zip_bytes() -> bytes:
@@ -680,6 +683,132 @@ class TestMigrationPendingGuards:
             "synced": 0,
         }
         assert not any(c[0] in ("upload_save", "download_save_content") for c in fake.call_log)
+
+
+class TestUpdateInProgressGuards:
+    """The engine's own update refusals, beside the migration ones and for the same reason: an
+    update stops this process without waiting for a sync, and a caller can reach the engine
+    without passing the update rule — post_exit_sync has no endpoint at all."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("entry", ["pre_launch_sync", "post_exit_sync"])
+    async def test_the_refusal_is_the_shared_update_refusal_with_nothing_synced(self, tmp_path, entry):
+        svc, fake = make_service(tmp_path, is_update_in_progress=lambda: True)
+        svc._config.settings["save_sync_enabled"] = True
+        _set_device_id(svc, "test-device")
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path, content=b"unsyncable")
+
+        assert await getattr(svc, entry)(42) == {**update_refusal(), "synced": 0}
+        assert not any(c[0] in ("upload_save", "download_save_content") for c in fake.call_log)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("entry", ["pre_launch_sync", "post_exit_sync"])
+    async def test_an_update_answers_before_a_pending_migration(self, tmp_path, entry):
+        svc, _fake = make_service(
+            tmp_path, is_update_in_progress=lambda: True, is_retrodeck_migration_pending=lambda: True
+        )
+        svc._config.settings["save_sync_enabled"] = True
+        _set_device_id(svc, "test-device")
+        _install_rom(svc, tmp_path)
+
+        assert (await getattr(svc, entry)(42))["reason"] == "blocked_by_update"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entry", "args", "extra"), [("sync_rom_saves", (42,), {}), ("sync_all_saves", (), {"conflicts": 0})]
+    )
+    async def test_a_manual_sync_asks_again_once_it_holds_the_device_gate(self, tmp_path, entry, args, extra):
+        """Defense in depth: whichever way the engine was reached, an update holding the rule refuses it at the gate."""
+        svc, fake = make_service(tmp_path, is_update_in_progress=lambda: True)
+        svc._config.settings["save_sync_enabled"] = True
+        _set_device_id(svc, "test-device")
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path, content=b"unsyncable")
+
+        assert await getattr(svc, entry)(*args) == {**update_refusal(), "synced": 0, **extra}
+        assert not any(c[0] in ("upload_save", "download_save_content") for c in fake.call_log)
+
+    @pytest.mark.asyncio
+    async def test_a_follow_during_an_update_follows_nothing_and_says_why_in_the_debug_log(self, tmp_path, monkeypatch):
+        said: list[str] = []
+        svc, _fake = make_service(tmp_path, is_update_in_progress=lambda: True, log_debug=said.append)
+        svc._config.settings["save_sync_enabled"] = True
+        followed: list[int] = []
+        monkeypatch.setattr(svc._sync_engine._follower, "do_follow", lambda rom_id, _answer: followed.append(rom_id))
+
+        await svc._sync_engine.follow_save_directory(42, cast("SaveAnswer", object()))
+
+        assert followed == []
+        assert any("an update is being installed" in line for line in said)
+
+
+class TestWhatIsInFlight:
+    """The two readers the update install asks before it may stop this process."""
+
+    @pytest.mark.asyncio
+    async def test_a_sync_run_is_in_flight_for_as_long_as_it_holds_the_device_gate(self, tmp_path):
+        svc, _fake = make_service(tmp_path)
+        gate = svc._sync_engine._device_gate
+        assert svc.is_save_sync_in_flight() is False
+
+        async with gate.bounded_run(max_wait=1):
+            assert svc.is_save_sync_in_flight() is True
+
+        assert svc.is_save_sync_in_flight() is False
+
+    @pytest.mark.asyncio
+    async def test_a_save_directory_is_being_followed_for_as_long_as_the_follow_runs(self, tmp_path, monkeypatch):
+        svc, _fake = make_service(tmp_path)
+        svc._config.settings["save_sync_enabled"] = True
+        engine = svc._sync_engine
+        seen: list[bool] = []
+
+        def follow(_rom_id: int, _answer: object) -> None:
+            seen.append(svc.is_save_directory_move_in_flight())
+
+        monkeypatch.setattr(engine._follower, "do_follow", follow)
+        assert svc.is_save_directory_move_in_flight() is False
+
+        await engine.follow_save_directory(42, cast("SaveAnswer", object()))
+
+        assert seen == [True]
+        assert svc.is_save_directory_move_in_flight() is False
+
+    @pytest.mark.asyncio
+    async def test_a_follow_is_in_flight_while_it_asks_about_the_migration(self, tmp_path, monkeypatch):
+        """Counted before its first wait, so an install pressed meanwhile finds the move under way."""
+        seen: list[bool] = []
+        move_in_flight: list[Callable[[], bool]] = []
+
+        def migration_pending() -> bool:
+            seen.append(move_in_flight[0]())
+            return False
+
+        svc, _fake = make_service(tmp_path, is_retrodeck_migration_pending=migration_pending)
+        move_in_flight.append(svc.is_save_directory_move_in_flight)
+        svc._config.settings["save_sync_enabled"] = True
+        monkeypatch.setattr(svc._sync_engine._follower, "do_follow", lambda _rom_id, _answer: None)
+
+        await svc._sync_engine.follow_save_directory(42, cast("SaveAnswer", object()))
+
+        assert seen == [True]
+        assert svc.is_save_directory_move_in_flight() is False
+
+    @pytest.mark.asyncio
+    async def test_a_follow_that_raises_is_no_longer_in_flight(self, tmp_path, monkeypatch):
+        svc, _fake = make_service(tmp_path)
+        svc._config.settings["save_sync_enabled"] = True
+        engine = svc._sync_engine
+
+        def follow(_rom_id: int, _answer: object) -> None:
+            raise OSError("disk gone")
+
+        monkeypatch.setattr(engine._follower, "do_follow", follow)
+
+        await engine.follow_save_directory(42, cast("SaveAnswer", object()))
+
+        assert svc.is_save_directory_move_in_flight() is False
 
 
 class TestTheEnginesMigrationRefusalIsTheSharedOne:

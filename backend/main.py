@@ -18,6 +18,7 @@ from bootstrap import Application, build_application
 
 from domain.app_directories import AppDirectories, resolve_directories
 from domain.identity import VERSION
+from domain.update_install import installer_environment
 from domain.update_release import UpdateSource, resolve_update_source
 from host import (
     LOCK_FILENAME,
@@ -821,6 +822,59 @@ class Endpoints:
         return self._services.update_outcome_service.dismiss_update_failure(rolled_back_at)
 
     @route
+    async def get_update_install_state(self):
+        """Report whether the panel may offer to install the last seen release, and what a press waits for.
+
+        Returns ``{"offered", "version", "wait_reasons", "paused_downloads",
+        "attempt", "try_again"}``. ``offered`` holds only on the installed
+        program with the check switched on and a stored release newer than the
+        running version, which ``version`` names. ``wait_reasons`` lists, as
+        ``{"reason", ...}``, everything a press would be refused for now —
+        ``app_running`` (with ``apps``), ``running_apps_unknown``,
+        ``library_sync``, ``rom_downloads``, ``save_sync``,
+        ``firmware_downloads``, ``save_directory_move``,
+        ``removed_games_cleanup``, ``retrodeck_migration``, ``other_work``,
+        ``interface_reload_limit`` (with ``frees_at``, epoch seconds) and
+        ``interface_reload_limit_unknown``.
+        ``paused_downloads`` counts the paused ROM downloads the restart would
+        cancel. ``attempt`` is the latest attempt's ``{"version", "step",
+        "bytes_done", "bytes_total", "failure"}``, or ``None``; ``try_again``
+        says the offered version already failed once.
+        """
+        return await self._services.update_install_service.get_update_install_state()
+
+    @route
+    async def install_update(self, version):
+        """Download, verify and hand *version* to the installer; answer once the attempt has started.
+
+        Returns ``{"success": True}``, or the canonical failure shape with
+        ``reason`` ``update_in_progress``, ``not_offered``,
+        ``version_changed``, or ``update_waiting`` together with
+        ``wait_reasons``. From an accepted press on, every endpoint that a
+        pending RetroDECK migration refuses answers ``blocked_by_update``
+        instead, and so does starting the migration itself, until the attempt
+        fails or the installer replaces this process; the attempt reports its
+        steps through the ``update_install_progress`` event.
+        """
+        return await self._services.update_install_service.install_update(version)
+
+    @route
+    def get_stopped_update_attempt(self):
+        """Report an update attempt whose installer stopped without updating, as an earlier start left it.
+
+        Returns ``{"attempted_version", "from_version", "started_at"}``, or
+        ``None`` where there is none, it was dismissed, a new attempt has
+        started since, or the installer's unit had not ended yet — a judgement
+        made later is pushed as ``update_attempt_stopped``.
+        """
+        return self._services.update_install_service.get_stopped_update_attempt()
+
+    @route
+    async def dismiss_stopped_update_attempt(self):
+        """Wave away the notice of an installer that stopped without updating. Returns ``{"success": True}``."""
+        return await self._services.update_install_service.dismiss_stopped_attempt()
+
+    @route
     async def get_shortcut_relocation(self):
         """Report which Steam shortcuts still have to be pointed at the launcher.
 
@@ -867,6 +921,7 @@ async def build_backend(
     *,
     directories: AppDirectories,
     update_source: UpdateSource,
+    installer_environment: tuple[tuple[str, str], ...],
     user_home: str,
     logger: logging.Logger,
     status: HostStatus,
@@ -880,10 +935,12 @@ async def build_backend(
     app = build_application(
         directories=directories,
         update_source=update_source,
+        installer_environment=installer_environment,
         user_home=user_home,
         logger=logger,
         loop=asyncio.get_running_loop(),
         emit=events.emit,
+        steam=status.steam,
     )
     app.run_startup_repairs(status.record_failed_step)
     logger.info("Tender backend loaded")
@@ -913,6 +970,7 @@ def run() -> int:
     user_home = os.path.expanduser("~")
     directories = resolve_directories(os.environ, user_home, _CODE_DIR_FALLBACK)
     update_source = resolve_update_source(os.environ, _CODE_DIR_FALLBACK)
+    installer_env = installer_environment(os.environ, directories, sys.executable)
     token = new_token()
     logger = configure_logging(directories.state_dir, token)
     logger.info(f"host: code {directories.code_dir}, data {directories.data_dir}, cache {directories.cache_dir}")
@@ -922,6 +980,7 @@ def run() -> int:
         build_backend,
         directories=directories,
         update_source=update_source,
+        installer_environment=installer_env,
         user_home=user_home,
         logger=logger,
         status=status,

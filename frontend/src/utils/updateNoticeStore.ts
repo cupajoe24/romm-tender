@@ -6,6 +6,7 @@
  *   - the card's Dismiss (dismissUpdateForVersion), after the backend persisted it
  *   - the Settings switch (setUpdateCheckSwitch), after the backend persisted it
  *   - Settings' Check now (runUpdateCheckNow), with the answer it asked for
+ *   - the backend's own check while it runs (takePushedUpdateNotice), from `update_notice`
  *
  * Read by:
  *   - bigpicture/UpdateNotice.tsx, the card on Main, which shows nothing unless `available`
@@ -151,6 +152,18 @@ export async function runUpdateCheckNow(): Promise<UpdateCheckOutcome> {
   if (!answer.enabled) return "off";
   if (!answer.reached) return "unreachable";
   return answer.newer ? "found" : "none";
+}
+
+/**
+ * Take a notice the backend pushed after a check of its own. It moves the
+ * fence, so a read or press still in flight writes nothing once it lands — see
+ * {@link _seq} — and a Check now it overtakes reports nothing. The backend
+ * asks the switch once more right before it pushes, so a notice worked out
+ * with the check on is not pushed once the switch reads off.
+ */
+export function takePushedUpdateNotice(notice: UpdateNotice): void {
+  ++_seq;
+  setUpdateNoticeState(stateFromNotice(notice));
 }
 
 /** Throws the backend's refusal, so the caller's log names it. */

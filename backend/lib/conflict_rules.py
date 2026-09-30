@@ -17,9 +17,15 @@ if TYPE_CHECKING:
 
     from lib.prune_conflicts import PruneConflicts
 
+_UPDATE_MESSAGE = "Tender is installing an update and will restart in a moment."
 _MIGRATION_MESSAGE = "Pending RetroDECK migration. Open the plugin QAM to migrate or dismiss."
 _SYNC_MESSAGE = "A library sync is in progress — wait for it to finish or cancel it first."
 _PRUNE_ACTIVE_MESSAGE = "A removed-game cleanup is in progress; wait for it to finish before changing local game data."
+
+
+def update_refusal() -> dict[str, Any]:
+    """The canonical answer of an endpoint refused while an update of this program is being installed."""
+    return {"success": False, "reason": "blocked_by_update", "message": _UPDATE_MESSAGE}
 
 
 def migration_refusal() -> dict[str, Any]:
@@ -49,16 +55,24 @@ class ConflictRuleSet:
         self,
         *,
         prune_conflicts: PruneConflicts,
+        update_in_progress: Callable[[], bool],
         migration_pending: Callable[[], bool],
         sync_in_flight: Callable[[], bool],
     ) -> None:
         self._prune_conflicts = prune_conflicts
+        self._update_in_progress = update_in_progress
         self._migration_pending = migration_pending
         self._sync_in_flight = sync_in_flight
 
     @contextlib.asynccontextmanager
     async def hold(
-        self, label: str, *, migration: bool = False, sync: bool = False, prune: bool = False
+        self,
+        label: str,
+        *,
+        update: bool = False,
+        migration: bool = False,
+        sync: bool = False,
+        prune: bool = False,
     ) -> AsyncGenerator[dict[str, Any] | None]:
         """Check the named rules for *label* and hold what they need for the block.
 
@@ -66,9 +80,12 @@ class ConflictRuleSet:
         the block may run.
         A refused call registers nothing. With ``prune`` the block runs under an
         operation named *label*, registered in the same lock hold as the check
-        and released when the block ends, however it ends.
+        and released when the block ends, however it ends. The update rule is
+        asked once more after the registration: an install pressed while it
+        waited for the lock saw no operation, and would otherwise stop this
+        process under the block.
         """
-        refusal = self._first_refusal(migration=migration, sync=sync)
+        refusal = self._first_refusal(update=update, migration=migration, sync=sync)
         if refusal is not None:
             yield refusal
             return
@@ -79,6 +96,10 @@ class ConflictRuleSet:
         if registration is None:
             yield prune_active_refusal()
             return
+        if update and self._update_in_progress():
+            await self._prune_conflicts.release_operation(registration)
+            yield update_refusal()
+            return
         try:
             yield None
         finally:
@@ -86,7 +107,7 @@ class ConflictRuleSet:
 
     @contextlib.asynccontextmanager
     async def hold_start(
-        self, label: str, *, migration: bool = False, sync: bool = False
+        self, label: str, *, update: bool = False, migration: bool = False, sync: bool = False
     ) -> AsyncGenerator[dict[str, Any] | None]:
         """Reserve a cleanup's exclusive start for *label*, then check the named rules, and hold the reservation.
 
@@ -95,17 +116,17 @@ class ConflictRuleSet:
         conflicting endpoint from that moment on, so a sync cannot start
         between the sync rule's answer and the reservation. A reservation
         refused while an operation or a lease is held answers
-        ``operation_active``; a migration or sync refusal gives the reservation
-        back before it answers, so a refused start leaves no claim, and so does
-        a rule that raises. Otherwise the reservation is given back when the
-        block ends, however it ends.
+        ``operation_active``; an update, migration or sync refusal gives the
+        reservation back before it answers, so a refused start leaves no claim,
+        and so does a rule that raises. Otherwise the reservation is given back
+        when the block ends, however it ends.
         """
         message = await self._prune_conflicts.reserve_start(label)
         if message is not None:
             yield operation_active_refusal(message)
             return
         try:
-            refusal = self._first_refusal(migration=migration, sync=sync)
+            refusal = self._first_refusal(update=update, migration=migration, sync=sync)
         except BaseException:
             self._prune_conflicts.release_reservation()
             raise
@@ -118,7 +139,9 @@ class ConflictRuleSet:
         finally:
             self._prune_conflicts.release_reservation()
 
-    def _first_refusal(self, *, migration: bool, sync: bool) -> dict[str, Any] | None:
+    def _first_refusal(self, *, update: bool, migration: bool, sync: bool) -> dict[str, Any] | None:
+        if update and self._update_in_progress():
+            return update_refusal()
         if migration and self._migration_pending():
             return migration_refusal()
         if sync and self._sync_in_flight():

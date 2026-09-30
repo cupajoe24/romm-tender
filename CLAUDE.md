@@ -370,6 +370,25 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   whose calls it does not read; a write under a name not on its list; a runtime mode passed as `Path.open`'s first
   argument; a record path assembled from pieces or handed in from elsewhere; a write through a helper in another module;
   a call reached through `getattr`; and a subprocess
+- **`update-attempt.json` is written and removed by the backend alone, through `adapters/update_attempt.py`; the
+  installer never touches it** — test + prompt-only —
+  `tests/adapters/test_update_attempt.py::TestTheBackendIsItsOnlyWriter`: no backend module but
+  `adapters/update_attempt.py` and `domain/update_install.py` names `UPDATE_ATTEMPT_FILENAME` or the literal, and
+  neither `install.sh` nor a file under `scripts/` (`*.sh`) or `bin/` spells the literal. Unseen by it: a record path
+  assembled from pieces or handed in from elsewhere, a write through a helper, and a subprocess. Prompt-only: only
+  `UpdateInstallService` calls the adapter's `write` and `remove`
+- **From the press that starts an install attempt until it fails, everything a pending RetroDECK migration refuses is
+  refused with `blocked_by_update`, and so is the migration itself, asked ahead of every other rule — at every `hold` /
+  `hold_start` call that names the migration rule, at `migrate_retrodeck_files`, and at every direct migration check
+  outside the rules** — test + prompt-only — `tests/contract/test_conflict_refusals.py`
+  (`test_every_call_site_naming_the_migration_rule_names_the_update_rule`,
+  `test_the_update_rule_stands_without_the_migration_rule_only_where_pinned`,
+  `test_every_direct_migration_check_is_answered_by_the_update_rule_too` with its control
+  `test_the_read_behind_the_direct_check_sees_the_checks_it_is_about`,
+  `test_an_update_in_progress_refuses_the_endpoint`, `test_an_update_in_progress_answers_before_every_other_condition`)
+  and `tests/lib/test_conflict_rules.py`. Unseen by the source readers: a check reached under another name, through an
+  alias or a helper. Prompt-only: the rule is taken in the same loop turn as the check the press passed, and given back
+  only by an attempt that failed while this process runs, never on a guess while the installer may run
 - **Where this program's directories are is resolved once from the environment, and every consumer reads them off
   `AppDirectories`** — prompt-only — `domain/app_directories.py` is the pure ladder (`TENDER_*`, then XDG, then the
   built-in defaults); `main.run()` resolves it once and hands it to `bootstrap()`, which derives nothing, and

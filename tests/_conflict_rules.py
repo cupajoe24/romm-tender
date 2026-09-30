@@ -1,9 +1,10 @@
 """Which endpoints declare a conflict rule, read from the use cases that check it.
 
-A rule is declared by a ``hold("<endpoint>", migration=…, sync=…, prune=…)`` or
-``hold_start("<endpoint>", migration=…, sync=…)`` call at the entry of the use
-case the endpoint calls, under ``backend/services/``. The calls are read from
-the source by AST, since a use case's rules are not visible on the object.
+A rule is declared by a ``hold("<endpoint>", update=…, migration=…, sync=…,
+prune=…)`` or ``hold_start("<endpoint>", update=…, migration=…, sync=…)``
+call at the entry of the use case the endpoint calls, under
+``backend/services/``. The calls are read from the source by AST, since a use
+case's rules are not visible on the object.
 ``hold_start`` declares the ``exclusive_start`` rule beside the rules its
 keywords name. A call whose label or rule keywords are not literals fails the
 read instead of being skipped.
@@ -33,8 +34,8 @@ _SERVICES = Path(__file__).resolve().parent.parent / "backend" / "services"
 # The rules each rule-set method takes, each as a keyword named after the rule,
 # and the rule the method declares by being called at all.
 _RULE_KEYWORDS = {
-    "hold": frozenset({"migration", "sync", "prune"}),
-    "hold_start": frozenset({"migration", "sync"}),
+    "hold": frozenset({"update", "migration", "sync", "prune"}),
+    "hold_start": frozenset({"update", "migration", "sync"}),
 }
 _IMPLIED_RULE = {"hold_start": "exclusive_start"}
 
@@ -42,6 +43,14 @@ _IMPLIED_RULE = {"hold_start": "exclusive_start"}
 def _held_rules() -> dict[str, set[str]]:
     """Every ``async with <x>.hold(...)`` or ``<x>.hold_start(...)`` under ``backend/services/``: label → its rules."""
     held: dict[str, set[str]] = {}
+    for (_where, label), rules in _call_sites().items():
+        held.setdefault(label, set()).update(rules)
+    return held
+
+
+def _call_sites() -> dict[tuple[str, str], set[str]]:
+    """The same calls one by one: ``(<file>:<line>, label)`` → the rules that one call names."""
+    sites: dict[tuple[str, str], set[str]] = {}
     for path in sorted(_SERVICES.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -58,7 +67,7 @@ def _held_rules() -> dict[str, set[str]]:
                 assert call.args and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str), (
                     f"{where}: {method}'s label must be a string literal"
                 )
-                rules = held.setdefault(call.args[0].value, set())
+                rules = sites.setdefault((where, call.args[0].value), set())
                 if method in _IMPLIED_RULE:
                     rules.add(_IMPLIED_RULE[method])
                 allowed = _RULE_KEYWORDS[method]
@@ -68,7 +77,17 @@ def _held_rules() -> dict[str, set[str]]:
                     )
                     if keyword.value.value is True:
                         rules.add(keyword.arg)
-    return held
+    return sites
+
+
+def call_sites_with_rule(rule: str) -> set[tuple[str, str]]:
+    """Every ``(<file>:<line>, label)`` whose one ``hold`` or ``hold_start`` call names *rule*."""
+    return {site for site, rules in _call_sites().items() if rule in rules}
+
+
+def labels_with_rule_only_where_the_other_is_not(rule: str, other: str) -> set[str]:
+    """Every label of a ``hold`` or ``hold_start`` call that names *rule* and not *other*, one call at a time."""
+    return {label for (_where, label), rules in _call_sites().items() if rule in rules and other not in rules}
 
 
 def endpoints_with_rule(rule: str) -> set[str]:
@@ -78,3 +97,111 @@ def endpoints_with_rule(rule: str) -> set[str]:
     lands in the set and makes an equality with an endpoint list fail.
     """
     return {label for label, rules in _held_rules().items() if rule in rules}
+
+
+# The attribute names a direct check of either rule is read through, outside
+# ``ConflictRuleSet``: the migration service's own reader and the update
+# install's, under the names the services that hold them give them.
+_DIRECT_MIGRATION_CHECKS = frozenset({"is_retrodeck_migration_pending", "_is_retrodeck_migration_pending"})
+_DIRECT_UPDATE_CHECKS = frozenset({"is_update_in_progress", "_is_update_in_progress", "_update_in_progress"})
+
+
+def functions_checking_migration_without_update() -> set[str]:
+    """Every function under ``backend/services/`` that reads the migration check directly and not the update one.
+
+    Read by attribute name alone, called or handed on: ``<x>._is_retrodeck_migration_pending()`` and
+    ``run_in_executor(None, <x>._is_retrodeck_migration_pending)`` both count. A nested function is its own
+    function. Not seen: a check reached under another name, through a local alias, or through a helper.
+    """
+    return {where for where, names in _direct_checks().items() if not names & _DIRECT_UPDATE_CHECKS}
+
+
+def functions_checking_migration() -> set[str]:
+    """Every function the read above sees reading the migration check directly, the update one or not, by name."""
+    return {where.split(" ", 1)[1] for where in _direct_checks()}
+
+
+def _direct_checks() -> dict[str, set[str]]:
+    """``<file>:<line> <function>`` → every attribute name it reads, for each function reading the migration check."""
+    found: dict[str, set[str]] = {}
+    for path in sorted(_SERVICES.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            names = {
+                inner.attr
+                for inner in ast.walk(node)
+                if isinstance(inner, ast.Attribute) and _enclosing_function(node, inner)
+            }
+            if names & _DIRECT_MIGRATION_CHECKS:
+                found[f"{path.relative_to(_SERVICES.parent)}:{node.lineno} {node.name}"] = names
+    return found
+
+
+def _enclosing_function(function: ast.FunctionDef | ast.AsyncFunctionDef, target: ast.AST) -> bool:
+    """Whether *target* sits in *function* itself rather than in a function nested inside it."""
+    return any(_contains_outside_nested(child, target) for child in ast.iter_child_nodes(function))
+
+
+def _contains_outside_nested(node: ast.AST, target: ast.AST) -> bool:
+    if node is target:
+        return True
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return False
+    return any(_contains_outside_nested(child, target) for child in ast.iter_child_nodes(node))
+
+
+# The calls that take a claim, and which positional argument names it. The
+# download's ``_retain_started_task`` hands its label on to ``retain``, so it is
+# read at its own call sites.
+_CLAIM_TAKERS = {
+    "hold": 0,
+    "hold_start": 0,
+    "retain": 1,
+    "acquire_lease": 0,
+    "emit_under_lease": 0,
+    "_retain_started_task": 2,
+}
+
+
+def claim_names_in_source() -> set[str]:
+    """Every claim name under ``backend/services/`` spelled as a literal where it is taken: a label or a lease's key.
+
+    Read at the call sites of the methods in ``_CLAIM_TAKERS``, by position.
+    Not seen: a name built at run time, passed by keyword, or handed through a
+    helper that is not in the list.
+    """
+    return _names_taken_by(_CLAIM_TAKERS)
+
+
+# The takers among them whose claim ``PruneConflicts.held_claims`` names: a
+# retained operation and a lease. ``hold`` registers an operation only with
+# ``prune=True``, and ``hold_start`` takes a reservation, which it does not name.
+_HELD_CLAIM_TAKERS = ("retain", "acquire_lease", "emit_under_lease", "_retain_started_task")
+
+
+def claims_held_on_the_prune_conflicts() -> set[str]:
+    """Every name a claim ``PruneConflicts.held_claims`` answers with can go by: a ``hold`` label with the prune rule, a
+    retained operation's label, a lease's key.
+
+    Blind where :func:`claim_names_in_source` and :func:`endpoints_with_rule` are.
+    """
+    takers = {method: _CLAIM_TAKERS[method] for method in _HELD_CLAIM_TAKERS}
+    return endpoints_with_rule("prune") | _names_taken_by(takers)
+
+
+def _names_taken_by(takers: dict[str, int]) -> set[str]:
+    names: set[str] = set()
+    for path in sorted(_SERVICES.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            at = takers.get(node.func.attr)
+            if at is None or len(node.args) <= at:
+                continue
+            arg = node.args[at]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                names.add(arg.value)
+    return names

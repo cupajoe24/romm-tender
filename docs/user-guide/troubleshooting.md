@@ -91,7 +91,8 @@ tail -n 100 ~/.local/state/romm-tender/backend.log
 journalctl --user -u romm-tender -n 100
 ```
 
-Include that when you report it. Running the installer again tries the update again.
+Include that when you report it. **Try again** in **Settings › Updates**, or running the installer again, tries the
+update again.
 
 ### Going back to the previous version by hand
 
@@ -111,6 +112,48 @@ It works once per update — afterwards there is no previous version left to go 
 anything when there is nothing to go back to. It also refuses when the previous version and the saved data do not belong
 together, which an update that was interrupted can leave behind: going back would run the older version over data a
 newer one wrote. Start Tender instead if it is not running, with `systemctl --user start romm-tender`.
+
+## An Update From Settings Did Not Go Through
+
+**Symptom**: After **Install update X** in **Settings › Updates**, one of the steps is marked **Failed**, a line under
+the steps says why, and the button is back as **Try again**.
+
+**Explanation**: Each of these ends the install before Tender was replaced, and Tender goes on running the version you
+have:
+
+- **The download failed — nothing was changed.** The release, or the checksum file beside it, could not be downloaded.
+- **The download did not match its checksum — nothing was changed.** What arrived is not the file GitHub lists for the
+  release, so Tender did not install it.
+- **The installer could not be started.** The installer could not be taken out of the download, or could not be started
+  — for example because an earlier one is still running.
+- **The installer stopped without updating.** The installer started, but ended before it replaced Tender — it refused,
+  or it failed.
+- **A game was started — nothing was changed. Try again once it has closed.** A game was started while the update
+  downloaded; Tender checks right before the installer starts, and does not start it under a running game.
+- **Could not check whether a game is running — nothing was changed.** At that same check Tender could not ask Steam,
+  and did not start the installer on a guess.
+
+Nothing tries again by itself; what the attempt downloaded is removed.
+
+An installer that stops without updating after it has stopped Tender cannot say so itself. If it started Tender again on
+the version you had, the main panel says **Update to X failed — you are still on Y.** with the same line about the
+installer, and the step is marked **Failed** under **Settings › Updates** with **Try again**. If it did not start Tender
+again, the section says after five minutes **Tender has not come back** and how to start it; once it is running again,
+the main panel says the same as above.
+
+**Could not read the update state.** under the button means the section asked Tender how the install stands and got no
+answer; it asks again every few seconds, and the line goes once an answer comes.
+
+**Fix**: Tender's log names what went wrong, on its lines that say `update:`. For an installer that stopped, the
+installer's own output is in the journal:
+
+```bash
+grep "update:" ~/.local/state/romm-tender/backend.log | tail -n 20
+journalctl --user -u romm-tender-update
+```
+
+Then press **Try again**. A download that failed is often just the network; a checksum that did not match again, or an
+installer that stops each time, is worth reporting together with that output.
 
 ## Games Won't Launch
 

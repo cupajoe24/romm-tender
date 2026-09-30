@@ -132,6 +132,7 @@ def _make_service(
     achievement_sync: FakeAchievementSync,
     migration_reader: FakeMigrationReader,
     logger: logging.Logger,
+    update_in_progress: bool = False,
 ) -> SessionLifecycleService:
     return SessionLifecycleService(
         config=SessionLifecycleServiceConfig(
@@ -139,6 +140,7 @@ def _make_service(
             post_exit_sync=post_exit_sync,
             achievement_sync=achievement_sync,
             migration_reader=migration_reader,
+            update_in_progress=lambda: update_in_progress,
             logger=logger,
             conflict_rules=_make_conflict_rules(),
         ),
@@ -938,6 +940,52 @@ class TestFinalizeMigrationGate:
         # Playtime + migration refresh still ran.
         assert result.total_seconds == 3600
         assert migration.refresh_calls == 1
+
+
+class TestFinalizeUpdateGate:
+    def test_an_update_being_installed_skips_post_exit_sync(self, event_loop, logger):
+        """The install stops this process without waiting for a sync; the verdict is the failed-sync one."""
+        post = FakePostExitSync()
+        migration = FakeMigrationReader(pending=False)
+        service = _make_service(
+            playtime_recorder=FakePlaytimeRecorder(),
+            post_exit_sync=post,
+            achievement_sync=FakeAchievementSync(),
+            migration_reader=migration,
+            logger=logger,
+            update_in_progress=True,
+        )
+
+        result = event_loop.run_until_complete(service.finalize(99))
+        event_loop.run_until_complete(_drain_background_tasks(service))
+
+        assert post.calls == []
+        assert (result.sync.offline, result.sync.success) == (False, False)
+        assert result.sync.failure_toast == "Tender is installing an update — saves sync with the next sync that runs"
+        assert result.total_seconds == 3600
+        assert migration.refresh_calls == 1
+
+
+class TestTheSkippedSyncIsLogged:
+    @pytest.mark.parametrize(
+        ("update_in_progress", "pending", "why"),
+        [(True, False, "an update is being installed"), (False, True, "a RetroDECK migration is pending")],
+    )
+    def test_the_log_names_what_held_the_sync_off(self, event_loop, logger, caplog, update_in_progress, pending, why):
+        service = _make_service(
+            playtime_recorder=FakePlaytimeRecorder(),
+            post_exit_sync=FakePostExitSync(),
+            achievement_sync=FakeAchievementSync(),
+            migration_reader=FakeMigrationReader(pending=pending),
+            logger=logger,
+            update_in_progress=update_in_progress,
+        )
+
+        with caplog.at_level(logging.INFO, logger=logger.name):
+            event_loop.run_until_complete(service.finalize(99))
+            event_loop.run_until_complete(_drain_background_tasks(service))
+
+        assert f"post-exit sync skipped for rom_id=99: {why}" in caplog.text
 
 
 class TestFinalizeAchievementSync:

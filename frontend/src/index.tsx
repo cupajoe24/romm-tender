@@ -56,8 +56,10 @@ import {
 } from "./utils/collections";
 import { setMigrationStatus } from "./utils/migrationStore";
 import { fetchSettingsResetState } from "./utils/settingsResetStore";
-import { fetchUpdateNotice } from "./utils/updateNoticeStore";
+import { setUpdateInstallAttempt } from "./utils/updateInstallStore";
+import { fetchUpdateNotice, takePushedUpdateNotice } from "./utils/updateNoticeStore";
 import { fetchUpdateOutcome } from "./utils/updateOutcomeStore";
+import { fetchStoppedUpdateAttempt, takePushedStoppedAttempt } from "./utils/stoppedUpdateStore";
 import { relocateShortcutsToLauncher } from "./utils/launcherRelocation";
 import { setLauncherRelocated } from "./utils/launcherStore";
 import { resetSyncDelta, recordSyncRemoved, getSyncDelta } from "./utils/syncDeltaStore";
@@ -98,6 +100,7 @@ import {
 import { withTimeout } from "./utils/withTimeout";
 import { fetchMetadataCachePages } from "./utils/metadataCache";
 import { cancelPruneActions, handlePruneAction } from "./utils/pruneActions";
+import type { StoppedUpdateAttemptWire, UpdateInstallAttempt, UpdateNotice } from "./api/backend";
 import type { PruneActionRequired } from "./utils/pruneActions";
 import { admitPruneFrame, setPruneComplete, setPruneProgress } from "./utils/pruneStore";
 import type { PruneComplete, PruneProgress } from "./utils/pruneStore";
@@ -581,6 +584,18 @@ const tender = definePlugin(() => {
     })(),
   );
 
+  // An installer an earlier start ran that stopped without updating: the card
+  // on Main says so. Detached like the two reads above.
+  detach(
+    (async () => {
+      try {
+        await fetchStoppedUpdateAttempt();
+      } catch (e) {
+        logError(`Failed to read whether the last update attempt stopped: ${e}`);
+      }
+    })(),
+  );
+
   // Point every shortcut at the launcher's home. Runs here rather than on
   // panel mount because a user can launch a game without ever opening the QAM.
   detach(
@@ -1044,6 +1059,19 @@ const tender = definePlugin(() => {
     },
   );
 
+  // The backend's own release check, pushed when its answer changes, the
+  // install attempt's steps, and a stopped attempt judged after panel load;
+  // each is held in its store for the surfaces.
+  const updateNoticeListener = addEventListener<UpdateNotice>("update_notice", takePushedUpdateNotice);
+  const updateInstallListener = addEventListener<UpdateInstallAttempt>(
+    "update_install_progress",
+    setUpdateInstallAttempt,
+  );
+  const updateStoppedListener = addEventListener<StoppedUpdateAttemptWire>(
+    "update_attempt_stopped",
+    takePushedStoppedAttempt,
+  );
+
   // Destructive cleanup actions must keep running even when the Data Management
   // page or the game-detail picker unmounts. The backend emits one tokenized action at a
   // time; this root handler owns every Steam API mutation and reports the exact
@@ -1161,6 +1189,9 @@ const tender = definePlugin(() => {
       removeEventListener("save_status_updated", saveStatusListener);
       removeEventListener("migration_relaunch_options", migrationRelaunchListener);
       removeEventListener("server_retry_progress", serverRetryListener);
+      removeEventListener("update_notice", updateNoticeListener);
+      removeEventListener("update_install_progress", updateInstallListener);
+      removeEventListener("update_attempt_stopped", updateStoppedListener);
       removeEventListener("prune_action_required", pruneActionListener);
       cancelPruneActions();
       detach(releaseAllPruneLeases());

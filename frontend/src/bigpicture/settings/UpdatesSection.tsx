@@ -1,13 +1,17 @@
 /**
  * Updates — the home of the two update notices on Main: the installed and the
- * available version, an update the installer rolled back, the daily-check
- * switch and Check now. Pure renderer: the page owns the store reads, the press
- * in flight and its result line.
+ * available version, an update the installer rolled back, the install, the
+ * daily-check switch and Check now. The page owns the notice and outcome reads,
+ * Check now's press and its result line; the install's state is read here,
+ * because it is polled only while this section is on screen.
  */
 
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, ButtonItem, Field, ToggleField } from "@decky/ui";
 import { AMBER } from "../layout/pane";
+import { UpdateInstallRows, installButtonShown, installStateUnread } from "./UpdateInstallRows";
+import { useUpdateInstall } from "./useUpdateInstall";
+import { INSTALL_STATE_UNREAD } from "../../utils/updateInstallView";
 import type { UpdateNoticeState } from "../../utils/updateNoticeStore";
 import { UPDATE_FAILURE_REASON, updateFailureSentence, type UpdateOutcomeState } from "../../utils/updateOutcomeStore";
 
@@ -40,55 +44,77 @@ export const UpdatesSection: FC<UpdatesSectionProps> = ({
   result,
   onEnabledChange,
   onCheckNow,
-}) => (
-  <PanelSection title="Updates">
-    <PanelSectionRow>
-      {/* Read-only rows are focusable for the reason every one on a wide pane
-          is: the region scrolls by moving focus. */}
-      <Field label="Installed" focusable={true}>
-        <span data-testid="updates-installed">{update.currentVersion || "—"}</span>
-      </Field>
-    </PanelSectionRow>
-    <PanelSectionRow>
-      <Field label="Available" focusable={true}>
-        <span data-testid="updates-available">{availableValue(update)}</span>
-      </Field>
-    </PanelSectionRow>
-    {outcome.failure !== null && (
+}) => {
+  const install = useUpdateInstall();
+  return (
+    <PanelSection title="Updates">
       <PanelSectionRow>
+        {/* Read-only rows are focusable for the reason every one on a wide pane
+            is: the region scrolls by moving focus. */}
+        <Field label="Installed" focusable={true}>
+          <span data-testid="updates-installed">{update.currentVersion || "—"}</span>
+        </Field>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        {/* Where the install has no button to carry it, a read that did not
+            answer is said here: a row of its own would come and go with the
+            reads under a reader's focus. */}
         <Field
-          label={
-            <span data-testid="updates-last-update" style={{ color: AMBER }}>
-              {updateFailureSentence(outcome.failure)}
-            </span>
-          }
-          description={UPDATE_FAILURE_REASON}
+          label="Available"
           focusable={true}
+          {...(!installButtonShown(install) && installStateUnread(install)
+            ? { description: <span data-testid="updates-install-unread">{INSTALL_STATE_UNREAD}</span> }
+            : {})}
+        >
+          <span data-testid="updates-available">{availableValue(update)}</span>
+        </Field>
+      </PanelSectionRow>
+      {outcome.failure !== null && (
+        <PanelSectionRow>
+          <Field
+            label={
+              <span data-testid="updates-last-update" style={{ color: AMBER }}>
+                {updateFailureSentence(outcome.failure)}
+              </span>
+            }
+            description={UPDATE_FAILURE_REASON}
+            focusable={true}
+          />
+        </PanelSectionRow>
+      )}
+      {!update.installedProgram && (
+        <PanelSectionRow>
+          <Field label={<span data-testid="updates-not-installed">{NOT_INSTALLED_PROGRAM}</span>} focusable={true} />
+        </PanelSectionRow>
+      )}
+      <UpdateInstallRows install={install} />
+      <PanelSectionRow>
+        <ToggleField
+          label="Check for updates daily"
+          description="Asks GitHub at most once a day whether a newer release is out."
+          checked={update.enabled}
+          onChange={onEnabledChange}
         />
       </PanelSectionRow>
-    )}
-    {!update.installedProgram && (
       <PanelSectionRow>
-        <Field label={<span data-testid="updates-not-installed">{NOT_INSTALLED_PROGRAM}</span>} focusable={true} />
+        {/* Dead while an attempt is under way, in the handler too since a
+            disabled control still reports a press on the device: why is
+            docs/architecture/qam-panel.md, Settings. */}
+        <ButtonItem
+          layout="below"
+          onClick={() => {
+            if (!install.underWay) onCheckNow();
+          }}
+          disabled={checking || install.underWay}
+        >
+          {checking ? "Checking…" : "Check now"}
+        </ButtonItem>
       </PanelSectionRow>
-    )}
-    <PanelSectionRow>
-      <ToggleField
-        label="Check for updates daily"
-        description="Asks GitHub at most once a day, when Tender loads, whether a newer release is out."
-        checked={update.enabled}
-        onChange={onEnabledChange}
-      />
-    </PanelSectionRow>
-    <PanelSectionRow>
-      <ButtonItem layout="below" onClick={onCheckNow} disabled={checking}>
-        {checking ? "Checking…" : "Check now"}
-      </ButtonItem>
-    </PanelSectionRow>
-    {result && (
-      <PanelSectionRow>
-        <Field label={<span data-testid="updates-result">{result}</span>} focusable={true} />
-      </PanelSectionRow>
-    )}
-  </PanelSection>
-);
+      {result && (
+        <PanelSectionRow>
+          <Field label={<span data-testid="updates-result">{result}</span>} focusable={true} />
+        </PanelSectionRow>
+      )}
+    </PanelSection>
+  );
+};

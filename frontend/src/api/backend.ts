@@ -423,8 +423,8 @@ export const removePlatformShortcuts = callable<
   {
     success: boolean;
     // The success path returns success/app_ids/rom_ids/platform_name, plus
-    // prune_lease_token when app_ids is non-empty; a refusal by the migration,
-    // sync or prune rule answers success/reason/message, omitting
+    // prune_lease_token when app_ids is non-empty; a refusal by the update,
+    // migration, sync or prune rule answers success/reason/message, omitting
     // app_ids/rom_ids. Every field below the discriminant is therefore
     // path-dependent (mirrors removeAllShortcuts).
     app_ids?: number[];
@@ -440,8 +440,8 @@ export const removeAllShortcuts = callable<
   {
     success: boolean;
     // The success path returns only success/app_ids/rom_ids, plus
-    // prune_lease_token when app_ids is non-empty; a refusal by the migration,
-    // sync or prune rule answers success/reason/message, omitting
+    // prune_lease_token when app_ids is non-empty; a refusal by the update,
+    // migration, sync or prune rule answers success/reason/message, omitting
     // app_ids/rom_ids. Every field below the discriminant is therefore
     // path-dependent.
     reason?: string;
@@ -468,7 +468,7 @@ export const refreshCoverArtwork = callable<
 // dry_run flag. A dry run returns candidate_count without deleting; the real
 // run returns removed_count beside its own candidate_count. The backend guards (incomplete_scan when a bound
 // shortcut is missing from the live set, no_grid_dir) and a refusal by the
-// migration, sync or prune rule answer success/reason/message with no count.
+// update, migration, sync or prune rule answer success/reason/message with no count.
 export const cleanupOrphanedGridImages = callable<
   [number[], boolean],
   {
@@ -536,7 +536,7 @@ export const uninstallAllRoms = callable<
     success: boolean;
     // The removal path always carries removed_count/errors/app_ids — success
     // is False on a PARTIAL failure (some deletions failed) but the payload
-    // stays. A refusal by the migration, sync or prune rule answers
+    // stays. A refusal by the update, migration, sync or prune rule answers
     // success/reason/message with NO payload, so a missing app_ids is the
     // refusal discriminant.
     removed_count?: number;
@@ -1245,6 +1245,94 @@ export const dismissUpdateAnnouncement = callable<[], { success: true }>("dismis
 
 /** Wave the rolled-back card away for one record, named by its `rolled_back_at`; the next rollback raises it again. */
 export const dismissUpdateFailure = callable<[string], UpdateSettingWrite>("dismiss_update_failure");
+
+/**
+ * One reason a press of Install has to wait. `apps` names what Steam lists as
+ * running; `frees_at` is when Steam's interface may be reloaded again, in epoch
+ * seconds. `running_apps_unknown` and `interface_reload_limit_unknown` are
+ * readings that could not be taken, never "nothing running" or "no limit".
+ */
+export type UpdateWaitReason =
+  | { reason: "app_running"; apps: string[] }
+  | { reason: "interface_reload_limit"; frees_at: number }
+  | {
+      reason:
+        | "running_apps_unknown"
+        | "interface_reload_limit_unknown"
+        | "library_sync"
+        | "rom_downloads"
+        | "save_sync"
+        | "firmware_downloads"
+        | "save_directory_move"
+        | "removed_games_cleanup"
+        | "retrodeck_migration"
+        | "other_work";
+    };
+
+/** Where an install attempt is; after `installer_started` this backend is replaced, or the attempt fails. */
+export type UpdateInstallStep = "downloading" | "verifying" | "installer_started" | "failed";
+
+/** How an attempt ended before the installer stopped this backend. */
+export type UpdateInstallFailure =
+  | "download_failed"
+  | "checksum_mismatch"
+  | "installer_not_started"
+  | "installer_stopped"
+  | "game_started"
+  | "running_apps_unknown";
+
+/** One press of Install, as far as it got — the state answer's `attempt` and the progress event's payload. */
+export interface UpdateInstallAttempt {
+  version: string;
+  step: UpdateInstallStep;
+  bytes_done: number;
+  /** The size the download announced, `null` where it announced none. */
+  bytes_total: number | null;
+  /** Set exactly when `step` is `failed`. */
+  failure: UpdateInstallFailure | null;
+}
+
+/**
+ * Whether Install is offered for the last seen release, and what it waits for.
+ *
+ * `offered` holds only on the installed program, with the check on and a stored
+ * release newer than the running one, which `version` names. `wait_reasons` is
+ * empty while nothing is offered or an attempt is under way.
+ * `paused_downloads` counts the paused ROM downloads the restart cancels.
+ * `try_again` says the offered version already failed once — here, or in an
+ * update the installer rolled back.
+ */
+export interface UpdateInstallState {
+  offered: boolean;
+  version: string | null;
+  wait_reasons: UpdateWaitReason[];
+  paused_downloads: number;
+  attempt: UpdateInstallAttempt | null;
+  try_again: boolean;
+}
+
+export const getUpdateInstallState = callable<[], UpdateInstallState>("get_update_install_state");
+
+/** Why a press of Install was refused; `update_waiting` carries every reason it waits for. */
+export type UpdateInstallRefusal =
+  | (CallableFailure & { reason: "update_waiting"; wait_reasons: UpdateWaitReason[] })
+  | (CallableFailure & { reason: "update_in_progress" | "not_offered" | "version_changed" });
+
+/** Install the named version, which must be the stored one; answers once the attempt has started. */
+export const installUpdate = callable<[string], { success: true } | UpdateInstallRefusal>("install_update");
+
+/** An update attempt an earlier start's installer stopped without updating; `started_at` is ISO-8601 UTC. */
+export interface StoppedUpdateAttemptWire {
+  attempted_version: string;
+  from_version: string;
+  started_at: string;
+}
+
+/** The stopped attempt a start found, until dismissed or a new attempt starts; `null` where there is none. */
+export const getStoppedUpdateAttempt = callable<[], StoppedUpdateAttemptWire | null>("get_stopped_update_attempt");
+
+/** Wave the stopped attempt's card away; the backend removes its record. */
+export const dismissStoppedUpdateAttempt = callable<[], { success: true }>("dismiss_stopped_update_attempt");
 
 // End-of-session orchestration — collapses recordSessionEnd + syncAchievementsAfterSession
 // + postExitSync + refreshMigrationState into a single backend round-trip.

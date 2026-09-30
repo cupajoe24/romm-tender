@@ -83,6 +83,11 @@ let _seq = 0;
 
 export function setUpdateOutcomeState(state: UpdateOutcomeState): void {
   _state = state;
+  notifyUpdateOutcome();
+}
+
+/** Tell every subscriber something about the last update changed — `stoppedUpdateStore.ts` shares them. */
+export function notifyUpdateOutcome(): void {
   _listeners.forEach((fn) => fn());
 }
 
@@ -130,7 +135,12 @@ function stateFromOutcome(outcome: UpdateOutcome): UpdateOutcomeState {
 
 /** The one sentence a rolled-back update is stated in, wherever it is stated. */
 export function updateFailureSentence(failure: RolledBackUpdate): string {
-  return `Update to ${failure.attemptedVersion} failed — you are still on ${failure.restoredVersion}.`;
+  return updateDidNotGoThrough(failure.attemptedVersion, failure.restoredVersion);
+}
+
+/** An update to *attempted* that did not go through, on *stillOn* — rolled back, or its installer stopped. */
+export function updateDidNotGoThrough(attempted: string, stillOn: string): string {
+  return `Update to ${attempted} failed — you are still on ${stillOn}.`;
 }
 
 /** The toast the update announcement is raised in, for each way the version can have moved. */

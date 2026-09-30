@@ -28,7 +28,7 @@ from domain.save_answer import BENIGN_SYNC_SKIP_REASONS
 if TYPE_CHECKING:
     import logging
 
-    from services.protocols import ConflictRules
+    from services.protocols import ConflictRules, UpdateInProgressFn
     from services.protocols.cross_service import (
         SessionAchievementSync,
         SessionMigrationReader,
@@ -41,6 +41,7 @@ _TOAST_BODY_OFFLINE = "Server offline — saves will sync next time"
 _TOAST_BODY_FAILED = "Failed to sync saves after exit"
 _TOAST_BODY_SYNC_DISABLED = "Save sync is disabled for this device on the RomM server"
 _TOAST_BODY_SYNC_BUSY = "Another save sync was still running — saves will sync next time"
+_TOAST_BODY_UPDATING = "Tender is installing an update — saves sync with the next sync that runs"
 
 # Reason slug the saves engine returns when RomM's per-device sync-disabled switch
 # stops the post-exit run (#1489). Mirrored here as a literal — a service must not
@@ -127,12 +128,15 @@ class SessionLifecycleServiceConfig:
     backend-side reporting of the fire-and-forget achievement sync —
     its result and failures never reach the frontend. ``conflict_rules`` are
     what :meth:`SessionLifecycleService.finalize` checks at its entry.
+    ``update_in_progress`` answers whether an update is being installed, which
+    holds the post-exit sync off as a pending migration does.
     """
 
     playtime_recorder: SessionPlaytimeRecorder
     post_exit_sync: SessionPostExitSync
     achievement_sync: SessionAchievementSync
     migration_reader: SessionMigrationReader
+    update_in_progress: UpdateInProgressFn
     logger: logging.Logger
     conflict_rules: ConflictRules
 
@@ -187,6 +191,7 @@ class SessionLifecycleService:
         self._post_exit_sync = config.post_exit_sync
         self._achievement_sync = config.achievement_sync
         self._migration_reader = config.migration_reader
+        self._update_in_progress = config.update_in_progress
         self._logger = config.logger
         self._rules = config.conflict_rules
         # Strong refs to in-flight background tasks. ``asyncio.create_task``
@@ -286,28 +291,36 @@ class SessionLifecycleService:
         except Exception as e:
             self._logger.warning(f"SessionLifecycle achievement sync failed for rom_id={rom_id}: {e}")
 
+    def _skipped_sync(self, rom_id: int, why: str, toast: str) -> SessionFinalizeSyncResult:
+        """The failed-sync verdict of a post-exit sync that did not run, logged with *why* and toasted as *toast*."""
+        self._logger.info(f"SessionLifecycle post-exit sync skipped for rom_id={rom_id}: {why}")
+        return SessionFinalizeSyncResult(
+            offline=False,
+            success=False,
+            synced=None,
+            uploaded=0,
+            downloaded=0,
+            conflicts=[],
+            failure_toast=toast,
+            conflicts_toast=None,
+        )
+
     async def _build_sync_result(self, rom_id: int) -> SessionFinalizeSyncResult:
         """Run post-exit sync and build the frontend's sync verdict.
 
         Carries the per-direction transfer counts (from which the
         frontend renders the directional success toast) plus the
         backend-owned ``failure_toast`` / ``conflicts_toast`` bodies.
-        While a RetroDECK migration is pending the post-exit sync does not
-        run and the verdict is the failed-sync one. The
-        ``finalize_game_session`` use case checks no migration rule, so this is
-        the first check a pending migration meets on the way to that sync.
+        While an update is being installed or a RetroDECK migration is pending
+        the post-exit sync does not run, the log says which held it off, and
+        the verdict is the failed-sync one; for an update its toast says so.
+        The ``finalize_game_session`` use case checks neither rule, so this is
+        the first check either meets on the way to that sync.
         """
+        if self._update_in_progress():
+            return self._skipped_sync(rom_id, "an update is being installed", _TOAST_BODY_UPDATING)
         if self._migration_reader.is_retrodeck_migration_pending():
-            return SessionFinalizeSyncResult(
-                offline=False,
-                success=False,
-                synced=None,
-                uploaded=0,
-                downloaded=0,
-                conflicts=[],
-                failure_toast=_TOAST_BODY_FAILED,
-                conflicts_toast=None,
-            )
+            return self._skipped_sync(rom_id, "a RetroDECK migration is pending", _TOAST_BODY_FAILED)
 
         try:
             result = await self._post_exit_sync.post_exit_sync(rom_id)

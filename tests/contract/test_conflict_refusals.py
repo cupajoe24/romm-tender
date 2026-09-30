@@ -1,20 +1,23 @@
 """What an endpoint answers while a conflict rule it names holds, and which rule answers first.
 
-Four conditions refuse an endpoint before it does anything: a pending RetroDECK
-migration (``blocked_by_migration``), a library sync in flight
-(``sync_active``), a removed-game cleanup holding its run claim
-(``prune_active``), and — for ``start_prune`` alone — another local-data
-operation still running or holding a lease (``operation_active``). Where more
-than one applies, they are asked in the order exclusive start, migration, sync,
-prune active.
+Five conditions refuse an endpoint before it does anything: an update being
+installed (``blocked_by_update``), a pending RetroDECK migration
+(``blocked_by_migration``), a library sync in flight (``sync_active``), a
+removed-game cleanup holding its run claim (``prune_active``), and — for
+``start_prune`` alone — another local-data operation still running or holding a
+lease (``operation_active``). Where more than one applies, they are asked in the
+order exclusive start, update, migration, sync, prune active.
 
-Every test here but the five at the bottom drives ``harness.endpoints.<endpoint>``
+Every test here but the nine at the bottom drives ``harness.endpoints.<endpoint>``
 with frontend-shaped arguments and reads the answer, so it holds wherever the
-rules are enforced. Four of those five, the ``test_*_names_every_endpoint_*``
+rules are enforced. Five of those nine, the ``test_*_names_every_endpoint_*``
 tests, read where each rule is declared instead, to keep each list from falling
 behind an endpoint that gains or loses a rule: the ``hold("<endpoint>", …)`` or
 ``hold_start("<endpoint>", …)`` call at the entry of the use case it calls
-(``tests/_conflict_rules.py``). The fifth,
+(``tests/_conflict_rules.py``). Three more read the source the same way to keep
+the update rule wherever the migration rule is — at every call site, and at
+every direct migration check outside the rules — and nowhere else without it
+but the sites ``UPDATE_ONLY`` pins. The last,
 ``test_every_endpoint_with_a_rule_has_its_arguments``, reads only the lists.
 Outside this module, ``tests/test_endpoints.py``'s ``TestMigrationRuleCoverage``
 reads the migration rule the same way.
@@ -28,14 +31,27 @@ import threading
 from typing import Any
 
 import pytest
-from _conflict_rules import endpoints_with_rule
+from _conflict_rules import (
+    call_sites_with_rule,
+    endpoints_with_rule,
+    functions_checking_migration,
+    functions_checking_migration_without_update,
+    labels_with_rule_only_where_the_other_is_not,
+)
 
 from domain.sync_state import SyncState
 
-from ._harness import hold_migration_pending, hold_prune_active, hold_sync_in_flight, release_prune_active
+from ._harness import (
+    hold_migration_pending,
+    hold_prune_active,
+    hold_sync_in_flight,
+    hold_update_in_progress,
+    release_prune_active,
+)
 from ._seed import seed_rom
 
 _MIGRATION_MESSAGE = "Pending RetroDECK migration. Open the plugin QAM to migrate or dismiss."
+_UPDATE_MESSAGE = "Tender is installing an update and will restart in a moment."
 
 _PRUNE_PREVIEW_REQUEST = {"scope": "bulk", "rom_id": None, "preview_id": None, "offset": 0, "limit": 50}
 _START_PRUNE_REQUEST = {
@@ -243,6 +259,13 @@ SYNC_ACTIVE = (
 
 EXCLUSIVE_START = ("start_prune",)
 
+# Refused while an update is being installed, beside every endpoint a pending
+# migration refuses: work that would start after the press. The migration
+# itself does not name the migration rule, and moving files is new work.
+UPDATE_ONLY = ("migrate_retrodeck_files",)
+
+UPDATE = (*MIGRATION, *UPDATE_ONLY)
+
 _IN_FLIGHT = [SyncState.RUNNING, SyncState.CANCELLING]
 
 
@@ -262,6 +285,10 @@ def _assert_migration_refusal(result: dict[str, Any]) -> None:
     assert result["reason"] == "blocked_by_migration"
     assert result["message"] == _MIGRATION_MESSAGE
     assert "blocked_by_migration" not in result
+
+
+def _assert_update_refusal(result: dict[str, Any]) -> None:
+    assert result == {"success": False, "reason": "blocked_by_update", "message": _UPDATE_MESSAGE}
 
 
 async def _until_entered(entered: asyncio.Event, running: asyncio.Task[Any]) -> None:
@@ -294,6 +321,13 @@ async def test_a_held_cleanup_refuses_the_endpoint(harness, endpoint):
     # start finds no conflicting operation.
     release_prune_active(harness)
     assert (await harness.endpoints.start_prune(_START_PRUNE_REQUEST))["reason"] == "stale_preview"
+
+
+@pytest.mark.parametrize("endpoint", UPDATE)
+async def test_an_update_in_progress_refuses_the_endpoint(harness, endpoint):
+    hold_update_in_progress(harness)
+
+    _assert_update_refusal(await _call(harness, endpoint))
 
 
 @pytest.mark.parametrize("endpoint", MIGRATION)
@@ -359,6 +393,16 @@ async def test_start_prune_is_refused_while_a_conflicting_endpoint_is_running(ha
 
 
 # ── Which condition answers first ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("endpoint", UPDATE)
+async def test_an_update_in_progress_answers_before_every_other_condition(harness, endpoint):
+    hold_update_in_progress(harness)
+    hold_migration_pending(harness)
+    hold_sync_in_flight(harness)
+    hold_prune_active(harness)
+
+    _assert_update_refusal(await _call(harness, endpoint))
 
 
 @pytest.mark.parametrize("endpoint", sorted(set(MIGRATION) & set(PRUNE_ACTIVE)))
@@ -448,6 +492,43 @@ def test_the_migration_matrix_names_every_endpoint_with_the_rule():
     Reads where the rule is declared, not behaviour.
     """
     assert set(MIGRATION) == endpoints_with_rule("migration")
+
+
+def test_the_update_matrix_names_every_endpoint_with_the_rule():
+    """Holds ``UPDATE`` equal to the endpoints whose use case's ``hold`` or ``hold_start`` names the update rule.
+
+    Reads where the rule is declared, not behaviour.
+    """
+    assert set(UPDATE) == endpoints_with_rule("update")
+
+
+def test_every_call_site_naming_the_migration_rule_names_the_update_rule():
+    """Holds every ``hold`` and ``hold_start`` call that names the migration rule to name the update rule too.
+
+    Finer than the matrices: a use case with two calls under one label, only
+    one of them naming the update rule, passes the label equality and fails
+    here.
+    """
+    assert call_sites_with_rule("migration") <= call_sites_with_rule("update")
+
+
+def test_the_update_rule_stands_without_the_migration_rule_only_where_pinned():
+    assert labels_with_rule_only_where_the_other_is_not("update", "migration") == set(UPDATE_ONLY)
+
+
+def test_every_direct_migration_check_is_answered_by_the_update_rule_too():
+    """The save engine's backstops and the post-exit sync ask the migration outside the rules; each asks both."""
+    assert functions_checking_migration_without_update() == set()
+
+
+def test_the_read_behind_the_direct_check_sees_the_checks_it_is_about():
+    """Guards the equality above: a read that found no direct migration check at all would pass it vacuously."""
+    assert functions_checking_migration() >= {
+        "pre_launch_sync",
+        "post_exit_sync",
+        "follow_save_directory",
+        "_build_sync_result",
+    }
 
 
 def test_the_sync_active_matrix_names_every_endpoint_with_the_rule():
