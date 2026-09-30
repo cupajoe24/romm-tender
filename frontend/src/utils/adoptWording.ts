@@ -176,7 +176,8 @@ export const CANDIDATES_INTRO =
 
 /** The line under a candidate's name: what its offer rests on, then its size. */
 export function candidateDetail(candidate: AdoptionCandidate): string {
-  return `${candidate.detail}${candidate.is_dir ? " — folder" : ` — ${formatBytes(candidate.size_bytes)}`}`;
+  const size = candidate.is_dir ? "folder" : formatBytes(candidate.size_bytes);
+  return `${candidate.detail} — ${size}`;
 }
 
 /** Shown only when `found.truncated`. */
