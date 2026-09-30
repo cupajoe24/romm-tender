@@ -81,10 +81,10 @@ async function refreshAppIdMap(): Promise<void> {
   }
 }
 
-// Durable attestation of the open sessions — survives a plugin reload so the
-// re-initialized manager can adopt the still-running games and finalize their
-// stops. A single versioned localStorage row; every access is wrapped so a
-// storage failure degrades to the no-attestation path instead of throwing.
+// Durable attestation of the open sessions — survives a JS-context rebuild so
+// the re-initialized manager can adopt the still-running games and finalize
+// their stops. A single versioned localStorage row; every access is wrapped so
+// a storage failure degrades to the no-attestation path instead of throwing.
 const SESSION_BREADCRUMB_KEY = "romm-tender:active-session";
 const SESSION_BREADCRUMB_VERSION = 2;
 
@@ -185,9 +185,9 @@ function dispatchSessionChanged(running: boolean, appId: number, romId: number):
  * The idempotency is load-bearing (#1589). `record_session_start` RE-OPENS the
  * durable marker rather than extending it, so a second call for a live session
  * silently discards the span already played. Steam can report an app as started
- * twice (notably when a launch lands inside the plugin's own startup window and
- * reload-adoption has already opened the session), and the re-open is deliberate
- * backend behaviour that adoption relies on — so the guard belongs here.
+ * twice (notably when a launch lands during the panel load and reload-adoption
+ * has already opened the session), and the re-open is deliberate backend
+ * behaviour that adoption relies on — so the guard belongs here.
  *
  * It is keyed on the appId and checked BEFORE the romId lookup: a map that
  * emptied mid-session must not be able to drop a live entry.
@@ -300,11 +300,10 @@ async function handleGameStop(stoppedAppId: number): Promise<void> {
   }
 }
 
-// Adoption polls Steam's running-app before deciding a session's fate: after a
-// full `plugin_loader` restart `SteamUIStore.RunningApps` reads empty for
-// several seconds even though the game is still running (#1054 / #1148 round 2
-// device evidence), so a single early read wrongly orphaned a live session. Poll
-// the reader until a running app appears or the window elapses.
+// Adoption polls Steam's running-app before deciding a session's fate: a single
+// early read can find the store empty with the game still running
+// (`utils/runningApps.ts` states the measurement). Poll the reader until a
+// running app appears or the window elapses.
 const ADOPTION_POLL_INTERVAL_MS = 500;
 export const ADOPTION_POLL_MAX_MS = 15_000;
 
@@ -404,19 +403,18 @@ export function planAdoption(
 }
 
 /**
- * Adopt the play sessions orphaned by a plugin reload mid-game.
+ * Adopt the play sessions orphaned by a JS-context rebuild mid-game.
  *
  * The in-memory sessions live in the JS context, so the game-stops after a
- * reload would otherwise never finalize — the pre-reload playtime is lost and
+ * rebuild would otherwise never finalize — the pre-rebuild playtime is lost and
  * the post-exit sync never runs. Steam's running-state
  * (`SteamUIStore.RunningApps`) is the liveness authority; the localStorage
  * breadcrumbs are the attestations of starts we actually observed. Every
  * finalize fold thus stays anchored to a marker stamped by an observed start.
  *
- * The liveness read is POLLED, not a single read: after a loader restart the
- * store reports an EMPTY running-app list for seconds while the game is still
- * up (#1054 / #1148 round 2), so a one-shot read raced the restart and wrongly
- * orphaned a still-running session.
+ * The liveness read is POLLED, not a single read: the store can report an EMPTY
+ * running-app list for seconds while the game is still up
+ * (`utils/runningApps.ts` states the measurement).
  *
  * This is the orchestration around that: poll, ask {@link planAdoption} what to
  * do, then commit / dispatch / log / re-stamp. The reconcile matrix itself lives
@@ -465,7 +463,7 @@ async function adoptOrphanedSessions(): Promise<void> {
 
 /**
  * Initialize session manager — registers all lifecycle hooks.
- * Call once during plugin load.
+ * Call once during the panel load.
  */
 export async function initSessionManager(): Promise<void> {
   // Load initial app ID map
@@ -500,7 +498,7 @@ export async function initSessionManager(): Promise<void> {
       });
   });
 
-  // Adopt a session orphaned by a plugin reload mid-game. Serialized on the
+  // Adopt a session orphaned by a JS-context rebuild mid-game. Serialized on the
   // lifecycle chain so a stop notification arriving during adoption finalizes
   // after it rather than interleaving with the in-memory state it restores.
   const adoption = lifecycleChain

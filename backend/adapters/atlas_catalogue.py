@@ -186,7 +186,7 @@ class AtlasCatalogueAdapter:
     attributes. There is no mtime guard to fall back on any more: what the
     resolver read to answer is its own business, so a change to ES-DE's catalogue
     lands on a :meth:`reset_cache` (which a per-platform core write already
-    performs) or on the next plugin reload.
+    performs) or on the next backend restart.
     """
 
     def __init__(
@@ -392,7 +392,7 @@ class AtlasCatalogueAdapter:
         """The chosen installation, memoised, or ``None`` when nothing was detected.
 
         A detection that found nothing is deliberately NOT memoised: a RetroDECK
-        installed while the plugin is running is then picked up on the next call,
+        installed while the backend runs is then picked up on the next call,
         which is what the parser's every-call flatpak probe gave for free. The
         cost is one detection per call in the one state where nothing resolves
         anyway.

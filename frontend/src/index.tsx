@@ -137,12 +137,11 @@ const QAMPanel: FC = () => {
     // position. Force focus to where the page opens: the area it declared, or
     // its first stop where it declared none.
     //
-    // `el` is the plugin's own content and nothing above it: Decky renders its
-    // panel title and the back arrow beside it OUTSIDE this div — measured in
-    // the running QAM, that title sits 34 px above the box Decky wraps a
-    // plugin's content in (`WidePage`'s `ancestorOverhang`). So the search
-    // cannot reach Decky's own chrome, and the first stop it finds is a row of
-    // the page.
+    // `el` is the panel's own content and nothing above it: the entry's heading
+    // and whatever the menu draws around the panel sit outside this div, so the
+    // search cannot reach them, and the first stop it finds is a row of the
+    // page. (Measured under Decky, whose title sat 34 px above the box it
+    // wrapped a plugin's content in — `WidePage`'s `ancestorOverhang`.)
     //
     // A page carrying the marker places entry focus itself, and this focus
     // would undo it: the first stop of a wide page is the Back chip, which sits
@@ -190,10 +189,9 @@ const QAMPanel: FC = () => {
   // B goes back one page, from wherever focus is — bound here rather than on a
   // page so the narrow pages get it too, and bound only while there IS a page to
   // go back to. On Main nothing is bound, so the press travels on to whatever the
-  // menu around the panel does with it — Steam's own close where Tender's entry
-  // holds the panel, Decky's back where Decky's does. The escape route is never
-  // removed either way, it is exactly as far away as the user walked in, and the
-  // last press is never swallowed. Steam already prints "B ZURÜCK" in its footer
+  // menu around the panel does with it — Steam's own close. The escape route is
+  // never removed, it is exactly as far away as the user walked in, and the last
+  // press is never swallowed. Steam already prints "B ZURÜCK" in its footer
   // legend, which this makes true.
   return (
     <div ref={rootRef}>
@@ -457,7 +455,7 @@ const tender = definePlugin(() => {
     }
 
     initDone = true;
-    // Backend is now reachable — log via the endpoint so it appears in plugin log
+    // Backend is now reachable — log via the endpoint so it appears in the backend's log
     const attempts = initAttempt + 1;
     if (attempts > 1) {
       logInfo(`App ID init succeeded after ${attempts} attempts (backend was slow to start)`);
@@ -482,10 +480,10 @@ const tender = definePlugin(() => {
       // After backend reachability is confirmed, reconcile launch_options for
       // all installed+bound ROMs to heal any drift from a missed bake (#1043).
       // This lease-issuing call must stay behind the awaited init round-trips:
-      // the orphan-lease disown dispatched at definePlugin entry has to land
-      // before any lease is issued to this mount — a lease issued earlier
-      // would be disowned while live, and its refused renewal would abort the
-      // continuation's Steam work mid-flight.
+      // the orphan-lease disown dispatched at the start of the panel load has
+      // to land before any lease is issued to this mount — a lease issued
+      // earlier would be disowned while live, and its refused renewal would
+      // abort the continuation's Steam work mid-flight.
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- `initDone` is flipped to true inside the awaited `loadAppIdsAndMetadata()`; TS's control-flow analysis can't see that cross-function mutation and narrows it to the `false` literal here. The guard is real: it gates the reconcile on the loop having actually reached a reachable backend.
       if (initDone) {
         try {
@@ -776,8 +774,8 @@ const tender = definePlugin(() => {
   }>("sync_complete", onSyncComplete);
 
   initUnitSyncManager();
-  // Mirror the run's frames into its per-unit rows for as long as the plugin is
-  // loaded, so a run that spans a page change keeps filling them in.
+  // Mirror the run's frames into its per-unit rows for the life of the JS
+  // context, so a run that spans a page change keeps filling them in.
   attachRunUnitsMirror();
 
   // Per-unit pipeline: planning + stale + collections events.

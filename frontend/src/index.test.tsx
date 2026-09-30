@@ -362,7 +362,7 @@ describe("index.tsx — what the factory records about the toasts", () => {
   });
 });
 
-describe("index.tsx — launcher relocation at plugin load", () => {
+describe("index.tsx — launcher relocation at panel load", () => {
   beforeEach(() => {
     setLauncherRelocated(false);
     relocateShortcutsToLauncher.mockReset().mockResolvedValue({ status: "relocated" });
@@ -397,7 +397,7 @@ describe("index.tsx — launcher relocation at plugin load", () => {
 });
 
 describe("index.tsx — persistent prune listeners", () => {
-  it("handles tokenized Steam actions at the plugin root", async () => {
+  it("handles tokenized Steam actions in the panel's entry module", async () => {
     pluginFactory();
     beginPrunePreview("preview-1");
     const action = {
