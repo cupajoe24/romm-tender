@@ -654,6 +654,15 @@ Format: **invariant** — tier — enforced by.
   a coexistence bundle that gained it re-executes the modules a rendering Decky is rendering FROM, and takes the Big
   Picture window down. **The check sees the artefacts and not the decision**: which of the two the injector loads is
   `backend/host/inject/bundles.py`'s, and nothing here would notice the wrong one being served
+- **Every third-party package a bundle carries has a budget of its own in `frontend/package-budgets.json`, and a package
+  without one, a package over its budget, or a budget for a package the bundle no longer carries fails the package
+  check** — check — `frontend/scripts/check-package-budgets.mjs` (`pnpm -C frontend check:packages`), over the record
+  the build writes to `frontend/bundle-packages.json`, refused when it is older than `dist/`. Without it, a large
+  library slipping into a bundle reads as one more raise of a total cap; per package it is a failure naming the package.
+  A package with no budget fails rather than passing unmeasured, and a budget whose package has left fails too, so the
+  file stays the list of what the bundles carry. **The panel's own code is not budgeted**, and only
+  `frontend/.size-limit.json`'s total watches it. How the record is made, what counts as own code and how a package is
+  given a budget: [frontend-bundles.md](frontend-bundles.md#third-party-package-budgets)
 - **Tender's three React globals are spelled exactly the way Decky Loader spells them** — test —
   `frontend/src/boot/steamGlobals.test.ts`, which reads `steamGlobals.ts` and the pinned `decky-globals-block.txt` as
   TEXT and compares the four search predicates, which global each answer is assigned to, and the JSX stand-in's keys and
