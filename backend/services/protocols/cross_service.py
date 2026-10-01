@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from models.prune import SourceClaim
-    from models.state import InstalledRomEntry, ShortcutRegistryEntry
+    from models.state import ShortcutRegistryEntry
     from models.sync import ClientSaveState
 
     from domain.disc_selection import Disc
@@ -322,12 +322,14 @@ class RomLaunchPathReader(Protocol):
 
 
 class SaveDriftProbeFn(Protocol):
-    """Local-save drift probe consumed by VersionSwitchService.
+    """Local-save drift probe consumed by VersionSwitchService and PruneService.
 
     The composition root satisfies this with ``LaunchGateService.check_local_drift``.
     Reports whether the ROM's local save files diverge from their persisted sync
-    baseline (a purely-local content-hash read) — the signal that switching away
-    from a downloaded version would strand un-uploaded save changes. Returns the
+    baseline (a purely-local content-hash read) — the signal that a change to the
+    ROM's shortcut would strand un-uploaded save changes: a version switch moving
+    it off a downloaded version, or a removed-game cleanup rebinding it to another
+    version or removing the whole game. Returns the
     ``{"drifted": bool, "rom_id": int}`` shape and never raises (LaunchGate
     collapses any internal error to not-drifted).
     """
@@ -489,52 +491,6 @@ class ArtworkRemover(Protocol):
     """
 
     def remove_artwork_files(self, grid: str, rom_id: str | int, entry: ShortcutRegistryEntry) -> None: ...
-
-
-class LaunchGateRomLookup(Protocol):
-    """Steam app id → RomM ROM resolution consumed by LaunchGateService.
-
-    The composition root satisfies this with ``LibraryService``'s
-    registry-backed lookup. Returns ``None`` when the Steam app id
-    does not correspond to a tracked RomM ROM — that's the signal the
-    gate uses to allow the launch through unmodified.
-    """
-
-    def get_rom_by_steam_app_id(self, app_id: int) -> dict[str, Any] | None: ...
-
-
-class LaunchGateInstalledChecker(Protocol):
-    """ROM-installed lookup consumed by LaunchGateService.
-
-    The composition root satisfies this with ``DownloadService``'s
-    ``get_installed_rom``. Returns the installed-ROM metadata entry
-    when the ROM has been downloaded, ``None`` otherwise. The gate
-    treats any falsy return as "not installed".
-    """
-
-    def get_installed_rom(self, rom_id: int) -> InstalledRomEntry | None: ...
-
-
-class LaunchGateSaveStatusReader(Protocol):
-    """Save-status surface consumed by LaunchGateService.
-
-    The composition root satisfies this with ``SaveService``. The gate
-    first consults ``is_save_sync_enabled`` — when the feature toggle is
-    off there is no conflict state to gate on, so the gate allows the
-    launch and skips the save-status round-trip entirely. With save-sync
-    on, it calls ``get_save_status_unchecked`` for the canonical conflict
-    signal (a non-empty ``conflicts`` array blocks the launch) and falls
-    back to the synchronous ``has_tracked_save`` in-memory check to decide
-    whether a save-status failure should be soft-warned (ROM has tracked
-    saves — silent allow would risk data loss) or silently allowed (no
-    tracked saves — nothing to corrupt).
-    """
-
-    def is_save_sync_enabled(self) -> bool: ...
-
-    async def get_save_status_unchecked(self, rom_id: int) -> dict[str, Any]: ...
-
-    def has_tracked_save(self, rom_id: int) -> bool: ...
 
 
 class LaunchGateDriftReader(Protocol):
