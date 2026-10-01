@@ -4,7 +4,7 @@
  * order the refusals are told apart in, the arguments each re-send carries, the
  * adoption and its collision re-ask, and what an adopted install needs before it
  * counts as one. The dialogs themselves are the surface's, injected as
- * {@link AdoptionDialogs}; so is the surface's own state, through
+ * {@link AdoptionDialogs}; the caller's own state is reached through
  * {@link AdoptionFlowHooks}.
  */
 
@@ -51,7 +51,7 @@ export type VanishedChoice = "download" | "cancel";
 /**
  * The surface's dialogs. Each resolves with the exit the user took; one that is
  * dismissed without an exit may never resolve, which leaves the flow — and the
- * surface's state — exactly where the last hook call put it.
+ * caller's state — exactly where the last hook call put it.
  */
 export interface AdoptionDialogs {
   /**
@@ -68,14 +68,14 @@ export interface AdoptionDialogs {
 }
 
 /**
- * The surface's state, as the flow learns it. Called synchronously, in the order
+ * The caller's state, as the flow learns it. Called synchronously, in the order
  * the flow learns each fact, and never after the outcome resolves.
  */
 export interface AdoptionFlowHooks {
   /**
    * A request is in flight (`true`) or the flow is back in the user's hands
    * (`false`). Stays `true` when the outcome is `"download_started"`: the
-   * transfer's own progress events own the surface from there.
+   * transfer's own progress events drive the caller from there.
    */
   setBusy(busy: boolean): void;
   /** What the backend proved sits at this ROM's own download location. */
@@ -100,7 +100,7 @@ export interface DownloadWithAdoption {
    * when its search finds nothing.
    */
   pageSawCandidate: boolean;
-  /** The prune-lease owner the surface mounted; the adopt's Steam write is held under it. */
+  /** The prune-lease owner the caller mounted; the adopt's Steam write is held under it. */
   leaseOwner: string;
   /** Prefix for this flow's debug log lines. */
   logContext: string;
@@ -111,8 +111,9 @@ export interface DownloadWithAdoption {
 /**
  * - `download_started` — the backend accepted a download; progress events follow.
  * - `adopted` — what was on disk is now the install.
- * - `cancelled` — the user left a dialog through its cancel exit.
- * - `failed` — refused or thrown; the reason has been toasted.
+ * - `cancelled` — nothing started: the user took a dialog's cancel exit, or
+ *   there was nothing to offer.
+ * - `failed` — refused or thrown; a toast has said so.
  */
 export type AdoptionOutcome = "download_started" | "adopted" | "cancelled" | "failed";
 
@@ -157,7 +158,7 @@ async function download(
     if (isTargetOccupied(result)) {
       // Nothing was written and no transfer started — the backend refused so
       // the user can choose (#260). Back to idle before the dialog opens,
-      // because Cancel returns to the surface with nothing else to re-enable
+      // because Cancel returns to the caller with nothing else to re-enable
       // it; adopt and replace each re-claim busy on their own path.
       hooks.setTargetOccupied(true);
       hooks.setBusy(false);
@@ -166,7 +167,7 @@ async function download(
     if (isCandidatesFound(result)) {
       // Same refusal contract, different subject: the target path was free and
       // the game is on disk under another name. Recorded, because the backend
-      // just proved it — without this a cancelled dialog leaves the surface
+      // just proved it — without this a cancelled dialog leaves the caller
       // reading "Download" for content it has confirmed is there.
       hooks.setCandidatePresent(true);
       hooks.setBusy(false);

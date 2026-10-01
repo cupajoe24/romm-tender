@@ -92,7 +92,7 @@ const ADOPTED: AdoptResult = {
   prune_lease_token: "adopt-token",
 };
 
-/** Every hook call, in order, so a test can assert what the surface was told and when. */
+/** Every hook call, in order, so a test can assert what the caller was told and when. */
 let log: string[];
 
 function makeFlow(overrides: Partial<DownloadWithAdoption> = {}) {
@@ -141,14 +141,14 @@ afterEach(async () => {
 });
 
 describe("runDownloadWithAdoption — a plain download", () => {
-  it("starts the download, leaves the surface busy and reports it started", async () => {
+  it("starts the download, leaves the caller busy and reports it started", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(STARTED);
     const { flow } = makeFlow();
 
     await expect(runDownloadWithAdoption(flow)).resolves.toBe("download_started");
 
     expect(vi.mocked(backend.startDownload).mock.calls).toEqual([[ROM_ID, false, null, null, false]]);
-    // The transfer's progress events own the surface from here.
+    // The transfer's progress events drive the caller from here.
     expect(log).toEqual(["busy:true"]);
     expect(vi.mocked(toaster.toast)).not.toHaveBeenCalled();
   });
@@ -162,7 +162,7 @@ describe("runDownloadWithAdoption — a plain download", () => {
     expect(vi.mocked(backend.startDownload).mock.calls[0]).toEqual([ROM_ID, false, null, null, true]);
   });
 
-  it("toasts a refusal's message and hands the surface back", async () => {
+  it("toasts a refusal's message and clears busy", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue({ success: false, message: "Not enough space" });
     const { flow } = makeFlow();
 
@@ -181,7 +181,7 @@ describe("runDownloadWithAdoption — a plain download", () => {
     expect(toastBodies()).toEqual(["Download failed"]);
   });
 
-  it("surfaces a thrown request rather than swallowing it", async () => {
+  it("toasts a thrown request rather than swallowing it", async () => {
     vi.mocked(backend.startDownload).mockRejectedValue(new Error("bridge down"));
     const { flow } = makeFlow();
 
@@ -193,7 +193,7 @@ describe("runDownloadWithAdoption — a plain download", () => {
 });
 
 describe("runDownloadWithAdoption — content at the game's own location", () => {
-  it("records the occupancy and hands the surface back before the dialog opens", async () => {
+  it("records the occupancy and clears busy before the dialog opens", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
     const { flow, dialogs } = makeFlow();
     dialogs.showExisting.mockImplementation(async () => {
@@ -226,7 +226,7 @@ describe("runDownloadWithAdoption — content at the game's own location", () =>
     ]);
   });
 
-  it("adopt records the install, writes the launch command and tells the surface in order", async () => {
+  it("adopt records the install, writes the launch command and tells the caller in order", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
     vi.mocked(backend.adoptExistingRom).mockResolvedValue(ADOPTED);
     const { flow, dialogs } = makeFlow();
@@ -257,7 +257,7 @@ describe("runDownloadWithAdoption — content at the game's own location", () =>
     expect(toastBodies()).toEqual(["Test ROM is ready to play"]);
   });
 
-  it("names the ROM generically when the surface has no name for it", async () => {
+  it("names the ROM generically when the caller has no name for it", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
     vi.mocked(backend.adoptExistingRom).mockResolvedValue(ADOPTED);
     const { flow, dialogs } = makeFlow({ romName: "" });
@@ -329,7 +329,7 @@ describe("runDownloadWithAdoption — content at the game's own location", () =>
     expect(toastBodies()).toEqual(["Couldn't use the existing files"]);
   });
 
-  it("a thrown adoption is surfaced and the surface handed back", async () => {
+  it("a thrown adoption is toasted and busy cleared", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
     vi.mocked(backend.adoptExistingRom).mockRejectedValue(new Error("bridge down"));
     const { flow, dialogs } = makeFlow();
@@ -465,7 +465,7 @@ describe("runDownloadWithAdoption — names already taken", () => {
     ]);
   });
 
-  it("cancelling the adoption's collision dialog adopts nothing and says nothing alarming", async () => {
+  it("cancelling the adoption's collision dialog adopts nothing and toasts nothing", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(FOUND);
     vi.mocked(backend.adoptExistingRom).mockResolvedValue(COLLISIONS);
     const { flow, dialogs } = makeFlow();
@@ -497,7 +497,7 @@ describe("runDownloadWithAdoption — names already taken", () => {
     ]);
   });
 
-  it("hands the surface back before the download's collision dialog opens", async () => {
+  it("clears busy before the download's collision dialog opens", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(COLLISIONS);
     const { flow, dialogs } = makeFlow();
     dialogs.showCollisions.mockImplementation(async () => {

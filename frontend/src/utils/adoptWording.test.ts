@@ -108,7 +108,7 @@ describe("existingIntro", () => {
 });
 
 describe("sizes", () => {
-  it("prints a file's own size and none for anything else", () => {
+  it("prints a file's own size, and none for a shortcut or a kindless entry", () => {
     expect(existingSize(occupied(), false)).toBe("2.0 KB");
     expect(existingSize(ofKind("link", 19), false)).toBe("Shortcut — no size of its own");
     expect(existingSize(ofKind(null, 0), false)).toBe("No size to show");
