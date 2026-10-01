@@ -13,7 +13,14 @@ import { useEffect, useState, type FC } from "react";
 import { addEventListener, removeEventListener } from "../../../api/host";
 import { debugLog, verifyExistingContent } from "../../../api/backend";
 import {
+  CANCEL_LABEL,
+  CHECK_AGAINST_SERVER_LABEL,
+  DELETE_AND_DOWNLOAD_LABEL,
+  DOWNLOAD_INSTEAD_LABEL,
   EXISTING_TITLE,
+  GO_BACK_LABEL,
+  ON_THE_SERVER_HEADING,
+  ON_THIS_DEVICE_HEADING,
   VERIFY_UNREACHABLE_MESSAGE,
   adoptButtonLabel,
   existingIntro,
@@ -40,7 +47,7 @@ import {
 export interface DesktopAdoptExistingDialogProps {
   romId: number;
   occupied: TargetOccupiedResult;
-  /** Set when `occupied` describes a candidate elsewhere in the platform folder; the content check runs against it. */
+  /** As on `AdoptionDialogs.showExisting`; also the path the content check runs against. */
   candidatePath?: string | undefined;
   onChoice: (choice: AdoptChoice) => void;
 }
@@ -113,13 +120,13 @@ export const DesktopAdoptExistingDialog: FC<DesktopAdoptExistingDialogProps> = (
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "10px" }}>
         <div className="tender-desktop-adopt-existing-side" style={SIDE_STYLE}>
-          <div style={DIALOG_MUTED_STYLE}>On this device</div>
+          <div style={DIALOG_MUTED_STYLE}>{ON_THIS_DEVICE_HEADING}</div>
           <div style={DIALOG_VALUE_STYLE}>{occupied.existing.name}</div>
           <div style={DIALOG_VALUE_STYLE}>{existingSize(occupied, candidate)}</div>
           {lastChanged && <div style={DIALOG_MUTED_STYLE}>{lastChanged}</div>}
         </div>
         <div className="tender-desktop-adopt-incoming-side" style={SIDE_STYLE}>
-          <div style={DIALOG_MUTED_STYLE}>On the server</div>
+          <div style={DIALOG_MUTED_STYLE}>{ON_THE_SERVER_HEADING}</div>
           <div style={DIALOG_VALUE_STYLE}>{occupied.incoming.name}</div>
           <div style={DIALOG_VALUE_STYLE}>{incomingSize(occupied)}</div>
         </div>
@@ -149,10 +156,10 @@ export const DesktopAdoptExistingDialog: FC<DesktopAdoptExistingDialogProps> = (
             {replaceWarning(occupied, candidate)}
           </div>
           <button type="button" style={dialogButtonStyle("danger")} onClick={() => onChoice("replace")}>
-            Delete and Download
+            {DELETE_AND_DOWNLOAD_LABEL}
           </button>
           <button type="button" style={dialogButtonStyle("quiet")} onClick={() => setConfirmingReplace(false)}>
-            Go Back
+            {GO_BACK_LABEL}
           </button>
         </div>
       ) : (
@@ -171,13 +178,13 @@ export const DesktopAdoptExistingDialog: FC<DesktopAdoptExistingDialogProps> = (
             disabled={verifying}
             onClick={() => detach(handleVerify())}
           >
-            Check Against Server
+            {CHECK_AGAINST_SERVER_LABEL}
           </button>
           <button type="button" style={dialogButtonStyle("secondary")} onClick={() => setConfirmingReplace(true)}>
-            Download Instead
+            {DOWNLOAD_INSTEAD_LABEL}
           </button>
           <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
-            Cancel
+            {CANCEL_LABEL}
           </button>
         </div>
       )}

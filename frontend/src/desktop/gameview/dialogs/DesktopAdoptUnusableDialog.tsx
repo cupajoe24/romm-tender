@@ -7,6 +7,7 @@
 import type { FC } from "react";
 import { ENTRY_KIND_LABEL } from "../../../utils/formatters";
 import {
+  CANCEL_LABEL,
   UNUSABLE_DOWNLOAD_NOTE,
   UNUSABLE_TITLE,
   unusableDownloadLabel,
@@ -55,7 +56,7 @@ export const DesktopAdoptUnusableDialog: FC<DesktopAdoptUnusableDialogProps> = (
       </button>
       <div style={DIALOG_MUTED_STYLE}>{UNUSABLE_DOWNLOAD_NOTE}</div>
       <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
-        Cancel
+        {CANCEL_LABEL}
       </button>
     </div>
   </DesktopDialog>

@@ -6,6 +6,7 @@
 
 import type { FC } from "react";
 import {
+  CANCEL_LABEL,
   VANISHED_DOWNLOAD_NOTE,
   VANISHED_INTRO,
   VANISHED_TITLE,
@@ -39,7 +40,7 @@ export const DesktopAdoptVanishedDialog: FC<DesktopAdoptVanishedDialogProps> = (
       </button>
       <div style={DIALOG_MUTED_STYLE}>{VANISHED_DOWNLOAD_NOTE}</div>
       <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
-        Cancel
+        {CANCEL_LABEL}
       </button>
     </div>
   </DesktopDialog>

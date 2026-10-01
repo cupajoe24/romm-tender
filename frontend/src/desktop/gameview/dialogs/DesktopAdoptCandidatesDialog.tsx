@@ -6,6 +6,7 @@
 
 import type { FC } from "react";
 import {
+  CANCEL_LABEL,
   CANDIDATES_INTRO,
   CANDIDATES_TITLE,
   candidateDetail,
@@ -60,7 +61,7 @@ export const DesktopAdoptCandidatesDialog: FC<DesktopAdoptCandidatesDialogProps>
         {noneOfTheseLabel(found)}
       </button>
       <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice({ kind: "cancel" })}>
-        Cancel
+        {CANCEL_LABEL}
       </button>
     </div>
   </DesktopDialog>

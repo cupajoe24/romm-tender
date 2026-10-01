@@ -6,6 +6,7 @@
 
 import type { FC } from "react";
 import {
+  CANCEL_LABEL,
   COLLISIONS_CONSEQUENCES,
   COLLISIONS_INTRO,
   COLLISIONS_KEEP_LABEL,
@@ -54,7 +55,7 @@ export const DesktopAdoptCollisionsDialog: FC<DesktopAdoptCollisionsDialogProps>
       </button>
       <div style={DIALOG_MUTED_STYLE}>{COLLISIONS_CONSEQUENCES}</div>
       <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
-        Cancel
+        {CANCEL_LABEL}
       </button>
     </div>
   </DesktopDialog>
