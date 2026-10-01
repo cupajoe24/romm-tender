@@ -6,12 +6,6 @@
  * appears — and has three exits: use what is there, download instead, or do
  * nothing.
  *
- * The two cases differ in one sentence and one consequence. A file at the game's
- * own location is used where it lies; a candidate elsewhere in the folder is
- * **renamed** into place, saves and savestates with it, so an adopted install
- * ends up indistinguishable from a downloaded one. Both are stated up front,
- * because the rename is a change to the user's own filing.
- *
  * Downloading is the only destructive exit, so it takes a second confirmation
  * that names the deletion. That confirmation is a step *inside* this modal
  * rather than a nested one: the comparison the user is deciding from stays on
@@ -23,7 +17,14 @@ import { ModalRoot, DialogButton, showModal } from "@decky/ui";
 import { addEventListener, removeEventListener } from "../api/host";
 import { debugLog, verifyExistingContent } from "../api/backend";
 import {
+  CANCEL_LABEL,
+  CHECK_AGAINST_SERVER_LABEL,
+  DELETE_AND_DOWNLOAD_LABEL,
+  DOWNLOAD_INSTEAD_LABEL,
   EXISTING_TITLE,
+  GO_BACK_LABEL,
+  ON_THE_SERVER_HEADING,
+  ON_THIS_DEVICE_HEADING,
   VERIFY_UNREACHABLE_MESSAGE,
   adoptButtonLabel,
   existingIntro,
@@ -42,12 +43,7 @@ import type { TargetOccupiedResult, VerifyContentResult, VerifyProgressEvent } f
 interface AdoptExistingModalProps {
   romId: number;
   occupied: TargetOccupiedResult;
-  /**
-   * Set when `occupied` describes a candidate found elsewhere in the platform
-   * folder rather than content at the game's own location. It is the path the
-   * content check runs against, and its presence is what tells the user the
-   * file will be renamed.
-   */
+  /** As on `AdoptionDialogs.showExisting`; also the path the content check runs against. */
   candidatePath?: string | undefined;
   closeModal?: () => void;
   onChoice: (choice: AdoptChoice) => void;
@@ -118,13 +114,13 @@ export const AdoptExistingModal: FC<AdoptExistingModalProps> = ({
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "8px" }}>
           <div>
-            <div style={LABEL_STYLE}>On this device</div>
+            <div style={LABEL_STYLE}>{ON_THIS_DEVICE_HEADING}</div>
             <div style={VALUE_STYLE}>{occupied.existing.name}</div>
             <div style={VALUE_STYLE}>{existingSize(occupied, candidate)}</div>
             {lastChanged && <div style={LABEL_STYLE}>{lastChanged}</div>}
           </div>
           <div>
-            <div style={LABEL_STYLE}>On the server</div>
+            <div style={LABEL_STYLE}>{ON_THE_SERVER_HEADING}</div>
             <div style={VALUE_STYLE}>{occupied.incoming.name}</div>
             <div style={VALUE_STYLE}>{incomingSize(occupied)}</div>
           </div>
@@ -155,9 +151,9 @@ export const AdoptExistingModal: FC<AdoptExistingModalProps> = ({
         {confirmingReplace ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <div style={{ fontSize: "13px", color: "#ff8a80" }}>{replaceWarning(occupied, candidate)}</div>
-            <DialogButton onClick={() => choose("replace")}>Delete and Download</DialogButton>
+            <DialogButton onClick={() => choose("replace")}>{DELETE_AND_DOWNLOAD_LABEL}</DialogButton>
             <DialogButton onClick={() => setConfirmingReplace(false)} style={{ opacity: 0.5 }}>
-              Go Back
+              {GO_BACK_LABEL}
             </DialogButton>
           </div>
         ) : (
@@ -171,11 +167,11 @@ export const AdoptExistingModal: FC<AdoptExistingModalProps> = ({
               }}
               disabled={verifying}
             >
-              Check Against Server
+              {CHECK_AGAINST_SERVER_LABEL}
             </DialogButton>
-            <DialogButton onClick={() => setConfirmingReplace(true)}>Download Instead</DialogButton>
+            <DialogButton onClick={() => setConfirmingReplace(true)}>{DOWNLOAD_INSTEAD_LABEL}</DialogButton>
             <DialogButton onClick={() => choose("cancel")} style={{ opacity: 0.5 }}>
-              Cancel
+              {CANCEL_LABEL}
             </DialogButton>
           </div>
         )}

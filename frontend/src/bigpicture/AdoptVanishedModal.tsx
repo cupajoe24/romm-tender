@@ -8,15 +8,17 @@
  * over, so the button does not promise that they agree — it promises that
  * pressing ends in an answer, and this is the answer when nothing more specific
  * is known.
- *
- * It claims no cause, because none is known: what the page found is either gone
- * or no longer matches. Both readings are true of the ordinary case where the
- * file was deleted between opening the page and pressing.
  */
 
 import { FC } from "react";
 import { ModalRoot, DialogButton, showModal } from "@decky/ui";
-import { VANISHED_DOWNLOAD_NOTE, VANISHED_INTRO, VANISHED_TITLE, vanishedDownloadLabel } from "../utils/adoptWording";
+import {
+  CANCEL_LABEL,
+  VANISHED_DOWNLOAD_NOTE,
+  VANISHED_INTRO,
+  VANISHED_TITLE,
+  vanishedDownloadLabel,
+} from "../utils/adoptWording";
 import type { VanishedChoice } from "../utils/adoptFlow";
 import type { CandidateVanishedResult } from "../types";
 
@@ -44,7 +46,7 @@ export const AdoptVanishedModal: FC<AdoptVanishedModalProps> = ({ vanished, clos
           <DialogButton onClick={() => choose("download")}>{vanishedDownloadLabel(vanished)}</DialogButton>
           <div style={LABEL_STYLE}>{VANISHED_DOWNLOAD_NOTE}</div>
           <DialogButton onClick={() => choose("cancel")} style={{ opacity: 0.5 }}>
-            Cancel
+            {CANCEL_LABEL}
           </DialogButton>
         </div>
       </div>
