@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import type { UpdateInstallAttempt, UpdateInstallFailure, UpdateWaitReason } from "../api/backend";
 import {
+  INSTALL_FAILURE_REASONS,
   INSTALL_FAILURE_SENTENCES,
   INSTALLER_OVERDUE_MS,
   RELOAD_LIMIT,
@@ -171,7 +172,7 @@ describe("restartWaitLine", () => {
   });
 });
 
-describe("INSTALL_FAILURE_SENTENCES", () => {
+describe("INSTALL_FAILURE_SENTENCES and INSTALL_FAILURE_REASONS", () => {
   it("words every failure without what its title says, and points the installer's failures at its journal", () => {
     expect(INSTALL_FAILURE_SENTENCES).toEqual({
       download_failed: "The download failed.",
@@ -182,6 +183,14 @@ describe("INSTALL_FAILURE_SENTENCES", () => {
       running_apps_unknown: "Could not check whether a game is running.",
       new_version_does_not_start:
         "The new version does not start. The installer's output says why: journalctl --user -u romm-tender-update",
+    });
+  });
+
+  it("gives the toast the same reasons with no journal named", () => {
+    expect(INSTALL_FAILURE_REASONS).toEqual({
+      ...INSTALL_FAILURE_SENTENCES,
+      installer_stopped: "The installer stopped without updating.",
+      new_version_does_not_start: "The new version does not start.",
     });
   });
 });

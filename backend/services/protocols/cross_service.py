@@ -681,6 +681,29 @@ class HeldClaimsFn(Protocol):
     def __call__(self) -> tuple[str, ...]: ...
 
 
+class FailedInstallerStartFn(Protocol):
+    """When the installer of the latest attempt was started, where that attempt failed after its installer ran.
+
+    ISO-8601 UTC text to the second, or ``None`` where no such attempt is the
+    latest. The composition root satisfies this with
+    ``UpdateInstallService.failed_installer_started_at``. Answered from
+    memory, so it may be asked on the loop.
+    """
+
+    def __call__(self) -> str | None: ...
+
+
+class FailureToastAcknowledgeFn(Protocol):
+    """Record that the panel raised the toast for the installer's record stamped *rolled_back_at*, for good.
+
+    Answers ``{"success": True}``, or the canonical failure shape for a stamp
+    that is not a non-empty string. The composition root satisfies this with
+    ``UpdateOutcomeService.acknowledge_update_failure_toast``.
+    """
+
+    async def __call__(self, rolled_back_at: object) -> dict[str, Any]: ...
+
+
 class DownloadQueueFn(Protocol):
     """The ROM download queue as the panel is shown it: ``{"downloads": [entry, ...]}``, each with a ``status``."""
 

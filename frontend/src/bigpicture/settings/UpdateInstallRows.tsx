@@ -7,6 +7,7 @@ import {
   GAME_STARTS_CANCEL,
   INSTALL_FAILURE_SENTENCES,
   INSTALL_STATE_UNREAD,
+  INSTALLER_RAN,
   NOT_BACK_LINE,
   TAKING_LONG_LINE,
   WAITING_FOR,
@@ -27,6 +28,7 @@ import {
   type RolledBackUpdate,
 } from "../../utils/updateOutcomeStore";
 import { cardFrame } from "../UpdateCard";
+import { showUpdateOutput } from "./UpdateOutputModal";
 import type { UpdateInstall } from "./useUpdateInstall";
 
 function buttonLabel(install: UpdateInstall): string {
@@ -75,6 +77,12 @@ interface Block {
   at: InstallStepId | null;
   failed: boolean;
   note: ReactNode;
+  /**
+   * Where the installer ran, whose output the button under the block shows:
+   * the record's `rolledBackAt`, or `null` for this backend's attempt, and the
+   * version the update tried to install.
+   */
+  output?: { rolledBackAt: string | null; version: string };
 }
 
 /** An attempt under way. */
@@ -111,6 +119,9 @@ function progressBlock(install: UpdateInstall, attempt: UpdateInstallAttempt, ea
   };
 }
 
+/** The button under a failed block where the installer ran. */
+export const SHOW_OUTPUT = "Show what the installer said";
+
 const failedTo = (version: string, outcome: string) => `Update to ${version} failed — ${outcome}.`;
 
 /** Aborts for a game — one started, or no reading of whether one runs — titled as cancelled rather than failed. */
@@ -138,18 +149,21 @@ function attemptFailure(attempt: UpdateInstallAttempt, earlier: string): Block {
     at: kind && failedStep(kind, installerSeen),
     failed: true,
     note: kind && INSTALL_FAILURE_SENTENCES[kind],
+    ...(kind && INSTALLER_RAN.has(kind) ? { output: { rolledBackAt: null, version: attempt.version } } : {}),
   };
 }
 
-/** The installer's record, where no attempt of this backend's is shown. */
+/** The installer's record, where no attempt of this backend's is shown. Every kind of it is one the installer ran. */
 function recordFailure(record: RolledBackUpdate): Block {
   const { kind, attemptedVersion } = record;
+  const output = { output: { rolledBackAt: record.rolledBackAt, version: attemptedVersion } };
   if (kind === "rollback") {
     return {
       caption: failedTo(attemptedVersion, `Tender went back to ${record.restoredVersion}`),
       at: "install",
       failed: true,
       note: updateFailureReason(record),
+      ...output,
     };
   }
   if (kind === "check") {
@@ -158,9 +172,16 @@ function recordFailure(record: RolledBackUpdate): Block {
       at: "check",
       failed: true,
       note: UPDATE_CHECK_FAILURE_NOTE,
+      ...output,
     };
   }
-  return { caption: updateFailureSentence(record), at: null, failed: true, note: updateFailureReason(record) };
+  return {
+    caption: updateFailureSentence(record),
+    at: null,
+    failed: true,
+    note: updateFailureReason(record),
+    ...output,
+  };
 }
 
 /**
@@ -193,6 +214,7 @@ export const UpdateInstallRows: FC<{ install: UpdateInstall; record: RolledBackU
   const showButton = installButtonShown(install);
   const earlier = installed || "the earlier version";
   const block = shownBlock(install, record, earlier);
+  const output = block?.output;
   const [, tick] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
     if (!install.underWay) return;
@@ -289,6 +311,13 @@ export const UpdateInstallRows: FC<{ install: UpdateInstall; record: RolledBackU
               )}
             </div>
           </Field>
+        </PanelSectionRow>
+      )}
+      {output && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => showUpdateOutput(output.rolledBackAt, output.version)}>
+            {SHOW_OUTPUT}
+          </ButtonItem>
         </PanelSectionRow>
       )}
     </>

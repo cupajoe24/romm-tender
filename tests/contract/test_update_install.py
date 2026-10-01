@@ -172,6 +172,23 @@ async def test_a_failed_attempt_gives_the_rule_back_and_says_try_again(installed
     assert not os.path.lexists(os.path.join(installed.cache_dir, "update"))
 
 
+async def test_a_failed_attempt_owes_its_toast_until_acknowledged(installed):
+    installed.units.refusal = "Unit romm-tender-update.service was already loaded"
+    await installed.endpoints.install_update(_OFFERED)
+    await _settled(installed)
+
+    owed = installed.endpoints.get_update_attempt_toast()
+
+    assert owed == {"attempt": 1, "version": _OFFERED, "failure": "installer_not_started"}
+    assert await installed.endpoints.acknowledge_update_attempt_toast(1) == {"success": True}
+    assert installed.endpoints.get_update_attempt_toast() is None
+    assert await installed.endpoints.acknowledge_update_attempt_toast("1") == {
+        "success": False,
+        "reason": "invalid_value",
+        "message": "Invalid attempt",
+    }
+
+
 async def test_the_version_pressed_must_be_the_one_stored(installed):
     answer = await installed.endpoints.install_update(VERSION)
 
@@ -192,10 +209,17 @@ async def test_a_stopped_attempt_judged_once_the_installer_ended_reaches_the_run
     assert judging is not None
     await asyncio.wait_for(judging, 2)
 
-    stopped = {"attempted_version": _OFFERED, "from_version": VERSION, "started_at": "1970-01-01T00:00:00Z"}
+    stopped = {
+        "attempted_version": _OFFERED,
+        "from_version": VERSION,
+        "started_at": "1970-01-01T00:00:00Z",
+        "toast_owed": True,
+    }
     pushed = [call.args[1] for call in harness.emit.await_args_list if call.args[0] == "update_attempt_stopped"]
     assert pushed == [stopped]
     assert harness.endpoints.get_stopped_update_attempt() == stopped
+    assert await harness.endpoints.acknowledge_stopped_update_attempt_toast("1970-01-01T00:00:00Z") == {"success": True}
+    assert harness.endpoints.get_stopped_update_attempt() == {**stopped, "toast_owed": False}
     assert await harness.endpoints.dismiss_stopped_update_attempt() == {"success": True}
     assert harness.endpoints.get_stopped_update_attempt() is None
     assert service._attempts.read() is None

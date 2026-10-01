@@ -1,0 +1,218 @@
+"""What an update that failed printed, as the journal keeps it: everything about it that is pure.
+
+Contract: the unit whose journal holds a version's own start, how one entry of
+``journalctl --output=json`` is read, which run of a unit belongs to a failure,
+and what the panel is shown of a run — its tail, each line cut short, the
+admission token hidden, and each of the installer's rows in the last state it
+printed. Running ``journalctl`` stays in the adapter; which
+failure is asked about stays in the service.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+# The unit this program runs as (``UNIT_NAME`` in ``install.sh``, which
+# ``tests/scripts/test_install_sh.py`` holds equal to this spelling).
+SERVICE_UNIT = "romm-tender"
+
+# A section shows the last this many lines of its run, since a failure's reason
+# is at the end, and cuts every line at this many characters.
+MAX_LINES = 300
+MAX_LINE_CHARS = 500
+
+# A row of the installer as it prints one where it does not redraw it, laid out
+# by ``print_row`` and ``say_progress`` in ``install.sh``.
+_ROW_MARKS = frozenset({"[ok]", "[!!]", "[..]", "[--]"})
+_ROW_LABEL = slice(5, 17)
+
+# How far either side of the installer's record its run is looked for: wider
+# than any one run of the installer, which stops waiting for a new version
+# within minutes.
+RUN_SPAN_SECONDS = 3600
+
+# How many of this program's last lines before the installer began are read for
+# the run then going. Only a line of no run can stand in the way, and those are
+# rare: the manager failing to open a collected unit's file.
+REPLACED_RUN_LINES = 50
+
+# The query parameter the admission token travels in (``TOKEN_PARAM`` in
+# ``host/access.py``, which this layer may not import;
+# ``tests/domain/test_update_output.py`` holds the two equal). Every start logs
+# the address the panel is loaded from, token included, to its journal.
+_TOKEN_PARAM = "token"
+# Three spellings of it with its value: a query's ``token=…``; the same inside
+# another URL's percent-encoded parameter, ``%3Ftoken%3D…`` or ``%26token%3D…``;
+# and a JSON or Python mapping's ``"token": "…"``. A value is what
+# ``host/access.py::new_token`` draws, ``secrets.token_urlsafe``: letters, digits,
+# ``-`` and ``_``, so it ends at the first character outside those.
+_QUERY_NAME = rf"(?:\b|(?<=%3[fF])|(?<=%26)){_TOKEN_PARAM}(?:=|%3[dD])"
+_MAPPING_KEY = rf"""(?P<q>["']){_TOKEN_PARAM}(?P=q)\s*:\s*(?P=q)"""
+_TOKEN = re.compile(rf"(?P<name>{_QUERY_NAME}|{_MAPPING_KEY})[A-Za-z0-9_-]+")
+_HIDDEN = r"\g<name>[hidden]"
+
+# ``journalctl`` names the run a line belongs to under the first key for what
+# the unit's own process printed, and under the second for what the user
+# manager said about the unit. A line with neither — the manager failing to
+# open a collected unit's file, for one — belongs to no run.
+_INVOCATION_KEYS = ("_SYSTEMD_INVOCATION_ID", "USER_INVOCATION_ID")
+
+
+class OutputGap(StrEnum):
+    """Why there is no installer output to show, where the journal was read and holds none."""
+
+    # The journal keeps less than reaches back to the failure.
+    ROTATED = "rotated"
+    # The journal reaches back to it and holds no run of the installer's unit
+    # there: the installer ran by hand, and printed to its terminal.
+    TERMINAL = "terminal"
+    # The journal reaches back to it and holds no run of the unit this program
+    # started the installer as: the unit never ran, or left nothing there.
+    EMPTY = "empty"
+
+
+@dataclass(frozen=True)
+class JournalEntry:
+    """One journal line: when it was written, in epoch seconds, the run it belongs to, and what it says."""
+
+    at: float
+    invocation: str | None
+    message: str
+
+
+@dataclass(frozen=True)
+class OutputSection:
+    """The lines of one run the panel is shown, and how many before them it is not."""
+
+    lines: tuple[str, ...]
+    earlier: int
+
+    def to_wire(self) -> dict[str, object]:
+        """The JSON shape a section is answered in."""
+        return {"lines": list(self.lines), "earlier": self.earlier}
+
+
+def decode_journal_entry(raw: str) -> JournalEntry | None:
+    """One line of ``journalctl --output=json``, or ``None`` where it holds no timestamp.
+
+    ``MESSAGE`` arrives as a list of byte values where it holds bytes that are
+    not printable UTF-8 — ``journalctl(1)``, ``--output=json`` — and is decoded
+    with the bad ones replaced. A line without one reads as an empty message.
+    """
+    try:
+        decoded = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    try:
+        at = int(decoded["__REALTIME_TIMESTAMP"]) / 1_000_000
+    except (KeyError, ValueError, TypeError):
+        return None
+    invocation = next((value for key in _INVOCATION_KEYS if isinstance(value := decoded.get(key), str)), None)
+    return JournalEntry(at=at, invocation=invocation or None, message=_message(decoded.get("MESSAGE")))
+
+
+def _message(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(byte, int) and 0 <= byte < 256 for byte in value):
+        return bytes(value).decode("utf-8", errors="replace")
+    return ""
+
+
+def utc_stamp_seconds(stamp: str) -> float | None:
+    """*stamp* — ISO-8601 UTC to the second, as the installer and this program write them — in epoch seconds."""
+    try:
+        return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
+    except ValueError:
+        return None
+
+
+def journal_runs(entries: Iterable[JournalEntry]) -> list[tuple[JournalEntry, ...]]:
+    """*entries* grouped by the run they belong to, in the order each run first appears; lines of no run left out."""
+    runs: dict[str, list[JournalEntry]] = {}
+    for entry in entries:
+        if entry.invocation is not None:
+            runs.setdefault(entry.invocation, []).append(entry)
+    return [tuple(run) for run in runs.values()]
+
+
+def run_around(entries: Iterable[JournalEntry], at: float) -> tuple[JournalEntry, ...] | None:
+    """The run that was going on at *at* — a record's stamp, cut to the second — or ``None``.
+
+    A run began no later than the second *at* names and wrote its last line no
+    earlier: the installer writes its record partway through, and goes on
+    printing after it.
+    """
+    return next((run for run in journal_runs(entries) if run[0].at < at + 1 and run[-1].at >= at), None)
+
+
+def first_run_from(entries: Iterable[JournalEntry], at: float) -> tuple[JournalEntry, ...] | None:
+    """The first run that began at or after *at*, or ``None``."""
+    return next((run for run in journal_runs(entries) if run[0].at >= at), None)
+
+
+def last_invocation(entries: Sequence[JournalEntry]) -> str | None:
+    """The run the newest line of *entries* that belongs to one belongs to, or ``None``."""
+    return next((entry.invocation for entry in reversed(entries) if entry.invocation is not None), None)
+
+
+def runs_other_than(entries: Iterable[JournalEntry], invocation: str | None) -> tuple[JournalEntry, ...]:
+    """Every line of *entries* that belongs to a run other than *invocation*."""
+    return tuple(entry for entry in entries if entry.invocation is not None and entry.invocation != invocation)
+
+
+def hide_token(line: str) -> str:
+    """*line* with the value of every admission-token parameter replaced by ``[hidden]``."""
+    return _TOKEN.sub(_HIDDEN, line)
+
+
+def output_section(entries: Sequence[JournalEntry]) -> OutputSection:
+    """What the panel is shown of *entries*: the token hidden, each line cut, the last :data:`MAX_LINES` of them."""
+    return _section(_lines(entries))
+
+
+def installer_section(entries: Sequence[JournalEntry]) -> OutputSection:
+    """:func:`output_section` of the installer's run, each of its rows only in the last state it printed.
+
+    A row's line is left out wherever a later line of the same row follows it,
+    so each row stands once, where its last line stood — a row that never
+    finished, in the state it stopped in. Every other line stays, in order, and
+    only the lines that remain count towards :data:`MAX_LINES`.
+    """
+    lines = _lines(entries)
+    labels = [_row_label(line) for line in lines]
+    last = {label: at for at, label in enumerate(labels) if label is not None}
+    kept = [
+        line for at, (line, label) in enumerate(zip(lines, labels, strict=True)) if label is None or last[label] == at
+    ]
+    return _section(kept)
+
+
+def _lines(entries: Sequence[JournalEntry]) -> list[str]:
+    return [line for entry in entries for line in entry.message.splitlines() or [""]]
+
+
+def _row_label(line: str) -> str | None:
+    if line[:4] not in _ROW_MARKS or line[4:5] != " " or line[17:18] not in {"", " "}:
+        return None
+    label = line[_ROW_LABEL].rstrip()
+    return label if label[:1].strip() else None
+
+
+def _section(lines: list[str]) -> OutputSection:
+    shown = [_cut(hide_token(line)) for line in lines[-MAX_LINES:]]
+    return OutputSection(lines=tuple(shown), earlier=len(lines) - len(shown))
+
+
+def _cut(line: str) -> str:
+    return line if len(line) <= MAX_LINE_CHARS else f"{line[:MAX_LINE_CHARS]}…"

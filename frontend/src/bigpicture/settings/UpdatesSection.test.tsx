@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, render, fireEvent } from "@testing-library/react";
 import { UpdatesSection, NOT_INSTALLED_PROGRAM } from "./UpdatesSection";
 import type { UpdateInstall } from "./useUpdateInstall";
-import type { UpdateInstallAttempt } from "../../api/backend";
+import { showModal } from "@decky/ui";
+import { getUpdateOutput, type UpdateInstallAttempt } from "../../api/backend";
 import { setUpdateInstallAttempt } from "../../utils/updateInstallStore";
 import { NOT_BACK_LINE, TAKING_LONG_LINE } from "../../utils/updateInstallView";
 import { GREEN } from "../layout/pane";
 import { UpdateFailureNotice } from "../UpdateFailureNotice";
 import type { UpdateNoticeState } from "../../utils/updateNoticeStore";
+import { SHOW_OUTPUT } from "./UpdateInstallRows";
 import {
   UPDATE_CHECK_FAILURE_NOTE,
   UPDATE_FAILURE_REASON,
@@ -86,6 +88,15 @@ function pressDespiteDisabled(element: HTMLElement): void {
 
 const statuses = (utils: { getByTestId: (id: string) => HTMLElement }) =>
   ["download", "verify", "check", "install"].map((id) => utils.getByTestId(`updates-step-${id}`).dataset.status);
+
+/** The failure block's line stands, and the button that shows the installer's output comes after it. */
+function expectButtonUnderNote(utils: {
+  getByTestId: (id: string) => HTMLElement;
+  getByText: (text: string) => HTMLElement;
+}) {
+  const note = utils.getByTestId("updates-note");
+  expect(note.compareDocumentPosition(utils.getByText(SHOW_OUTPUT)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+}
 
 const renderSection = (
   over: Partial<UpdateNoticeState> = {},
@@ -197,7 +208,7 @@ describe("UpdatesSection", () => {
     const withRecord = (kind: "rollback" | "check" | "unknown") =>
       renderSection({}, { outcome: { ...ROLLED_BACK, failure: { ...ROLLED_BACK.failure!, kind } } });
 
-    it("states a rolled-back update as gone back, failed at Install, with where its reason is", () => {
+    it("states a rolled-back update as gone back, failed at Install, with where its reason is and the button under it", () => {
       const utils = withRecord("rollback");
 
       expect(utils.getByTestId("updates-caption").textContent).toBe(
@@ -205,6 +216,7 @@ describe("UpdatesSection", () => {
       );
       expect(statuses(utils)).toEqual(["done", "done", "done", "failed"]);
       expect(utils.getByTestId("updates-note").textContent).toBe(UPDATE_FAILURE_REASON);
+      expectButtonUnderNote(utils);
     });
 
     it("states an update the pre-install check refused as nothing changed, failed at the check, saying so once", () => {
@@ -216,6 +228,7 @@ describe("UpdatesSection", () => {
       expect(UPDATE_CHECK_FAILURE_NOTE).toBe(
         "The new version did not start. The installer's output says why: journalctl --user -u romm-tender-update, or the terminal it was run in.",
       );
+      expectButtonUnderNote(utils);
     });
 
     it("states a record of a kind this version does not know with no cause and no step", () => {
@@ -226,6 +239,7 @@ describe("UpdatesSection", () => {
       );
       expect(utils.queryByTestId("updates-step-install")).toBeNull();
       expect(utils.getByTestId("updates-note").textContent).toBe(UPDATE_UNKNOWN_FAILURE_REASON);
+      expectButtonUnderNote(utils);
     });
 
     it("words it in the warning colour its card on Main uses", () => {
@@ -260,6 +274,7 @@ describe("UpdatesSection", () => {
       expect(utils.getByTestId("updates-note").textContent).toBe(
         "The new version does not start. The installer's output says why: journalctl --user -u romm-tender-update",
       );
+      expect(utils.getAllByText(SHOW_OUTPUT)).toHaveLength(1);
     });
   });
 
@@ -669,6 +684,79 @@ describe("UpdatesSection", () => {
 
       expect(block?.getAttribute("tabindex")).toBe("0");
       expect(onTheButton.every((desc) => desc !== null)).toBe(true);
+    });
+
+    describe("the button that shows what the installer said", () => {
+      beforeEach(() => {
+        vi.mocked(getUpdateOutput).mockReset().mockResolvedValue({
+          success: true,
+          ran_at: null,
+          installer: null,
+          new_version: null,
+          missing: "rotated",
+        });
+      });
+
+      it.each<NonNullable<UpdateInstallAttempt["failure"]>>(["installer_stopped", "new_version_does_not_start"])(
+        "stands under the block of an attempt that failed with %s, whose installer ran, as a stop of its own",
+        (failure) => {
+          const utils = withInstall(failedWith(failure));
+          const block = utils.getByTestId("updates-caption").closest('[data-testid="field"]');
+
+          const button = utils.getByText(SHOW_OUTPUT);
+
+          expect(block?.contains(button)).toBe(false);
+          expect(text(utils, "updates-note")).toContain("journalctl --user -u romm-tender-update");
+          expectButtonUnderNote(utils);
+        },
+      );
+
+      it("keeps the installer's journal in the line of an installer that stopped, with the button under it", () => {
+        expect(text(withInstall(failedWith("installer_stopped")), "updates-note")).toBe(
+          "The installer stopped without updating. Details: journalctl --user -u romm-tender-update",
+        );
+      });
+
+      it.each<NonNullable<UpdateInstallAttempt["failure"]>>([
+        "download_failed",
+        "checksum_mismatch",
+        "installer_not_started",
+        "game_started",
+        "running_apps_unknown",
+      ])("is not there for an attempt that failed with %s, before any installer ran", (failure) => {
+        expect(withInstall(failedWith(failure)).queryByText(SHOW_OUTPUT)).toBeNull();
+      });
+
+      it("asks for this backend's attempt when pressed under an attempt's block", async () => {
+        const utils = withInstall(failedWith("installer_stopped"));
+
+        fireEvent.click(utils.getByText(SHOW_OUTPUT));
+
+        await vi.waitFor(() => expect(showModal).toHaveBeenCalled());
+        expect(getUpdateOutput).toHaveBeenCalledWith(null);
+      });
+
+      it("asks for the record by its stamp when pressed under a record's block", async () => {
+        const utils = renderSection({}, { outcome: ROLLED_BACK });
+
+        fireEvent.click(utils.getByText(SHOW_OUTPUT));
+
+        await vi.waitFor(() => expect(getUpdateOutput).toHaveBeenCalledWith(ROLLED_BACK.failure!.rolledBackAt));
+      });
+
+      it("leaves with the block once a read offers another version", () => {
+        const utils = withInstall(failedWith("installer_stopped"));
+        expect(utils.getByText(SHOW_OUTPUT)).toBeTruthy();
+
+        rerender(utils, { version: "1.1.0", ...failedWith("installer_stopped"), tryAgain: false });
+
+        expect(utils.queryByTestId("updates-caption")).toBeNull();
+        expect(utils.queryByText(SHOW_OUTPUT)).toBeNull();
+      });
+
+      it("is not there while an attempt is under way", () => {
+        expect(withInstall({ ...INSTALLER_STARTED }).queryByText(SHOW_OUTPUT)).toBeNull();
+      });
     });
   });
 });

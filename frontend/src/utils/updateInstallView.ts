@@ -90,16 +90,35 @@ export function refusalStands(
  */
 export const RELOAD_LIMIT: number = 2;
 
-/** The line under a failed attempt's title, which leaves out what the title says. */
-export const INSTALL_FAILURE_SENTENCES: Record<UpdateInstallFailure, string> = {
+/**
+ * What a failed attempt ended in, leaving out what its title says and where to
+ * read more: the reason its toast gives.
+ */
+export const INSTALL_FAILURE_REASONS: Record<UpdateInstallFailure, string> = {
   download_failed: "The download failed.",
   checksum_mismatch: "The download did not match its checksum.",
   installer_not_started: "The installer could not be started.",
-  installer_stopped: `The installer stopped without updating. ${INSTALLER_JOURNAL}`,
+  installer_stopped: "The installer stopped without updating.",
   game_started: "A game was started. Try again once it has closed.",
   running_apps_unknown: "Could not check whether a game is running.",
-  new_version_does_not_start: `The new version does not start. The installer's output says why: ${INSTALLER_UNIT_JOURNAL}`,
+  new_version_does_not_start: "The new version does not start.",
 };
+
+/**
+ * The line under a failed attempt's title, which leaves out what the title
+ * says; where the installer ran, it names the installer's journal.
+ */
+export const INSTALL_FAILURE_SENTENCES: Record<UpdateInstallFailure, string> = {
+  ...INSTALL_FAILURE_REASONS,
+  installer_stopped: `${INSTALL_FAILURE_REASONS.installer_stopped} ${INSTALLER_JOURNAL}`,
+  new_version_does_not_start: `${INSTALL_FAILURE_REASONS.new_version_does_not_start} The installer's output says why: ${INSTALLER_UNIT_JOURNAL}`,
+};
+
+/** The failures an attempt ends in once its installer has run — the ones whose output the button shows. */
+export const INSTALLER_RAN: ReadonlySet<UpdateInstallFailure> = new Set([
+  "installer_stopped",
+  "new_version_does_not_start",
+]);
 
 type PlainWaitReason = Exclude<UpdateWaitReason, { apps: string[] } | { frees_at: number }>["reason"];
 
@@ -117,7 +136,7 @@ const PLAIN_WAIT_LINES: Record<PlainWaitReason, string> = {
 };
 
 /** Local wall-clock `HH:MM` of an epoch-seconds instant. */
-function clockTime(epochSeconds: number): string {
+export function clockTime(epochSeconds: number): string {
   const at = new Date(epochSeconds * 1000);
   return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
 }
