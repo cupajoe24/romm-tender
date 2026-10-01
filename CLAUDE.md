@@ -117,8 +117,10 @@ locally with `mise run docs`.
 
 ## Where decisions live
 
-- Work starts from an issue. Open questions go under `## To decide`; once answered, that section becomes `## Decisions`.
-  No implementation starts while `## To decide` exists.
+- Work starts from an issue. Open questions go under `## To decide`, one checkbox each; an answered question is checked
+  off and points to its entry under `## Decisions` (`- [x] … → D1`). A pull request merges only once every question is
+  checked.
+- New decisions are appended. A decision that changes later is struck through, and the new one follows with its date.
 - An epic's decisions live in the epic's body. A sub-issue says "See epic #N" instead of copying them.
 - A decision that is hard to reverse, surprising without context, and a real trade-off also becomes an ADR in
   `docs/adr/`; the issue links it.
@@ -126,8 +128,10 @@ locally with `mise run docs`.
   Game-Mode pass can show it.
 - The PR body repeats the final decisions; it becomes the squash commit body.
 - Nothing needed to understand a change lives outside this repo and its issues.
-- The `decisions` CI check fails a PR whose linked issue has no `## Decisions` or still has open questions under
-  `## To decide`, and a PR that removes this section. Everything else here is for the review.
+- The `decisions` CI check enforces `## To decide` and `## Decisions` in the issue, this section, and the ADR format for
+  new ADRs, among other rules listed in the
+  [shared check's README](https://github.com/danielcopper/.github#the-decisions-check); everything else here is for the
+  review.
 
 ## Traps — non-obvious rules that bite silently
 
