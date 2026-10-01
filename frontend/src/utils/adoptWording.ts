@@ -1,8 +1,11 @@
 /**
  * The words of the "already on your device" dialogs a download opens (#260,
- * ADR-0028) — every sentence, title and data-dependent label they build from a
- * backend answer. One home, so every surface that draws those dialogs states the
- * same case the same way; the drawing itself stays with each surface.
+ * ADR-0028) — every word they show, fixed labels included — and the one toast
+ * about the same case outside them, a resume refused. One home, so every surface
+ * that draws those dialogs states the same case the same way; the drawing itself
+ * stays with each surface. Why a sentence says what it says sits on the constant
+ * or function that builds it, so whoever draws a dialog sees which sentences
+ * must not be softened.
  */
 
 import { ENTRY_KIND_LABEL, formatBytes } from "./formatters";
@@ -15,11 +18,38 @@ import type {
   UnusableNamesakeResult,
 } from "../types";
 
+// ── Every dialog ──
+
+/** The exit every one of the dialogs offers; it changes nothing on disk. */
+export const CANCEL_LABEL = "Cancel";
+
 // ── The comparison dialog: content at the game's location, or one candidate ──
 
 export const EXISTING_TITLE = "This Game Is Already on Your Device";
 
-/** "2026-08-06 14:31" from POSIX epoch seconds; the empty string for a zero stamp. */
+/** The heading over the side that describes what is on disk. */
+export const ON_THIS_DEVICE_HEADING = "On this device";
+
+/** The heading over the side that describes what the server would send. */
+export const ON_THE_SERVER_HEADING = "On the server";
+
+/** Starts the content check — on a button, never as a wait before the dialog appears. */
+export const CHECK_AGAINST_SERVER_LABEL = "Check Against Server";
+
+/** The download exit. It opens the confirmation step rather than downloading. */
+export const DOWNLOAD_INSTEAD_LABEL = "Download Instead";
+
+/**
+ * The confirmation step's destructive exit. It names the deletion because it is
+ * one — `replaceWarning` above it says what is deleted — and is never shortened
+ * to a label that hides that.
+ */
+export const DELETE_AND_DOWNLOAD_LABEL = "Delete and Download";
+
+/** Leaves the confirmation step for the comparison, deleting nothing. */
+export const GO_BACK_LABEL = "Go Back";
+
+/** Locale-formatted date and time from POSIX epoch seconds; the empty string for a zero stamp. */
 export function formatModifiedAt(epochSeconds: number): string {
   if (!epochSeconds) return "";
   return new Date(epochSeconds * 1000).toLocaleString();
@@ -61,9 +91,9 @@ export function lastChangedLine(occupied: TargetOccupiedResult): string | null {
 }
 
 /**
- * The sentence under the title. `candidate` is whether `occupied` describes a
- * candidate found elsewhere in the platform folder rather than content at the
- * game's own location — the two differ in exactly this sentence.
+ * The sentence under the title. `candidate`, here and in every function below
+ * that takes it, is what `AdoptionDialogs.showExisting` (`adoptFlow.ts`) says a
+ * `candidatePath` means.
  */
 export function existingIntro(occupied: TargetOccupiedResult, candidate: boolean): string {
   const noun = nounFor(occupied);
@@ -118,7 +148,12 @@ export function sizeVerdict(occupied: TargetOccupiedResult, candidate: boolean):
     : `What is here is ${formatBytes(-delta)} smaller than what the server would send.`;
 }
 
-/** Shown only for a candidate: content at the game's own location is used where it lies. */
+/**
+ * Shown only for a candidate: content at the game's own location is used where
+ * it lies, while a candidate is renamed into place, saves and savestates with it,
+ * so an adopted install ends up indistinguishable from a downloaded one. Stated
+ * before the user chooses, because the rename is a change to their own filing.
+ */
 export function renameNotice(occupied: TargetOccupiedResult): string {
   return (
     `Using it renames it to ${occupied.incoming.name}, and moves any saves and savestates named after it with it, ` +
@@ -162,10 +197,6 @@ export function replaceWarning(occupied: TargetOccupiedResult, candidate: boolea
   );
 }
 
-/** The toast for a paused download whose resume found something else at the game's location. */
-export const RESUME_TARGET_OCCUPIED_TOAST =
-  "Something else is at this game's location now — cancel the download and start again";
-
 // ── The candidate list: two or more files under another name ──
 
 export const CANDIDATES_TITLE = "This Game May Already Be on Your Device";
@@ -193,6 +224,10 @@ export function noneOfTheseLabel(found: CandidatesFoundResult): string {
 
 export const COLLISIONS_TITLE = "Some of These Names Are Taken";
 
+/**
+ * Names the files, not the game: both exits reach this dialog, and on the
+ * download path the game is deleted rather than renamed — only its saves move.
+ */
 export const COLLISIONS_INTRO =
   "Moving this game's files to the name your server uses would land on files that already exist. Nothing has been " +
   "moved yet.";
@@ -206,6 +241,13 @@ export const COLLISION_KIND_LABEL: Record<RenameCollision["kind"], string> = {
 export const COLLISIONS_REPLACE_LABEL = "Replace Them";
 export const COLLISIONS_KEEP_LABEL = "Keep Them";
 
+/**
+ * Neither exit destroys anything, and this says so for both. Replace moves what
+ * it displaces into `.romm-backup`, the funnel every other replaced save goes
+ * through, and this dialog is the only place the user sees that while choosing.
+ * Keep leaves the old-named files orphaned; implying that move was clean is the
+ * one thing this sentence must not do.
+ */
 export const COLLISIONS_CONSEQUENCES =
   "Replace does not delete the files listed above — each is moved into a .romm-backup folder beside it, so you can " +
   "put one back by hand if you pick wrong. Keep leaves them alone and leaves this game's old-named saves where they " +
@@ -215,6 +257,13 @@ export const COLLISIONS_CONSEQUENCES =
 
 export const UNUSABLE_TITLE = "Something With This Name Is Already Here";
 
+/**
+ * There is nothing to take over, so this does not offer a choice between copies:
+ * it says the download produces a **second copy** beside the first. Saying that
+ * out loud is the whole point — the button that led here may well have read
+ * *Use Existing Files*, and a multi-gigabyte transfer starting after that with no
+ * word would be the worst of both.
+ */
 export function unusableIntro(unusable: UnusableNamesakeResult): string {
   const servedWord = unusable.served_is_dir ? "a folder of several files" : "a single file";
   return (
@@ -239,6 +288,11 @@ export const UNUSABLE_DOWNLOAD_NOTE =
 
 export const VANISHED_TITLE = "The Copy on This Device Cannot Be Found";
 
+/**
+ * Claims no cause, because none is known: what the page found is either gone or
+ * no longer matches, and both are true of the ordinary case where the file was
+ * deleted between opening the page and pressing.
+ */
 export const VANISHED_INTRO =
   "This game's page found a copy on this device, and looking again now turns up nothing that matches. Nothing has " +
   "been changed on your device.";
@@ -248,3 +302,9 @@ export function vanishedDownloadLabel(vanished: CandidateVanishedResult): string
 }
 
 export const VANISHED_DOWNLOAD_NOTE = "Or cancel and look in the folder yourself first.";
+
+// ── Outside the dialogs: a paused download's resume, refused ──
+
+/** The toast for a paused download whose resume found something else at the game's location. */
+export const RESUME_TARGET_OCCUPIED_TOAST =
+  "Something else is at this game's location now — cancel the download and start again";

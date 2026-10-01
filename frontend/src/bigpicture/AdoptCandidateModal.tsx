@@ -12,6 +12,7 @@
 import { FC } from "react";
 import { ModalRoot, DialogButton, showModal } from "@decky/ui";
 import {
+  CANCEL_LABEL,
   CANDIDATES_INTRO,
   CANDIDATES_TITLE,
   candidateDetail,
@@ -61,7 +62,7 @@ export const AdoptCandidateModal: FC<AdoptCandidateModalProps> = ({ found, close
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <DialogButton onClick={() => choose({ kind: "download" })}>{noneOfTheseLabel(found)}</DialogButton>
           <DialogButton onClick={() => choose({ kind: "cancel" })} style={{ opacity: 0.5 }}>
-            Cancel
+            {CANCEL_LABEL}
           </DialogButton>
         </div>
       </div>

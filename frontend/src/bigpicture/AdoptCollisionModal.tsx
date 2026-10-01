@@ -2,24 +2,18 @@
  * The second dialog both exits of the adopt dialog open when names they need are
  * already taken — the user has played both versions and both left saves behind
  * (#260). Use These Files renames the game and its saves; Download Instead
- * deletes the game and moves only its saves. So the wording names the files, not
- * the game: on the download path the game is not renamed at all.
+ * deletes the game and moves only its saves.
  *
  * It opens **before a single file has moved**: the backend computes every
  * source → target pair and checks all of them first, so this asks once for the
  * whole set rather than once per collision with half the set already moved.
- *
- * **Neither exit destroys anything, and both say so.** Replace moves the files it
- * displaces into `.romm-backup` — the same funnel every other save the plugin
- * replaces goes through — so this is the surface that has to tell the user, since
- * it is the only one they see while choosing. Keep leaves them alone, but leaves
- * the old-named ones orphaned; implying that move was clean would be the one
- * thing this dialog must not do.
+ * Replace moves what it displaces into `.romm-backup`; Keep leaves it alone.
  */
 
 import { FC } from "react";
 import { ModalRoot, DialogButton, showModal } from "@decky/ui";
 import {
+  CANCEL_LABEL,
   COLLISIONS_CONSEQUENCES,
   COLLISIONS_INTRO,
   COLLISIONS_KEEP_LABEL,
@@ -65,7 +59,7 @@ export const AdoptCollisionModal: FC<AdoptCollisionModalProps> = ({ collisions, 
           <DialogButton onClick={() => choose("keep")}>{COLLISIONS_KEEP_LABEL}</DialogButton>
           <div style={LABEL_STYLE}>{COLLISIONS_CONSEQUENCES}</div>
           <DialogButton onClick={() => choose("cancel")} style={{ opacity: 0.5 }}>
-            Cancel
+            {CANCEL_LABEL}
           </DialogButton>
         </div>
       </div>

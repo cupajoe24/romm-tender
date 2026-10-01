@@ -8,20 +8,15 @@
  * is never adoptable whatever it points at, because an install row has to be
  * removable and the uninstall path refuses a link.
  *
- * There is nothing to take over, so this is not a choice between copies. It is
- * the question the plugin would otherwise answer on its own: the download can
- * still run, and what it produces is a **second copy** of the game beside the
- * first. Saying that out loud is the whole point — the button that led here may
- * well have read *Use Existing Files*, and starting a multi-gigabyte transfer
- * with no dialog after that would be the worst of both.
- *
- * Nothing on disk is moved, renamed or removed by either exit.
+ * Its question is whether to download a second copy beside the first, which
+ * would otherwise be answered without the user. Nothing on disk is moved, renamed or removed by either exit.
  */
 
 import { FC } from "react";
 import { ModalRoot, DialogButton, showModal } from "@decky/ui";
 import { ENTRY_KIND_LABEL } from "../utils/formatters";
 import {
+  CANCEL_LABEL,
   UNUSABLE_DOWNLOAD_NOTE,
   UNUSABLE_TITLE,
   unusableDownloadLabel,
@@ -69,7 +64,7 @@ export const AdoptUnusableModal: FC<AdoptUnusableModalProps> = ({ unusable, clos
           <DialogButton onClick={() => choose("download")}>{unusableDownloadLabel(unusable)}</DialogButton>
           <div style={LABEL_STYLE}>{UNUSABLE_DOWNLOAD_NOTE}</div>
           <DialogButton onClick={() => choose("cancel")} style={{ opacity: 0.5 }}>
-            Cancel
+            {CANCEL_LABEL}
           </DialogButton>
         </div>
       </div>
