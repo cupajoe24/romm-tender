@@ -50,10 +50,10 @@ import { showAdoptCandidateModal } from "./AdoptCandidateModal";
 import { showAdoptCollisionModal } from "./AdoptCollisionModal";
 import { showAdoptUnusableModal } from "./AdoptUnusableModal";
 import { showAdoptVanishedModal } from "./AdoptVanishedModal";
-import { showCoreChangeModal } from "./CoreChangeModal";
-import { handleConflicts } from "./SyncConflictModal";
-import { showOfflineDriftModal } from "./OfflineDriftModal";
-import { showFallbackLaunchModal } from "./FallbackLaunchModal";
+import { showCoreChangeModal } from "../shared/CoreChangeModal";
+import { handleConflicts } from "../shared/SyncConflictModal";
+import { showOfflineDriftModal } from "../shared/OfflineDriftModal";
+import { showFallbackLaunchModal } from "../shared/FallbackLaunchModal";
 import { showStopGameModal } from "./StopGameModal";
 import { getMigrationState } from "../utils/migrationStore";
 import { runLaunchGate, markLaunchSkipped } from "../utils/launchGate";
@@ -649,8 +649,8 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
 
   // Final launch step — set state and hand off to Steam. Marks the appId in the
   // shared skip-set immediately before RunGame so this RunGame does NOT re-enter
-  // the global watcher and re-gate a launch that already ran the funnel (the
-  // double-gate fix C1).
+  // the global watcher and gate a start this button has already handled — run
+  // the funnel for, or found to need none (the double-gate fix C1).
   const dispatchLaunch = async (gameId: string, admission: PruneLeaseAdmission) => {
     if (!isPruneLeaseAdmissionCurrent(admission)) return;
     setState("launching");
@@ -727,7 +727,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     // sync: it would upload the save mid-session while the emulator holds the file
     // open and manufacture a conflict at exit. Skip the whole gate/sync funnel and
     // just bring the game to front — `dispatchLaunch` skip-marks the appId so the
-    // resulting RunGame doesn't re-enter the interceptor and re-gate either.
+    // resulting RunGame doesn't re-enter the interceptor and get gated there either.
     if (isSessionActive(romId) || isAppRunning(appId)) {
       detach(debugLog(`CustomPlayButton: appId=${appId} already running — skipping pre-launch sync`));
       await dispatchLaunch(gameId, admission);

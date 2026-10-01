@@ -1015,8 +1015,8 @@ good server copy being overwritten (#1062).
 
 ### The modal
 
-`SyncConflictModal` (`frontend/src/bigpicture/SyncConflictModal.tsx`) shows the local-save row and the picked
-server-save row side by side, each with size and timestamp. Three actions:
+`SyncConflictModal` (`frontend/src/shared/SyncConflictModal.tsx`) shows the local-save row and the picked server-save
+row side by side, each with size and timestamp. Three actions:
 
 - **Keep Local** → `resolveSyncConflict(rom_id, filename, "keep_local")` → backend POSTs local content as a new server
   version with `overwrite=true` (the old server save is retained, not overwritten in place).
@@ -1029,10 +1029,22 @@ On a successful resolution the modal closes and surfaces a branch-specific confi
 the local save was uploaded to the server, **Use Server** confirms the server save is now in use and the prior local
 save was backed up to `.romm-backup`. Failure and stale branches stay inline in the modal instead (no toast).
 
-The modal is shown by `CustomPlayButton` during pre-launch sync, and by `VersionHistoryPanel.handleRestore` (in
-`SavesTab`) when a version-restore pre-flight returns `conflict_blocked`. Both call `showSyncConflictModal(conflict)`
-which returns a Promise resolving to `"keep_local" | "use_server" | "cancel"`. After post-exit sync, `sessionManager`
-only fires a toast — the conflict re-surfaces in the modal at the next pre-launch.
+`showSyncConflictModal(conflict)` shows it for one conflict and returns a Promise resolving to
+`"keep_local" | "use_server" | "cancel"`; `handleConflicts(conflicts)` shows it for each conflict in turn and stops at
+the first cancel. Four callers reach it:
+
+- `CustomPlayButton`, through `handleConflicts` — on the launch gate's `conflict` verdict, and when the user resolves
+  the conflict the button is already showing.
+- The launch watcher (`frontend/src/utils/launchInterceptor.ts`), through `handleConflicts` — on a `conflict` verdict
+  for a start it caught. It does not import the modal: `index.tsx` hands it `handleConflicts` as
+  `LaunchPrompts.resolveConflicts`.
+- `VersionHistoryPanel.handleRestore` (in `SavesTab`), through `showSyncConflictModal` for the first conflict — when a
+  version-restore pre-flight returns `conflict_blocked`.
+- `useCopyToSlot` (the Saves tab's "Copy to slot…"), through `showSyncConflictModal` for the first conflict — when a
+  copy returns `conflict_blocked`.
+
+After post-exit sync, `sessionManager` only fires a toast — the conflict re-surfaces in the modal at the next
+pre-launch.
 
 ### resolve_sync_conflict endpoint
 
@@ -1373,19 +1385,49 @@ on `SessionFinalizeSyncResult`.
 
 ### Pre-launch sync
 
-Triggered from the game detail page when the user clicks the Play button (if `sync_before_launch` is enabled). This is
-**not** triggered automatically via `RegisterForAppLifetimeNotifications` — pre-launch sync runs explicitly from
-`CustomPlayButton.handlePlay()`. Measured on the device on 2026-09-30: only Tender's Play button runs it — a start
-through Steam's own Play in the desktop client or a `steam://rungameid` link reaches no gate, because the launch watcher
-does not act (#2139).
+Runs before a RomM game starts (if `sync_before_launch` is enabled), through one of two funnels that share
+`runLaunchGate` (`frontend/src/utils/launchGate.ts`). Tender's Play button runs it from `CustomPlayButton.handlePlay()`
+before it starts the game itself; the launch watcher (`frontend/src/utils/launchInterceptor.ts`) gates the starts that
+do not come through the Play button — Steam's own Play and a `steam://rungameid` link. Pre-launch sync is **not**
+triggered via `RegisterForAppLifetimeNotifications`.
+
+The watcher listens on `SteamClient.Apps.RegisterForGameActionStart`, which reports a start with `action` `"LaunchApp"`
+before Steam creates the game's process. Its second argument is **not the appId but the 64-bit game ID** in decimal: for
+a non-Steam shortcut the appId sits in the upper 32 bits and the lower 32 bits hold the shortcut mark `0x02000000` — a
+shortcut with appId `3000000001` starts as `"12884901892328521728"`. `appIdFromGameId` (`frontend/src/utils/gameId.ts`)
+turns it back into the appId with `BigInt` (the value is far above 2^53); a value that fits in 32 bits is taken as the
+appId itself, and any other game-ID kind names nothing of ours. Every later step of the watcher reads that appId. For an
+appId Tender owns (`rommAppIds`), it cancels the start synchronously (`CancelGameAction`), runs the gate, and on
+approval starts the game again with `RunGame`, handing it the game ID the start was reported by — or, for a start
+reported by a value that fits in 32 bits, the shortcut's game ID from Steam's app store where it has an overview.
+
+The start is cancelled before the watcher asks the backend anything, and an endpoint call has no timeout: it waits for a
+backend that is away, and one uninstalled while Steam keeps running never comes back. So the watcher's first backend
+contact — the map refresh below, when one is needed, and the installed check — races `FIRST_CONTACT_DEADLINE_MS` (5 s).
+Past it the watcher fails open: if the start's prune-lease admission is still current, it starts the game again without
+the pre-launch sync, shows "Tender isn't responding — started without syncing saves." and logs it. An answer that
+arrives after the deadline is abandoned and starts nothing more. The later steps — the dialogs, the pre-launch sync's
+own 15 s race and the rest of the gate — are not bounded by it.
+
+The romId comes from `sessionManager`'s appId → romId map, which is re-read only at start-up and when a game starts,
+while `rommAppIds` learns a shortcut as soon as a sync writes it. So an owned appId can be missing from the map: the
+watcher then refreshes the map once (`refreshAppIdMap`) and looks again, and if the romId is still missing it starts the
+game again without the gate.
+
+Both funnels mark the appId in the gate's skip-set (`markLaunchSkipped`) immediately before their own `RunGame`, and the
+watcher consumes that mark when the start reaches it, so a start a caller has already handled is not gated a second
+time. A mark lets a direct start through only within `LAUNCH_SKIP_WINDOW_MS` (10 s) of being set; why the window exists
+is stated at the skip set in `frontend/src/utils/launchGate.ts`.
+
+The Play button's path:
 
 1. User clicks Play on the game detail page.
 2. `CustomPlayButton` calls `preLaunchSync(romId)` on the backend (15s timeout).
 3. Backend fetches server saves, runs `do_sync_rom_saves` which iterates files and dispatches every
    `compute_sync_action` outcome.
-4. If a `Conflict` was returned for any file, the result includes a `conflicts` list. `CustomPlayButton` shows
-   `SyncConflictModal` for the first conflict, awaits the user's choice, then either re-runs sync (Keep Local / Use
-   Server) or falls through (Cancel).
+4. If a `Conflict` was returned for any file, the result includes a `conflicts` list. `CustomPlayButton` puts each
+   conflict through `handleConflicts` in turn (see [The modal](#the-modal)): once all are resolved it notifies siblings
+   and launches; on the first Cancel the button switches to `conflict` and nothing launches.
 5. Game launches — but a sync failure or timeout no longer launches unconditionally. `runPreLaunchSync` surfaces a "Save
    Sync Unavailable" fallback-launch confirm; the launch proceeds only if the user confirms it, and is aborted (the
    button returns to "play") if they decline (#1050). The benign `savefiles_in_content_dir` skip still proceeds
@@ -1747,14 +1789,14 @@ for the physical column names and constraints.
 
 The save-sync feature toggles (`save_sync_enabled`, `sync_before_launch`, `sync_after_exit`, `default_slot`,
 `autocleanup_limit`) and the device label (`device_name`) live in `settings.json` (ADR-0003), not in this aggregate.
-`save_sync_enabled` is the master feature toggle — when it is off, the universal launch gate
-(`LaunchGateService.evaluate`) skips the save-status round-trip, and `get_save_status` itself returns an empty
-`conflicts` array, so no consumer (the launch gate, the play button, the `save_status_updated` push that `index.tsx`
-forwards) surfaces a conflict the user has no UI to resolve — the SAVES tab where one would resolve it is hidden while
-disabled. A stale server-side conflict (e.g. another device moved the save) therefore can't render a game unplayable.
-`sync_before_launch` / `sync_after_exit` gate the automatic pre-launch / post-exit syncs; `default_slot` is the slot new
-games adopt (`"autosave"`, matching the official RomM clients Argosy and Grout); `autocleanup_limit` caps retained save
-versions per slot on the server (10).
+`save_sync_enabled` is the master feature toggle. When it is off, `pre_launch_sync` returns before it syncs anything, so
+the launch gate has no conflict to map. `get_save_status` returns an empty `conflicts` array as well, so no reader of
+that array — the Play button, the game page (`panelEvents.ts`, `gameDetailStore.ts`) and the `save_status_updated` push
+that `index.tsx` forwards — shows a conflict the user cannot resolve: the SAVES tab where a conflict is resolved is
+hidden while sync is disabled. A stale server-side conflict (e.g. another device moved the save) therefore can't render
+a game unplayable. `sync_before_launch` / `sync_after_exit` gate the automatic pre-launch / post-exit syncs;
+`default_slot` is the slot new games adopt (`"autosave"`, matching the official RomM clients Argosy and Grout);
+`autocleanup_limit` caps retained save versions per slot on the server (10).
 
 Conflicts are no longer persisted. They are returned ephemerally from `do_sync_rom_saves` and `_get_save_status_io` and
 surfaced via the modal at the moment of the sync. If the user dismisses the modal (Cancel), the conflict re-fires on the

@@ -67,6 +67,28 @@ Format: **invariant** — tier — enforced by.
   path assembled from pieces or handed in from elsewhere, a write through a helper, and a subprocess slip past it.
   **Prompt-only**: only `UpdateInstallService` calls the adapter's `write` and `remove`
   ([UpdateInstallService notes](backend-architecture.md#updateinstallservice-notes))
+- **No journal line reaches the panel with an admission token in it: every line read back from the journal is shown
+  through `domain/update_output.py`'s `output_section` or `installer_section`, which replace the value of every
+  admission-token spelling they know with `[hidden]`** — test + prompt-only — every start logs the address the panel is
+  loaded from, admission token included, on stderr, which under the service is the `romm-tender` unit's journal
+  (`host/runtime.py`; only the log file's formatter redacts it, `host/logging_setup.py`). The window "Show what the
+  installer said" shows the failed version's lines from that journal after a rollback, so without the rule the panel
+  would print a token — a dead one, since each process draws its own, but a token all the same, on a screen that can be
+  photographed or shared. The token is not known by value to the reader (it belonged to another process), so the rule
+  hides it by pattern, in three spellings: a query's `token=…`, the same percent-encoded inside another URL's parameter
+  (`%3Ftoken%3D…`, `%26token%3D…`), and a JSON or Python mapping's `"token": "…"`; a value ends at the first character
+  outside `secrets.token_urlsafe`'s alphabet, which is what `host/access.py::new_token` draws. The parameter's name is
+  held equal to `host/access.py::TOKEN_PARAM` by a test, since `domain/` may not import the host.
+  `tests/domain/test_update_output.py::TestHideToken` pins the address line's shape, each spelling, a token among other
+  parameters and a word that merely ends in `token`, and `TestInstallerSection::test_the_token_is_still_hidden` that the
+  installer's part hides it too; one service case
+  (`tests/services/test_update_output.py::TestAfterARollback::test_answers_the_installer_s_run_and_what_the_failed_version_printed`)
+  and one contract case
+  (`tests/contract/test_update_output.py::test_after_a_rollback_both_runs_are_answered_with_the_token_hidden`, the only
+  one end to end) assert `[hidden]` in the failed version's part. **Unseen by it**: a token printed in any other shape —
+  under another name, encoded twice, split across lines, or holding a character outside that alphabet. **Prompt-only**:
+  a new reader of journal text answers through `output_section`, `installer_section` or `hide_token`, never with the raw
+  `JournalEntry.message` ([UpdateOutputService notes](backend-architecture.md#updateoutputservice-notes))
 - **The pre-install check (`backend/check.py`) never builds under a live root: its code root is the tree being checked,
   every other root and the runtime directory are absent or empty when it starts, neither copy lands where it is copied
   from, and the live database is read without a file created or removed beside it, and with no write to one but a
@@ -604,14 +626,15 @@ Format: **invariant** — tier — enforced by.
 - **Service-independence contract list stays complete** — check — `scripts/check_service_independence_contract.py`
 - **Layer import direction (services ↛ adapters, adapters ↛ services, …)** — check — `.importlinter` (`lint-imports`)
 - **Frontend direction: `frontend/src/utils/` and `frontend/src/api/` never import either surface
-  (`frontend/src/bigpicture/`, `frontend/src/desktop/`); the two surfaces never import each other; and no
-  `frontend/src/` module takes part in an import cycle** — check — `frontend/eslint.config.js`
-  (`import-x/no-restricted-paths`, `import-x/no-cycle`). The surface pair is a peer rule, not a layer rule: the two
-  share data and logic and almost nothing visual, so anything that turns out to belong to both moves DOWN into `api/`,
-  `utils/` or `types/`, never sideways. These rules go inert rather than loud when misconfigured: until the config names
-  `.ts`/`.tsx` for the plugin to read, `no-cycle` finds no cycle among the frontend's modules (the comment at
+  (`frontend/src/bigpicture/`, `frontend/src/desktop/`) or `frontend/src/shared/`; `shared/` never imports either
+  surface; the two surfaces never import each other; and no `frontend/src/` module takes part in an import cycle** —
+  check — `frontend/eslint.config.js` (`import-x/no-restricted-paths`, `import-x/no-cycle`). The surface pair is a peer
+  rule, not a layer rule: the two share data and logic and almost nothing visual, so anything that turns out to belong
+  to both moves DOWN, never sideways — UI into `shared/`, which both surfaces may import and which imports neither, and
+  the rest into `api/`, `utils/` or `types/`. These rules go inert rather than loud when misconfigured: until the config
+  names `.ts`/`.tsx` for the plugin to read, `no-cycle` finds no cycle among the frontend's modules (the comment at
   `import-x/extensions` in `frontend/eslint.config.js` says how). `frontend/src/eslintBoundaries.test.ts` lints
-  known-bad fixtures through the real config and fails if any of the seven stops reporting — a green `pnpm lint` alone
+  known-bad fixtures through the real config and fails if any of the eleven stops reporting — a green `pnpm lint` alone
   proves nothing. Type-only imports are not edges (erased at runtime), which is why the `api/backend.ts` ⇄
   `utils/cachedGameDetailStore.ts` back-reference is not a cycle
 - **No bare `# type: ignore` / blanket suppressions** — check — `scripts/check_no_bare_ignores.sh`
@@ -631,6 +654,15 @@ Format: **invariant** — tier — enforced by.
   a coexistence bundle that gained it re-executes the modules a rendering Decky is rendering FROM, and takes the Big
   Picture window down. **The check sees the artefacts and not the decision**: which of the two the injector loads is
   `backend/host/inject/bundles.py`'s, and nothing here would notice the wrong one being served
+- **Every third-party package a bundle carries has a budget of its own in `frontend/package-budgets.json`, and a package
+  without one, a package over its budget, or a budget for a package the bundle no longer carries fails the package
+  check** — check — `frontend/scripts/check-package-budgets.mjs` (`pnpm -C frontend check:packages`), over the record
+  the build writes to `frontend/bundle-packages.json`, refused when it is older than `dist/`. Without it, a large
+  library slipping into a bundle reads as one more raise of a total cap; per package it is a failure naming the package.
+  A package with no budget fails rather than passing unmeasured, and a budget whose package has left fails too, so the
+  file stays the list of what the bundles carry. **The panel's own code is not budgeted**, and only
+  `frontend/.size-limit.json`'s total watches it. How the record is made, what counts as own code and how a package is
+  given a budget: [frontend-bundles.md](frontend-bundles.md#third-party-package-budgets)
 - **Tender's three React globals are spelled exactly the way Decky Loader spells them** — test —
   `frontend/src/boot/steamGlobals.test.ts`, which reads `steamGlobals.ts` and the pinned `decky-globals-block.txt` as
   TEXT and compares the four search predicates, which global each answer is assigned to, and the JSX stand-in's keys and
@@ -911,16 +943,16 @@ Format: **invariant** — tier — enforced by.
   states for a cut longer and described one platform in two vocabularies a keypress apart. **The module's own drift lock
   is a test that reads components as SOURCE** (`biosSummary.test.ts`, over the phrase list the module builds its answers
   from, with the ratio's twin in `biosHeldRatio.test.ts`) — and since #1866 it SWEEPS the set it searches rather than
-  naming it (`frontend/src/test-utils/componentSources.ts`, every non-test `.tsx` under `frontend/src/bigpicture`),
-  because the naming is what failed: both locks listed two components while three rendered these states, and a surface
-  missing from such a list carries no lock at all and cannot be told from one that never drifted. Deriving the set from
-  who IMPORTS the module would be worse than the list — a surface wording a state for itself is exactly one that does
-  not import it. **What neither lock can catch is a component inventing a NEW wording for one of these states**: only a
-  copied phrase is searchable, so a green run there is evidence about copied sentences and about nothing else. Two
-  limits of the sweep, both deliberate: it is `.tsx` only, so a wording helper extracted into a `.ts` beside its
-  component is unsearched (`frontend/src/bigpicture/panelState.ts` is such a file and quotes BIOS prose today), and
-  `frontend/src/utils` is out of scope because that is where the phrases legitimately live **A narrower form of the same
-  answer is read PER CORE onto every row** (`FirmwareCatalogue.emulators_needing_one_of_their_files` →
+  naming it (`frontend/src/test-utils/componentSources.ts`, every non-test `.tsx` under `frontend/src/bigpicture` or
+  `frontend/src/shared`), because the naming is what failed: both locks listed two components while three rendered these
+  states, and a surface missing from such a list carries no lock at all and cannot be told from one that never drifted.
+  Deriving the set from who IMPORTS the module would be worse than the list — a surface wording a state for itself is
+  exactly one that does not import it. **What neither lock can catch is a component inventing a NEW wording for one of
+  these states**: only a copied phrase is searchable, so a green run there is evidence about copied sentences and about
+  nothing else. Two limits of the sweep, both deliberate: it is `.tsx` only, so a wording helper extracted into a `.ts`
+  beside its component is unsearched (`frontend/src/bigpicture/panelState.ts` is such a file and quotes BIOS prose
+  today), and `frontend/src/utils` is out of scope because that is where the phrases legitimately live **A narrower form
+  of the same answer is read PER CORE onto every row** (`FirmwareCatalogue.emulators_needing_one_of_their_files` →
   `build_file_entry`'s `cores[<emulator>]["needs_one_of"]` and the row's own `system_image_candidate`, worded by
   `BiosTab.tsx`'s `coreLineSuffix` and marked by `library/PlatformDetail.tsx`'s `diskMark`), and there the rule is that
   the two keys on that entry are two SPEAKERS: `required` is the core's own `.info`, the other is the packaged table

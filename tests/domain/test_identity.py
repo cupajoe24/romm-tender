@@ -15,18 +15,18 @@ class TestTheDisplayName:
     def test_it_is_the_name_the_frontend_shows(self):
         """The value itself, pinned where it lives rather than only where it is spent.
 
-        Three other files assert this name against something the code produced,
+        Two other files assert this name against something the code produced,
         and each is incidental to the surface it belongs to rather than about
-        the name itself: the toast sender
-        (``tests/services/test_launch_gate.py``), the RomM token label
+        the name itself: the RomM token label
         (``tests/services/test_connection.py``) and the registered-device client
-        (``tests/services/saves/test_service.py``). The three heading tests read
+        (``tests/services/saves/test_service.py``). The two heading tests read
         like pins and are not — they derive their expectation from this constant
         in order to hold an underline to its headline, and say nothing about
         what either one spells.
 
-        The QAM header reads the frontend's ``PLUGIN_NAME`` and everything the
-        backend writes reads this. Nothing checks that the two agree.
+        The QAM header reads the frontend's ``PLUGIN_NAME``; the RomM token
+        label, the registered device's client and the two README headlines read
+        this. Nothing checks that the two agree.
         """
         assert DISPLAY_NAME == "Tender"
 

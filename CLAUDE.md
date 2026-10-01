@@ -115,6 +115,20 @@ change to it as well.
 Docs are Material for MkDocs, published to GitHub Pages by `.github/workflows/docs.yml` on push to `main`. Preview
 locally with `mise run docs`.
 
+## Where decisions live
+
+- Work starts from an issue. Open questions go under `## To decide`; once answered, that section becomes `## Decisions`.
+  No implementation starts while `## To decide` exists.
+- An epic's decisions live in the epic's body. A sub-issue says "See epic #N" instead of copying them.
+- A decision that is hard to reverse, surprising without context, and a real trade-off also becomes an ADR in
+  `docs/adr/`; the issue links it.
+- Each `## Done when` criterion becomes a test that is seen failing first, or is marked "(device)" when only the owner's
+  Game-Mode pass can show it.
+- The PR body repeats the final decisions; it becomes the squash commit body.
+- Nothing needed to understand a change lives outside this repo and its issues.
+- The `decisions` CI check fails a PR whose linked issue has no `## Decisions` or still has open questions under
+  `## To decide`, and a PR that removes this section. Everything else here is for the review.
+
 ## Traps — non-obvious rules that bite silently
 
 - **The build output lives at `<repo>/dist/`, not under `frontend/`** — and the frontend package writes one directory UP
@@ -378,6 +392,18 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   neither `install.sh` nor a file under `scripts/` (`*.sh`) or `bin/` spells the literal. Unseen by it: a record path
   assembled from pieces or handed in from elsewhere, a write through a helper, and a subprocess. Prompt-only: only
   `UpdateInstallService` calls the adapter's `write` and `remove`
+- **No journal line reaches the panel with an admission token in it: every line read back from the journal is shown
+  through `domain/update_output.py`'s `output_section` or `installer_section`, which replace the value of every
+  admission-token spelling they know with `[hidden]`** — test + prompt-only —
+  `tests/domain/test_update_output.py::TestHideToken` pins the three spellings (a query's `token=…`, the same
+  percent-encoded after `%3F` or `%26`, a JSON or Python mapping's `"token": "…"`) over a line in the start-up address
+  line's shape, and `TestInstallerSection::test_the_token_is_still_hidden` that the installer's part hides it too; one
+  service case (`TestAfterARollback::test_answers_the_installer_s_run_and_what_the_failed_version_printed`) and one
+  contract case (`test_after_a_rollback_both_runs_are_answered_with_the_token_hidden`, the only one end to end) assert
+  `[hidden]` in the failed version's part. Unseen by it: a token printed in any other shape — under another name,
+  encoded twice, split across lines, or holding a character outside `secrets.token_urlsafe`'s alphabet. Prompt-only: a
+  new reader of journal text answers through `output_section`, `installer_section` or `hide_token`, never with the raw
+  `JournalEntry.message`
 - **The pre-install check (`backend/check.py`) never builds under a live root: its code root is the tree being checked,
   every other root and the runtime directory are absent or empty when it starts, neither copy lands where it is copied
   from, and the live database is read without a file created or removed beside it, and with no write to one but a
@@ -545,10 +571,11 @@ entry — why the rule exists, what breaks without it, and where it lives — is
 - **Service-independence contract list stays complete** — check — `scripts/check_service_independence_contract.py`
 - **Layer import direction (services ↛ adapters, adapters ↛ services, …)** — check — `.importlinter` (`lint-imports`)
 - **Frontend direction: `frontend/src/utils/` and `frontend/src/api/` never import either surface
-  (`frontend/src/bigpicture/`, `frontend/src/desktop/`); the two surfaces never import each other; and no
-  `frontend/src/` module takes part in an import cycle** — check — `frontend/eslint.config.js`
-  (`import-x/no-restricted-paths`, `import-x/no-cycle`), kept live by `frontend/src/eslintBoundaries.test.ts`; code both
-  surfaces need moves DOWN into `api/`, `utils/` or `types/`, never sideways; type-only imports are not edges
+  (`frontend/src/bigpicture/`, `frontend/src/desktop/`) or `frontend/src/shared/`; `shared/` never imports either
+  surface; the two surfaces never import each other; and no `frontend/src/` module takes part in an import cycle** —
+  check — `frontend/eslint.config.js` (`import-x/no-restricted-paths`, `import-x/no-cycle`), kept live by
+  `frontend/src/eslintBoundaries.test.ts`; code both surfaces need moves DOWN — UI into `shared/`, the rest into `api/`,
+  `utils/` or `types/` — never sideways; type-only imports are not edges
 - **No bare `# type: ignore` / blanket suppressions** — check — `scripts/check_no_bare_ignores.sh`
 - **A transport failure and an endpoint's own failure never arrive in the same shape, on either end** — test +
   prompt-only — `hostSocket.test.ts` for the frontend half (`frontend/src/api/hostSocket.ts`); the backend half is
@@ -557,6 +584,11 @@ entry — why the rule exists, what breaks without it, and where it lives — is
 - **The standalone panel bundle carries `@decky/ui` and the coexistence one carries none of it** — check —
   `frontend/scripts/check-bundle-shape.mjs`, over the built artifact; which bundle the injector loads
   (`backend/host/inject/bundles.py`) it does not see
+- **Every third-party package a bundle carries has a budget of its own in `frontend/package-budgets.json`, and a package
+  without one, a package over its budget, or a budget for a package the bundle no longer carries fails the package
+  check** — check — `frontend/scripts/check-package-budgets.mjs` (`pnpm -C frontend check:packages`), over the record
+  the build writes to `frontend/bundle-packages.json`, refused when it is older than `dist/`; the panel's own code has
+  no budget of its own and only `frontend/.size-limit.json`'s total watches it
 - **Tender's three React globals are spelled exactly the way Decky Loader spells them** — test —
   `frontend/src/boot/steamGlobals.test.ts` against the pinned `decky-globals-block.txt`; the pinned copy itself is held
   by hand, its provenance header naming the upstream commit

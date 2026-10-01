@@ -25,10 +25,10 @@ import { registerGameDetailPatch } from "./bigpicture/patches/gameDetailPatch";
 import { registerRomMAppId, unregisterRomMAppId } from "./utils/rommAppIds";
 import { registerMetadataPatches, applyAllPlaytime, applyAllMetadata } from "./utils/metadataPatches";
 import { registerLaunchInterceptor } from "./utils/launchInterceptor";
-import { showCoreChangeModal } from "./bigpicture/CoreChangeModal";
-import { handleConflicts } from "./bigpicture/SyncConflictModal";
-import { showOfflineDriftModal } from "./bigpicture/OfflineDriftModal";
-import { showFallbackLaunchModal } from "./bigpicture/FallbackLaunchModal";
+import { showCoreChangeModal } from "./shared/CoreChangeModal";
+import { handleConflicts } from "./shared/SyncConflictModal";
+import { showOfflineDriftModal } from "./shared/OfflineDriftModal";
+import { showFallbackLaunchModal } from "./shared/FallbackLaunchModal";
 import { hasAnySaveConflict } from "./utils/saveStatus";
 import {
   getAppIdRomIdMap,
@@ -56,6 +56,7 @@ import { setUpdateInstallAttempt } from "./utils/updateInstallStore";
 import { fetchUpdateNotice, takePushedUpdateNotice } from "./utils/updateNoticeStore";
 import { fetchUpdateOutcome, takePushedUpdateFailure } from "./utils/updateOutcomeStore";
 import { fetchStoppedUpdateAttempt, takePushedStoppedAttempt } from "./utils/stoppedUpdateStore";
+import { logToastFailure, toastOwedAttempt } from "./utils/failedUpdateToast";
 import { relocateShortcutsToLauncher } from "./utils/launcherRelocation";
 import { setLauncherRelocated } from "./utils/launcherStore";
 import { resetSyncDelta, recordSyncRemoved, getSyncDelta } from "./utils/syncDeltaStore";
@@ -564,8 +565,9 @@ const tender = definePlugin(() => {
   );
 
   // What the last update did: fill the store the announcement card and the
-  // rolled-back notice read, and raise the announcement's toast for a version
-  // that moved, up or back. Detached like the release check above.
+  // rolled-back notice read, and raise the toasts still owed — the
+  // announcement's for a version that moved, up or back, and the one for an
+  // update that did not go through. Detached like the release check above.
   detach(
     (async () => {
       try {
@@ -577,7 +579,8 @@ const tender = definePlugin(() => {
   );
 
   // An installer an earlier start ran that stopped without updating: the card
-  // on Main says so. Detached like the two reads above.
+  // on Main says so, and its toast where still owed. Detached like the two
+  // reads above.
   detach(
     (async () => {
       try {
@@ -587,6 +590,10 @@ const tender = definePlugin(() => {
       }
     })(),
   );
+
+  // An install attempt of this backend's that failed while no panel was loaded
+  // to take its frame: its toast is still owed.
+  toastOwedAttempt().catch(logToastFailure);
 
   // Point every shortcut at the launcher's home. Runs here rather than on
   // panel mount because a user can launch a game without ever opening the QAM.
@@ -1039,9 +1046,13 @@ const tender = definePlugin(() => {
   // The backend's own release check, pushed when its answer changes, the
   // install attempt's steps, a stopped attempt judged after panel load, and a
   // refusal by the pre-install check seen while the backend ran; each is held
-  // in its store for the surfaces.
+  // in its store for the surfaces. A frame that turned failed also asks for
+  // the toast the backend owes for that attempt.
   addEventListener<UpdateNotice>("update_notice", takePushedUpdateNotice);
-  addEventListener<UpdateInstallAttempt>("update_install_progress", setUpdateInstallAttempt);
+  addEventListener<UpdateInstallAttempt>("update_install_progress", (frame) => {
+    setUpdateInstallAttempt(frame);
+    if (frame.step === "failed") toastOwedAttempt().catch(logToastFailure);
+  });
   addEventListener<StoppedUpdateAttemptWire>("update_attempt_stopped", takePushedStoppedAttempt);
   addEventListener<UpdateFailure>("update_failure_recorded", takePushedUpdateFailure);
 
