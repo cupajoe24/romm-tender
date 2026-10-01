@@ -257,6 +257,39 @@ describe("runDownloadWithAdoption — content at the game's own location", () =>
     expect(toastBodies()).toEqual(["Test ROM is ready to play"]);
   });
 
+  it("an adoption whose launch-options write rejects is still adopted", async () => {
+    vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
+    vi.mocked(backend.adoptExistingRom).mockResolvedValue(ADOPTED);
+    vi.mocked(setLaunchOptionsConfirmed).mockRejectedValueOnce(new Error("SteamClient threw"));
+    const { flow, dialogs } = makeFlow();
+    dialogs.showExisting.mockResolvedValue("adopt");
+
+    // The backend has recorded the install by now, so a failed Steam write is
+    // not a failed adoption and must not be toasted as one.
+    await expect(runDownloadWithAdoption(flow)).resolves.toBe("adopted");
+
+    expect(toastBodies()).toEqual(["Test ROM is ready to play"]);
+  });
+
+  it("holds the adopt's Steam write to the owner generation the press was made in", async () => {
+    vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
+    let answer!: (result: AdoptResult) => void;
+    vi.mocked(backend.adoptExistingRom).mockReturnValue(new Promise<AdoptResult>((resolve) => (answer = resolve)));
+    const { flow, dialogs } = makeFlow();
+    dialogs.showExisting.mockResolvedValue("adopt");
+
+    const run = runDownloadWithAdoption(flow);
+    await vi.waitFor(() => expect(vi.mocked(backend.adoptExistingRom)).toHaveBeenCalled());
+    // The page is left and opened again while the request is out: a capture
+    // taken after it answers would see the new generation and write anyway.
+    await releasePruneLeasesByOwner(OWNER);
+    mountPruneLeaseOwner(OWNER);
+    answer(ADOPTED);
+    await run;
+
+    expect(vi.mocked(setLaunchOptionsConfirmed)).not.toHaveBeenCalled();
+  });
+
   it("names the ROM generically when the caller has no name for it", async () => {
     vi.mocked(backend.startDownload).mockResolvedValue(OCCUPIED);
     vi.mocked(backend.adoptExistingRom).mockResolvedValue(ADOPTED);
