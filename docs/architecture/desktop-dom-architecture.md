@@ -132,7 +132,9 @@ The **`DomRestorationLedger`** guarantees atomic, idempotent restoration:
 - **Listener Tracking**: Attached event listeners are registered for guaranteed teardown.
 - **Atomic Teardown**: `ledger.restoreAll()` detaches registered event listeners, unmounts all React roots and removes
   their hosts, then restores original displays and inline styles, in one pass — when the page leaves a RomM shortcut,
-  when it moves to another RomM game, and when the watcher detaches from the window.
+  when it moves to another RomM game, and when the watcher detaches from the window. A pass or a sticky-bar settle timer
+  scheduled before that teardown does nothing once it has run, and the supervisor's popup callbacks, which nothing
+  unregisters, do nothing once it has stopped.
 
 ### 3. Multi-Tier Resilient Selection Ladder (`watcher/elementSelectors.ts`)
 
@@ -192,7 +194,7 @@ sequenceDiagram
     participant Watcher as navigationWatcher
     participant SteamDOM as Steam Client DOM
     participant Ledger as DomRestorationLedger
-    participant ReactRoot as React 18 Root (GameView)
+    participant ReactRoot as React Root (GameView)
 
     Note over Watcher: Tick 0: Route Navigation
     Watcher->>SteamDOM: Find playBarTop, container, heroWrapper
@@ -211,12 +213,14 @@ sequenceDiagram
     Watcher-->>ReactRoot: Skip GameView remount (No-op)
 ```
 
-1. **Always executed**, in this order: hide the native content sections; hide the native Play button and mount
+1. **First, a stale `GameView`**: a substitute carrying another `appId`, or no longer in the insertion container, is
+   torn down with everything the ledger holds. This happens before the adaptations, because a teardown after them would
+   restore every one of them and leave Steam's own play bar on screen until the next pass.
+2. **Always executed**, in this order: hide the native content sections; hide the native Play button and mount
    `PlayButton` in a root of its own beside it (remounted only when missing, detached, for another appId, or moved); set
    up or refresh the sticky play bar controller; keep the hero wrapper's overflow `visible`; hide Steam's duplicate
    sticky header; hide the native play bar badges; push the right controls to the right edge.
-2. **Gated**: if `existingSubstitute` is connected, carries the current `appId` and still sits in the insertion
-   container, return. Only then is the `GameView` root torn down and mounted again after the play bar.
+3. **Gated**: if a `GameView` for the current `appId` is still in place, return. Otherwise mount one after the play bar.
 
 ### Continuous Adaptation Mechanisms
 
