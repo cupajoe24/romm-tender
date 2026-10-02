@@ -565,7 +565,7 @@ describe("navigationWatcher", () => {
       expect(mockRoot.unmount).toHaveBeenCalled();
     });
 
-    describe("switching games and stopping", () => {
+    describe("switching games, stopping, and the cost of a pass", () => {
       function playBarPage(appId: number) {
         const createRoot = vi.fn().mockImplementation(() => ({ render: vi.fn(), unmount: vi.fn() }));
         const findClient = vi.spyOn(desktopWin, "findReactClient").mockReturnValue({ createRoot });
@@ -636,6 +636,18 @@ describe("navigationWatcher", () => {
         expect(page.createRoot).toHaveBeenCalledTimes(rootsBeforeStop);
         expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
         expect(page.nativePlayBtn.style.display).toBe("");
+      });
+
+      it("looks createRoot up once, not on every pass", () => {
+        const page = playBarPage(99999);
+        const stop = startDesktopNavigationWatcher(page.mockWin);
+
+        page.tick();
+        page.tick();
+        for (const settle of page.timeouts) settle();
+
+        expect(page.findClient).toHaveBeenCalledTimes(1);
+        stop();
       });
 
       it("attaches nothing from a popup callback that fires after the supervisor stopped", () => {
