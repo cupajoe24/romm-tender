@@ -31,11 +31,14 @@
 .PARAMETER SetupRemote
     Run one-time setup on remote host (create directories, enable CEF remote debugging, and optionally authorize SSH key).
 
+.PARAMETER RestartSteam
+    Shut Steam down on the remote and start it again after the push.
+
 .EXAMPLE
     .\scripts\dev_push_remote.ps1 192.168.86.31
     .\scripts\dev_push_remote.ps1 deck@192.168.86.31 -Frontend
     .\scripts\dev_push_remote.ps1 192.168.86.31 -Backend
-    .\scripts\dev_push_remote.ps1 192.168.86.31 -Dest "~/homebrew/plugins/romm-tender"
+    .\scripts\dev_push_remote.ps1 192.168.86.31 -Frontend -RestartSteam
 #>
 
 [CmdletBinding()]
@@ -214,7 +217,7 @@ if ($PushFrontend -and -not $SkipBuild) {
         Write-Error "Build failed with exit code $LASTEXITCODE"
         exit $LASTEXITCODE
     }
-    Write-Host "Build complete: dist/index.js + dist/index.js.map" -ForegroundColor Green
+    Write-Host "Build complete: dist/" -ForegroundColor Green
 }
 
 if ($PushFrontend -and -not (Test-Path (Join-Path $repoRoot "dist/index.js"))) {
@@ -237,15 +240,7 @@ try {
         $stageDist = Join-Path $stageDir "dist"
         New-Item -ItemType Directory -Path $stageDist -Force | Out-Null
 
-        # Copy dist files, ensuring index.js lands last so file watchers trigger cleanly
-        Get-ChildItem -Path (Join-Path $repoRoot "dist") | ForEach-Object {
-            if ($_.Name -ne "index.js") {
-                Copy-Item $_.FullName -Destination $stageDist -Recurse -Force
-            }
-        }
-        if (Test-Path (Join-Path $repoRoot "dist/index.js")) {
-            Copy-Item (Join-Path $repoRoot "dist/index.js") -Destination $stageDist -Force
-        }
+        Copy-Item (Join-Path $repoRoot "dist/*") -Destination $stageDist -Recurse -Force
     }
 
     if ($PushBackend) {
@@ -266,15 +261,6 @@ try {
             $stageDefaults = Join-Path $stageDir "defaults"
             New-Item -ItemType Directory -Path $stageDefaults -Force | Out-Null
             Copy-Item (Join-Path $repoRoot "defaults/*") -Destination $stageDefaults -Recurse -Force
-        }
-
-        # Decky compatibility layout if deploying directly to homebrew/plugins
-        if ($Dest -match "homebrew/plugins") {
-            $stagePyModules = Join-Path $stageDir "py_modules"
-            New-Item -ItemType Directory -Path $stagePyModules -Force | Out-Null
-            Copy-Item (Join-Path $repoRoot "backend/*") -Destination $stagePyModules -Recurse -Force
-            Remove-Item (Join-Path $stagePyModules "main.py") -ErrorAction SilentlyContinue
-            Copy-Item (Join-Path $repoRoot "backend/main.py") -Destination $stageDir -Force
         }
     }
 
@@ -314,7 +300,7 @@ try {
         Write-Host "==> Restarting Steam on ${RemoteUser}@${RemoteHost}..." -ForegroundColor Cyan
         $restartCmd = 'if pgrep -x steam >/dev/null; then if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet --wait -- steam -shutdown >/dev/null 2>&1 || true; else steam -shutdown >/dev/null 2>&1 || true; fi; for i in $(seq 1 30); do if ! pgrep -x steam >/dev/null; then break; fi; sleep 1; done; fi; if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet -- steam >/dev/null 2>&1 & else nohup steam >/dev/null 2>&1 & fi'
         ssh -p $Port "${RemoteUser}@${RemoteHost}" "$restartCmd"
-        Write-Host "Steam restarted. The backend will detect the fresh context and inject the panel." -ForegroundColor Green
+        Write-Host "Steam restarted. A backend already running there loads the panel into the fresh context; otherwise start one (below)." -ForegroundColor Green
     }
 }
 finally {
@@ -341,13 +327,6 @@ Write-Host "   ssh -t ${RemoteUser}@${RemoteHost} `"cd $Dest && python3 backend/
 Write-Host "   - Or if using mise / a virtual environment:" -ForegroundColor Gray
 Write-Host "   ssh -t ${RemoteUser}@${RemoteHost} `"cd $Dest && source .venv/bin/activate && python backend/main.py`"" -ForegroundColor Gray
 Write-Host "   The backend binds loopback, connects to Steam on port 8080, and injects the panel." -ForegroundColor Gray
-
-if ($Dest -match "homebrew/plugins") {
-    Write-Host "`n3. Decky Loader mode:" -ForegroundColor White
-    Write-Host "   Decky Loader will hot-reload dist/index.js automatically within ~1-2 seconds." -ForegroundColor Gray
-    Write-Host "   To restart Decky's backend loader process manually:" -ForegroundColor Gray
-    Write-Host "   ssh -t ${RemoteUser}@${RemoteHost} `"sudo systemctl restart plugin_loader`"" -ForegroundColor Yellow
-}
 
 Write-Host "`nRemote DevTools URL (SharedJSContext):" -ForegroundColor White
 Write-Host "   http://${RemoteHost}:8081" -ForegroundColor Yellow
