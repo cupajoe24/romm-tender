@@ -556,6 +556,12 @@ The key properties:
   logged and never fails the shortcut — the shortcut is already created, and the backend's commit-time grid write is the
   durability net.
 
+The SteamGridDB icon follows the cover in the same iteration and under the same three properties: a newly created
+shortcut gets it (`applyShortcutIcon` in `utils/artwork.ts`), fetched with `get_sgdb_artwork_base64(rom_id, 4)` and
+written through the two-step icon write above, holding the prune lease that fetch returned until `SetShortcutIcon` has
+run. An updated or rebound shortcut keeps its icon; the game page's artwork apply (`applyArtwork`, the same file) is
+what replaces it.
+
 The backend also writes each `{app_id}p.png` grid file at commit (`SyncReporter._finalize_cover_path` →
 `ArtworkService.finalize_cover_path`). That copy costs no renderer heap and is the durability net: it lands the grid
 file even if a per-item API call failed, so a residual gray tile resolves the next time the game's page is opened or on
