@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { appIdOf, startDesktopNavigationWatcher, stopDesktopNavigationWatcher } from "./navigationWatcher";
+import {
+  appIdOf,
+  startDesktopNavigationWatcher,
+  stopDesktopNavigationWatcher,
+  type DesktopGamePage,
+} from "./navigationWatcher";
 import { TENDER_PLAY_BUTTON_ID, TENDER_SUBSTITUTE_ID } from "./watcher/elementSelectors";
 import {
   GLASS_PLAY_BAR_BG,
@@ -10,8 +15,8 @@ import {
 import * as rommAppIds from "../utils/rommAppIds";
 import * as desktopWin from "./desktopWindow";
 import * as deckyUiInternals from "../utils/deckyUiInternals";
-import { launchPromptsForThisStart } from "../utils/launchPromptRouter";
-import type { LaunchPrompts } from "../utils/launchVerdict";
+
+const PAGE: DesktopGamePage = { gameView: () => null, playButton: () => null };
 
 describe("navigationWatcher", () => {
   const originalManager = (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager;
@@ -42,26 +47,10 @@ describe("navigationWatcher", () => {
     });
   });
 
-  describe("the launch watcher's prompts", () => {
-    const gamepad = {} as LaunchPrompts;
-
-    it("are offered while the watcher runs and withdrawn when it stops", () => {
-      vi.stubGlobal("SteamUIStore", { MainInstanceUIMode: 7, SetRunningApp: vi.fn() });
-      vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(window);
-      expect(launchPromptsForThisStart(gamepad)).toBe(gamepad);
-
-      startDesktopNavigationWatcher({} as Window);
-      expect(launchPromptsForThisStart(gamepad)).not.toBe(gamepad);
-
-      stopDesktopNavigationWatcher();
-      expect(launchPromptsForThisStart(gamepad)).toBe(gamepad);
-    });
-  });
-
   describe("lifecycle and mounting", () => {
     it("no-ops when target window has no document body", () => {
       const emptyWin = {} as Window;
-      const stop = startDesktopNavigationWatcher(emptyWin);
+      const stop = startDesktopNavigationWatcher(PAGE, emptyWin);
       expect(typeof stop).toBe("function");
       stop();
     });
@@ -113,7 +102,7 @@ describe("navigationWatcher", () => {
       vi.spyOn(rommAppIds, "isRomMAppId").mockImplementation((id) => id === 50000);
 
       // Start watching
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // Verify mounting: play bar and steam panel are preserved visible; only content is hidden
       expect(steamPanel.style.display).not.toBe("none");
@@ -183,7 +172,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(mockWin);
+      startDesktopNavigationWatcher(PAGE, mockWin);
 
       // Should not mount into d.body when steam overview panel is absent
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
@@ -263,7 +252,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(mockWin);
+      startDesktopNavigationWatcher(PAGE, mockWin);
       expect(contentSection.style.display).toBe("none");
 
       // Steam re-renders and un-hides content section
@@ -318,7 +307,7 @@ describe("navigationWatcher", () => {
 
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(mockWin);
+      startDesktopNavigationWatcher(PAGE, mockWin);
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("111");
 
       // Navigate to 222
@@ -371,7 +360,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(mockWin);
+      startDesktopNavigationWatcher(PAGE, mockWin);
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
       expect(contentSection.style.display).toBe("");
 
@@ -422,7 +411,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // PlayBar is kept visible
       expect(playBar.style.display).not.toBe("none");
@@ -487,7 +476,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // PlayBar and inPageContainer are kept visible
       expect(inPageContainer.style.display).not.toBe("none");
@@ -544,7 +533,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // Native play button should be hidden
       expect(nativePlayBtn.style.display).toBe("none");
@@ -614,7 +603,7 @@ describe("navigationWatcher", () => {
 
       it("keeps Steam's play button hidden through a switch to another RomM game", () => {
         const page = playBarPage(99999);
-        const stop = startDesktopNavigationWatcher(page.mockWin);
+        const stop = startDesktopNavigationWatcher(PAGE, page.mockWin);
 
         navigateTo(88888);
         page.tick();
@@ -627,7 +616,7 @@ describe("navigationWatcher", () => {
 
       it("mounts nothing from a settle timeout that fires after the watcher stopped", () => {
         const page = playBarPage(99999);
-        const stop = startDesktopNavigationWatcher(page.mockWin);
+        const stop = startDesktopNavigationWatcher(PAGE, page.mockWin);
         const rootsBeforeStop = page.createRoot.mock.calls.length;
 
         stop();
@@ -640,7 +629,7 @@ describe("navigationWatcher", () => {
 
       it("looks createRoot up once, not on every pass", () => {
         const page = playBarPage(99999);
-        const stop = startDesktopNavigationWatcher(page.mockWin);
+        const stop = startDesktopNavigationWatcher(PAGE, page.mockWin);
 
         page.tick();
         page.tick();
@@ -648,6 +637,47 @@ describe("navigationWatcher", () => {
 
         expect(page.findClient).toHaveBeenCalledTimes(1);
         stop();
+      });
+
+      describe("a page with nothing to mount", () => {
+        it("leaves Steam's content and Play button in place and creates no React root", () => {
+          const page = playBarPage(99999);
+          const stop = startDesktopNavigationWatcher({}, page.mockWin);
+
+          expect(page.nativePlayBtn.style.display).toBe("");
+          expect(page.mockDoc.querySelector<HTMLElement>(".AppDetailSectionList")?.style.display).toBe("");
+          expect(page.mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+          expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+          expect(page.findClient).not.toHaveBeenCalled();
+          stop();
+        });
+
+        it("adapts the play bar and gives it back on leaving the page", () => {
+          const page = playBarPage(99999);
+          const playBar = page.mockDoc.querySelector<HTMLElement>(".PlayBar");
+          const stop = startDesktopNavigationWatcher({}, page.mockWin);
+          expect(playBar?.style.position).toBe("sticky");
+
+          vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(false);
+          navigateTo(77777);
+          page.tick();
+
+          expect(playBar?.style.position).toBe("");
+          stop();
+        });
+
+        it("counts the page as mounted, so a tick on the same page schedules no settle passes", () => {
+          const page = playBarPage(99999);
+          const stop = startDesktopNavigationWatcher({}, page.mockWin);
+          page.tick();
+          const settlesSoFar = page.timeouts.length;
+
+          page.tick();
+          page.tick();
+
+          expect(page.timeouts).toHaveLength(settlesSoFar);
+          stop();
+        });
       });
 
       it("attaches nothing from a popup callback that fires after the supervisor stopped", () => {
@@ -661,7 +691,7 @@ describe("navigationWatcher", () => {
           AddPopupDestroyedCallback: (cb: () => void) => popupCallbacks.push(cb),
         };
         try {
-          const stop = startDesktopNavigationWatcher();
+          const stop = startDesktopNavigationWatcher(PAGE);
           stop();
 
           findWindow.mockReturnValue(page.mockWin);
@@ -724,7 +754,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // Native play button AND default badges should be hidden
       expect(nativePlayBtn.style.display).toBe("none");
@@ -793,7 +823,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // PlayBar container is sticky at top so cards scroll independently
       expect(inPagePlayBar.style.position).toBe("sticky");
@@ -891,7 +921,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // The hero wrapper should have overflow:visible to preserve parallax and card refraction
       expect(heroWrapper.style.overflow).toBe("visible");
@@ -961,7 +991,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // Initially, substitute is mounted, but hero wrapper is not yet inflated
       expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).not.toBeNull();
@@ -1029,7 +1059,7 @@ describe("navigationWatcher", () => {
       };
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(mockWin);
+      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
       // Duplicate sticky header outside overviewPanel is hidden
       expect(duplicateStickyPlayBar.style.display).toBe("none");
@@ -1108,7 +1138,7 @@ describe("navigationWatcher", () => {
         };
         vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-        const stop = startDesktopNavigationWatcher(mockWin);
+        const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
         // Initially unpinned: grey glass styling
         expect(inPagePlayBar.style.position).toBe("sticky");
@@ -1189,7 +1219,7 @@ describe("navigationWatcher", () => {
         };
         vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-        const stop = startDesktopNavigationWatcher(mockWin);
+        const stop = startDesktopNavigationWatcher(PAGE, mockWin);
 
         expect(playBar1.style.zIndex).toBe("10");
 

@@ -1,31 +1,28 @@
 import { configure } from "./rollup.config.js";
 
 // Dev config with source maps enabled for CEF debugging
-// Build-time injection of desktop navigation watcher
-// This mounts the desktop UI surface without modifying frontend/src/index.tsx on disk
-const desktopWatcherPlugin = {
-  name: "inject-desktop-watcher",
+// Build-time injection of the desktop surface
+// This starts the desktop UI surface without modifying frontend/src/index.tsx on disk
+const START_ANCHOR = "mountPruneLeasePlugin();";
+
+const desktopSurfacePlugin = {
+  name: "inject-desktop-surface",
   transform(code, id) {
     const normalized = id.replace(/\\/g, "/");
-    if (normalized.endsWith("/src/index.tsx")) {
-      let transformed = `import { startDesktopNavigationWatcher, stopDesktopNavigationWatcher } from "./desktop";\n${code}`;
-      transformed = transformed.replace(
-        "mountPruneLeasePlugin();",
-        "mountPruneLeasePlugin();\n  startDesktopNavigationWatcher();",
-      );
-      transformed = transformed.replace(
-        "collapseQamOnDismount();",
-        "collapseQamOnDismount();\n      stopDesktopNavigationWatcher();",
-      );
-      return {
-        code: transformed,
-        map: null,
-      };
+    if (!normalized.endsWith("/src/index.tsx")) return null;
+    if (!code.includes(START_ANCHOR)) {
+      this.error(`no longer contains ${START_ANCHOR}, so the desktop surface would not start`);
     }
+    // No stop call: a JS-context rebuild, not a teardown call, is what ends the panel.
+    const transformed = `import { startDesktopSurface } from "./desktop";\n${code.replace(
+      START_ANCHOR,
+      `${START_ANCHOR}\n  startDesktopSurface();`,
+    )}`;
+    return { code: transformed, map: null };
   },
 };
 
 export default configure({ sourcemap: true }).map((build) => ({
   ...build,
-  plugins: [...build.plugins, desktopWatcherPlugin],
+  plugins: [...build.plugins, desktopSurfacePlugin],
 }));
