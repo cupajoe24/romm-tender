@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { PlayButton } from "./PlayButton";
 import { ensurePulseStyles, PULSE_STYLE_ID } from "./styles";
 import * as gameDetailStore from "../../utils/gameDetailStore";
@@ -510,6 +510,10 @@ describe("PlayButton", () => {
     expect(stopBtn).toBeInTheDocument();
 
     fireEvent.click(stopBtn);
+    const confirm = await screen.findByRole("dialog", { name: "Stop Game?" });
+    expect(backend.stopRunningGame).not.toHaveBeenCalled();
+
+    fireEvent.click(within(confirm).getByRole("button", { name: "Stop Game" }));
     await waitFor(() => {
       expect(backend.stopRunningGame).toHaveBeenCalledWith(100);
     });

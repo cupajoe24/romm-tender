@@ -8,7 +8,7 @@
 import { useRef } from "react";
 import { debugLog } from "../../api/backend";
 import { executeRomUninstall } from "../../utils/romUninstall";
-import { desktopLaunchPrompts } from "./dialogs/desktopDialogs";
+import { desktopLaunchPrompts, desktopStopGameDialog } from "./dialogs/desktopDialogs";
 import { confirmCoreChangeIfNeeded } from "../../utils/coreChange";
 import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
 import { resolveKnownConflicts } from "../../utils/saveConflictFlow";
@@ -172,6 +172,7 @@ export function usePlayLaunch({
         clearSessionRunning?.();
         setStateOverride(null);
       },
+      confirmModal: desktopStopGameDialog(ask),
     });
   };
 
