@@ -200,9 +200,12 @@ export function showSyncConflictModal(conflict: SyncConflict): Promise<SyncConfl
 }
 
 /**
- * Walk a list of conflicts through the resolution modal — the walk's contract is
- * `resolveConflictsSequentially`'s. Called by the Play button's Resolve, and by a
- * launch's gate verdict as `gamepadLaunchPrompts.resolveConflicts`.
+ * Walk a list of conflicts sequentially, showing the resolution modal for each.
+ * Bails on the first cancel so the caller can decide what to do (e.g. not
+ * relaunch). Called by the Play button's Resolve, and by a launch's gate verdict
+ * as `gamepadLaunchPrompts.resolveConflicts`. Returns "resolved" once every
+ * conflict was resolved (or the list was empty), "cancel" on the first
+ * dismissal.
  */
 export function handleConflicts(conflicts: SyncConflict[]): Promise<"cancel" | "resolved"> {
   return resolveConflictsSequentially(conflicts, showSyncConflictModal);

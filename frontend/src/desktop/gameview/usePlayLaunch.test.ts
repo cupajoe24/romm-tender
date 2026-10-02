@@ -6,6 +6,7 @@ import * as toast from "../../utils/toast";
 import * as sessionManager from "../../utils/sessionManager";
 import * as runningApps from "../../utils/runningApps";
 import * as runningGame from "../../utils/runningGame";
+import { getMigrationState } from "../../utils/migrationStore";
 
 vi.mock("../../api/backend", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/backend")>();
@@ -73,6 +74,10 @@ vi.mock("../../utils/steamShortcuts", () => ({
 
 vi.mock("../../utils/launchOptionsReconcile", () => ({
   reconfirmLaunchOptions: vi.fn().mockResolvedValue({ status: "confirmed" }),
+}));
+
+vi.mock("../../utils/migrationStore", () => ({
+  getMigrationState: vi.fn(() => ({ pending: false })),
 }));
 
 vi.mock("../../utils/steamOverview", () => ({
@@ -286,5 +291,60 @@ describe("usePlayLaunch", () => {
     expect(backend.checkCoreChange).toHaveBeenCalledWith(100);
     expect(ask).toHaveBeenCalledTimes(1);
     expect(backend.preLaunchSync).toHaveBeenCalledWith(100);
+  });
+
+  it("a pending migration starts nothing and returns the button to its own state", async () => {
+    vi.mocked(getMigrationState).mockReturnValueOnce({ pending: true } as ReturnType<typeof getMigrationState>);
+
+    const { result } = renderHook(() =>
+      usePlayLaunch({
+        appId: 12345,
+        romId: 100,
+        romName: "Test Game",
+        effectiveState: "play",
+        ask,
+        leaseOwner: "desktop-play-button:12345",
+        setStateOverride,
+        holdVerdict,
+        setShowMenu,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handlePlayClick();
+    });
+
+    expect(setStateOverride.mock.calls).toEqual([[null]]);
+    expect(backend.preLaunchSync).not.toHaveBeenCalled();
+    expect(toast.showToast).not.toHaveBeenCalled();
+  });
+
+  it("a prompt that throws resets the button instead of leaving it stuck", async () => {
+    vi.mocked(backend.probeReachability).mockResolvedValueOnce({ online: false });
+    vi.mocked(backend.checkLocalDrift).mockResolvedValueOnce({ drifted: true, rom_id: 100 });
+    ask.mockRejectedValueOnce(new Error("dialog host gone"));
+
+    const { result } = renderHook(() =>
+      usePlayLaunch({
+        appId: 12345,
+        romId: 100,
+        romName: "Test Game",
+        effectiveState: "play",
+        ask,
+        leaseOwner: "desktop-play-button:12345",
+        setStateOverride,
+        holdVerdict,
+        setShowMenu,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handlePlayClick();
+    });
+
+    expect(backend.debugLog).toHaveBeenCalledWith(
+      "DesktopPlayButton: handlePlay unexpected error — resetting: Error: dialog host gone",
+    );
+    expect(setStateOverride).toHaveBeenLastCalledWith(null);
   });
 });

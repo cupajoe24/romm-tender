@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { toaster } from "../api/host";
 import * as launchGate from "./launchGate";
-import { actOnGateVerdict, runGateLoop, type LaunchPrompts } from "./launchVerdict";
+import { actOnGateVerdict, runGateLoop, type GateLoopHooks, type LaunchPrompts } from "./launchVerdict";
 import { NO_LAUNCH_TARGET_TOAST_BODY } from "./launchTarget";
-import { startingSourceOffSentence } from "./emulatorSourceWording";
 import type { GateVerdict, LaunchGateOps } from "./launchGate";
 import type { SyncConflict } from "../types";
 
@@ -27,8 +26,6 @@ const conflict: SyncConflict = {
   local_size: 1024,
   created_at: "2026-01-01T00:00:00Z",
 };
-
-type GateLoopHooks = Parameters<typeof runGateLoop>[3];
 
 interface Hooks extends GateLoopHooks {
   prompts: {
@@ -58,9 +55,9 @@ function makeHooks(): Hooks {
   };
 }
 
+/** Every settle callback that was NOT expected stays uncalled. */
 const SETTLES = ["launch", "onDeclined", "onConflictCancelled", "onRetry", "onMigrationBlocked"] as const;
 
-/** Each hook named in `called` ran once, and every other one never ran. */
 function expectOnly(hooks: Hooks, called: (typeof SETTLES)[number][]): void {
   for (const key of SETTLES) {
     if (called.includes(key)) expect(hooks[key]).toHaveBeenCalledTimes(1);
@@ -103,15 +100,6 @@ describe("actOnGateVerdict", () => {
     expect(await actOnGateVerdict(verdict, ROM_ID, hooks)).toBe("done");
     expectOnly(hooks, ["onDeclined"]);
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: NO_LAUNCH_TARGET_TOAST_BODY }));
-  });
-
-  it("a switched-off source is toasted by its kind, then declined", async () => {
-    const verdict: GateVerdict = { decision: "block", reason: "source_switched_off", source: "retrodeck" };
-    expect(await actOnGateVerdict(verdict, ROM_ID, hooks)).toBe("done");
-    expectOnly(hooks, ["onDeclined"]);
-    expect(toaster.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ body: startingSourceOffSentence("retrodeck") }),
-    );
   });
 
   it("a not-installed block is declined without a toast", async () => {
@@ -222,23 +210,33 @@ describe("runGateLoop", () => {
     expect(hooks.launch).toHaveBeenCalledTimes(1);
   });
 
-  it("a throw while acting on a verdict reaches the caller", async () => {
-    vi.mocked(launchGate.runLaunchGate).mockResolvedValue({ decision: "offline_drift" });
-    hooks.prompts.askOfflineDrift.mockRejectedValue(new Error("prompt failed"));
-
-    await expect(runGateLoop(100, ROM_ID, ops, hooks)).rejects.toThrow("prompt failed");
+  it("without an error policy, a gate throw reaches the caller", async () => {
+    vi.mocked(launchGate.runLaunchGate).mockRejectedValue(new Error("boom"));
+    await expect(runGateLoop(100, ROM_ID, ops, hooks)).rejects.toThrow("boom");
     expect(hooks.launch).not.toHaveBeenCalled();
   });
 
-  it("a throw while acting on a retry verdict reaches the caller", async () => {
+  it("with an error policy, a gate throw is acted on as the verdict the policy answers", async () => {
+    vi.mocked(launchGate.runLaunchGate).mockRejectedValue(new Error("boom"));
+    const onGateError = vi.fn((): GateVerdict => ({ decision: "allow" }));
+
+    await runGateLoop(100, ROM_ID, ops, { ...hooks, onGateError });
+
+    expect(onGateError).toHaveBeenCalledWith(expect.objectContaining({ message: "boom" }));
+    expect(hooks.launch).toHaveBeenCalledTimes(1);
+  });
+
+  it("the error policy also covers a gate run after a Retry", async () => {
     vi.mocked(launchGate.runLaunchGate)
       .mockResolvedValueOnce({ decision: "offline_drift" })
-      .mockResolvedValueOnce({ decision: "sync_failed", message: "fail" });
+      .mockRejectedValueOnce(new Error("second"));
     hooks.prompts.askOfflineDrift.mockResolvedValue("retry");
-    hooks.prompts.confirmFallbackLaunch.mockRejectedValue(new Error("fallback prompt failed"));
+    const onGateError = vi.fn((): GateVerdict => ({ decision: "abort" }));
 
-    await expect(runGateLoop(100, ROM_ID, ops, hooks)).rejects.toThrow("fallback prompt failed");
-    expect(hooks.onRetry).toHaveBeenCalledTimes(1);
+    await runGateLoop(100, ROM_ID, ops, { ...hooks, onGateError });
+
+    expect(onGateError).toHaveBeenCalledWith(expect.objectContaining({ message: "second" }));
+    expect(hooks.onDeclined).toHaveBeenCalledTimes(1);
     expect(hooks.launch).not.toHaveBeenCalled();
   });
 });

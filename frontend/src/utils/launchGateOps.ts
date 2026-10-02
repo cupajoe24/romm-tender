@@ -1,8 +1,8 @@
 /**
  * The gate's inputs ({@link LaunchGateOps}) for one ROM — the parts every launch
- * path asks the same way, built once here. A path supplies what puts something
- * to the user, since only it knows where it may ask: its tracking setup, and the
- * prompts for a core change and for a starting source that could not be checked.
+ * path asks the same way, built once here. A path supplies the two steps that put
+ * something to the user, since only it knows where it may ask: the tracking setup
+ * and the core-change question.
  */
 
 import {
@@ -15,23 +15,22 @@ import {
   preLaunchSync,
   probeReachability,
 } from "../api/backend";
+import { BENIGN_SYNC_SKIP_REASONS } from "../types";
 import { reportServerReachable } from "./connectionState";
 import { detach } from "./detach";
-import { BENIGN_SYNC_SKIP_REASONS, LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
+import { LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
 import type { LaunchGateOps, PreLaunchSyncOutcome } from "./launchGate";
 import { romHasLaunchTarget } from "./launchTarget";
-import { confirmCoreChangeIfNeeded } from "./coreChange";
 import { getMigrationState } from "./migrationStore";
-import { readStartingSource } from "./startingSource";
 import { saveSyncToastBody } from "./saveSyncToast";
 import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "./saveSetup";
 import { showToast } from "./toast";
 import { boundedOr, withTimeout } from "./withTimeout";
 
-interface PreLaunchSyncOptions {
+export interface PreLaunchSyncOptions {
   /** Prefixes every log line, naming the launch path. */
   tag: string;
-  /** Whether a successful sync that moved saves is toasted (`saveSyncToastBody`). */
+  /** Toast what a successful sync moved (`saveSyncToastBody`); a path with no page to toast over passes `false`. */
   toastSyncResult: boolean;
 }
 
@@ -92,17 +91,17 @@ export async function runPreLaunchSync(romId: number, options: PreLaunchSyncOpti
 }
 
 /**
- * The tracking-setup step for a start pressed on Big Picture's game-detail
- * page. What the backend's setup answer does to the start is
- * `applyLaunchGateSetupOutcome`'s. A read that throws proceeds; a read or slot
- * confirm that gets no answer in time is let through for the gate.
+ * The tracking-setup step for a start pressed on an open game page: a slot the
+ * user must choose aborts the start with a toast and switches the page to its
+ * saves tab; a default the backend can adopt is adopted and the start proceeds.
+ * A failed read proceeds — setup never blocks a launch on a network error; a
+ * read or slot confirm that gets no answer in time is let through for the gate.
  *
  * The fallbacks guard only the network reads. The branching on their answer sits
  * outside them so that a throw from a side effect (the toast, the tab switch, the
- * slot confirm) is not swallowed into "proceed" here; what a throw means is the
- * gate's.
+ * slot confirm) cannot be swallowed into "proceed" and launch past an "abort".
  */
-export async function ensureTrackingConfiguredBigPicture(romId: number): Promise<"proceed" | "abort"> {
+export async function ensureTrackingConfiguredOnPage(romId: number): Promise<"proceed" | "abort"> {
   const trackingResult = await boundedOr(isSaveTrackingConfigured(romId), LOCAL_CALL_LIMIT_MS, () => ({
     configured: true,
   }));
@@ -119,10 +118,9 @@ export async function ensureTrackingConfiguredBigPicture(romId: number): Promise
   });
 }
 
-interface LaunchGateOpsOptions extends PreLaunchSyncOptions {
+export interface LaunchGateOpsOptions extends PreLaunchSyncOptions {
   ensureTrackingConfigured: () => Promise<"proceed" | "abort">;
-  confirmCoreChange: (oldLabel: string, newLabel: string) => Promise<boolean>;
-  confirmUncheckedStartingSource: () => Promise<boolean>;
+  checkCoreChange: () => Promise<boolean>;
   /** Called as the pre-launch sync starts, for a trigger that shows it. */
   onSyncStart?: () => void;
 }
@@ -140,13 +138,8 @@ export function makeLaunchGateOps(romId: number, options: LaunchGateOpsOptions):
   return {
     migrationPending: () => getMigrationState().pending,
     hasLaunchTarget: () => romHasLaunchTarget(romId, tag),
-    readStartingSource: () => readStartingSource(tag),
-    confirmUncheckedStartingSource: options.confirmUncheckedStartingSource,
     ensureTrackingConfigured: options.ensureTrackingConfigured,
-    checkCoreChange: () =>
-      confirmCoreChangeIfNeeded(romId, options.confirmCoreChange, (e) => {
-        logError(`${tag}: core-change check failed (assuming unchanged): ${e}`);
-      }),
+    checkCoreChange: options.checkCoreChange,
     checkReachability: async () => {
       const probe = await boundedOr(probeReachability(), LOCAL_CALL_LIMIT_MS, (e) => {
         logError(`${tag}: reachability probe failed (treating as offline): ${e}`);
@@ -157,12 +150,7 @@ export function makeLaunchGateOps(romId: number, options: LaunchGateOpsOptions):
       return probe.online;
     },
     preLaunchSync: () => {
-      try {
-        options.onSyncStart?.();
-      } catch (e) {
-        // A throwing trigger hook must not abort or bypass the pre-launch sync.
-        logError(`${tag}: onSyncStart threw: ${e}`);
-      }
+      options.onSyncStart?.();
       return runPreLaunchSync(romId, options);
     },
     checkLocalDrift: async () =>

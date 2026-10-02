@@ -1050,19 +1050,8 @@ save was backed up to `.romm-backup`. Failure and stale branches stay inline in 
 The dialog draws and asks; what it says and what a resolution does live in `frontend/src/utils/saveConflictFlow.ts`, for
 any surface that shows a conflict:
 
-- the dialog's wording — its title, explanation, the two saves' lines and the stale-conflict sentence;
-- `resolveOneConflict`, one resolution: it sends the chosen side through `resolve_sync_conflict` and answers either the
-  toast to show once the dialog closes or the message to keep in it;
-- `resolveConflictsSequentially`, the walk: one conflict at a time, stopping at the first cancel;
-- `resolveKnownConflicts`, the conflict a surface is already showing: it reads it through `get_save_status`, never a
-  re-sync, hands it to the surface's own walk and tells the other surfaces once it is resolved.
-
-`showSyncConflictModal(conflict)` shows the dialog for one conflict and returns a Promise resolving to
-`"keep_local" | "use_server" | "cancel"`; `handleConflicts(conflicts)` runs the walk with it. Four callers reach it:
-
 - `CustomPlayButton`, through `handleConflicts` — on the launch gate's `conflict` verdict (as
-  `gamepadLaunchPrompts.resolveConflicts`), and through `resolveKnownConflicts` when the user resolves the conflict the
-  button is already showing.
+  `gamepadLaunchPrompts.resolveConflicts`), and when the user resolves the conflict the button is already showing.
 - The launch watcher (`frontend/src/utils/launchInterceptor.ts`), through `handleConflicts` — on a `conflict` verdict
   for a start it caught. It does not import the modal: `index.tsx` hands it `gamepadLaunchPrompts`
   (`frontend/src/shared/launchPrompts.ts`), whose `resolveConflicts` is `handleConflicts`.
@@ -1446,19 +1435,32 @@ rather than staying silent; the automatic surfaces (pre-launch, post-exit) keep 
 in exactly one place: the frontend helper `saveSyncToastBody` (`frontend/src/utils/saveSyncToast.ts`), which every
 surface renders through — pre-launch (`runPreLaunchSync`, for a start from the Play button), post-exit
 (`sessionManager`, from the counts on the `finalize_game_session` payload), and the manual per-game sync
-(`RomMPlaySection`, through `frontend/src/utils/manualSaveSync.ts`). The backend delivers the counts as data, never the
-directional copy (#1481); the offline/failure body it still owns rides a separate `failure_toast` field on
-`SessionFinalizeSyncResult`.
+(`RomMPlaySection`). The backend delivers the counts as data, never the directional copy (#1481); the offline/failure
+body it still owns rides a separate `failure_toast` field on `SessionFinalizeSyncResult`.
 
 ### Pre-launch sync
 
 Runs before a RomM game starts (if `sync_before_launch` is enabled), through one of two funnels that share
-`runLaunchGate` (`frontend/src/utils/launchGate.ts`). Tender's Play button runs it from `CustomPlayButton.handlePlay()`
-before it starts the game itself; the launch watcher (`frontend/src/utils/launchInterceptor.ts`) gates the starts that
-do not come through the Play button — Steam's own Play and a `steam://rungameid` link. Pre-launch sync is **not**
-triggered via `RegisterForAppLifetimeNotifications`. A start the gate refuses before the save work — a ROM with no
-launch target, or the source that would start it switched off
-([Which emulator source answers](core-emulator-selection.md#which-emulator-source-answers)) — runs no sync at all.
+`runLaunchGate` (`frontend/src/utils/launchGate.ts`). Tender's Play button runs it before it starts the game itself —
+from `CustomPlayButton.handlePlay()`, and on the desktop client (dev build only) from `usePlayLaunch`'s
+`handlePlayClick()`; the launch watcher (`frontend/src/utils/launchInterceptor.ts`) gates the starts that do not come
+through the Play button — Steam's own Play and a `steam://rungameid` link. Pre-launch sync is **not** triggered via
+`RegisterForAppLifetimeNotifications`.
+
+Every launch path builds the gate's inputs with `makeLaunchGateOps` (`frontend/src/utils/launchGateOps.ts`) and acts on
+its verdict with `runGateLoop` (`frontend/src/utils/launchVerdict.ts`), which runs the gate, hands the verdict to
+`actOnGateVerdict` and runs the gate again for as long as the user picks Retry on the offline-drift prompt. The shared
+parts are the migration check, the launch-target check, a fresh reachability probe, the drift check, the pre-launch sync
+itself (`runPreLaunchSync`) and what each verdict means: a missing launch target toasts, resolved conflicts announce the
+save change to the page and then launch. A path supplies only what is its own:
+
+| Supplied by the path               | Play button (gamepad and desktop)                                                                | Launch watcher                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`shared/launchPrompts.ts`); `desktopLaunchPrompts` on the desktop client | `gamepadLaunchPrompts`, from `index.tsx`, on either surface |
+| Tracking setup                     | `ensureTrackingConfiguredOnPage` — a slot to choose aborts and opens the Saves tab               | adopts a default silently and always proceeds               |
+| Toast for a sync that moved saves  | yes                                                                                              | no                                                          |
+| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                   | nothing; a pending migration is toasted                     |
+| A gate run that throws             | the trigger returns to Play                                                                      | fails open: the game starts                                 |
 
 Every launch path builds the gate's inputs with `makeLaunchGateOps` (`frontend/src/utils/launchGateOps.ts`) and acts on
 its verdict with `runGateLoop` (`frontend/src/utils/launchVerdict.ts`), which runs the gate, hands the verdict to
@@ -1537,16 +1539,16 @@ The Play button's path:
 7. Online: `pre_launch_sync`, with the button on "Syncing saves...". The backend fetches server saves and runs
    `do_sync_rom_saves`, which iterates files and dispatches every `compute_sync_action` outcome. If a `Conflict` was
    returned for any file, the result includes a `conflicts` list, and `actOnGateVerdict` puts each conflict through
-   `LaunchPrompts.resolveConflicts` in turn — `handleConflicts` (see [The modal](#the-modal)): once all are resolved it
-   notifies siblings and goes on; on the first Cancel the button switches to `conflict` and nothing launches. A sync
-   that fails never launches unconditionally: the "Save Sync Unavailable" dialog asks first, and Cancel returns the
-   button to Play. The benign skips (`savefiles_in_content_dir`, `save_shape_unsupported`) proceed silently; a missing
-   saves folder (`saves_root_missing`) is a failure, so the dialog asks with the sentence Main's notice shows for the
-   folder — when it asks, and when the exit's toast says so, is
-   [The seven save states](save-sync-coverage.md#the-seven-save-states). With "Sync before launch" off the sync answers
-   that before it raises the save answer's refusal, so the dialog never asks about a sync that was switched off. When
-   the sync moved something, the per-direction completion toast above reports it (uploaded / downloaded / both); a
-   failure's classified message appears in the dialog instead.
+   `LaunchPrompts.resolveConflicts` in turn — `handleConflicts` on the gamepad surface (see [The modal](#the-modal)):
+   once all are resolved it notifies siblings and goes on; on the first Cancel the button switches to `conflict` and
+   nothing launches. A sync that fails never launches
+   unconditionally: the "Save Sync Unavailable" dialog asks first, and Cancel returns the button to Play. The benign
+   skips (`savefiles_in_content_dir`, `save_shape_unsupported`) proceed silently; a missing saves folder
+   (`saves_root_missing`) is a failure, so the dialog asks with the sentence Main's notice shows for the folder — when
+   it asks, and when the exit's toast says so, is [The seven save states](save-sync-coverage.md#the-seven-save-states).
+   With "Sync before launch" off the sync answers that before it raises the save answer's refusal, so the dialog never
+   asks about a sync that was switched off. When the sync moved something, the per-direction completion toast above
+   reports it (uploaded / downloaded / both); a failure's classified message appears in the dialog instead.
 8. Offline: `check_local_drift`. A local save that changed since the last sync asks Start Anyway / Retry connection /
    Cancel; Retry runs the check again from the start.
 9. Re-confirm: `get_rom_relaunch_options`, bounded at 3 s, heals the shortcut's launch options. A timeout stops the

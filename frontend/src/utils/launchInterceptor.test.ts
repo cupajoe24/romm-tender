@@ -1485,7 +1485,8 @@ describe("launchInterceptor — full funnel watcher", () => {
       expect(await ops.preLaunchSync()).toEqual({ success: false, message: "c", conflicts });
 
       // A throw must NOT fail open — it maps to a failed outcome so the gate
-      // surfaces sync_failed instead of silently allowing.
+      // surfaces sync_failed instead of silently allowing. The empty message
+      // leaves the fallback prompt its own default sentence.
       vi.mocked(backend.preLaunchSync).mockRejectedValueOnce(new Error("boom"));
       expect(await ops.preLaunchSync()).toEqual({ success: false, message: "" });
       expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining("pre-launch sync failed"));
