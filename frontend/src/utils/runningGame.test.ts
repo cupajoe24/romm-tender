@@ -112,6 +112,8 @@ describe("runningGame", () => {
   });
 
   describe("executeStopRunningGame", () => {
+    const confirmed = () => Promise.resolve(true);
+
     it("ignores call when a stop is already in flight", async () => {
       const stopInFlightRef = { current: true };
       const onClearOverlay = vi.fn();
@@ -122,6 +124,7 @@ describe("runningGame", () => {
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(false);
@@ -143,6 +146,7 @@ describe("runningGame", () => {
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(false);
@@ -165,6 +169,7 @@ describe("runningGame", () => {
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(false);
@@ -213,6 +218,7 @@ describe("runningGame", () => {
         stopInFlightRef,
         onClearOverlay,
         onSetPending,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(true);
@@ -241,6 +247,7 @@ describe("runningGame", () => {
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(true);
@@ -264,6 +271,7 @@ describe("runningGame", () => {
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(false);
@@ -287,6 +295,7 @@ describe("runningGame", () => {
         tag: "testTag",
         stopInFlightRef,
         onClearOverlay,
+        confirmModal: confirmed,
       });
 
       expect(stopped).toBe(false);

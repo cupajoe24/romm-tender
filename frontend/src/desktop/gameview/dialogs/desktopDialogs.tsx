@@ -1,7 +1,7 @@
 /**
  * The desktop dialogs in the shapes the shared flows ask for: the adoption
  * flow's {@link AdoptionDialogs}, the save-conflict walk's one-conflict
- * question and a launch's {@link LaunchPrompts}. Every one of them settles with
+ * question, a launch's {@link LaunchPrompts} and Stop's confirm. Every one of them settles with
  * its cancel exit when dismissed.
  */
 
@@ -27,6 +27,7 @@ import { DesktopOfflineDriftDialog } from "./DesktopOfflineDriftDialog";
 import { DesktopFallbackLaunchDialog } from "./DesktopFallbackLaunchDialog";
 import { DesktopCoreChangeDialog } from "./DesktopCoreChangeDialog";
 import { DesktopUnsyncedSavesDialog, type UnsyncedSavesChoice } from "./DesktopUnsyncedSavesDialog";
+import { DesktopStopGameDialog } from "./DesktopStopGameDialog";
 
 export function desktopAdoptionDialogs(ask: AskDialog): AdoptionDialogs {
   return {
@@ -85,6 +86,10 @@ export function desktopUnsyncedSavesDialog(
     ask<UnsyncedSavesChoice>("cancel", (resolve) => (
       <DesktopUnsyncedSavesDialog versionName={versionName} serverReachable={serverReachable} onChoice={resolve} />
     ));
+}
+
+export function desktopStopGameDialog(ask: AskDialog): () => Promise<boolean> {
+  return () => ask<boolean>(false, (resolve) => <DesktopStopGameDialog onChoice={resolve} />);
 }
 
 export function desktopLaunchPrompts(ask: AskDialog): LaunchPrompts {
