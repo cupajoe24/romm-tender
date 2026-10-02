@@ -30,6 +30,10 @@
  * the same way. So a single empty round proves nothing — the adoption path polls,
  * and every round reports what the store said (`diagnostics`: absent / empty /
  * threw / the appids found) so the on-device log can tell those cases apart.
+ *
+ * It can also keep an exited app listed for a while, which is why no question
+ * of whether a game is running reads it alone:
+ * `docs/architecture/save-file-sync-architecture.md`, "Is the game running".
  */
 
 export interface RunningApp {
@@ -114,7 +118,11 @@ export function readRunningApps(): RunningAppsReading {
   }
 }
 
-/** Is a specific `appId` currently running per the store? Never throws. */
+/**
+ * Is a specific `appId` currently running per the store? Never throws. One
+ * signal of `readGameRunning` (`utils/sessionManager`); a caller asking whether
+ * a game is running asks that instead.
+ */
 export function isAppRunning(appId: number): boolean {
   return readRunningApps().apps.some((app) => app.appid === appId);
 }
