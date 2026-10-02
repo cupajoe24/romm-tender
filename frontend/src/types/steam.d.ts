@@ -147,6 +147,9 @@ declare var SteamUIStore:
       // Navigate to the running-app screen. Optional — absent on older SteamUI
       // builds, where the Resume path falls back to Navigation.Navigate("/apprunning").
       NavigateToRunningApp?(force?: boolean): void;
+      // Which of Steam's windows is its main UI — `utils/launchPromptRouter.ts`
+      // names the one value Tender reads.
+      MainInstanceUIMode?: number;
     }
   | null
   | undefined;

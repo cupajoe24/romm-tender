@@ -10,6 +10,8 @@ import {
 import * as rommAppIds from "../utils/rommAppIds";
 import * as desktopWin from "./desktopWindow";
 import * as deckyUiInternals from "../utils/deckyUiInternals";
+import { launchPromptsForThisStart } from "../utils/launchPromptRouter";
+import type { LaunchPrompts } from "../utils/launchVerdict";
 
 describe("navigationWatcher", () => {
   const originalManager = (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager;
@@ -37,6 +39,22 @@ describe("navigationWatcher", () => {
     it("extracts appId correctly from library routes", () => {
       expect(appIdOf("/library/app/12345")).toBe(12345);
       expect(appIdOf("/library/app/98765/achievements")).toBe(98765);
+    });
+  });
+
+  describe("the launch watcher's prompts", () => {
+    const gamepad = {} as LaunchPrompts;
+
+    it("are offered while the watcher runs and withdrawn when it stops", () => {
+      vi.stubGlobal("SteamUIStore", { MainInstanceUIMode: 7, SetRunningApp: vi.fn() });
+      vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(window);
+      expect(launchPromptsForThisStart(gamepad)).toBe(gamepad);
+
+      startDesktopNavigationWatcher({} as Window);
+      expect(launchPromptsForThisStart(gamepad)).not.toBe(gamepad);
+
+      stopDesktopNavigationWatcher();
+      expect(launchPromptsForThisStart(gamepad)).toBe(gamepad);
     });
   });
 
