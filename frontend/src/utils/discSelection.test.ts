@@ -1,19 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render } from "@testing-library/react";
 import { toaster } from "../api/host";
 import * as backend from "../api/backend";
 import type { DiscSelection } from "../api/backend";
 import { setLaunchOptionsConfirmed } from "./steamShortcuts";
-import {
-  computeDiscDisplayState,
-  buildDiscOptions,
-  fetchDiscSelection,
-  executeDiscSelection,
-  DiscStack,
-  DiscWithNumber,
-  DISC_GREY,
-  DISC_ACCENT,
-} from "./discSelection";
+import { computeDiscDisplayState, fetchDiscSelection, executeDiscSelection } from "./discSelection";
 
 vi.mock("../api/backend", () => ({
   getDiscSelection: vi.fn(),
@@ -115,28 +105,6 @@ describe("discSelection — computeDiscDisplayState", () => {
     };
     const state = computeDiscDisplayState(customSelection, "discA.iso");
     expect(state?.activeNum).toBe("4");
-  });
-});
-
-describe("discSelection — buildDiscOptions", () => {
-  it("builds options including m3u default when present", () => {
-    const options = buildDiscOptions(m3uSelection);
-    expect(options).toHaveLength(4);
-    expect(options[0]).toMatchObject({ data: null, text: "All discs (m3u)" });
-    expect(options[1]).toMatchObject({ data: "ff7 (Disc 1).cue", text: "Disc 1" });
-    expect(options[2]).toMatchObject({ data: "ff7 (Disc 2).cue", text: "Disc 2" });
-    expect(options[3]).toMatchObject({ data: "ff7 (Disc 3).cue", text: "Disc 3" });
-  });
-
-  it("builds options without m3u entry when default is a disc", () => {
-    const options = buildDiscOptions(discDefaultSelection);
-    expect(options).toHaveLength(2);
-    expect(options[0]).toMatchObject({ data: "game (Disc 1).chd", text: "Disc 1" });
-    expect(options[1]).toMatchObject({ data: "game (Disc 2).chd", text: "Disc 2" });
-  });
-
-  it("returns empty array when discs or default are missing", () => {
-    expect(buildDiscOptions({ multi_disc: true } as unknown as DiscSelection)).toEqual([]);
   });
 });
 
@@ -284,19 +252,5 @@ describe("discSelection — executeDiscSelection", () => {
       expect.stringContaining("CustomTag: disc selection continuation was cancelled"),
     );
     expect(toaster.toast).not.toHaveBeenCalled();
-  });
-});
-
-describe("discSelection — visual components", () => {
-  it("renders DiscStack with two icons", () => {
-    const { container } = render(<DiscStack size={20} color={DISC_GREY} />);
-    const svgs = container.querySelectorAll("svg");
-    expect(svgs).toHaveLength(2);
-  });
-
-  it("renders DiscWithNumber with number label", () => {
-    const { container } = render(<DiscWithNumber size={20} color={DISC_ACCENT} num="2" />);
-    expect(container.textContent).toContain("2");
-    expect(container.querySelectorAll("svg")).toHaveLength(1);
   });
 });

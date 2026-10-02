@@ -1,18 +1,15 @@
 /**
- * Every component source under `bigpicture/` and `shared/`, as TEXT — what a
- * drift lock searches.
+ * Every component source under `bigpicture/`, `desktop/` and `shared/`, as TEXT
+ * — what a drift lock searches.
  *
  * A drift lock holds a wording in one module by failing when a component spells
- * it out for itself. Both of the BIOS locks used to name the components they
- * searched, and that is what failed: the list held two while three surfaces
- * rendered the states, the third went on spelling an older wording of them, and
- * nothing said so. **A surface missing from a hand-kept list is indistinguishable
- * from one that never drifted**, so correcting such a list's count leaves the
- * failure exactly where it was and only moves it to the next surface added.
+ * it out for itself. **Naming the components it searches would be wrong**: a
+ * surface missing from a hand-kept list is indistinguishable from one that never
+ * drifted, so the list fails silently at the next surface added.
  *
- * So the set is swept rather than listed: every `.tsx` under `bigpicture/` or
- * `shared/` that is not itself a test. A component added tomorrow is searched
- * because it exists, not because someone remembered.
+ * So the set is swept rather than listed: every `.tsx` under `bigpicture/`,
+ * `desktop/` or `shared/` that is not itself a test. A component added tomorrow
+ * is searched because it exists, not because someone remembered.
  *
  * **Deriving the set from who IMPORTS the wording module would be wrong**, and
  * wrong in the one direction that matters: a surface wording a state for itself
@@ -22,7 +19,7 @@
  *
  * `.tsx` only, which is a real limit rather than a definition: a wording helper
  * extracted into a `.ts` beside its component is not swept. The components a
- * surface renders live under `bigpicture/` and `shared/`, and `src/utils` is
+ * surface renders live under `bigpicture/`, `desktop/` and `shared/`, and `src/utils` is
  * where a common wording legitimately lives, so a blanket `src/**` would fail on
  * the module that owns the phrases.
  */
@@ -46,7 +43,7 @@ export interface ComponentSource {
 // empty set.
 const SRC_DIR = `${process.cwd()}/src/`;
 
-const SWEPT_PATTERNS = ["bigpicture/**/*.tsx", "shared/**/*.tsx"];
+const SWEPT_PATTERNS = ["bigpicture/**/*.tsx", "desktop/**/*.tsx", "shared/**/*.tsx"];
 
 /**
  * Every component source a lock should search, sorted so the report is stable.

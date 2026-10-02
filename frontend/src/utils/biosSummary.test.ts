@@ -222,8 +222,8 @@ describe("no surface words a summary itself", () => {
 
   it("searches the surfaces that render these states, not an empty sweep", () => {
     // The sweep throws when a pattern finds nothing, so this pins the other
-    // half: that it really reaches the three components rendering a BIOS state
-    // today. A `bigpicture/` pattern narrowed to one of its subdirectories would
+    // half: that it really reaches the four components rendering a BIOS state
+    // today. A pattern narrowed to one of its directory's subdirectories would
     // still find files and would silently stop covering the rest.
     const paths = componentSources().map((entry) => entry.path);
     expect(paths).toEqual(
@@ -231,12 +231,14 @@ describe("no surface words a summary itself", () => {
         "bigpicture/BiosTab.tsx",
         "bigpicture/library/PlatformDetail.tsx",
         "bigpicture/library/PlatformsTab.tsx",
+        "desktop/gameview/EmulationSettings.tsx",
       ]),
     );
   });
 
-  it("searches shared/ as well as bigpicture/", () => {
+  it("searches desktop/ and shared/ as well as bigpicture/", () => {
     const paths = componentSources().map((entry) => entry.path);
+    expect(paths.filter((path) => path.startsWith("desktop/"))).not.toEqual([]);
     expect(paths.filter((path) => path.startsWith("shared/"))).not.toEqual([]);
   });
 });

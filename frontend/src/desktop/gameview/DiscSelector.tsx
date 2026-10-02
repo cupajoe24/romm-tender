@@ -25,15 +25,11 @@ import {
 } from "../../utils/versionSwitch";
 import {
   type DiscOptionData,
-  DISC_GREY,
-  DISC_ACCENT,
-  DiscStack,
-  DiscWithNumber,
   computeDiscDisplayState,
-  buildDiscOptions,
   fetchDiscSelection,
   executeDiscSelection,
 } from "../../utils/discSelection";
+import { DISC_GREY, DISC_ACCENT, DiscStack, DiscWithNumber, buildDiscOptions } from "../../shared/DiscGlyphs";
 import type { DownloadCompleteEvent, DownloadFailedEvent } from "../../types";
 import type { RommDataChangedDetail, RommRomUninstalledDetail } from "../../types/events";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";

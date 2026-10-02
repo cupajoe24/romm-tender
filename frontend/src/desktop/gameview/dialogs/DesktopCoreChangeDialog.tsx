@@ -1,10 +1,18 @@
 /**
- * Desktop core change confirmation dialog.
- * Shown when an emulator core change is detected before launching a game.
- * Parity equivalent of Big Picture's `CoreChangeModal`.
+ * The desktop client's core-change prompt, asked before a start from Tender's
+ * Play button when the emulator core has changed since the game last ran.
+ * `shared/CoreChangeModal` is the other drawing of it — Big Picture's, and the
+ * one the launch watcher shows on either surface.
  */
 
 import type { FC } from "react";
+import {
+  CANCEL_LABEL,
+  CORE_CHANGE_CONTINUE_LABEL,
+  CORE_CHANGE_TITLE,
+  CORE_CHANGE_WARNING,
+  CORE_CHANGE_WARNING_HEADING,
+} from "../../../utils/launchPromptWording";
 import {
   DIALOG_ACTIONS_STYLE,
   DIALOG_MUTED_STYLE,
@@ -23,7 +31,7 @@ export const DesktopCoreChangeDialog: FC<DesktopCoreChangeDialogProps> = ({ oldL
   return (
     <DesktopDialog
       titleId="tender-desktop-core-change-title"
-      title="Emulator Core Changed"
+      title={CORE_CHANGE_TITLE}
       onDismiss={() => onChoice(false)}
     >
       <div style={{ ...DIALOG_MUTED_STYLE, marginBottom: "16px" }}>
@@ -40,20 +48,17 @@ export const DesktopCoreChangeDialog: FC<DesktopCoreChangeDialogProps> = ({ oldL
         }}
       >
         <div style={{ fontSize: "12px", color: "#ffb74d", marginBottom: "6px", fontWeight: "bold" }}>
-          Save Compatibility Warning
+          {CORE_CHANGE_WARNING_HEADING}
         </div>
-        <div style={{ ...DIALOG_TEXT_STYLE, marginBottom: 0 }}>
-          Some emulator cores use incompatible save formats. Continuing may overwrite your existing saves with data the
-          previous core can&apos;t read.
-        </div>
+        <div style={{ ...DIALOG_TEXT_STYLE, marginBottom: 0 }}>{CORE_CHANGE_WARNING}</div>
       </div>
 
       <div style={DIALOG_ACTIONS_STYLE}>
         <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice(true)}>
-          Continue
+          {CORE_CHANGE_CONTINUE_LABEL}
         </button>
         <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice(false)}>
-          Cancel
+          {CANCEL_LABEL}
         </button>
       </div>
     </DesktopDialog>

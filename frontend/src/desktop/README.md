@@ -22,11 +22,13 @@ are sorted into dedicated lowercase subdirectories:
   with `PlayStateButton`, `PlayButtonBadges`, `DownloadingButton`, `DiscSelector` and `usePlayLaunch`. `AboutHeader.tsx`
   is exported but not rendered anywhere.
   - `desktop/gameview/dialogs/` — the game page's dialogs, drawn for the desktop client over the flows and words in
-    `utils/` (`adoptFlow.ts`, `adoptWording.ts`, `saveConflictFlow.ts`, `saveHelpers.ts`): the already-on-your-device
-    dialogs a Download press opens, the save-conflict dialog, the launch dialogs (offline drift, fallback launch, core
-    change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share, `desktopDialogs.tsx` the
-    launch prompts, and `useDialogHost.tsx` is how a component asks one: a promise that settles with the button pressed,
-    and with the dialog's cancel answer on Escape, a backdrop click or unmount.
+    `utils/` (`adoptFlow.ts`, `adoptWording.ts`, `launchPromptWording.ts`, `saveConflictFlow.ts`, `saveHelpers.ts`): the
+    already-on-your-device dialogs a Download press opens, the save-conflict dialog, the launch dialogs (offline drift,
+    fallback launch, core change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share,
+    `desktopDialogs.tsx` the launch prompts, and `useDialogHost.tsx` is how a component asks one: a promise that settles
+    with the button pressed, and with the dialog's cancel answer on Escape, a backdrop click or unmount. Only a start
+    from Tender's Play button asks through the launch dialogs: a start the launch watcher catches
+    (`utils/launchInterceptor.ts`) asks through `../shared/`'s gamepad modals, on this surface too.
 - `desktop/gamesettings/` — (Planned) `GameSettingsView` specific components.
 - `desktop/settings/` — (Planned) `TenderSettings` specific components.
 
@@ -49,7 +51,7 @@ the same vocabulary, drawn for a controller on one side and for a keyboard and m
 
 ## What this surface may import
 
-- `../shared/` — UI that belongs to both surfaces
+- `../shared/` — UI that belongs to both surfaces, such as the disc glyphs `gameview/DiscSelector.tsx` draws
 - `../api/` — the wire to the backend (endpoints and events)
 - `../utils/` — shared logic and the module stores
 - `../types/` — the shared wire and domain types

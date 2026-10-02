@@ -1,4 +1,11 @@
 import { ConfirmModal, showModal } from "@decky/ui";
+import {
+  CANCEL_LABEL,
+  SWITCH_ANYWAY_LABEL,
+  SYNC_AND_SWITCH_LABEL,
+  UNSYNCED_SAVES_TITLE,
+  unsyncedSavesDescription,
+} from "../utils/launchPromptWording";
 
 /** What the user chose in the unsynced-saves switch confirm (#1298). */
 export type UnsyncedSavesChoice = "sync_and_switch" | "switch_anyway" | "cancel";
@@ -31,24 +38,20 @@ export function showUnsyncedSavesModal({
   serverReachable,
 }: UnsyncedSavesModalArgs): Promise<UnsyncedSavesChoice> {
   return new Promise<UnsyncedSavesChoice>((resolve) => {
-    const description = serverReachable
-      ? `"${versionName}" has save changes that were never uploaded to RomM. They stay on disk, but won't sync until you switch back.`
-      : `"${versionName}" has save changes that were never uploaded, and RomM is not reachable right now — so they can't be synced first. They stay on disk, but won't sync until you switch back.`;
-
     // Reachable: the middle button is the "strand it" escape hatch below the
     // primary "Sync now & switch". Offline: no middle button — OK IS "Switch
     // anyway" (spread nothing so the prop is absent, not `undefined`, which
     // `exactOptionalPropertyTypes` rejects).
     const middleButton = serverReachable
-      ? { strMiddleButtonText: "Switch anyway", onMiddleButton: () => resolve("switch_anyway") }
+      ? { strMiddleButtonText: SWITCH_ANYWAY_LABEL, onMiddleButton: () => resolve("switch_anyway") }
       : {};
 
     showModal(
       <ConfirmModal
-        strTitle="Unsynced saves"
-        strDescription={description}
-        strOKButtonText={serverReachable ? "Sync now & switch" : "Switch anyway"}
-        strCancelButtonText="Cancel"
+        strTitle={UNSYNCED_SAVES_TITLE}
+        strDescription={unsyncedSavesDescription(versionName, serverReachable)}
+        strOKButtonText={serverReachable ? SYNC_AND_SWITCH_LABEL : SWITCH_ANYWAY_LABEL}
+        strCancelButtonText={CANCEL_LABEL}
         onOK={() => resolve(serverReachable ? "sync_and_switch" : "switch_anyway")}
         onCancel={() => resolve("cancel")}
         {...middleButton}

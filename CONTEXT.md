@@ -1017,11 +1017,11 @@ surfaces and everything below them).
 ### Shared (UI layer)
 
 UI that belongs to both surfaces, in `frontend/src/shared/` — today the launch prompts (sync conflict, offline drift,
-core change, fallback launch), which appear over Big Picture and over Steam's desktop client alike. It sits **below**
-the surfaces: the surfaces and `index.tsx` import it; it imports `api/`, `utils/` and `types/`; `utils/` and `api/` may
-not import it. Not to be confused with the **shared** save state, where one card or file holds many games' progress (see
-**Save state**), or with the shared state a module store holds for everything subscribed to it (see **Game-detail
-store**).
+core change, fallback launch), which appear over Big Picture and over Steam's desktop client alike, and the disc glyphs
+both surfaces' disc pickers draw. It sits **below** the surfaces: the surfaces and `index.tsx` import it; it imports
+`api/`, `utils/` and `types/`; `utils/` and `api/` may not import it. Not to be confused with the **shared** save state,
+where one card or file holds many games' progress (see **Save state**), or with the shared state a module store holds
+for everything subscribed to it (see **Game-detail store**).
 
 ### Quick Access entry / entry marker / tab glyph
 
