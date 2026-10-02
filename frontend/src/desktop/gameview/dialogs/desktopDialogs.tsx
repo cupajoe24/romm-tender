@@ -1,7 +1,8 @@
 /**
  * The desktop dialogs in the shapes the shared flows ask for: the adoption
- * flow's {@link AdoptionDialogs} and the save-conflict walk's one-conflict
- * question. Every one of them settles with its cancel exit when dismissed.
+ * flow's {@link AdoptionDialogs}, the save-conflict walk's one-conflict
+ * question and a launch's {@link LaunchPrompts}. Every one of them settles with
+ * its cancel exit when dismissed.
  */
 
 import type {
@@ -12,7 +13,8 @@ import type {
   UnusableChoice,
   VanishedChoice,
 } from "../../../utils/adoptFlow";
-import type { SyncConflictResolution } from "../../../utils/saveConflictFlow";
+import { resolveConflictsSequentially, type SyncConflictResolution } from "../../../utils/saveConflictFlow";
+import type { LaunchPrompts } from "../../../utils/launchVerdict";
 import type { SyncConflict } from "../../../types";
 import type { AskDialog } from "./useDialogHost";
 import { DesktopAdoptCandidatesDialog } from "./DesktopAdoptCandidatesDialog";
@@ -83,4 +85,13 @@ export function desktopUnsyncedSavesDialog(
     ask<UnsyncedSavesChoice>("cancel", (resolve) => (
       <DesktopUnsyncedSavesDialog versionName={versionName} serverReachable={serverReachable} onChoice={resolve} />
     ));
+}
+
+export function desktopLaunchPrompts(ask: AskDialog): LaunchPrompts {
+  return {
+    confirmCoreChange: desktopCoreChangeDialog(ask),
+    resolveConflicts: (conflicts) => resolveConflictsSequentially(conflicts, desktopSaveConflictDialog(ask)),
+    askOfflineDrift: desktopOfflineDriftDialog(ask),
+    confirmFallbackLaunch: desktopFallbackLaunchDialog(ask),
+  };
 }
