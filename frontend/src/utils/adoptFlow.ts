@@ -90,9 +90,11 @@ export interface AdoptionFlowHooks {
   /** What the backend proved about a candidate under another name in the folder. */
   setCandidatePresent(present: boolean): void;
   /**
-   * The adoption is recorded and the shortcut's launch command written. Called
-   * after both flags are cleared and before `romm_data_changed` / `rom_adopted`
-   * is dispatched and the success toast shown.
+   * The backend has recorded the adoption. Says nothing about the shortcut's
+   * launch command: a write that failed or was skipped is not a failed
+   * adoption. Called after both flags are cleared and before
+   * `romm_data_changed` / `rom_adopted` is dispatched and the success toast
+   * shown.
    */
   onAdopted(): void;
 }
@@ -268,7 +270,7 @@ async function resolveVanished(
 }
 
 // Record what is on disk as the install, then write the launch command onto
-// the shortcut exactly as the download-complete listener does — an adopted
+// the shortcut as the download-complete listener does — an adopted
 // install is an install (ADR-0028), so it must be as launchable as a
 // downloaded one the moment the dialog closes.
 async function adopt(

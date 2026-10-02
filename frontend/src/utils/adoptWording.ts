@@ -1,9 +1,10 @@
 /**
  * The words of the "already on your device" dialogs a download opens (#260,
- * ADR-0028) — every word they show, fixed labels included, except the kind of
- * an entry ("file", "folder", "shortcut"), which is `ENTRY_KIND_LABEL` in
- * `formatters.ts` — and the toasts about the same case: how a Download press
- * ended, and a resume refused. One home, so every surface that draws those
+ * ADR-0028) — every word of theirs Tender writes, fixed labels included, except
+ * the kind of an entry ("file", "folder", "shortcut"), which is
+ * `ENTRY_KIND_LABEL` in `formatters.ts` — and the toasts about the same case:
+ * how a Download press ended, and a resume refused because something now sits
+ * at the game's location. One home, so every surface that draws those
  * dialogs states the same case the same way; the drawing itself stays with each
  * surface. Why a sentence says what it says sits on the constant
  * or function that builds it, so whoever draws a dialog sees which sentences
@@ -168,7 +169,11 @@ export function adoptButtonLabel(occupied: TargetOccupiedResult): string {
   return occupied.adoptable ? "Use These Files" : `Can't use this ${nounFor(occupied)} for this game`;
 }
 
-/** The content check's in-flight line; `progress` is 0..1, or `null` before the first frame. */
+/**
+ * The content check's in-flight line; `progress` is 0..1. A check sets it to 0
+ * when it starts, so no frame yet and a zero frame read alike; `null` (no check
+ * running) reads the same, though no dialog shows the line then.
+ */
 export function verifyProgressLabel(progress: number | null): string {
   return progress === null || progress === 0
     ? "Checking the files…"
@@ -305,7 +310,7 @@ export function vanishedDownloadLabel(vanished: CandidateVanishedResult): string
 
 export const VANISHED_DOWNLOAD_NOTE = "Or cancel and look in the folder yourself first.";
 
-// ── Toasts: how a Download press ended, and a resume refused ──
+// ── Toasts: how a Download press ended, and a resume refused over the location ──
 
 /** A refused download whose answer carried no message of its own. */
 export const DOWNLOAD_REFUSED_TOAST = "Download failed";
