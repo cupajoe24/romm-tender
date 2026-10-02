@@ -1,10 +1,10 @@
 /**
- * The words of five prompts: three a game start can raise — the emulator core
- * changed, RomM unreachable over unsynced changes, save sync unavailable — the
- * one a version switch raises over unsynced saves, and the one Stop raises over
- * a running game. Every title, sentence and button label Tender writes for them.
- * One home, so every surface that draws one of these prompts asks the same
- * question the same way; the drawing itself stays with each surface.
+ * The words of the prompts a game start can raise — the emulator core changed,
+ * RomM unreachable over unsynced changes, save sync unavailable — and of the one
+ * a version switch raises over unsynced saves: every title, sentence and button
+ * label Tender writes for them. One home, so every surface that draws one of
+ * these prompts asks the same question the same way; the drawing itself stays
+ * with each surface.
  */
 
 // ── Every prompt ──
@@ -35,18 +35,17 @@ export const OFFLINE_DRIFT_START_LABEL = "Start Anyway";
 
 export const OFFLINE_DRIFT_RETRY_LABEL = "Retry connection";
 
-// ── Fallback launch: the pre-launch sync failed without a conflict, or a step of the check got no answer ──
+// ── Fallback launch: the pre-launch sync failed without surfacing a conflict ──
 
 export const FALLBACK_LAUNCH_TITLE = "Save Sync Unavailable";
 
 export const FALLBACK_LAUNCH_LABEL = "Launch Anyway";
 
-/** The message the verdict carries when it has one, else a sentence of ours. */
+/** The failed sync's own message when it carries one, else a sentence of ours. */
 export function fallbackLaunchDescription(message?: string): string {
-  const reason = message?.trim();
-  if (!reason) return "Couldn't sync saves with RomM server. Launch with local saves?";
-  if (/[.!?]$/.test(reason)) return `${reason} Launch with local saves?`;
-  return `${reason} — launch with local saves?`;
+  return message?.trim()
+    ? `${message} — launch with local saves?`
+    : "Couldn't sync saves with RomM server. Launch with local saves?";
 }
 
 // ── Unsynced saves: switching away from a version whose saves were never uploaded ──
@@ -69,16 +68,3 @@ export function unsyncedSavesDescription(versionName: string, serverReachable: b
 export const SYNC_AND_SWITCH_LABEL = "Sync now & switch";
 
 export const SWITCH_ANYWAY_LABEL = "Switch anyway";
-
-// ── Stop game: ending a running emulator ──
-
-export const STOP_GAME_TITLE = "Stop Game?";
-
-/**
- * Promises nothing about the save: the backend asks the emulator to exit and
- * forces it if it refuses, so whether an in-flight write completes is the
- * emulator's business, not ours.
- */
-export const STOP_GAME_DESCRIPTION = "Any progress since the last in-game save may be lost.";
-
-export const STOP_GAME_LABEL = "Stop Game";

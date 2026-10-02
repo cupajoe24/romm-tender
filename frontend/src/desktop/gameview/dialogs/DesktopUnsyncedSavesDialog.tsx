@@ -1,10 +1,17 @@
 /**
- * Desktop unsynced-saves switch confirmation dialog.
- * Shown when switching away from a version that has unsynced local save changes.
- * Parity equivalent of Big Picture's `UnsyncedSavesSwitchModal`.
+ * The desktop client's unsynced-saves prompt, asked when switching away from a
+ * version whose local save changes were never uploaded. Big Picture's
+ * `UnsyncedSavesSwitchModal` is the other drawing of it.
  */
 
 import type { FC } from "react";
+import {
+  CANCEL_LABEL,
+  SWITCH_ANYWAY_LABEL,
+  SYNC_AND_SWITCH_LABEL,
+  UNSYNCED_SAVES_TITLE,
+  unsyncedSavesDescription,
+} from "../../../utils/launchPromptWording";
 import { DIALOG_ACTIONS_STYLE, DIALOG_TEXT_STYLE, DesktopDialog, dialogButtonStyle } from "./DesktopDialog";
 
 export type UnsyncedSavesChoice = "sync_and_switch" | "switch_anyway" | "cancel";
@@ -19,37 +26,31 @@ export const DesktopUnsyncedSavesDialog: FC<DesktopUnsyncedSavesDialogProps> = (
   versionName,
   serverReachable,
   onChoice,
-}) => {
-  const description = serverReachable
-    ? `"${versionName}" has save changes that were never uploaded to RomM. They stay on disk, but won't sync until you switch back.`
-    : `"${versionName}" has save changes that were never uploaded, and RomM is not reachable right now — so they can't be synced first. They stay on disk, but won't sync until you switch back.`;
-
-  return (
-    <DesktopDialog
-      titleId="tender-desktop-unsynced-saves-title"
-      title="Unsynced saves"
-      onDismiss={() => onChoice("cancel")}
-    >
-      <div style={DIALOG_TEXT_STYLE}>{description}</div>
-      <div style={DIALOG_ACTIONS_STYLE}>
-        {serverReachable ? (
-          <>
-            <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice("sync_and_switch")}>
-              Sync now & switch
-            </button>
-            <button type="button" style={dialogButtonStyle("secondary")} onClick={() => onChoice("switch_anyway")}>
-              Switch anyway
-            </button>
-          </>
-        ) : (
-          <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice("switch_anyway")}>
-            Switch anyway
+}) => (
+  <DesktopDialog
+    titleId="tender-desktop-unsynced-saves-title"
+    title={UNSYNCED_SAVES_TITLE}
+    onDismiss={() => onChoice("cancel")}
+  >
+    <div style={DIALOG_TEXT_STYLE}>{unsyncedSavesDescription(versionName, serverReachable)}</div>
+    <div style={DIALOG_ACTIONS_STYLE}>
+      {serverReachable ? (
+        <>
+          <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice("sync_and_switch")}>
+            {SYNC_AND_SWITCH_LABEL}
           </button>
-        )}
-        <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
-          Cancel
+          <button type="button" style={dialogButtonStyle("secondary")} onClick={() => onChoice("switch_anyway")}>
+            {SWITCH_ANYWAY_LABEL}
+          </button>
+        </>
+      ) : (
+        <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice("switch_anyway")}>
+          {SWITCH_ANYWAY_LABEL}
         </button>
-      </div>
-    </DesktopDialog>
-  );
-};
+      )}
+      <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
+        {CANCEL_LABEL}
+      </button>
+    </div>
+  </DesktopDialog>
+);

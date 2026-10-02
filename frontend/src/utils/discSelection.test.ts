@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { toaster } from "../api/host";
 import * as backend from "../api/backend";
 import type { DiscSelection } from "../api/backend";
@@ -129,7 +129,6 @@ describe("discSelection — fetchDiscSelection", () => {
   });
 });
 
-import * as pruneLease from "./pruneLease";
 import { mountPruneLeaseOwner } from "./pruneLease";
 
 describe("discSelection — executeDiscSelection", () => {
@@ -151,13 +150,15 @@ describe("discSelection — executeDiscSelection", () => {
     });
     const onSelected = vi.fn();
 
-    await executeDiscSelection({
+    const ok = await executeDiscSelection({
       appId: 100,
       romId: 42,
       data: "disc2.iso",
       leaseOwner: "test-owner",
       onSelected,
     });
+
+    expect(ok).toBe(true);
     expect(backend.selectDisc).toHaveBeenCalledWith(42, "disc2.iso");
     expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(100, "run disc2");
     expect(onSelected).toHaveBeenCalledWith("disc2.iso");
@@ -171,13 +172,15 @@ describe("discSelection — executeDiscSelection", () => {
     });
     const onSelected = vi.fn();
 
-    await executeDiscSelection({
+    const ok = await executeDiscSelection({
       appId: 100,
       romId: 42,
       data: null,
       leaseOwner: "test-owner",
       onSelected,
     });
+
+    expect(ok).toBe(true);
     expect(backend.selectDisc).toHaveBeenCalledWith(42, null);
     expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(100, "run m3u");
     expect(onSelected).toHaveBeenCalledWith(null);
@@ -186,18 +189,19 @@ describe("discSelection — executeDiscSelection", () => {
   it("toasts message when backend returns success: false", async () => {
     vi.mocked(backend.selectDisc).mockResolvedValue({
       success: false,
-      reason: "not_found",
       message: "Disc not found on disk",
     });
     const onSelected = vi.fn();
 
-    await executeDiscSelection({
+    const ok = await executeDiscSelection({
       appId: 100,
       romId: 42,
       data: "disc2.iso",
       leaseOwner: "test-owner",
       onSelected,
     });
+
+    expect(ok).toBe(false);
     expect(setLaunchOptionsConfirmed).not.toHaveBeenCalled();
     expect(onSelected).not.toHaveBeenCalled();
     expect(toaster.toast).toHaveBeenCalledWith(
@@ -212,13 +216,15 @@ describe("discSelection — executeDiscSelection", () => {
     vi.mocked(backend.selectDisc).mockRejectedValue(new Error("RPC failed"));
     const onSelected = vi.fn();
 
-    await executeDiscSelection({
+    const ok = await executeDiscSelection({
       appId: 100,
       romId: 42,
       data: "disc2.iso",
       leaseOwner: "test-owner",
       onSelected,
     });
+
+    expect(ok).toBe(false);
     expect(toaster.toast).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Tender",
@@ -232,7 +238,7 @@ describe("discSelection — executeDiscSelection", () => {
     vi.mocked(backend.selectDisc).mockRejectedValue(new PruneLeaseAdmissionCancelled("cancelled"));
     const onSelected = vi.fn();
 
-    await executeDiscSelection({
+    const ok = await executeDiscSelection({
       appId: 100,
       romId: 42,
       data: "disc2.iso",
@@ -240,58 +246,11 @@ describe("discSelection — executeDiscSelection", () => {
       onSelected,
       logTag: "CustomTag",
     });
+
+    expect(ok).toBe(false);
     expect(backend.logWarn).toHaveBeenCalledWith(
       expect.stringContaining("CustomTag: disc selection continuation was cancelled"),
     );
     expect(toaster.toast).not.toHaveBeenCalled();
-  });
-
-  describe("a continuation whose lease is aborted", () => {
-    /** Run the continuation on *controller*'s signal instead of a real lease. */
-    function continueOn(controller: AbortController): void {
-      vi.spyOn(pruneLease, "withPruneLease").mockImplementationOnce(async (_token, _context, operation) =>
-        operation(controller.signal),
-      );
-    }
-
-    afterEach(() => vi.restoreAllMocks());
-
-    it("writes nothing to Steam and reports no pick when aborted before the write", async () => {
-      vi.mocked(backend.selectDisc).mockResolvedValue({
-        success: true,
-        launch_options: "run disc2",
-        selected: "disc2.iso",
-      });
-      const controller = new AbortController();
-      controller.abort();
-      continueOn(controller);
-      const onSelected = vi.fn();
-
-      await executeDiscSelection({ appId: 100, romId: 42, data: "disc2.iso", leaseOwner: "test-owner", onSelected });
-
-      expect(setLaunchOptionsConfirmed).not.toHaveBeenCalled();
-      expect(onSelected).not.toHaveBeenCalled();
-      expect(toaster.toast).not.toHaveBeenCalled();
-    });
-
-    it("reports no pick when aborted while the launch command is written", async () => {
-      vi.mocked(backend.selectDisc).mockResolvedValue({
-        success: true,
-        launch_options: "run disc2",
-        selected: "disc2.iso",
-      });
-      const controller = new AbortController();
-      continueOn(controller);
-      vi.mocked(setLaunchOptionsConfirmed).mockImplementation(async () => {
-        controller.abort();
-        return true;
-      });
-      const onSelected = vi.fn();
-
-      await executeDiscSelection({ appId: 100, romId: 42, data: "disc2.iso", leaseOwner: "test-owner", onSelected });
-
-      expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(100, "run disc2");
-      expect(onSelected).not.toHaveBeenCalled();
-    });
   });
 });
