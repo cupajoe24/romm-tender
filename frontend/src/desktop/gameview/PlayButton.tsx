@@ -180,6 +180,10 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const playtimeInfo = useGamePlaytime(appId, romId, "DesktopPlayButton");
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
+  // The last session start or stop seen for a ROM, whatever made it. A start
+  // made elsewhere (Steam's own Play, a context menu, a `steam://` link) changes
+  // nothing else this button renders from, so the event is held here.
+  const [sessionSeen, setSessionSeen] = useState<{ romId: number; running: boolean } | null>(null);
   const [heldVerdict, setHeldVerdict] = useState<HeldVerdict | null>(null);
   // A download press's request, or an adoption, is in flight.
   const [actionPending, setActionPending] = useState(false);
@@ -311,6 +315,19 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     };
   }, [romId, detail.saveSyncEnabled, detail.raId]);
 
+  useEffect(() => {
+    if (!romId) return;
+    const onSessionChanged = (e: WindowEventMap["romm_session_changed"]) => {
+      if (e.detail.romId !== romId) return;
+      setSessionSeen({ romId, running: e.detail.running });
+      if (!e.detail.running) setStateOverride((prev) => (prev === "launching" ? null : prev));
+    };
+    globalThis.addEventListener("romm_session_changed", onSessionChanged);
+    return () => globalThis.removeEventListener("romm_session_changed", onSessionChanged);
+  }, [romId]);
+  const sessionRunning =
+    romId !== null && (sessionSeen?.romId === romId ? sessionSeen.running : readGameRunning(appId, romId).running);
+
   usePruneLeaseOwner(leaseOwner);
 
   // Drive the reachability heartbeat while this game page is mounted (#1345)
@@ -361,7 +378,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     effectiveState = stateOverride;
   } else if (isTransferActive) {
     effectiveState = "downloading";
-  } else if (romId && readGameRunning(appId, romId).running) {
+  } else if (sessionRunning) {
     effectiveState = "running";
   } else if (heldVerdictApplies) {
     effectiveState = heldVerdict.state;
@@ -417,6 +434,9 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     ask,
     leaseOwner,
     setStateOverride,
+    clearSessionRunning: () => {
+      if (romId !== null) setSessionSeen({ romId, running: false });
+    },
     holdVerdict,
     setShowMenu,
   });
