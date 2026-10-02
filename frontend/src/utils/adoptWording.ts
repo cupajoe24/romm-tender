@@ -1,9 +1,11 @@
 /**
  * The words of the "already on your device" dialogs a download opens (#260,
- * ADR-0028) — every word they show, fixed labels included — and the one toast
- * about the same case outside them, a resume refused. One home, so every surface
- * that draws those dialogs states the same case the same way; the drawing itself
- * stays with each surface. Why a sentence says what it says sits on the constant
+ * ADR-0028) — every word they show, fixed labels included, except the kind of
+ * an entry ("file", "folder", "shortcut"), which is `ENTRY_KIND_LABEL` in
+ * `formatters.ts` — and the toasts about the same case: how a Download press
+ * ended, and a resume refused. One home, so every surface that draws those
+ * dialogs states the same case the same way; the drawing itself stays with each
+ * surface. Why a sentence says what it says sits on the constant
  * or function that builds it, so whoever draws a dialog sees which sentences
  * must not be softened.
  */
@@ -303,7 +305,24 @@ export function vanishedDownloadLabel(vanished: CandidateVanishedResult): string
 
 export const VANISHED_DOWNLOAD_NOTE = "Or cancel and look in the folder yourself first.";
 
-// ── Outside the dialogs: a paused download's resume, refused ──
+// ── Toasts: how a Download press ended, and a resume refused ──
+
+/** A refused download whose answer carried no message of its own. */
+export const DOWNLOAD_REFUSED_TOAST = "Download failed";
+
+/** The download request threw: no verdict came back at all. */
+export const DOWNLOAD_THREW_TOAST = "Download failed — is RomM server running?";
+
+/** A refused adoption whose answer carried no message of its own. */
+export const ADOPT_REFUSED_TOAST = "Couldn't use the existing files";
+
+/** The adoption request threw: no verdict came back at all. */
+export const ADOPT_THREW_TOAST = "Couldn't use the existing files — is RomM server running?";
+
+/** The adoption is recorded; a ROM with no name reads as "ROM". */
+export function adoptedToast(romName: string): string {
+  return `${romName || "ROM"} is ready to play`;
+}
 
 /** The toast for a paused download whose resume found something else at the game's location. */
 export const RESUME_TARGET_OCCUPIED_TOAST =

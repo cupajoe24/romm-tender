@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   COLLISION_KIND_LABEL,
   adoptButtonLabel,
+  adoptedToast,
   candidateDetail,
   candidatesTruncatedNote,
   describesTheGame,
@@ -258,5 +259,12 @@ describe("the collision, unusable and backstop dialogs", () => {
       incoming: { name: "Game (USA).sfc", size_bytes: 2048 },
     };
     expect(vanishedDownloadLabel(vanished)).toBe("Download Game (USA).sfc");
+  });
+});
+
+describe("toasts", () => {
+  it("names the adopted ROM, and calls one with no name a ROM", () => {
+    expect(adoptedToast("Super Metroid")).toBe("Super Metroid is ready to play");
+    expect(adoptedToast("")).toBe("ROM is ready to play");
   });
 });
