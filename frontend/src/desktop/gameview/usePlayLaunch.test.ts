@@ -98,8 +98,9 @@ describe("usePlayLaunch", () => {
     vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
   });
 
-  it("stops running game when handleStopClick is called on an active session", async () => {
+  it("stops running game once the Stop confirm is accepted", async () => {
     vi.mocked(sessionManager.isSessionActive).mockReturnValue(true);
+    ask.mockResolvedValueOnce(true);
 
     const { result } = renderHook(() =>
       usePlayLaunch({
@@ -119,8 +120,37 @@ describe("usePlayLaunch", () => {
       await result.current.handleStopClick();
     });
 
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask).toHaveBeenCalledWith(false, expect.any(Function));
     expect(backend.stopRunningGame).toHaveBeenCalledWith(100);
     expect(setStateOverride).toHaveBeenCalledWith(null);
+  });
+
+  it("does not stop the game when the Stop confirm is declined", async () => {
+    vi.mocked(sessionManager.isSessionActive).mockReturnValue(true);
+    ask.mockResolvedValueOnce(false);
+
+    const { result } = renderHook(() =>
+      usePlayLaunch({
+        appId: 12345,
+        romId: 100,
+        romName: "Test ROM",
+        effectiveState: "running",
+        ask,
+        leaseOwner: "desktop-play-button:12345",
+        setStateOverride,
+        holdVerdict,
+        setShowMenu,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleStopClick();
+    });
+
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(backend.stopRunningGame).not.toHaveBeenCalled();
+    expect(setStateOverride).not.toHaveBeenCalled();
   });
 
   it("self-heals stale overlay on handleStopClick when nothing is running", async () => {

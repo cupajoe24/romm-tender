@@ -1,10 +1,10 @@
 /**
  * The words of the prompts a game start can raise — the emulator core changed,
- * RomM unreachable over unsynced changes, save sync unavailable — and of the one
- * a version switch raises over unsynced saves: every title, sentence and button
- * label Tender writes for them. One home, so every surface that draws one of
- * these prompts asks the same question the same way; the drawing itself stays
- * with each surface.
+ * RomM unreachable over unsynced changes, save sync unavailable — of the one a
+ * version switch raises over unsynced saves, and of the one Stop raises over a
+ * running game: every title, sentence and button label Tender writes for them.
+ * One home, so every surface that draws one of these prompts asks the same
+ * question the same way; the drawing itself stays with each surface.
  */
 
 // ── Every prompt ──
@@ -68,3 +68,16 @@ export function unsyncedSavesDescription(versionName: string, serverReachable: b
 export const SYNC_AND_SWITCH_LABEL = "Sync now & switch";
 
 export const SWITCH_ANYWAY_LABEL = "Switch anyway";
+
+// ── Stop game: ending a running emulator ──
+
+export const STOP_GAME_TITLE = "Stop Game?";
+
+/**
+ * Promises nothing about the save: the backend asks the emulator to exit and
+ * forces it if it refuses, so whether an in-flight write completes is the
+ * emulator's business, not ours.
+ */
+export const STOP_GAME_DESCRIPTION = "Any progress since the last in-game save may be lost.";
+
+export const STOP_GAME_LABEL = "Stop Game";

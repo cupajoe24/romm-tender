@@ -50,11 +50,15 @@ export interface StopGameParams {
   stopInFlightRef: { current: boolean };
   onClearOverlay: () => void;
   onSetPending?: (pending: boolean) => void;
-  confirmModal?: () => Promise<boolean>;
+  /**
+   * The surface's Stop confirm. Required because the backend forces an
+   * emulator that does not exit, so anything unsaved is gone.
+   */
+  confirmModal: () => Promise<boolean>;
 }
 
 /**
- * Execute game stop with in-flight guard, liveness verification, optional modal confirmation,
+ * Execute game stop with in-flight guard, liveness verification, modal confirmation,
  * backend RPC call, error toast, and diagnostics logging.
  */
 export async function executeStopRunningGame({
@@ -89,8 +93,7 @@ export async function executeStopRunningGame({
     return false;
   }
 
-  // Modal confirmation (if required by surface, e.g. Big Picture).
-  if (confirmModal && !(await confirmModal())) {
+  if (!(await confirmModal())) {
     detach(debugLog(`${tag}: Stop cancelled for appId=${appId}`));
     return false;
   }
