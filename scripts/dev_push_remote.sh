@@ -16,6 +16,7 @@
 #   --port <port>       SSH port (default: 22)
 #   --skip-build        Skip frontend build step and push existing dist/ files
 #   --setup-remote      Run one-time setup on remote host (CEF debugging + directory creation)
+#   --restart-steam     Shut Steam down on the remote and start it again after the push
 #
 
 set -euo pipefail
@@ -168,14 +169,6 @@ if [[ "$PUSH_BACKEND" = true ]]; then
     mkdir -p "$STAGE_DIR/defaults"
     cp -r "$REPO_ROOT/defaults/"* "$STAGE_DIR/defaults/"
   fi
-
-  # Decky compatibility layout if deploying directly to homebrew/plugins
-  if [[ "$DEST" == *"homebrew/plugins"* ]]; then
-    mkdir -p "$STAGE_DIR/py_modules"
-    cp -r "$REPO_ROOT/backend/"* "$STAGE_DIR/py_modules/"
-    rm -f "$STAGE_DIR/py_modules/main.py"
-    cp "$REPO_ROOT/backend/main.py" "$STAGE_DIR/main.py"
-  fi
 fi
 
 # Ensure remote destination directories exist
@@ -201,7 +194,7 @@ if [[ "$RESTART_STEAM" = true ]]; then
   echo "==> Restarting Steam on ${REMOTE_USER}@${REMOTE_HOST}..."
   RESTART_CMD='if pgrep -x steam >/dev/null; then if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet --wait -- steam -shutdown >/dev/null 2>&1 || true; else steam -shutdown >/dev/null 2>&1 || true; fi; for i in $(seq 1 30); do if ! pgrep -x steam >/dev/null; then break; fi; sleep 1; done; fi; if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet -- steam >/dev/null 2>&1 & else nohup steam >/dev/null 2>&1 & fi'
   ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "$RESTART_CMD"
-  echo "Steam restarted. The backend will detect the fresh context and inject the panel."
+  echo "Steam restarted. A backend already running there loads the panel into the fresh context; otherwise start one (below)."
 fi
 
 # -------------------------------------------------------------------------
@@ -224,14 +217,6 @@ echo "   - Or if using mise / a virtual environment:"
 echo "   ssh -t ${REMOTE_USER}@${REMOTE_HOST} \"cd $DEST && source .venv/bin/activate && python backend/main.py\""
 echo "   The backend will serve $DEST/dist over loopback, connect to Steam on port 8080,"
 echo "   and inject the panel directly into Steam's Quick Access Menu and Desktop Client."
-
-if [[ "$DEST" == *"homebrew/plugins"* ]]; then
-  echo ""
-  echo "3. Decky Loader mode:"
-  echo "   Decky Loader will hot-reload dist/index.js automatically within ~1-2 seconds."
-  echo "   To restart Decky's backend loader process manually:"
-  echo -e "   \033[33mssh -t ${REMOTE_USER}@${REMOTE_HOST} \"sudo systemctl restart plugin_loader\"\033[0m"
-fi
 
 echo ""
 echo "Remote DevTools URL (SharedJSContext):"
