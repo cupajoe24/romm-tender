@@ -42,6 +42,8 @@ export interface UsePlayLaunchOptions {
   ask: AskDialog;
   leaseOwner: string;
   setStateOverride: (state: PlayButtonState | null) => void;
+  /** Drop the button's running state when the game turns out not to be running. */
+  clearSessionRunning?: () => void;
   holdVerdict: (state: "play" | "conflict") => void;
   setShowMenu?: (show: boolean) => void;
 }
@@ -62,6 +64,7 @@ export function usePlayLaunch({
   ask,
   leaseOwner,
   setStateOverride,
+  clearSessionRunning,
   holdVerdict,
   setShowMenu,
 }: UsePlayLaunchOptions): UsePlayLaunchResult {
@@ -116,6 +119,7 @@ export function usePlayLaunch({
     // Stale overlay self-heal: if Resume was pressed while nothing is actually running
     if (effectiveState === "running") {
       detach(debugLog(`DesktopPlayButton: Resume on appId=${appId} but nothing is running — self-healing to launch`));
+      clearSessionRunning?.();
       setStateOverride(null);
     }
 
@@ -164,7 +168,10 @@ export function usePlayLaunch({
       romId,
       tag: "DesktopPlayButton",
       stopInFlightRef,
-      onClearOverlay: () => setStateOverride(null),
+      onClearOverlay: () => {
+        clearSessionRunning?.();
+        setStateOverride(null);
+      },
     });
   };
 

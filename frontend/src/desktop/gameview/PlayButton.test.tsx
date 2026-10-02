@@ -515,6 +515,72 @@ describe("PlayButton", () => {
     });
   });
 
+  describe("a session started somewhere other than this button", () => {
+    const installedDetail = () => ({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+    });
+    const sessionChanged = (running: boolean, romId: number) =>
+      act(() => {
+        globalThis.dispatchEvent(new CustomEvent("romm_session_changed", { detail: { running, appId: 123, romId } }));
+      });
+
+    it("turns Play into Resume when it starts, and back when it ends", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(installedDetail());
+      render(<PlayButton appId={123} />);
+      expect(screen.getByRole("button", { name: /^PLAY/i })).toBeInTheDocument();
+
+      sessionChanged(true, 100);
+      expect(screen.getByRole("button", { name: /RESUME/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /stop game/i })).toBeInTheDocument();
+
+      sessionChanged(false, 100);
+      expect(screen.getByRole("button", { name: /^PLAY/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /RESUME/i })).not.toBeInTheDocument();
+    });
+
+    it("ignores a session of another ROM", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(installedDetail());
+      render(<PlayButton appId={123} />);
+
+      sessionChanged(true, 999);
+
+      expect(screen.getByRole("button", { name: /^PLAY/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /RESUME/i })).not.toBeInTheDocument();
+    });
+
+    it("stops listening once unmounted", () => {
+      vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(installedDetail());
+      const removeSpy = vi.spyOn(globalThis, "removeEventListener");
+      const { unmount } = render(<PlayButton appId={123} />);
+
+      unmount();
+
+      expect(removeSpy).toHaveBeenCalledWith("romm_session_changed", expect.any(Function));
+      removeSpy.mockRestore();
+    });
+  });
+
   it("allows uninstalling through the dropdown actions menu", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 100,
