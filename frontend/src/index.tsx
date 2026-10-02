@@ -25,10 +25,7 @@ import { registerGameDetailPatch } from "./bigpicture/patches/gameDetailPatch";
 import { registerRomMAppId, unregisterRomMAppId } from "./utils/rommAppIds";
 import { registerMetadataPatches, applyAllPlaytime, applyAllMetadata } from "./utils/metadataPatches";
 import { registerLaunchInterceptor } from "./utils/launchInterceptor";
-import { showCoreChangeModal } from "./shared/CoreChangeModal";
-import { handleConflicts } from "./shared/SyncConflictModal";
-import { showOfflineDriftModal } from "./shared/OfflineDriftModal";
-import { showFallbackLaunchModal } from "./shared/FallbackLaunchModal";
+import { gamepadLaunchPrompts } from "./shared/launchPrompts";
 import { hasAnySaveConflict } from "./utils/saveStatus";
 import {
   getAppIdRomIdMap,
@@ -403,12 +400,7 @@ const tender = definePlugin(() => {
   mountPruneLeasePlugin();
   const pluginAdmission = capturePruneLeaseAdmission();
   registerGameDetailPatch();
-  registerLaunchInterceptor({
-    confirmCoreChange: showCoreChangeModal,
-    resolveConflicts: handleConflicts,
-    askOfflineDrift: showOfflineDriftModal,
-    confirmFallbackLaunch: showFallbackLaunchModal,
-  });
+  registerLaunchInterceptor(gamepadLaunchPrompts);
 
   // Load metadata cache, register store patches, and populate RomM app ID set.
   // Retries with backoff if the backend isn't ready yet (e.g. boot without network).

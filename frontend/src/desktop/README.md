@@ -25,10 +25,11 @@ are sorted into dedicated lowercase subdirectories:
     `utils/` (`adoptFlow.ts`, `adoptWording.ts`, `launchPromptWording.ts`, `saveConflictFlow.ts`, `saveHelpers.ts`): the
     already-on-your-device dialogs a Download press opens, the save-conflict dialog, the launch dialogs (offline drift,
     fallback launch, core change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share,
-    `desktopDialogs.tsx` the launch prompts, and `useDialogHost.tsx` is how a component asks one: a promise that settles
-    with the button pressed, and with the dialog's cancel answer on Escape, a backdrop click or unmount. Only a start
-    from Tender's Play button asks through the launch dialogs: a start the launch watcher catches
-    (`utils/launchInterceptor.ts`) asks through `../shared/`'s gamepad modals, on this surface too.
+    `desktopDialogs.tsx` puts them in the shapes the shared flows ask for (`desktopLaunchPrompts` for a launch), and
+    `useDialogHost.tsx` is how a component asks one: a promise that settles with the button pressed, and with the
+    dialog's cancel answer on Escape, a backdrop click or unmount. Only a start from Tender's Play button asks through
+    the launch dialogs: a start the launch watcher catches (`utils/launchInterceptor.ts`) asks through `../shared/`'s
+    gamepad modals, on this surface too.
 - `desktop/gamesettings/` — (Planned) `GameSettingsView` specific components.
 - `desktop/settings/` — (Planned) `TenderSettings` specific components.
 

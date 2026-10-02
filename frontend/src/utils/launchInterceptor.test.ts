@@ -7,7 +7,8 @@ import * as sessionManager from "./sessionManager";
 import * as runningApps from "./runningApps";
 import * as steamShortcuts from "./steamShortcuts";
 import * as pruneLease from "./pruneLease";
-import { FIRST_CONTACT_DEADLINE_MS, registerLaunchInterceptor, type LaunchPrompts } from "./launchInterceptor";
+import { FIRST_CONTACT_DEADLINE_MS, registerLaunchInterceptor } from "./launchInterceptor";
+import type { LaunchPrompts } from "./launchVerdict";
 import type { GateVerdict, LaunchGateOps } from "./launchGate";
 import type { SyncConflict } from "../types";
 import type { GameRunningReading } from "./sessionManager";
@@ -1058,12 +1059,10 @@ describe("launchInterceptor — full funnel watcher", () => {
       expect(await ops.preLaunchSync()).toEqual({ success: false, message: "c", conflicts });
 
       // A throw must NOT fail open — it maps to a failed outcome so the gate
-      // surfaces sync_failed instead of silently allowing.
+      // surfaces sync_failed instead of silently allowing. The empty message
+      // leaves the fallback prompt its own default sentence.
       vi.mocked(backend.preLaunchSync).mockRejectedValueOnce(new Error("boom"));
-      expect(await ops.preLaunchSync()).toEqual({
-        success: false,
-        message: "Couldn't sync saves with RomM server.",
-      });
+      expect(await ops.preLaunchSync()).toEqual({ success: false, message: "" });
       expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining("pre-launch sync failed"));
     });
 

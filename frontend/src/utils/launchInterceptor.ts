@@ -26,46 +26,21 @@ import {
   isSaveTrackingConfigured,
   getSaveSetupInfo,
   confirmSlotChoice,
-  probeReachability,
-  preLaunchSync,
-  checkLocalDrift,
   logInfo,
   logError,
 } from "../api/backend";
 import { confirmCoreChangeIfNeeded } from "./coreChange";
-import { getMigrationState, setMigrationStatus } from "./migrationStore";
-import { reportServerReachable } from "./connectionState";
+import { setMigrationStatus } from "./migrationStore";
 import { getAppIdRomIdMapSnapshot, readGameRunning, refreshAppIdMap } from "./sessionManager";
-import { runLaunchGate, markLaunchSkipped, consumeLaunchSkip } from "./launchGate";
-import { NO_LAUNCH_TARGET_TOAST_BODY, romHasLaunchTarget } from "./launchTarget";
-import type { GateVerdict, LaunchGateOps, PreLaunchSyncOutcome } from "./launchGate";
+import { markLaunchSkipped, consumeLaunchSkip } from "./launchGate";
+import type { GateVerdict } from "./launchGate";
+import { makeLaunchGateOps } from "./launchGateOps";
+import { runGateLoop, type LaunchPrompts } from "./launchVerdict";
 import { reconfirmLaunchOptions } from "./launchOptionsReconcile";
 import { capturePruneLeaseAdmission, isPruneLeaseAdmissionCurrent, type PruneLeaseAdmission } from "./pruneLease";
 import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "./saveSetup";
-import { BENIGN_SYNC_SKIP_REASONS, type SyncConflict } from "../types";
 import { detach } from "./detach";
 import { TimeoutError, withTimeout } from "./withTimeout";
-
-/**
- * The four decisions the funnel has to put to the user, as questions rather than
- * widgets. The interceptor runs outside the component tree and owns no UI, so it
- * declares what it needs to ask and the caller supplies the answering surface —
- * `index.tsx` wires the real modals in.
- *
- * Asking directly would mean reaching from here into the modal modules, which
- * puts the launch funnel's control flow and its presentation in one knot: every
- * test of a gate branch then has to stand up four modal modules to get at it.
- */
-export interface LaunchPrompts {
-  /** Core changed since the last session — proceed with the new core? */
-  confirmCoreChange(oldLabel: string, newLabel: string): Promise<boolean>;
-  /** Walk the save conflicts; "resolved" once all are settled, "cancel" on the first dismissal. */
-  resolveConflicts(conflicts: SyncConflict[]): Promise<"cancel" | "resolved">;
-  /** Server unreachable and the local save has drifted — start anyway, re-probe, or give up? */
-  askOfflineDrift(): Promise<"start_anyway" | "retry" | "cancel">;
-  /** Pre-launch sync failed — launch on the local save regardless? */
-  confirmFallbackLaunch(message?: string): Promise<boolean>;
-}
 
 /**
  * A start the watcher cancelled: the appId it resolved, and the game ID Steam
@@ -80,20 +55,22 @@ interface CancelledStart {
 /** Migration block copy — surfaced as a toast (no relaunch). */
 const MIGRATION_TOAST_BODY = "Pending RetroDECK migration. Open the Tender menu (QAM) to migrate or dismiss.";
 
+const WATCHER_TAG = "Watcher";
+
 /**
  * Watcher variant of the tracking-setup gate. On a cold grid launch there is no
  * game page open, so — unlike the Play button — this MUST NOT route the user
  * to the saves tab. Instead it silently auto-adopts the default/recommended
  * slot (via `confirmSlotChoice`) and proceeds. A direct launch is never blocked
- * on setup — it always proceeds (the gate op below maps this to "proceed"); any
- * failure (server unreachable, needs-user-choice, a thrown error) is swallowed.
+ * on setup — it always proceeds; any failure (server unreachable,
+ * needs-user-choice, a thrown error) is swallowed.
  */
-async function ensureTrackingConfiguredWatcher(romId: number): Promise<void> {
+async function ensureTrackingConfiguredWatcher(romId: number): Promise<"proceed"> {
   const trackingResult = await isSaveTrackingConfigured(romId).catch((e) => {
     logError(`Watcher tracking check failed (assuming configured): ${e}`);
     return { configured: true };
   });
-  if (trackingResult.configured) return;
+  if (trackingResult.configured) return "proceed";
 
   let setupInfo;
   try {
@@ -101,7 +78,7 @@ async function ensureTrackingConfiguredWatcher(romId: number): Promise<void> {
   } catch (e) {
     // Network/backend failure — never block a direct launch on setup.
     logError(`Watcher save-setup fetch failed (proceeding unconfigured): ${e}`);
-    return;
+    return "proceed";
   }
 
   // Reuse the shared outcome handler with a no-op saves-tab dispatch and a
@@ -116,89 +93,7 @@ async function ensureTrackingConfiguredWatcher(romId: number): Promise<void> {
     toast: () => undefined,
     dispatchSavesTab: () => undefined,
   }).catch((e) => logError(`Watcher auto-adopt slot failed (proceeding): ${e}`));
-}
-
-/**
- * Core-change gate — reuses the same check the Play button uses, and puts the
- * same question to the user through the injected prompt. Returns `true` to
- * proceed, `false` when the user cancelled.
- */
-async function checkCoreChangeWatcher(romId: number, prompts: LaunchPrompts): Promise<boolean> {
-  return confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange, (e) => {
-    logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
-  });
-}
-
-/** Pre-launch sync hard timeout — mirrors the Play button's `runPreLaunchSync`. */
-const PRE_LAUNCH_SYNC_TIMEOUT_MS = 15000;
-
-/**
- * Online pre-launch sync, mapped onto the gate's {@link PreLaunchSyncOutcome}.
- * A benign skip is treated as a successful proceed (no conflict, no failure) —
- * exactly as the Play button does — so it never surfaces a fallback confirm.
- * Two slugs are benign: saves written to the content directory, and an emulator
- * whose save is not a per-game file set this plugin can carry. Both mean sync
- * did not run and nothing is wrong, which is a different thing from sync
- * failing.
- *
- * Critically, this MUST NOT fail open: a throw or a hang in `preLaunchSync`
- * would otherwise propagate to the gate's blanket catch → `allow` → a silent
- * relaunch on stale saves. So the call is wrapped in a 15s timeout race AND a
- * try/catch, and on throw/timeout it returns `{ success: false, ... }` — which
- * the gate maps to `sync_failed`, surfacing the fallback confirm instead of
- * silently launching.
- */
-async function preLaunchSyncWatcher(romId: number): Promise<PreLaunchSyncOutcome> {
-  let result: Awaited<ReturnType<typeof preLaunchSync>>;
-  try {
-    result = await Promise.race([
-      preLaunchSync(romId),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), PRE_LAUNCH_SYNC_TIMEOUT_MS)),
-    ]);
-  } catch (e) {
-    logError(`Watcher pre-launch sync failed (surfacing fallback confirm): ${e}`);
-    return { success: false, message: "Couldn't sync saves with RomM server." };
-  }
-  if (result.reason !== undefined && BENIGN_SYNC_SKIP_REASONS.includes(result.reason)) {
-    return { success: true, message: result.message };
-  }
-  const outcome: PreLaunchSyncOutcome = { success: result.success, message: result.message };
-  if (result.conflicts) outcome.conflicts = result.conflicts;
-  return outcome;
-}
-
-/** Build the funnel callbacks for a given romId. */
-function makeWatcherOps(romId: number, prompts: LaunchPrompts): LaunchGateOps {
-  return {
-    migrationPending: () => getMigrationState().pending,
-    hasLaunchTarget: () => romHasLaunchTarget(romId, "Watcher"),
-    ensureTrackingConfigured: async (): Promise<"proceed"> => {
-      await ensureTrackingConfiguredWatcher(romId);
-      return "proceed";
-    },
-    checkCoreChange: () => checkCoreChangeWatcher(romId, prompts),
-    checkReachability: async () => {
-      // A resolved probe feeds the shared store (#1345); a throw is a bridge
-      // error, not a server verdict, so it leaves the store untouched but the
-      // launch still treats it as offline (fail-safe).
-      try {
-        const { online } = await probeReachability();
-        reportServerReachable(online);
-        return online;
-      } catch (e) {
-        logError(`Watcher reachability probe failed (treating as offline): ${e}`);
-        return false;
-      }
-    },
-    preLaunchSync: () => preLaunchSyncWatcher(romId),
-    checkLocalDrift: async () =>
-      (
-        await checkLocalDrift(romId).catch((e) => {
-          logError(`Watcher local-drift check failed (treating as not-drifted): ${e}`);
-          return { drifted: false };
-        })
-      ).drifted,
-  };
+  return "proceed";
 }
 
 /** Relaunch a previously-cancelled launch. Marks the appId as skipped FIRST so
@@ -229,7 +124,7 @@ function relaunchGameId(start: CancelledStart): string {
  *  and re-gate. The re-confirm runs in the already-detached post-cancel portion,
  *  so it only adds a bounded (≤3s) wait to the cancel→relaunch window. */
 async function relaunch(start: CancelledStart, romId: number, admission: PruneLeaseAdmission): Promise<void> {
-  const reconfirm = await reconfirmLaunchOptions(romId, start.appId, "Watcher", admission);
+  const reconfirm = await reconfirmLaunchOptions(romId, start.appId, WATCHER_TAG, admission);
   if (reconfirm.status === "cancelled") return;
   if (reconfirm.status === "timeout") {
     // The watcher has no game-page UI to fall back to, so the refusal would
@@ -241,65 +136,14 @@ async function relaunch(start: CancelledStart, romId: number, admission: PruneLe
   bareRelaunch(start);
 }
 
-/**
- * Act on the funnel's verdict for a cancelled launch. The launch is already
- * stopped, so each branch either relaunches (`relaunch`) or does nothing.
- *
- * Returns "retry" only from the offline-drift branch when the user asks to
- * re-probe — {@link runWatcherGate} loops on that and re-runs the gate (which
- * re-probes via the fast reachability check); every other outcome returns
- * "done".
- */
-async function handleWatcherVerdict(
-  verdict: GateVerdict,
-  start: CancelledStart,
-  romId: number,
-  admission: PruneLeaseAdmission,
-  prompts: LaunchPrompts,
-): Promise<"done" | "retry"> {
-  switch (verdict.decision) {
-    case "allow":
-      await relaunch(start, romId, admission);
-      return "done";
-    case "abort":
-      // The user saw setup/core UI and declined — already cancelled, nothing to do.
-      return "done";
-    case "block":
-      if (verdict.reason === "migration_pending") {
-        showToast(MIGRATION_TOAST_BODY);
-      } else if (verdict.reason === "no_launch_target") {
-        showToast(NO_LAUNCH_TARGET_TOAST_BODY);
-      }
-      return "done";
-    case "conflict": {
-      const resolution = await prompts.resolveConflicts(verdict.conflicts);
-      if (resolution === "cancel") return "done";
-      // Conflicts resolved — notify sibling components to refresh, then relaunch.
-      globalThis.dispatchEvent(new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }));
-      await relaunch(start, romId, admission);
-      return "done";
-    }
-    case "offline_drift": {
-      const choice = await prompts.askOfflineDrift();
-      if (choice === "start_anyway") await relaunch(start, romId, admission);
-      if (choice === "retry") return "retry";
-      return "done";
-    }
-    case "sync_failed": {
-      const proceed = await prompts.confirmFallbackLaunch(verdict.message);
-      if (proceed) await relaunch(start, romId, admission);
-      return "done";
-    }
-  }
-}
+const nothingToShow = (): void => undefined;
 
 /**
- * Run the shared launch gate and act on its verdict, looping while the user
- * keeps choosing "Retry" on the offline-drift modal. Each retry re-runs
- * {@link runLaunchGate} (re-probing connectivity via the fast reachability
- * check) and acts on the NEW verdict — online now relaunches via the normal
- * path; still offline + drift re-shows the offline modal. A gate throw fails
- * open to `allow` so a gate bug never traps the user's already-cancelled launch.
+ * Run the shared launch gate for a cancelled start and act on its verdict. The
+ * start is already stopped, so every branch either relaunches or leaves it
+ * stopped; with no trigger of its own to reset, only a migration block has
+ * anything to say. A gate throw fails open to `allow` so a gate bug never traps
+ * the user's already-cancelled launch.
  */
 async function runWatcherGate(
   start: CancelledStart,
@@ -307,20 +151,27 @@ async function runWatcherGate(
   admission: PruneLeaseAdmission,
   prompts: LaunchPrompts,
 ): Promise<void> {
-  let verdict = await runLaunchGate(start.appId, romId, makeWatcherOps(romId, prompts)).catch((e): GateVerdict => {
-    logError(`Watcher gate threw (failing open to allow): ${e}`);
-    return { decision: "allow" };
+  const ops = makeLaunchGateOps(romId, {
+    tag: WATCHER_TAG,
+    toastSyncResult: false,
+    ensureTrackingConfigured: () => ensureTrackingConfiguredWatcher(romId),
+    checkCoreChange: () =>
+      confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange, (e) => {
+        logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
+      }),
   });
-  // Each pass starts only after the user answered the previous verdict's prompt with "retry", so
-  // the awaits are sequential by design. S9382 is raised on the two await lines, so their NOSONARs
-  // must stay there; prettier-ignore stops Prettier from moving them into the bodies.
-  // prettier-ignore
-  while ((await handleWatcherVerdict(verdict, start, romId, admission, prompts)) === "retry") { // NOSONAR(typescript:S9382)
-    verdict = await runLaunchGate(start.appId, romId, makeWatcherOps(romId, prompts)).catch((e): GateVerdict => { // NOSONAR(typescript:S9382)
+  await runGateLoop(start.appId, romId, ops, {
+    prompts,
+    launch: () => relaunch(start, romId, admission),
+    onDeclined: nothingToShow,
+    onConflictCancelled: nothingToShow,
+    onRetry: nothingToShow,
+    onMigrationBlocked: () => showToast(MIGRATION_TOAST_BODY),
+    onGateError: (e): GateVerdict => {
       logError(`Watcher gate threw (failing open to allow): ${e}`);
       return { decision: "allow" };
-    });
-  }
+    },
+  });
 }
 
 /**
