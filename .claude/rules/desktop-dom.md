@@ -66,3 +66,6 @@ it (`docs/architecture/frontend-bundles.md`, "The desktop dev build").
   height (~307px), preventing it from bleeding behind the play bar and cards.
 - The hero wrapper must strictly maintain `overflow: visible` across both unpinned and pinned scroll states so the
   artwork continues to scroll in the background behind the remaining cards.
+- The empty scroll gap that overflow would otherwise leave below the cards is closed one level lower, on the parallax
+  layer (the `matrix3d` element, already `flat`), by `boundHeroOverflow` — never by clipping the wrapper or any other
+  ancestor in the `preserve-3d` chain.

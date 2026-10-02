@@ -5,7 +5,8 @@
  *  - Discovering the scroll container for the game overview
  *  - Monitoring scroll position to toggle between semi-transparent glass
  *    and solid background with drop shadow when pinned
- *  - Keeping the hero wrapper at `overflow: visible`, which the banner's 3D parallax needs
+ *  - Keeping the hero wrapper at `overflow: visible`, which the banner's 3D parallax needs, and
+ *    bounding the artwork's overflow so it does not scroll the page past its content
  *    (docs/architecture/desktop-dom-architecture.md, "Hero Banner Parallax")
  */
 
@@ -15,8 +16,85 @@ import {
   PINNED_PLAY_BAR_SHADOW,
   SOLID_PLAY_BAR_BG,
 } from "../gameview/styles";
-import { findHeroWrapperFallback, isTenderElement } from "./elementSelectors";
+import {
+  findHeroMirrorCanvas,
+  findHeroParallaxLayer,
+  findHeroWrapperFallback,
+  isTenderElement,
+} from "./elementSelectors";
 import type { DomRestorationLedger } from "./restorationLedger";
+
+/** How far, in the parallax layer's own pixels, the artwork fades out before the clip edge. */
+const HERO_FADE_PX = 160;
+
+/** The vertical scale (m22) of a `matrix3d(...)` or `matrix(...)` transform, or null for anything else. */
+function verticalScale(transform: string): number | null {
+  const match = /^matrix(3d)?\(([^)]+)\)$/.exec(transform);
+  if (!match) return null;
+  const values = match[2]!.split(",").map(Number);
+  const m22 = match[1] ? values[5] : values[3];
+  return m22 !== undefined && Number.isFinite(m22) && m22 !== 0 ? m22 : null;
+}
+
+function setIfChanged(ledger: DomRestorationLedger, el: HTMLElement, property: string, value: string): void {
+  if (el.style.getPropertyValue(property) !== value) ledger.style(el, property, value);
+}
+
+/**
+ * Keep the hero artwork from extending the page past its content.
+ *
+ * The parallax layer's content (the image, then the mirrored canvas below it)
+ * is far taller than the layer, and Chromium counts that overflow towards the
+ * scroller's height at the layer's own scale, so the page scrolls on past the
+ * last card. The layer is clipped (`overflow: clip`), with an
+ * `overflow-clip-margin` that lets the artwork run on exactly as far as the
+ * content does: its scrollable bottom is `layerTop + scale × (height + margin)`.
+ * The clip goes on the layer because it is the end of the 3D chain and already
+ * `transform-style: flat`; clipping the hero wrapper or any ancestor would
+ * flatten the parallax. The mirrored canvas then fades out over its last
+ * {@link HERO_FADE_PX} pixels before the clip edge rather than stopping on a line.
+ */
+export function boundHeroOverflow(
+  heroWrapper: HTMLElement,
+  scroller: HTMLElement,
+  content: HTMLElement,
+  ledger: DomRestorationLedger,
+): void {
+  const layer = findHeroParallaxLayer(heroWrapper);
+  const win = layer?.ownerDocument.defaultView;
+  if (!layer || !win) return;
+  const scale = verticalScale(win.getComputedStyle(layer).transform);
+  if (scale === null || scale < 0) return;
+
+  const scrollerTop = scroller.getBoundingClientRect().top - scroller.scrollTop;
+  const offsetParent = layer.offsetParent as HTMLElement | null;
+  let layerTop: number;
+  if (offsetParent === scroller) layerTop = layer.offsetTop;
+  else if (offsetParent && scroller.contains(offsetParent))
+    layerTop = offsetParent.getBoundingClientRect().top - scrollerTop + layer.offsetTop;
+  else return;
+
+  const contentBottom = content.getBoundingClientRect().bottom - scrollerTop;
+  const target = Math.max(contentBottom, scroller.clientHeight);
+  const margin = Math.max(0, Math.floor((target - layerTop) / scale - layer.offsetHeight));
+  setIfChanged(ledger, layer, "overflow", "clip");
+  setIfChanged(ledger, layer, "overflow-clip-margin", `${margin}px`);
+
+  const mirror = findHeroMirrorCanvas(layer);
+  if (!mirror || mirror.offsetParent !== layer) return;
+  const visible = layer.offsetHeight + margin - mirror.offsetTop;
+  if (visible <= 0) return;
+  // The canvas is flipped, so its visual top is its own bottom edge.
+  const flipped = (verticalScale(win.getComputedStyle(mirror).transform) ?? 1) < 0;
+  const direction = flipped ? "to top" : "to bottom";
+  const fadeFrom = Math.max(0, visible - HERO_FADE_PX);
+  setIfChanged(
+    ledger,
+    mirror,
+    "mask-image",
+    `linear-gradient(${direction}, black ${fadeFrom}px, transparent ${visible}px)`,
+  );
+}
 
 /**
  * Locate the scrollable container for an element (e.g. Steam's game overview scroller).
@@ -131,8 +209,7 @@ export function createStickyPlayBarController(
     return findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
   };
 
-  const ensureHeroVisible = () => {
-    const heroWrapper = getHeroWrapper();
+  const ensureHeroVisible = (heroWrapper = getHeroWrapper()) => {
     if (!heroWrapper) return;
     if (heroWrapper.style.overflow !== "visible") {
       ledger.style(heroWrapper, "overflow", "visible");
@@ -170,7 +247,11 @@ export function createStickyPlayBarController(
   const updatePinning = () => {
     if (!playBarTop.isConnected) return;
     applyBaselineStyles();
-    ensureHeroVisible();
+    const heroWrapper = getHeroWrapper();
+    ensureHeroVisible(heroWrapper);
+    if (heroWrapper && container && scroller !== win) {
+      boundHeroOverflow(heroWrapper, scroller as HTMLElement, container, ledger);
+    }
     const pinned = isPlayBarPinned(playBarTop, scroller);
     applyPlayBarState(pinned);
   };

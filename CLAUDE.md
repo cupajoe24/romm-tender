@@ -162,7 +162,8 @@ locally with `mise run docs`.
   returning early because the React root is already mounted skips critical styling passes. Crucially, the hero banner
   wrapper MUST maintain `overflow: visible` — setting `overflow: hidden` flattens CSS 3D transforms (`perspective: 1px`
   / `preserve-3d`), destroying Steam's native 0.5x parallax and truncating the artwork bleed-through behind the play bar
-  and cards.
+  and cards. The empty scroll gap that overflow would leave is closed on the parallax layer below the 3D chain
+  (`boundHeroOverflow`), never on the wrapper.
 - **The build output lives at `<repo>/dist/`, not under `frontend/`** — and the frontend package writes one directory UP
   to put it there (`OUT_DIR` in `frontend/rollup.config.js`). `dist/` is the SEAM between the two halves rather than the
   frontend's property: the backend serves it as `os.path.join(directories.code_dir, "dist")` (`backend/main.py`), and a
