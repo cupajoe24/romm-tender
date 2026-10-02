@@ -4,7 +4,7 @@
  * already showing. The dialog that asks is the surface's, injected.
  */
 
-import { getSaveStatus, isCallableFailure, logError, debugLog, resolveSyncConflict } from "../api/backend";
+import { getSaveStatus, isEndpointFailure, logError, debugLog, resolveSyncConflict } from "../api/backend";
 import { reportServerReachable } from "./connectionState";
 import { detach } from "./detach";
 import { formatBytes, formatTimestamp } from "./formatters";
@@ -142,7 +142,7 @@ export async function resolveKnownConflicts(
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
     ]);
 
-    if (isCallableFailure(result)) {
+    if (isEndpointFailure(result)) {
       detach(debugLog(`${logContext}: resolve conflict deferred: ${result.message}`));
       showToast(result.message);
       return "failed";
