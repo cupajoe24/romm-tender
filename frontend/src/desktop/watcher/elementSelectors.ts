@@ -1,11 +1,7 @@
 /**
- * Multi-tiered durable element selectors for Steam Desktop client DOM.
- *
- * Uses a 4-tier resolution ladder:
- *  - Tier 1: Webpack CSS module exports from @decky/ui
- *  - Tier 2: Read-only React Fiber component names (getFiberDisplayName)
- *  - Tier 3: Semantic ARIA, text content, and SVG geometry heuristics
- *  - Tier 4: Structural DOM hierarchy fallbacks
+ * Durable element selectors for Steam Desktop client DOM, each resolving
+ * through the ladder on `docs/architecture/desktop-dom-architecture.md`
+ * ("Multi-Tier Resilient Selection Ladder").
  */
 
 import {
@@ -648,4 +644,30 @@ export function findHeroWrapperFallback(steamPanel: HTMLElement, playBarTop: HTM
   }
   const fc = steamPanel.firstElementChild as HTMLElement | null;
   return fc && fc !== playBarTop && !fc.contains(playBarTop) ? fc : null;
+}
+
+/**
+ * Locate the hero banner's parallax layer: the element under the hero wrapper
+ * that carries the `matrix3d` transform, and the last link of its 3D chain.
+ */
+export function findHeroParallaxLayer(heroWrapper: HTMLElement): HTMLElement | null {
+  const win = heroWrapper.ownerDocument.defaultView;
+  if (!win) return null;
+  for (const el of heroWrapper.querySelectorAll<HTMLElement>("*")) {
+    if (win.getComputedStyle(el).transform.startsWith("matrix3d")) return el;
+  }
+  return null;
+}
+
+/**
+ * Locate the mirrored canvas inside the parallax layer: the canvas Steam flips
+ * vertically to continue the artwork's blurred background below the image.
+ */
+export function findHeroMirrorCanvas(parallaxLayer: HTMLElement): HTMLElement | null {
+  const win = parallaxLayer.ownerDocument.defaultView;
+  if (!win) return null;
+  for (const child of parallaxLayer.children as HTMLCollectionOf<HTMLElement>) {
+    if (child.tagName === "CANVAS" && win.getComputedStyle(child).transform !== "none") return child;
+  }
+  return null;
 }
