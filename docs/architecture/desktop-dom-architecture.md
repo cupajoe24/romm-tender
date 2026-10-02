@@ -128,7 +128,8 @@ The **`DomRestorationLedger`** guarantees atomic, idempotent restoration:
   `display: none`. `ledger.unhide(el)` restores the exact prior display state.
 - **Root Tracking**: Mounted React roots are tracked alongside their host container. `createRoot` is found in Steam's
   module registry (`findReactClient`, `desktop/desktopWindow.ts`), because Steam's React 19 keeps it in its own client
-  module rather than on `SP_REACTDOM`.
+  module rather than on `SP_REACTDOM`. That lookup sweeps the whole registry, so the watcher makes it once per window it
+  attaches to and keeps the answer.
 - **Listener Tracking**: Attached event listeners are registered for guaranteed teardown.
 - **Atomic Teardown**: `ledger.restoreAll()` detaches registered event listeners, unmounts all React roots and removes
   their hosts, then restores original displays and inline styles, in one pass — when the page leaves a RomM shortcut,
@@ -230,7 +231,9 @@ To ensure layout containment remains locked regardless of when Steam finishes re
   still calls `reinject()` to catch asynchronous layout shifts.
 - **MutationObserver**: Observes `deskWin.document.body` for child list and subtree mutations.
 - **RomM appId changes**: `onRomMAppIdsChanged` (`utils/rommAppIds.ts`) runs `reinject()` when the set of RomM shortcuts
-  changes, so a page opened before its shortcut was registered is adapted once it is.
+  changes, so a page opened before its shortcut was registered is adapted once it is. Changes made in one synchronous
+  run — start-up registers the whole appId map in a loop — arrive as one call, and a registration that changes nothing
+  arrives not at all.
 - **Settle timeouts**: every path change, and every attach to a window, also schedules `reinject()` at 100, 300 and 600
   ms.
 - **Scroll Synchronization (`stickyPlayBarController.ts`)**: When the user scrolls, `updatePinning()` recalculates play
