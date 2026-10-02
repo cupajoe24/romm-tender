@@ -30,18 +30,28 @@ from domain.bios_status import (
     classify_system_image,
     compute_bios_label,
     compute_bios_level,
+    count_required,
+    count_required_partial,
+    count_required_withheld,
     count_wanted,
 )
+from domain.firmware_groups import GROUP_MET, GROUP_PARTIAL, GROUP_UNKNOWN, GROUP_UNMET, GroupVerdict
 from domain.firmware_wants import (
+    DECLARED_DIRECTORY,
     SYSTEM_FIRMWARE_CANNOT_RUN_WITHOUT,
     SYSTEM_FIRMWARE_CORE_ALTERNATIVE,
     SYSTEM_FIRMWARE_OPEN,
     SYSTEM_FIRMWARE_RUNS_WITHOUT,
+    WANTED_NEEDED,
     WANTED_OPTIONAL,
     WANTED_UNKNOWN,
     CoreFirmwareVerdict,
+    FirmwareGroup,
+    FirmwareOption,
     FirmwarePlacement,
     FirmwareWant,
+    FolderVerdict,
+    MissingConfiguredImage,
 )
 
 _CORE = "swanstation_libretro"
@@ -347,12 +357,11 @@ class TestTheRegisterARowsProseIsWrittenIn:
 
 
 class TestWhatACoresEntryOnARowSays:
-    """Per core: its own word about the file, and the table's word about its console.
+    """Per emulator: its own word about the file, and the file as an option of its group.
 
-    Two speakers, two keys, and the pair is what a surface listing several
-    emulators has to be able to word — a core that marks the file ``optional``
-    while its console will not start without one of the five images it declares
-    is the informative case, and it is the deployed catalogue's SwanStation.
+    Two statements, two keys, never folded: Beetle PSX marks ``scph5501.bin``
+    optional and lists it as the NTSC-U option of its group, and a surface
+    listing several emulators beside one file has to be able to say both.
     """
 
     _PLACEMENT = FirmwarePlacement(
@@ -366,7 +375,16 @@ class TestWhatACoresEntryOnARowSays:
         ),
     )
 
-    def _entry(self, cores_needing_one_of=None, *, launching_emulator: str | None = _CORE) -> BiosFileEntry:
+    _GROUP = FirmwareGroup(
+        emulator=_CORE,
+        options=(
+            FirmwareOption("scph5500.bin", ("ntsc-j",), False),
+            FirmwareOption("scph5501.bin", ("ntsc-u",), False),
+            FirmwareOption("scph5502.bin", ("pal",), False),
+        ),
+    )
+
+    def _entry(self, groups=(), *, launching_emulator: str | None = _CORE) -> BiosFileEntry:
         return build_file_entry(
             "scph5501.bin",
             False,
@@ -374,85 +392,224 @@ class TestWhatACoresEntryOnARowSays:
             self._PLACEMENT,
             True,
             launching_emulator,
-            cores_needing_one_of=cores_needing_one_of if cores_needing_one_of is not None else {},
+            groups=groups,
         )
 
-    def _cores(self, cores_needing_one_of=None) -> dict[str, dict[str, object]]:
-        return self._entry(cores_needing_one_of).cores
+    def test_the_declaration_and_the_group_membership_ride_side_by_side(self):
+        cores = self._entry((self._GROUP,)).cores
 
-    def test_the_declaration_and_the_consoles_demand_ride_side_by_side(self):
-        cores = self._cores({_CORE: 5})
+        assert cores[_CORE] == {"required": False, "one_of": {"regions": ["ntsc-u"], "every_region": False}}
+        assert cores[_ALTERNATIVE_CORE] == {"required": False, "one_of": None}
 
-        assert cores[_CORE] == {"required": False, "needs_one_of": 5}
-        assert cores[_ALTERNATIVE_CORE] == {"required": False, "needs_one_of": None}
+    def test_being_an_option_never_makes_the_file_required(self):
+        entry = self._entry((self._GROUP,))
 
-    def test_the_declaration_is_carried_unaltered(self):
-        """The core's own word never moves with the console's demand."""
-        for cores_needing_one_of in ({}, {_CORE: 5}):
-            assert self._cores(cores_needing_one_of)[_CORE]["required"] is False
+        assert entry.cores[_CORE]["required"] is False
+        assert entry.required_by_active is False
 
-    def test_a_caller_that_names_no_core_claims_nothing_for_any_of_them(self):
-        """The default is silence, not a demand — an unasked question is not an answer."""
-        assert all(core["needs_one_of"] is None for core in self._cores().values())
+    def test_an_emulator_with_no_identity_keeps_its_row_out(self):
+        assert set(self._entry((self._GROUP,)).cores) == {_CORE, _ALTERNATIVE_CORE}
 
-    def test_an_emulator_with_no_core_of_its_own_keeps_its_row_out(self):
-        """A standalone emulator names no ``.so``, so there is no key to answer under."""
-        assert set(self._cores({_CORE: 5})) == {_CORE, _ALTERNATIVE_CORE}
+    def test_the_row_carries_the_launching_emulators_membership(self):
+        """The row field and the per-emulator entry are one answer read twice."""
+        entry = self._entry((self._GROUP,))
 
-    def test_the_row_is_a_candidate_where_the_launching_core_states_the_disjunction(self):
-        """The row flag and the per-core entry are one answer read twice."""
-        entry = self._entry({_CORE: 5})
+        assert entry.one_of == {"regions": ["ntsc-u"], "every_region": False}
+        assert entry.one_of == entry.cores[_CORE]["one_of"]
 
-        assert entry.system_image_candidate is True
-        assert entry.cores[_CORE]["needs_one_of"] == 5
+    def test_another_emulators_group_is_not_the_launchs(self):
+        assert self._entry((self._GROUP,), launching_emulator=_ALTERNATIVE_CORE).one_of is None
 
-    def test_a_row_the_launching_core_does_not_state_a_disjunction_for_is_not_a_candidate(self):
-        """PCSX ReARMed declares the same file and carries its own substitute."""
-        entry = self._entry({_CORE: 5}, launching_emulator=_ALTERNATIVE_CORE)
+    def test_a_caller_with_no_emulator_to_name_claims_no_membership(self):
+        assert self._entry((self._GROUP,), launching_emulator=None).one_of is None
 
-        assert entry.system_image_candidate is False
-        assert entry.cores[_ALTERNATIVE_CORE]["needs_one_of"] is None
+    def test_an_image_serving_every_region_says_so(self):
+        """SwanStation's search find boots whatever the disc, which a surface words as "every region"."""
+        found = FirmwareGroup(
+            emulator=_CORE, options=(FirmwareOption("scph5501.bin", ("ntsc-j", "ntsc-u", "pal"), True),)
+        )
 
-    def test_a_caller_with_no_core_to_name_claims_no_candidate(self):
-        """An unresolvable active core is not a licence to answer for one."""
-        assert self._entry({_CORE: 5}, launching_emulator=None).system_image_candidate is False
+        assert self._entry((found,)).one_of == {"regions": ["ntsc-j", "ntsc-u", "pal"], "every_region": True}
 
-    def test_a_candidate_that_is_there_answers_the_console(self):
-        """Candidate + met implies ``held``, which is what lets a row say so alone.
+    def test_the_download_rule_is_carried_on_the_row(self):
+        """An option of a region nothing covers is fetched by "Download required"; the row says so."""
+        assert self._entry((self._GROUP,)).fetch_for_required is True
+        assert self._entry(()).fetch_for_required is False
 
-        The candidates are a subset of the rows :func:`classify_system_image`
-        weighs, so a satisfied one cannot leave the console's own answer
-        anywhere else — a surface may therefore draw such a row "this starts the
-        system" without consulting the platform value beside it.
-        """
-        rows = tuple(
-            build_file_entry(
-                name,
-                downloaded,
-                f"/bios/{name}",
-                self._PLACEMENT,
-                True,
-                _CORE,
-                cores_needing_one_of={_CORE: 5},
+
+class TestAOneOfGroupIsOneRequirement:
+    """The group counts once, partly covered counts as not met, and the level follows it."""
+
+    @staticmethod
+    def _verdict(state: str) -> GroupVerdict:
+        return GroupVerdict(state=state, covered=(), missing=(), unchecked=())
+
+    def _status(self, *states: str, files: tuple[BiosFileEntry, ...] = ()) -> BiosStatus:
+        groups = tuple(self._verdict(state) for state in states)
+        required, done = count_required(files, groups)
+        return _status(files, required_count=required, required_downloaded=done, groups=groups)
+
+    @pytest.mark.parametrize(
+        ("state", "counts"),
+        [(GROUP_MET, (1, 1)), (GROUP_PARTIAL, (1, 0)), (GROUP_UNMET, (1, 0)), (GROUP_UNKNOWN, (1, 0))],
+    )
+    def test_a_group_is_one_requirement_met_only_when_met(self, state, counts):
+        assert count_required((), (self._verdict(state),)) == counts
+
+    def test_the_options_rows_add_nothing_to_the_count(self):
+        """Three optional option rows and their group: one requirement, not three and not none."""
+        rows = tuple(_image(name, satisfied=False) for name in ("scph5500.bin", "scph5501.bin", "scph5502.bin"))
+
+        assert count_required(rows, (self._verdict(GROUP_PARTIAL),)) == (1, 0)
+
+    @pytest.mark.parametrize(
+        ("state", "level", "label"),
+        [
+            (GROUP_MET, BIOS_LEVEL_OK, "OK"),
+            # The token counts plain required files only, and there are none.
+            (GROUP_PARTIAL, BIOS_LEVEL_PARTIAL, "OK"),
+            (GROUP_UNMET, BIOS_LEVEL_MISSING, BIOS_LABEL_MISSING),
+            (GROUP_UNKNOWN, BIOS_LEVEL_UNKNOWN, BIOS_LABEL_UNKNOWN),
+        ],
+    )
+    def test_the_groups_state_decides_the_level(self, state, level, label):
+        status = self._status(state)
+
+        assert compute_bios_level(status) == level
+        assert compute_bios_label(status) == label
+
+    def test_an_unknown_group_is_withheld_and_a_partial_one_is_counted_apart(self):
+        groups = (self._verdict(GROUP_UNKNOWN), self._verdict(GROUP_PARTIAL), self._verdict(GROUP_MET))
+
+        assert count_required_withheld((), groups) == 1
+        assert count_required_partial(groups) == 1
+
+    def test_a_missing_required_file_beside_a_partial_group_is_still_partial(self):
+        row = dataclasses.replace(_withheld_folder_row(), satisfied=False, downloaded=False)
+
+        assert compute_bios_level(self._status(GROUP_PARTIAL, files=(row,))) == BIOS_LEVEL_PARTIAL
+
+    def test_a_group_with_nothing_in_place_outranks_a_held_required_file(self):
+        row = dataclasses.replace(_withheld_folder_row(), satisfied=True)
+
+        assert compute_bios_level(self._status(GROUP_UNMET, files=(row,))) == BIOS_LEVEL_MISSING
+
+    def test_where_the_emulator_states_a_group_the_system_image_stays_silent(self):
+        """The group IS the console's demand, said per region; the coarser reading is not a second answer."""
+        verdict = CoreFirmwareVerdict(SYSTEM_FIRMWARE_CANNOT_RUN_WITHOUT)
+        rows = (_image("scph5501.bin", satisfied=False),)
+
+        assert classify_system_image(verdict, rows, _CORE) == SYSTEM_IMAGE_ABSENT
+        assert classify_system_image(verdict, rows, _CORE, groups=(self._verdict(GROUP_PARTIAL),)) == (
+            SYSTEM_IMAGE_NOT_DEMANDED
+        )
+
+
+class TestThePlayRowTokenCountsPlainFilesOnly:
+    """The badge token: "Missing" for a group that does not cover the game, else plain files only.
+
+    The verdicts here are the game-scoped ones (``judge_group_for_game``). The
+    system is invented — its slug, core, regions and rows — because the token
+    reads the group's state and the rows' verdicts and nothing about a console.
+    """
+
+    _CORE = "arcadia_libretro"
+
+    @classmethod
+    def _plain(cls, name: str, *, here: bool | None) -> BiosFileEntry:
+        """A file the invented core requires: in place, shown missing, or nothing could judge it (``None``)."""
+        return BiosFileEntry(
+            file_name=name,
+            downloaded=bool(here),
+            local_path=f"/bios/arcadia/{name}",
+            declared_path=f"arcadia/{name}",
+            description=f"{name} (Arcadia system ROM)",
+            wanted=WANTED_NEEDED,
+            required_by_active=True,
+            cores={cls._CORE: {"required": True}},
+            used_by_active=True,
+            satisfied=here,
+        )
+
+    @staticmethod
+    def _verdict(state: str) -> GroupVerdict:
+        covered = ("north",) if state in {GROUP_MET, GROUP_PARTIAL} else ()
+        missing = ("south",) if state in {GROUP_PARTIAL, GROUP_UNMET} else ()
+        unchecked = ("east",) if state == GROUP_UNKNOWN else ()
+        return GroupVerdict(state=state, covered=covered, missing=missing, unchecked=unchecked)
+
+    def _label(self, *states: str, plain: tuple[bool | None, ...] = ()) -> str:
+        files = tuple(self._plain(f"plain{index}.rom", here=here) for index, here in enumerate(plain))
+        groups = tuple(self._verdict(state) for state in states)
+        required, done = count_required(files, groups)
+        return compute_bios_label(
+            _status(
+                files,
+                platform_slug="arcadia",
+                required_count=required,
+                required_downloaded=done,
+                groups=groups,
             )
-            for name, downloaded in (("scph5500.bin", False), ("scph5501.bin", True))
         )
 
-        assert all(row.system_image_candidate for row in rows)
-        assert classify_system_image(CoreFirmwareVerdict(SYSTEM_FIRMWARE_CANNOT_RUN_WITHOUT), rows, _CORE) == (
-            SYSTEM_IMAGE_HELD
-        )
+    def test_a_group_that_does_not_cover_the_game_is_missing_whatever_the_plain_files_say(self):
+        assert self._label(GROUP_UNMET, plain=(True, False)) == BIOS_LABEL_MISSING
+        assert self._label(GROUP_UNMET, plain=(True,)) == BIOS_LABEL_MISSING
 
-    def test_a_row_the_launching_core_does_not_declare_is_not_a_candidate(self):
-        """Only the images that core opens can answer its console."""
-        entry = build_file_entry(
-            "gba_bios.bin",
-            False,
-            "/bios/gba_bios.bin",
-            None,
-            True,
-            _CORE,
-            cores_needing_one_of={_CORE: 5},
-        )
+    def test_a_covering_group_leaves_the_count_to_the_plain_files(self):
+        assert self._label(GROUP_MET, plain=(True, False)) == "1/2 required"
 
-        assert entry.system_image_candidate is False
+    def test_a_covering_group_with_no_plain_file_in_place_still_counts(self):
+        """An image is there, so "Missing" would overstate it."""
+        assert self._label(GROUP_MET, plain=(False,)) == "0/1 required"
+        assert self._label(GROUP_PARTIAL, plain=(False,)) == "0/1 required"
+
+    def test_a_partial_group_with_every_plain_file_in_place_is_ok(self):
+        assert self._label(GROUP_PARTIAL, plain=(True,)) == "OK"
+
+    def test_without_a_group_the_token_is_what_it_was(self):
+        assert self._label(plain=(False, False)) == BIOS_LABEL_MISSING
+        assert self._label(plain=(True, False)) == "1/2 required"
+        assert self._label(plain=(True,)) == "OK"
+
+    def test_a_plain_file_shown_missing_is_counted_beside_a_group_nothing_could_check(self):
+        assert self._label(GROUP_UNKNOWN, plain=(False,)) == "0/1 required"
+        assert self._label(GROUP_UNKNOWN, plain=(True, False)) == "1/2 required"
+
+    def test_a_plain_file_shown_missing_is_counted_beside_a_row_nothing_could_judge(self):
+        """The row nothing could judge is one of the plain files, so it is in the second number."""
+        assert self._label(plain=(None, False)) == "0/2 required"
+
+    def test_with_nothing_shown_missing_a_declined_verdict_stays_unknown(self):
+        assert self._label(GROUP_UNKNOWN, plain=(True,)) == BIOS_LABEL_UNKNOWN
+        assert self._label(GROUP_UNKNOWN) == BIOS_LABEL_UNKNOWN
+        assert self._label(plain=(None, True)) == BIOS_LABEL_UNKNOWN
+
+
+class TestAStaleConfiguredNameChangesNothing:
+    """LRPS2 configured to open a file that is not there lists its folder instead — the verdict stands."""
+
+    _FOLDER = FirmwarePlacement(
+        file_name="bios",
+        relative_path="pcsx2/bios",
+        description="'pcsx2/bios' folder",
+        wants=(FirmwareWant(emulator="pcsx2_libretro.so", required=True),),
+        declared_kind=DECLARED_DIRECTORY,
+        caveats=("firmware-configured-image-missing",),
+        folder=FolderVerdict(satisfied=True, images=("SCPH-70004",)),
+        missing_configured_image=MissingConfiguredImage("LRPS2", "scph10000.bin"),
+    )
+
+    def test_the_row_carries_the_setting_and_keeps_its_verdict(self):
+        entry = build_file_entry("bios", True, "/bios/pcsx2/bios", self._FOLDER, True, "pcsx2_libretro.so")
+
+        assert entry.missing_configured_image == {"emulator_label": "LRPS2", "file_name": "scph10000.bin"}
+        assert entry.satisfied is True
+
+    def test_the_level_over_it_is_the_folders(self):
+        entry = build_file_entry("bios", True, "/bios/pcsx2/bios", self._FOLDER, True, "pcsx2_libretro.so")
+        required, done = count_required((entry,))
+
+        assert compute_bios_level(_status((entry,), required_count=required, required_downloaded=done)) == (
+            BIOS_LEVEL_OK
+        )
