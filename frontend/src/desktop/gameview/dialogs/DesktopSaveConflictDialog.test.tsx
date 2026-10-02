@@ -10,7 +10,7 @@ import type { SyncConflict } from "../../../types";
 vi.mock("../../../api/backend", () => ({
   resolveSyncConflict: vi.fn(),
   getSaveStatus: vi.fn(),
-  isCallableFailure: vi.fn(() => false),
+  isEndpointFailure: vi.fn(() => false),
   logError: vi.fn(),
   debugLog: vi.fn(),
 }));
