@@ -1,11 +1,16 @@
 import { ConfirmModal, showModal } from "@decky/ui";
+import {
+  CANCEL_LABEL,
+  FALLBACK_LAUNCH_LABEL,
+  FALLBACK_LAUNCH_TITLE,
+  fallbackLaunchDescription,
+} from "../utils/launchPromptWording";
 
 /**
  * "Save Sync Unavailable" fallback confirm (ADR-0015). Shown when an online
  * pre-launch sync failed without surfacing a conflict, or when a step of the
  * launch check got no answer in time — asks whether to launch with local saves
- * anyway. The Play button's `sync_failed` verdict and the
- * global watcher both show this one, so the copy stays identical.
+ * anyway.
  *
  * Mirrors the `showModal(...)`-returns-a-Promise pattern of
  * `showCoreChangeModal` / `showOfflineDriftModal`. Resolves `true` on
@@ -13,14 +18,13 @@ import { ConfirmModal, showModal } from "@decky/ui";
  * `ConfirmModal` routes through `onCancel`).
  */
 export function showFallbackLaunchModal(message?: string): Promise<boolean> {
-  const description = describe(message?.trim());
   return new Promise<boolean>((resolve) => {
     showModal(
       <ConfirmModal
-        strTitle="Save Sync Unavailable"
-        strDescription={description}
-        strOKButtonText="Launch Anyway"
-        strCancelButtonText="Cancel"
+        strTitle={FALLBACK_LAUNCH_TITLE}
+        strDescription={fallbackLaunchDescription(message)}
+        strOKButtonText={FALLBACK_LAUNCH_LABEL}
+        strCancelButtonText={CANCEL_LABEL}
         onOK={() => resolve(true)}
         onCancel={() => resolve(false)}
       />,

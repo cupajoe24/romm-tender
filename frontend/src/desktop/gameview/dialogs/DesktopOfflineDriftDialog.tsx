@@ -1,10 +1,18 @@
 /**
- * Desktop offline-drift confirmation dialog.
- * Shown when RomM is unreachable and the local save has unsynced changes.
- * Parity equivalent of Big Picture's `OfflineDriftModal`.
+ * The desktop client's offline-drift prompt, asked before a start from Tender's
+ * Play button when RomM is unreachable and the local save has unsynced changes.
+ * `shared/OfflineDriftModal` is the other drawing of it — Big Picture's, and the
+ * one the launch watcher shows on either surface.
  */
 
 import type { FC } from "react";
+import {
+  CANCEL_LABEL,
+  OFFLINE_DRIFT_DESCRIPTION,
+  OFFLINE_DRIFT_RETRY_LABEL,
+  OFFLINE_DRIFT_START_LABEL,
+  OFFLINE_DRIFT_TITLE,
+} from "../../../utils/launchPromptWording";
 import { DIALOG_ACTIONS_STYLE, DIALOG_TEXT_STYLE, DesktopDialog, dialogButtonStyle } from "./DesktopDialog";
 
 export interface DesktopOfflineDriftDialogProps {
@@ -14,21 +22,19 @@ export interface DesktopOfflineDriftDialogProps {
 export const DesktopOfflineDriftDialog: FC<DesktopOfflineDriftDialogProps> = ({ onChoice }) => (
   <DesktopDialog
     titleId="tender-desktop-offline-drift-title"
-    title="RomM Unreachable"
+    title={OFFLINE_DRIFT_TITLE}
     onDismiss={() => onChoice("cancel")}
   >
-    <div style={DIALOG_TEXT_STYLE}>
-      Your local save has unsynced changes. Playing now may create a conflict you&apos;ll resolve later. Start anyway?
-    </div>
+    <div style={DIALOG_TEXT_STYLE}>{OFFLINE_DRIFT_DESCRIPTION}</div>
     <div style={DIALOG_ACTIONS_STYLE}>
       <button type="button" style={dialogButtonStyle("primary")} onClick={() => onChoice("start_anyway")}>
-        Start Anyway
+        {OFFLINE_DRIFT_START_LABEL}
       </button>
       <button type="button" style={dialogButtonStyle("secondary")} onClick={() => onChoice("retry")}>
-        Retry connection
+        {OFFLINE_DRIFT_RETRY_LABEL}
       </button>
       <button type="button" style={dialogButtonStyle("quiet")} onClick={() => onChoice("cancel")}>
-        Cancel
+        {CANCEL_LABEL}
       </button>
     </div>
   </DesktopDialog>

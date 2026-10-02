@@ -27,15 +27,11 @@ import type { DownloadCompleteEvent } from "../types";
 import { mountPruneLeaseOwner, releasePruneLeasesByOwner } from "../utils/pruneLease";
 import {
   type DiscOptionData,
-  DISC_GREY,
-  DISC_ACCENT,
-  DiscStack,
-  DiscWithNumber,
   computeDiscDisplayState,
-  buildDiscOptions,
   fetchDiscSelection,
   executeDiscSelection,
 } from "../utils/discSelection";
+import { DISC_GREY, DISC_ACCENT, DiscStack, DiscWithNumber, buildDiscOptions } from "../shared/DiscGlyphs";
 
 interface DiscSelectorProps {
   appId: number;
