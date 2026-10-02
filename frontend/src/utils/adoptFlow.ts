@@ -22,6 +22,13 @@ import { detach } from "./detach";
 import { capturePruneLeaseAdmission, withPruneLease } from "./pruneLease";
 import { setLaunchOptionsConfirmed } from "./steamShortcuts";
 import { showToast } from "./toast";
+import {
+  ADOPT_REFUSED_TOAST,
+  ADOPT_THREW_TOAST,
+  DOWNLOAD_REFUSED_TOAST,
+  DOWNLOAD_THREW_TOAST,
+  adoptedToast,
+} from "./adoptWording";
 import type {
   AdoptionCandidate,
   CandidatesFoundResult,
@@ -190,13 +197,13 @@ async function download(
       return await resolveVanished(flow, result);
     }
     if (!result.success) {
-      showToast(result.message || "Download failed");
+      showToast(result.message || DOWNLOAD_REFUSED_TOAST);
       hooks.setBusy(false);
       return "failed";
     }
     return "download_started";
   } catch {
-    showToast("Download failed — is RomM server running?");
+    showToast(DOWNLOAD_THREW_TOAST);
     hooks.setBusy(false);
     return "failed";
   }
@@ -282,7 +289,7 @@ async function adopt(
       return await adopt(flow, candidatePath, answer);
     }
     if (!result.success) {
-      showToast(result.message || "Couldn't use the existing files");
+      showToast(result.message || ADOPT_REFUSED_TOAST);
       return "failed";
     }
     const adoptedAppId = result.app_id;
@@ -303,11 +310,11 @@ async function adopt(
     hooks.setCandidatePresent(false);
     hooks.onAdopted();
     globalThis.dispatchEvent(new CustomEvent("romm_data_changed", { detail: { type: "rom_adopted", rom_id: romId } }));
-    showToast(`${flow.romName || "ROM"} is ready to play`);
+    showToast(adoptedToast(flow.romName));
     return "adopted";
   } catch (e) {
     detach(debugLog(`${flow.logContext}: adopt failed: ${e}`));
-    showToast("Couldn't use the existing files — is RomM server running?");
+    showToast(ADOPT_THREW_TOAST);
     return "failed";
   } finally {
     hooks.setBusy(false);
