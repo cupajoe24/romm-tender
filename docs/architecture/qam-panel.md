@@ -6,12 +6,12 @@ every other page from there. Steam renders the QAM 348 px wide; a page of this p
 Steam's own Friends tab uses — for as long as that page is mounted. This page owns the panel's structure: which pages
 exist, which are wide, how a page is navigated and laid out, and where each action has its home. The game detail page is
 a Steam route, not part of the panel, and is out of scope here; the state it shares across its surfaces is the
-**Game-detail store** (CONTEXT.md).
+**Game-detail store** (GLOSSARY.md).
 
 The structure below is the target decided in [#1809](https://github.com/danielcopper/romm-tender/issues/1809) and
 rebuilt one page at a time under [#1808](https://github.com/danielcopper/romm-tender/issues/1808). Where today's panel
 differs, the difference is stated; the PR that lands a page updates its row in the page table. The vocabulary — **QAM
-page**, **Main**, **wide page**, **list and detail**, **notice**, **home** — is defined in CONTEXT.md and used here
+page**, **Main**, **wide page**, **list and detail**, **notice**, **home** — is defined in GLOSSARY.md and used here
 without restating it. The width mechanism's decision record is
 [ADR-0029](../adr/0029-wide-qam-pages-drive-steams-friends-expansion.md).
 
@@ -81,7 +81,8 @@ each is a way to get this wrong:
 - The entry is added again to whatever array the pass is handed, and the entry's own marker is what keeps a second pass
   over an array it is already in from adding a second one.
 - Anything bound to the menu's own window is bound from inside the menu's React tree, so the remount re-binds it. The
-  entry itself binds nothing there — the glyph is static and reads no state at all — but a page the panel mounts does:
+  entry itself binds nothing there — the glyph's update dot reads stores that are module state of the plugin's own
+  window, and subscribes to them from the tree through `useSyncExternalStore` — but a page the panel mounts does:
   `utils/qamExpansion.ts`'s stylesheet and `MutationObserver`, `utils/entryFocus.ts`'s focus listeners,
   `bigpicture/layout/WidePage.tsx`'s `ResizeObserver`, and `bigpicture/layout/ScrollRegion.tsx`, which reads the view
   per event and retains nothing. Each of the four sits inside an effect or an event handler of a component the menu
@@ -117,9 +118,9 @@ It is **generated**, by `scripts/logo/tabicon.py` through `build.py --tab-icon`,
 the geometry comes from the mark's own drawing routines, so the two cannot drift. Its two departures from the mark's
 geometry, and why, are at `tabicon.STRIP_GEOMETRY`.
 
-**Nothing about it moves, and that is a measurement rather than a taste.** It shipped with a ring that turned while a
-sync ran and a body that folded while the entry was active. Read over CDP on the QuickAccess target in 6-second windows,
-with only the fold running:
+**Nothing about it moves at rest, and that is a measurement rather than a taste.** It shipped with a ring that turned
+while a sync ran and a body that folded while the entry was active. Read over CDP on the QuickAccess target in 6-second
+windows, with only the fold running:
 
 |                    | fold running | animation off |
 | ------------------ | ------------ | ------------- |
@@ -133,10 +134,26 @@ That is roughly 29% of one core for as long as the menu is open, and a full layo
 either reading**, so nothing here is a measurement of it: starting a sync run was not possible in that session. It was
 an `<animateTransform type="rotate">` on a `<g>` rather than an animation of `d`, so the mechanism above does not reach
 it and what it would have added is simply unknown. On a handheld, that is not a trade a decoration rendering at 24 px
-gets to make. `TabIcon.test.tsx` fails if any of SMIL's animation elements comes back — it can see nothing else, and
-motion driven from CSS or a rAF loop would pass it — because the cost is invisible to every other check here.
+gets to make. `TabIcon.test.tsx` fails if any of SMIL's animation elements comes back, or a `<style>`, a `class` a
+stylesheet could reach, or an inline `animation` or `transition` — with the update dot drawn at rest — because the cost
+is invisible to every other check here. The one motion it allows is the update dot's fade (below), which runs once and
+ends with the dot gone. It can see nothing else: a rAF loop, or a stylesheet elsewhere that targets the glyph's elements
+by tag, id or attribute, would pass it.
 
-Two things about it are unmeasured, and neither is guessed at:
+**The update dot** is the one thing on the glyph that reads state: a filled circle in the top-right corner, over the
+arc's end, in the "is available" card's blue (`UPDATE_AVAILABLE_COLOR`), drawn while that card would show on Main and
+its release was not yet seen — `updateDotVersion` over the card's own answer, `availableCardVersion` in
+`utils/updateAvailableView.ts`, through `useUpdateDot` in `utils/updateDot.ts`, which every dot draws through, so none
+of them can disagree with the card (§ Notices and homes). At rest it does not move either. When its release is seen it
+plays its one **fade**: it grows to 2.2 times its size about its own centre and fades out over 450 ms, ease-out, then is
+taken out. That is one CSS transition of `transform` and `opacity`, set on the dot only for the fade, so a dot at rest
+carries none. The fade is inline style on the element the glyph renders and its end a timer of the plugin's own window,
+so nothing is taken from, or bound to, the menu's window. The strip has no error boundary (§ The boundary), so a store
+state the answer cannot be worked out from draws no dot rather than throwing; with every store as it starts — the
+start-up failure page's case — there is none. Its size and place on the strip, and how the fade looks there, are device
+questions; nothing in the suite can see them.
+
+Two things about the glyph are unmeasured, and neither is guessed at:
 
 - **Whether it lands at the 28 px it asks for.** It asks in em rather than in pixels so it scales with Steam's UI, and
   the `1.633em` it asks with is scaled off a measurement rather than arithmetic: the `1.4em` it used to carry drew a box
@@ -691,19 +708,19 @@ hide exactly that. What decides is what the reader has to see while typing, not 
 A notice on Main names a condition and jumps to its home; the action exists only there. A condition with no home in the
 plugin stays a card without a jump, with Dismiss where the condition has a sensible end.
 
-| Condition                                                      | On Main                                                                               | Home                                                                                                                              |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Settings were reset                                            | text, backup path, Dismiss                                                            | none — the card is the whole of it                                                                                                |
-| Cross-device playtime needs a fresh sign-in                    | text, **Open Connections**, Dismiss                                                   | Settings › Connections, where the accounts are                                                                                    |
-| RetroDECK paths missing or unreadable                          | warning card, no action                                                               | none — the fix is outside the plugin                                                                                              |
-| Steam answers for no notifications                             | warning card, no action                                                               | none — the fix is outside the plugin                                                                                              |
-| RetroArch `input_driver` is wrong                              | text, **Open Controller**                                                             | Settings › Controller, which holds the Fix button                                                                                 |
-| Sync paused on the session budget                              | text, **Open Sync**                                                                   | Sync, which holds Restart Steam now and Resume                                                                                    |
-| An update was rolled back, or refused by its pre-install check | both versions, where the reason is, **Open Updates**, Dismiss — and a toast, once     | Settings › Updates, which states the same fact whether or not the card was dismissed, and shows what the installer said           |
-| An update's installer stopped without updating                 | both versions, the installer's journal, **Open Updates**, Dismiss — and a toast, once | Settings › Updates, where the attempt stands as failed with Try again for the rest of that run, and shows what the installer said |
-| An install from Settings failed or was cancelled               | none — a toast, once                                                                  | Settings › Updates, where the attempt stands as failed with Try again                                                             |
-| A newer Tender release is out                                  | both versions, **Open Updates**, Dismiss                                              | Settings › Updates, which states both versions and holds the install, the check's switch and Check now                            |
-| Tender was updated, or went back                               | the version, Dismiss — and a toast, once                                              | none — the card is the whole of it                                                                                                |
+| Condition                                                      | On Main                                                                                               | Home                                                                                                                              |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Settings were reset                                            | text, backup path, Dismiss                                                                            | none — the card is the whole of it                                                                                                |
+| Cross-device playtime needs a fresh sign-in                    | text, **Open Connections**, Dismiss                                                                   | Settings › Connections, where the accounts are                                                                                    |
+| RetroDECK paths missing or unreadable                          | warning card, no action                                                                               | none — the fix is outside the plugin                                                                                              |
+| Steam answers for no notifications                             | warning card, no action                                                                               | none — the fix is outside the plugin                                                                                              |
+| RetroArch `input_driver` is wrong                              | text, **Open Controller**                                                                             | Settings › Controller, which holds the Fix button                                                                                 |
+| Sync paused on the session budget                              | text, **Open Sync**                                                                                   | Sync, which holds Restart Steam now and Resume                                                                                    |
+| An update was rolled back, or refused by its pre-install check | both versions, where the reason is, **Open Updates**, Dismiss — and a toast, once                     | Settings › Updates, which states the same fact whether or not the card was dismissed, and shows what the installer said           |
+| An update's installer stopped without updating                 | both versions, the installer's journal, **Open Updates**, Dismiss — and a toast, once                 | Settings › Updates, where the attempt stands as failed with Try again for the rest of that run, and shows what the installer said |
+| An install from Settings failed or was cancelled               | none — a toast, once                                                                                  | Settings › Updates, where the attempt stands as failed with Try again                                                             |
+| A newer Tender release is out                                  | both versions, **Open Updates**, Dismiss — a toast, once per version, and dots on the way to its home | Settings › Updates, which states both versions and holds the install, the check's switch and Check now                            |
+| Tender was updated, or went back                               | the version, Dismiss — and a toast, once                                                              | none — the card is the whole of it                                                                                                |
 
 Every row of that table is what the panel does today. The two full-page states — a version error and a pending RetroDECK
 migration — are not notices; they replace the page, and neither carries a condition inside it any more: the one that did
@@ -734,13 +751,61 @@ the playtime notice's sit in Steam's `Field` with its children below, because th
 update notice's Dismiss is **per version**: it records the version the card names (`update_notice_dismissed_version`),
 so the next release raises the card again, and **Check now** in its home forgets it. The home states the versions and
 holds the install, the check's switch and Check now, and to a run from a checkout it shows a line naming this a
-development build in place of the install. The card's condition is `available` on the backend's answer and nothing else
-— a newer release with its tarball, a valid digest and its checksum file attached, not the dismissed version, whatever
-the check's switch says: the switch governs only what the program asks GitHub by itself, so a release Check now found is
-announced and offered to install with it off too. The answer is fetched at panel load by a detached call nothing awaits
-(the store's `fetchUpdateNotice` says why), rewritten by Dismiss, the switch and Check now, and replaced by the notice
-the backend pushes (`update_notice`) when its own check while it runs finds a different answer, so the card and its home
-follow without a reload.
+development build in place of the install. The card's condition is `availableCardVersion`
+(`utils/updateAvailableView.ts`): `available` on the backend's answer — a newer release with its tarball, a valid digest
+and its checksum file attached, not the dismissed version, whatever the check's switch says — unless a failed update to
+that release takes the card's place (below). The switch governs only what the program asks GitHub by itself, so a
+release Check now found is announced and offered to install with it off too. The answer is fetched at panel load by a
+detached call nothing awaits (the store's `fetchUpdateNotice` says why), rewritten by Dismiss, the switch and Check now,
+and replaced by the notice the backend pushes (`update_notice`) when its own check while it runs finds a different
+answer, so the card and its home follow without a reload.
+
+**The card has companions that follow it**, all off the one answer `availableCardVersion` the card itself renders from:
+three **dots** in the card's blue that mark the way to its home — on Tender's glyph in the Quick Access strip
+([The glyph](#the-glyph)), beside **Settings** on Main, and beside **Updates** in the Settings list — and a **toast**,
+**Tender X is available. Settings › Updates to install it.**, in Tender's name, which does nothing when tapped
+(`utils/updateAvailableToast.ts`). The backend owes the toast once per version, across every start — `toast_owed` on the
+notice; when it holds, and what records a version as told, is
+[UpdateCheckService notes](backend-architecture.md#updatecheckservice-notes) — and the panel acknowledges it once
+raised. Beyond `toast_owed` and the card's own answer, the panel holds it back in five cases:
+
+- **Until the reads made at panel load have answered.** The notice only has to settle; what the last update did, a
+  stopped attempt and the install's state have to have succeeded, so a failure record for the same version that answers
+  last still suppresses it rather than being overtaken. Where one of those three failed, this JavaScript context raises
+  none at all and the toast stays owed for the next load: what was not read might be what holds it back.
+- **While an update is being installed**, from the press of Install until the attempt has ended — before its first frame
+  too, while the press waits for its answer and once the backend accepted it. An attempt under way when the JavaScript
+  context was replaced is known at load from the install's state read (`updateInstallStore.ts`'s
+  `seedUpdateInstallAttempt`), not only from its next frame. Once an attempt failed, it is raised where nothing else
+  holds it back.
+- **While Steam's notification lookups are missing** (`notificationsUnavailable`), since a toast raised then is never
+  seen and its acknowledgement would take it away for good.
+- **While the switch is off as the store holds it**, since `toast_owed` is the backend's answer as last read.
+- **Until Steam can show it**, as the other update toasts wait (`utils/steamReadyForToasts.ts`); a running game does not
+  hold it back. Once Steam can, it is asked again: where the card was dismissed, the switch went off, Install was
+  pressed, the release was seen or a newer release arrived meanwhile, it is neither raised nor acknowledged, and a later
+  change can ask for it again.
+
+It is asked again whenever the notice, the outcome, a stopped attempt or the install attempt changes, so a pushed
+`update_notice` or the end of an attempt raises it without a reload. A push and a read of the same version in one
+JavaScript context raise one toast between them.
+
+The dots show while the card would, the switch off included, until the release is **seen**: Settings › Updates on screen
+for a second without a break (`SEEN_AFTER_MS`, `useSeenAfterDwell` in `utils/updateDot.ts`), with the Quick Access menu
+open on Tender's tab — reached from the list, or opened on it by the card's **Open Updates** — records the card's
+release through `mark_update_available_seen`. Moving through the list past Updates does not count: focus selects, so
+Updates is on screen while focus passes it, and leaving it, closing the menu or choosing another of its tabs before the
+second is up cancels the wait; coming back to Updates, to the menu or to Tender's tab starts it over. Which tab is the
+active one is the answer `useWideQamPanel` already works out from inside the page's tree; it publishes it to
+`utils/owningQamTab.ts` for the Settings page above it, and nothing is bound to the menu's window to get it. Seen is per
+version and kept across restarts ([UpdateCheckService notes](backend-architecture.md#updatecheckservice-notes)), so a
+newer release brings the dots back. It takes every dot for that version, and the toast with them, and leaves the card,
+which goes only by Dismiss or the install — and a Dismiss takes the dots too, since they follow the card. A dot that
+goes because its release was seen plays the one fade [The glyph](#the-glyph) describes, each dot on screen at that
+moment playing its own; every other way a dot goes, it simply goes. The two in the panel are drawn by
+`bigpicture/UpdateDot.tsx`: 9 px across, about 8 px past the end of the word and centred on its height, positioned
+absolutely so they take no room of their own and the label does not move when a dot comes or goes. How they look there
+is a device question.
 
 The rolled-back notice says **Update to X failed — you are still on Y.** over a line naming where the reason is. For a
 rollback that is Tender's log, `backend.log`, which both versions write to, so what the new version logged before it was
@@ -1188,7 +1253,7 @@ Two things the line does not claim. The halves count **different populations** �
 right is what our own rows say — so ROMs added on RomM since the last sync widen the gap, and equality means "nothing
 outstanding as of the last sync" rather than a fresh server-side proof. And **a version RomM no longer serves is
 reachable but not counted**: nothing deletes such a row — ADR-0007 keeps it as an identity anchor and only the
-removed-game cleanup removes one — and its group's shortcut still reaches it (CONTEXT.md → Reachable), but the right
+removed-game cleanup removes one — and its group's shortcut still reaches it (GLOSSARY.md → Reachable), but the right
 half does not count a version RomM has stopped serving as in Steam. `reachable_count` is the reachable rows less those
 the fetch its completion stamp records did not return, which `domain/fetch_generation.py::prune_candidate_ids` already
 answers for the cleanup's own discovery: every row not carrying the fetch generation the platform's completion stamp
@@ -1287,24 +1352,35 @@ it, for the focused platform:
   either committed or never ran and there is no pane left to report to either way.
 
 - **BIOS files** — the summary, which this pane words nowhere: `frontend/src/utils/biosSummary.ts` holds all seven
-  states and answers each in two lengths, and the pane takes both — the short `status` as the section's coloured note
-  beside `BIOS FILES`, the `sentence` under it, with the library's own `(d/t RomM library files)` ratio behind the
-  sentence in every one of the seven. The ratio was a description line of its own here, and only in the state that said
-  nothing was required; the shared sentence replaced that line and took the ratio with it, while the game page went on
-  appending it to every sentence — one platform, two surfaces, two different amounts said about it.
-  (`system_image: "absent"` outranks the counts and the decline alike, tested before either inside that module, because
-  the console asks for one of the images and no count can state that; `"unsettled"` and `required_withheld` are declined
-  VERDICTS over rows that answered, so neither reaches `nothingEstablished` — which is now the narrowest decline and
-  decides one extra LINE only, the by-hand route.) Then a table: File, On disk, Contents, and a **Download** button on
-  every row that is missing and in the RomM library (#164) — never on a folder declaration, whatever its state, because
-  the emulator opens that name as a directory — and a **Delete** button on every row a download record of ours still
-  holds. That covers a declared **folder** too, where no record carries the row's name and the button counts the
-  distinct files our records name underneath it (`Delete (N)`): a folder is never a download, which says nothing about
-  the files already inside one. Same authority as `Delete BIOS`, described below. Below the table one row of buttons:
-  Download required (_N_), Download all, Delete BIOS behind a `ConfirmModal`. **All three are always rendered and
-  disable when there is nothing to do**, the ruling the Remove group already had: on PS2 all three vanished at once, and
-  a button that disappears is a state the reader has to work out. A disabled `DialogButton` is still a focus stop, so
-  the row stays walkable.
+  states and a one-of group's, and answers each in two lengths, and the pane takes both — the short `status` as the
+  section's coloured note beside `BIOS FILES`, the `sentence` under it, with the library's own
+  `(d/t RomM library files)` ratio behind the sentence in every one of them. The ratio was a description line of its own
+  here, and only in the state that said nothing was required; the shared sentence replaced that line and took the ratio
+  with it, while the game page went on appending it to every sentence — one platform, two surfaces, two different
+  amounts said about it. (A one-of group the launching emulator states is worded first — an `unmet` one always, any
+  other only where no plain required file is missing or withheld beside it — "`<emulator>` has a BIOS image for USA only
+  — Japan and Europe discs will not start", with "1 / 3 regions · USA only" as its status — off `one_of_groups` alone,
+  so a group on any console reads the same way. A group's status counts REGIONS: the first number is the regions an
+  option in place serves (`covered`), so a region nobody checked is in the second number and never the first; where the
+  emulator also requires plain files the status is "`X / Y required · A / B regions`", the plain files alone in `X / Y`,
+  and the same plain counts feed the sentence; an `unknown` group reads "Readiness unknown" where it words the line, and
+  where a missing plain file words it instead the status is that count followed by "regions not checked"
+  ("`0 / 1 required · regions not checked`") — never "`0 / N regions`", which is an unmet group's; region names and a
+  file's place in a group are `frontend/src/utils/biosGroup.ts`'s. Then `system_image: "absent"` outranks the counts and
+  the decline alike, tested before either inside that module, because the console asks for one of the images and no
+  count can state that; `"unsettled"` and `required_withheld` are declined VERDICTS over rows that answered, so neither
+  reaches `nothingEstablished` — which is now the narrowest decline and decides one extra LINE only, the by-hand route.)
+  Then a table: File, On disk, Contents, and a **Download** button on every row that is missing and in the RomM library
+  (#164) — never on a folder declaration, whatever its state, because the emulator opens that name as a directory — and
+  a **Delete** button on every row a download record of ours still holds. That covers a declared **folder** too, where
+  no record carries the row's name and the button counts the distinct files our records name underneath it
+  (`Delete (N)`): a folder is never a download, which says nothing about the files already inside one. Same authority as
+  `Delete BIOS`, described below. Below the table one row of buttons: Download required (_N_), Download all, Delete BIOS
+  behind a `ConfirmModal`. _N_ counts the fetchable rows the backend marks `fetch_for_required` — the rule the download
+  applies too, which takes the options of a one-of group's uncovered regions as well as the files the emulator requires.
+  **All three are always rendered and disable when there is nothing to do**, the ruling the Remove group already had: on
+  PS2 all three vanished at once, and a button that disappears is a state the reader has to work out. A disabled
+  `DialogButton` is still a focus stop, so the row stays walkable.
 
   **Every sentence names the emulator**, off the firmware payload's own `active_core_label` — the label half of the pick
   those very counts were filtered by, never the core read beside it on the page. An empty `required_count` is worded
@@ -1319,26 +1395,33 @@ it, for the focused platform:
   core, and the whole answer is keyed on the emulator's identity for that reason.
 
   **The game page's BIOS tab reads the same module** and shows the `sentence` alone, with the same ratio appended in the
-  same words — a third set again, which is why it rides along on both rather than being folded in. **The ratio names
-  that set in its own words**, because the sentence in front of it counts another one and the numbers cannot say which
-  is which: `The one file DuckStation requires is in place (1/20 RomM library files)` states three correct numbers over
-  three sets, and the words are the only thing that tells them apart. The pair is the library's inventory for the
-  platform — what it holds, and how many of those the plugin found at their destination (CONTEXT.md → Library inventory)
-  — and the tail names no axis of its own deliberately: the ratio form carries that, and each candidate word for the
-  numerator was worse than none. Two of them are already on the screen under this sentence and stand for something else
-  there — `present` is the row marks and `on disk` the column beside them, both the row's own verdict rather than this
-  pair — and the third, `downloaded`, would read as a claim about who put the file there, which is more than
-  `local_count` counts: `on_server` rows whose file is at its destination, the field itself answering presence and
-  nothing more. Neither surface prints the ratio where the library holds nothing for the platform:
-  `(0/0 RomM library files)` counts a set that does not exist. What stops a surface writing one of these sentences back
-  into itself is `frontend/src/utils/biosSummary.test.ts`, which reads the components as SOURCE and fails on any phrase
-  the module builds its answers from, with `biosHeldRatio.test.ts` doing the same over the ratio. **Both SWEEP the set
-  they search rather than naming it** — every non-test `.tsx` under `frontend/src/bigpicture` or `frontend/src/shared`,
-  via `frontend/src/test-utils/componentSources.ts` — because naming it is what failed: the lists held two while three
+  same words. Where the launching emulator states a one-of group, the tab lists it between that sentence and the file
+  list — under a subheading "`<emulator>` · one image per disc region" in the section label's class
+  (`romm-panel-section-title`, which upper-cases it), one indented line per option with its regions, file and state,
+  always in the group's own order, the game's own region marked "← this game's region" where it stands (`groupBlock` in
+  `frontend/src/utils/biosGroup.ts`) — and the file list below it stays whole, under a "Files" subheading of the same
+  class; without a group neither subheading is drawn. The ratio is a third set again, which is why it rides along on
+  both rather than being folded in. **The ratio names that set in its own words**, because the sentence in front of it
+  counts another one and the numbers cannot say which is which:
+  `The one file DuckStation requires is in place (1/20 RomM library files)` states three correct numbers over three
+  sets, and the words are the only thing that tells them apart. The pair is the library's inventory for the platform —
+  what it holds, and how many of those the plugin found at their destination (GLOSSARY.md → Library inventory) — and the
+  tail names no axis of its own deliberately: the ratio form carries that, and each candidate word for the numerator was
+  worse than none. Two of them are already on the screen under this sentence and stand for something else there —
+  `present` is the row marks and `on disk` the column beside them, both the row's own verdict rather than this pair —
+  and the third, `downloaded`, would read as a claim about who put the file there, which is more than `local_count`
+  counts: `on_server` rows whose file is at its destination, the field itself answering presence and nothing more.
+  Neither surface prints the ratio where the library holds nothing for the platform: `(0/0 RomM library files)` counts a
+  set that does not exist. What stops a surface writing one of these sentences back into itself is
+  `frontend/src/utils/biosSummary.test.ts`, which reads the components as SOURCE and fails on any phrase the module
+  builds its answers from, with `biosHeldRatio.test.ts` doing the same over the ratio and `biosGroup.test.ts` over the
+  region names and a file's place in a group. **All three SWEEP the set they search rather than naming it** — every
+  non-test `.tsx` under `frontend/src/bigpicture` or `frontend/src/shared`, via
+  `frontend/src/test-utils/componentSources.ts` — because naming it is what failed: the lists held two while three
   surfaces rendered these states, and a surface left off a list cannot be told from one that never drifted. Deriving the
   set from who imports the module would be worse still, since a surface wording a state for itself is precisely one that
-  does not import it. **What the sweep cannot see is a NEW wording** invented for one of these seven states; no string
-  search can, so a green run is evidence about copied sentences alone.
+  does not import it. **What the sweep cannot see is a NEW wording** invented for one of these states; no string search
+  can, so a green run is evidence about copied sentences alone.
 
   **The Platforms list's row tooltip reads the same module too** (`PlatformsTab.tsx`'s `biosTooltip`) and takes the
   `sentence`, so hovering a row and opening its pane give one wording rather than two. It was the last one in, and while
@@ -1400,15 +1483,15 @@ it, for the focused platform:
   need-axis fact and throw the verdict away, on exactly the platform made entirely of such rows. `optional` and
   `not_needed` do share the muted branch: for the core about to launch, neither is a gap.
 
-  **A fifth state replaces the muted answer where the row is one of several images any one of which starts the console**
-  (`BiosFileEntry.system_image_candidate`). Such a row is never `required_by_active` — its core marks every one of them
-  optional, which is all a libretro `.info` can say about a disjunction — so the four-way scheme drew five grey
-  "missing, not required" marks under a red headline saying the console needs one, and a reader took the grey marks at
-  their word. What is true of the row comes from the PLATFORM's `system_image` rather than from the row: `absent` makes
-  each of them a way to fix it (red `✗`), `held` makes the rest genuinely spare (grey `✗`), and anything else passes the
-  doubt on (amber `✗`). A candidate whose verdict is met is the console's held image and is drawn green — the candidates
-  are a subset of the rows `classify_system_image` weighs, so it cannot be anything else. The two amber states above are
-  tested FIRST and are not displaced: an unestablished verdict is still `?`, and an unestablished need is still amber.
+  **A fifth state replaces the muted answer where the row is an option of the launching emulator's one-of group**
+  (`one_of`). Such a row is never `required_by_active` — the group is the requirement, and no one option is — so the
+  four-way scheme drew grey "missing, not required" marks under a headline saying the console needs one of them. An
+  option is drawn strong like a required row instead: green `✓` where it is there ("one of these, here"), red `✗` where
+  it is not ("one of these, missing"), because the regions it serves have nothing else to boot. Which region that is
+  goes under the row — `for Japan discs · ✗ missing`, or `for every region` for an image its core starts every disc
+  from. Regions are worded USA, Japan and Europe, as RomM and the BIOS descriptions name them. The two amber states
+  above are tested FIRST and are not displaced: an unestablished verdict is still `?`, and an unestablished need is
+  still amber.
 
   **Mark 2, `⊘` in violet, appears beside mark 1 wherever `on_server` is `false` and the declaration is a file** — the
   RomM library does not hold this one. A declared **folder** is excluded, and not as a special case: no library holds a
@@ -1603,13 +1686,13 @@ chosen from is [collections-layouts.html](../assets/collections-layouts.html). F
 - **Other users' collections**, a row with its switch in it, as Favorites has, and the list column's refusal line under
   it. Its count is how many of the collections RomM lists are other users', the number alone — its pane says whether
   they are shown — with a dash where the read failed, and nothing while the read is out or while Tender cannot yet tell
-  whose a collection is. It is the owner scope (CONTEXT.md → Collection owner-scope): on is `all`, off is `own`. It is a
-  switch in the list column rather than a segmented control beside the search because it is a sync setting that applies
-  to two of the kinds, and a control shaped like a filter would say otherwise. Its pane has no table: what turning it
-  off does (other users' collections are hidden here and left out of the sync, even ones switched on, and turning it
-  back on brings those choices back), that Tender can tell whose a collection is only once it knows the user's RomM
-  account and until then nothing is hidden, and how many of the collections RomM lists are other users' and whether they
-  are shown or hidden.
+  whose a collection is. It is the owner scope (GLOSSARY.md → Collection owner-scope): on is `all`, off is `own`. It is
+  a switch in the list column rather than a segmented control beside the search because it is a sync setting that
+  applies to two of the kinds, and a control shaped like a filter would say otherwise. Its pane has no table: what
+  turning it off does (other users' collections are hidden here and left out of the sync, even ones switched on, and
+  turning it back on brings those choices back), that Tender can tell whose a collection is only once it knows the
+  user's RomM account and until then nothing is hidden, and how many of the collections RomM lists are other users' and
+  whether they are shown or hidden.
 
 Collections, Smart collections and Autogenerated follow RomM's own headings — "Collections", "Smart Collections" and
 "Autogenerated collections"; Favorites, Franchises and IGDB collections are this page's.
@@ -1676,7 +1759,7 @@ The Favorites pane has no table. While the read is out it shows the spinner, and
 pane does; once it has answered, the sentence and the game count where the row stands for a collection, and otherwise
 only why the row is greyed — the sentence is about turning one on, and a greyed row has none.
 
-**In Steam counts how many of a collection's ROMs are already in Steam** (CONTEXT.md → Reachable). It costs no RomM
+**In Steam counts how many of a collection's ROMs are already in Steam** (GLOSSARY.md → Reachable). It costs no RomM
 request of its own. RomM's collection listings carry each collection's member ROM ids, on all three kinds, and the count
 is those ids looked up against the rows Tender keeps — the test the sync uses when it files a collection member into a
 Steam collection, so a member it counts is one turning the collection on files under a shortcut Tender already made. It
@@ -1708,7 +1791,7 @@ collection, the Collections write leaves that one out, since it is not in the ta
 more than one favorites collection is a candidate, those are ordinary rows of the Collections table and the write
 includes them.
 
-**The kinds' names reach the Steam names the `by_label` naming mode builds** (CONTEXT.md → Collection naming mode), the
+**The kinds' names reach the Steam names the `by_label` naming mode builds** (GLOSSARY.md → Collection naming mode), the
 description of the Steam Library setting that turns that mode on, and the user guide: `(Smart)`, `(Franchise)` and
 `(IGDB Collection)`, with `(Autogenerated)` as the fallback for a virtual collection of no known type; a standard
 collection, favorites included, carries none. The rule, why it is shaped so, and the places the labels are spelled are

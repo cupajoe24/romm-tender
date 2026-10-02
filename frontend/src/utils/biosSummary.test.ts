@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { BIOS_SUMMARY_PHRASES, biosSummary, type BiosSummaryRow, type BiosSummarySource } from "./biosSummary";
+import {
+  BIOS_SUMMARY_PHRASES,
+  biosSummary,
+  groupBlocks,
+  type BiosSummaryRow,
+  type BiosSummarySource,
+} from "./biosSummary";
 import { componentSources } from "../test-utils/componentSources";
-import type { BiosLevel } from "../types/firmware";
+import type { BiosLevel, OneOfGroupVerdict } from "../types/firmware";
 
 const EMULATOR = "SwanStation";
 
@@ -209,6 +215,371 @@ describe("reading the payload", () => {
  * evidence about copied sentences and about nothing else. Reviewing a new BIOS
  * surface still means reading it.
  */
+describe("a one-of group", () => {
+  // One requirement, worded off the verdict alone — the emulator's name and the
+  // regions. Approved wording; the region names are `utils/biosGroup.ts`'s.
+  const group = (
+    state: OneOfGroupVerdict["state"],
+    covered: string[],
+    missing: string[],
+    game_regions: string[] = [],
+  ): OneOfGroupVerdict => ({
+    state,
+    covered,
+    missing,
+    unchecked: [],
+    game_regions,
+    regions: [...covered, ...missing],
+    options: [],
+  });
+
+  it("says the emulator has a BIOS image for every region", () => {
+    const met = summary({
+      required_count: 1,
+      required_downloaded: 1,
+      one_of_groups: [group("met", ["ntsc-j", "ntsc-u", "pal"], [])],
+    });
+    expect(met).toEqual({
+      status: "3 / 3 regions",
+      sentence: "SwanStation has a BIOS image for every region",
+    });
+  });
+
+  it("names the regions a partly covered group serves and the ones whose discs will not start", () => {
+    const partial = biosSummary(
+      {
+        active_core_label: "Beetle PSX",
+        required_count: 1,
+        required_downloaded: 0,
+        required_partial: 1,
+        one_of_groups: [group("partial", ["ntsc-u"], ["ntsc-j", "pal"])],
+      } as BiosSummarySource,
+      [],
+      "partial",
+    );
+    expect(partial).toEqual({
+      status: "1 / 3 regions · USA only",
+      sentence: "Beetle PSX has a BIOS image for USA only — Japan and Europe discs will not start",
+    });
+  });
+
+  it("says the emulator cannot start the system where nothing is in place", () => {
+    const unmet = biosSummary(
+      {
+        active_core_label: "Beetle PSX",
+        required_count: 1,
+        required_downloaded: 0,
+        one_of_groups: [group("unmet", [], ["ntsc-j", "ntsc-u", "pal"])],
+      },
+      [],
+      "missing",
+    );
+    expect(unmet).toEqual({
+      status: "0 / 3 regions",
+      sentence: "Beetle PSX cannot start this system without a BIOS image",
+    });
+  });
+
+  it("never counts a region nobody checked as covered", () => {
+    const unread = (state: OneOfGroupVerdict["state"], covered: string[]): OneOfGroupVerdict => ({
+      ...group(state, covered, ["pal"]),
+      unchecked: ["ntsc-j"],
+      regions: ["ntsc-j", ...covered, "pal"],
+    });
+    const statusOf = (verdict: OneOfGroupVerdict) =>
+      summary({ required_count: 1, required_downloaded: 0, one_of_groups: [verdict] }, "partial").status;
+
+    expect(statusOf(unread("partial", ["ntsc-u"]))).toBe("1 / 3 regions · USA only");
+    expect(statusOf(unread("unmet", []))).toBe("0 / 2 regions");
+  });
+
+  it("gives a group nothing could fully check no count even where some regions are covered", () => {
+    // A plain file is missing, so the plain files word the line. The group
+    // beside them has one region covered and two nobody checked: "1 / 3
+    // regions" would read like a partial group, so it gets no count at all.
+    const both = summary(
+      {
+        required_count: 2,
+        required_downloaded: 0,
+        required_withheld: 1,
+        one_of_groups: [
+          { ...group("unknown", ["north"], []), unchecked: ["south", "east"], regions: ["north", "south", "east"] },
+        ],
+      },
+      "unknown",
+    );
+    expect(both).toEqual({
+      status: "0 / 1 required · regions not checked",
+      sentence: "The one file SwanStation requires is not in place",
+    });
+  });
+
+  it("says a core has an image for every region however many images it takes", () => {
+    // SwanStation may open one image for Japan and another for USA and Europe.
+    const several: OneOfGroupVerdict = {
+      ...group("met", ["ntsc-j", "ntsc-u", "pal"], []),
+      options: [
+        { file_name: "scph5500.bin", regions: ["ntsc-j"], satisfied: true },
+        { file_name: "scph1001.bin", regions: ["ntsc-u", "pal"], satisfied: true },
+      ],
+    };
+    const invented: OneOfGroupVerdict = { ...group("met", ["north", "south"], []), regions: ["north", "south"] };
+
+    expect(summary({ required_count: 1, required_downloaded: 1, one_of_groups: [several] })).toEqual({
+      status: "3 / 3 regions",
+      sentence: "SwanStation has a BIOS image for every region",
+    });
+    expect(
+      biosSummary(
+        { active_core_label: "Arcadia", required_count: 1, required_downloaded: 1, one_of_groups: [invented] },
+        [],
+        "ok",
+      ),
+    ).toEqual({ status: "2 / 2 regions", sentence: "Arcadia has a BIOS image for every region" });
+  });
+
+  it("counts the plain required files apart from the group's regions", () => {
+    const both = summary(
+      {
+        required_count: 3,
+        required_downloaded: 2,
+        required_partial: 1,
+        one_of_groups: [group("partial", ["ntsc-u"], ["ntsc-j", "pal"])],
+      } as BiosSummarySource,
+      "partial",
+    );
+    expect(both.status).toBe("2 / 2 required · 1 / 3 regions · USA only");
+  });
+
+  it("says whether it is in place could not be checked, never a colour of its own", () => {
+    const unknown = biosSummary(
+      {
+        active_core_label: "Beetle PSX",
+        required_count: 1,
+        required_withheld: 1,
+        one_of_groups: [{ ...group("unknown", [], []), unchecked: ["ntsc-u"] }],
+      },
+      [],
+      "unknown",
+    );
+    expect(unknown).toEqual({
+      status: "Readiness unknown",
+      sentence: "Whether the BIOS image Beetle PSX needs is in place could not be checked",
+    });
+  });
+
+  it("words the game page's verdict for the game's own region", () => {
+    const covered = biosSummary(
+      {
+        active_core_label: "Beetle PSX",
+        required_count: 1,
+        required_downloaded: 1,
+        one_of_groups: [group("met", ["ntsc-u"], [], ["ntsc-u"])],
+      },
+      [],
+      "ok",
+    );
+    const uncovered = biosSummary(
+      {
+        active_core_label: "Beetle PSX",
+        required_count: 1,
+        required_downloaded: 0,
+        one_of_groups: [group("unmet", [], ["ntsc-j"], ["ntsc-j"])],
+      },
+      [],
+      "missing",
+    );
+    expect(covered.sentence).toBe("The BIOS image Beetle PSX needs for this game's region (USA) is in place");
+    expect(uncovered.sentence).toBe("Beetle PSX has no BIOS image for this game's region (Japan)");
+  });
+
+  it("names the file the game's own region needs where the verdict lists it", () => {
+    const beetle: OneOfGroupVerdict = {
+      ...group("unmet", [], ["ntsc-u"], ["ntsc-u"]),
+      regions: ["ntsc-j", "ntsc-u", "pal"],
+      options: [
+        { file_name: "scph5500.bin", regions: ["ntsc-j"], satisfied: true },
+        { file_name: "scph5501.bin", regions: ["ntsc-u"], satisfied: false },
+      ],
+    };
+    const missing = biosSummary(
+      { active_core_label: "Beetle PSX", required_count: 1, required_downloaded: 0, one_of_groups: [beetle] },
+      [],
+      "missing",
+    );
+    expect(missing.sentence).toBe("Beetle PSX needs scph5501.bin to start this game (USA) — it is missing");
+  });
+
+  it("names every file a game of several regions could start from", () => {
+    const beetle: OneOfGroupVerdict = {
+      ...group("unmet", [], ["ntsc-u", "pal"], ["ntsc-u", "pal"]),
+      regions: ["ntsc-j", "ntsc-u", "pal"],
+      options: [
+        { file_name: "scph5501.bin", regions: ["ntsc-u"], satisfied: false },
+        { file_name: "scph5502.bin", regions: ["pal"], satisfied: false },
+      ],
+    };
+    const missing = biosSummary(
+      { active_core_label: "Beetle PSX", required_count: 1, required_downloaded: 0, one_of_groups: [beetle] },
+      [],
+      "missing",
+    );
+    expect(missing.sentence).toBe(
+      "Beetle PSX needs scph5501.bin or scph5502.bin to start this game (USA and Europe) — neither is in place",
+    );
+  });
+
+  const swanstation: OneOfGroupVerdict = {
+    ...group("met", ["ntsc-u"], [], ["ntsc-u"]),
+    regions: ["ntsc-j", "ntsc-u", "pal"],
+    options: [{ file_name: "scph1001.bin", regions: ["ntsc-j", "ntsc-u", "pal"], satisfied: true }],
+  };
+
+  it("names the image that starts the game where the folder search found it and it serves every region", () => {
+    const rows: BiosSummaryRow[] = [{ file_name: "scph1001.bin", caveats: ["firmware-image-identified"] }];
+    const met = summary({ required_count: 1, required_downloaded: 1, one_of_groups: [swanstation] }, "ok", rows);
+    expect(met.sentence).toBe(
+      "SwanStation starts this game with scph1001.bin — found in the BIOS folder, it serves every region",
+    );
+  });
+
+  it("does not say the image was found in the folder where nothing says a search found it", () => {
+    // Every region's own setting can name one file; then the core opened it by
+    // name and no search was made.
+    const rows: BiosSummaryRow[] = [{ file_name: "scph1001.bin", caveats: [] }];
+    const met = summary({ required_count: 1, required_downloaded: 1, one_of_groups: [swanstation] }, "ok", rows);
+    expect(met.sentence).toBe("SwanStation starts this game with scph1001.bin, which serves every region");
+  });
+
+  it("names three files with none of them in place", () => {
+    const three: OneOfGroupVerdict = {
+      ...group("unmet", [], ["ntsc-j", "ntsc-u", "pal"], ["ntsc-j", "ntsc-u", "pal"]),
+      options: [
+        { file_name: "scph5500.bin", regions: ["ntsc-j"], satisfied: false },
+        { file_name: "scph5501.bin", regions: ["ntsc-u"], satisfied: false },
+        { file_name: "scph5502.bin", regions: ["pal"], satisfied: false },
+      ],
+    };
+    expect(summary({ required_count: 1, required_downloaded: 0, one_of_groups: [three] }, "missing").sentence).toBe(
+      "SwanStation needs scph5500.bin, scph5501.bin or scph5502.bin to start this game (Japan, USA and Europe) — none of them is in place",
+    );
+  });
+
+  it("never lets a named file stand for a region that has no image at all", () => {
+    // USA has no option; only Europe's file can be named, and only for Europe.
+    const mixed: OneOfGroupVerdict = {
+      ...group("unmet", [], ["ntsc-u", "pal"], ["ntsc-u", "pal"]),
+      options: [{ file_name: "scph5502.bin", regions: ["pal"], satisfied: false }],
+    };
+    expect(summary({ required_count: 1, required_downloaded: 0, one_of_groups: [mixed] }, "missing").sentence).toBe(
+      "SwanStation needs scph5502.bin to start this game (Europe) — it is missing, and there is no BIOS image for USA",
+    );
+  });
+
+  it("heads each group's block with the emulator, or with its role where the pick has no name", () => {
+    const named = groupBlocks({ active_core_label: "Beetle PSX", one_of_groups: [swanstation, swanstation] });
+    const unnamed = groupBlocks({ active_core_label: null, one_of_groups: [{ ...swanstation, options: [] }] });
+
+    expect(named).toHaveLength(2);
+    expect(unnamed[0]?.heading).toBe("The launching emulator · one image per disc region");
+  });
+
+  it("words a group of any console the same way, naming regions it has no name for in their own spelling", () => {
+    const invented = biosSummary(
+      {
+        active_core_label: "Arcadia",
+        required_count: 1,
+        required_downloaded: 0,
+        one_of_groups: [group("partial", ["north"], ["south", "east"])],
+      },
+      [],
+      "partial",
+    );
+    expect(invented).toEqual({
+      status: "1 / 3 regions · NORTH only",
+      sentence: "Arcadia has a BIOS image for NORTH only — SOUTH and EAST discs will not start",
+    });
+  });
+
+  it("leaves the headline to a required file that is missing beside a met group", () => {
+    // The group sentence says everything is in place; with a plain required
+    // file absent beside it, that is not what the dot means.
+    const both = summary(
+      { required_count: 2, required_downloaded: 1, one_of_groups: [group("met", ["ntsc-u"], [])] },
+      "partial",
+    );
+    // The plain file alone is counted, in the status and in the sentence.
+    expect(both).toEqual({
+      status: "0 / 1 required · 1 / 1 regions",
+      sentence: "The one file SwanStation requires is not in place",
+    });
+  });
+
+  it("leaves the headline to a required file nothing could judge beside a partial group", () => {
+    const both = summary(
+      {
+        required_count: 2,
+        required_downloaded: 0,
+        required_withheld: 1,
+        required_partial: 1,
+        one_of_groups: [group("partial", ["ntsc-u"], ["pal"])],
+      } as BiosSummarySource,
+      "unknown",
+    );
+    expect(both.sentence).toBe("One file SwanStation requires could not be checked");
+  });
+
+  it("words a missing plain file beside an unknown group as the missing file it is", () => {
+    // The withheld count here is the group alone; the plain file was checked
+    // and is absent, so "could not be checked" would be untrue of it.
+    const both = summary(
+      {
+        required_count: 2,
+        required_downloaded: 0,
+        required_withheld: 1,
+        one_of_groups: [{ ...group("unknown", [], []), unchecked: ["ntsc-u"], regions: ["ntsc-u"] }],
+      },
+      "unknown",
+    );
+    expect(both).toEqual({
+      status: "0 / 1 required · regions not checked",
+      sentence: "The one file SwanStation requires is not in place",
+    });
+  });
+
+  it("counts only the plain files nothing could judge beside an unknown group", () => {
+    const both = summary(
+      {
+        required_count: 2,
+        required_downloaded: 0,
+        required_withheld: 2,
+        one_of_groups: [{ ...group("unknown", [], []), unchecked: ["ntsc-u"] }],
+      },
+      "unknown",
+    );
+    expect(both.sentence).toBe("One file SwanStation requires could not be checked");
+  });
+
+  it("keeps an unmet group's sentence beside a missing plain file", () => {
+    const both = summary(
+      { required_count: 2, required_downloaded: 0, one_of_groups: [group("unmet", [], ["ntsc-u"])] },
+      "missing",
+    );
+    expect(both.sentence).toBe("SwanStation cannot start this system without a BIOS image");
+  });
+
+  it("speaks for the group ahead of the console's coarser reading", () => {
+    // The backend never sends the two together; the order is a guard.
+    const both = summary({
+      system_image: "absent",
+      required_count: 1,
+      required_downloaded: 1,
+      one_of_groups: [group("met", ["ntsc-u"], [])],
+    });
+    expect(both.sentence).toBe("SwanStation has a BIOS image for every region");
+  });
+});
+
 describe("no surface words a summary itself", () => {
   it.each(componentSources())("$path carries no summary phrase of its own", ({ source }) => {
     const found = BIOS_SUMMARY_PHRASES.filter((phrase) => source.includes(phrase));

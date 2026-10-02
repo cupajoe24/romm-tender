@@ -19,6 +19,7 @@ import type {
   FirmwareDownloadResult,
   BiosLevel,
   SystemImage,
+  OneOfGroupVerdict,
   BiosStatus,
   BiosFileStatus,
   CoreInfo,
@@ -164,12 +165,16 @@ export interface BiosAnswer {
     required_count?: number;
     required_downloaded?: number;
     required_withheld?: number;
+    /** The one-of groups among `required_count` that are covered for some
+     *  regions only — not met and not absent, so the badge leaves them out. */
+    required_partial?: number;
     /** The console's own firmware demand on the launching core — see
      *  {@link SystemImage}. Read by the play row's badge, which cannot rely on
      *  the counts for it: whether any of the images is marked required is the
      *  core author's choice, and over one PlayStation the deployed catalogue
      *  goes both ways. */
     system_image?: SystemImage;
+    one_of_groups?: OneOfGroupVerdict[];
     cached_at?: number;
     files?: BiosFileStatus[];
   } | null;
@@ -1181,6 +1186,13 @@ export interface UpdateNotice {
   enabled: boolean;
   /** This process is the installed program an update could replace — false for a run from a checkout. */
   installed_program: boolean;
+  /**
+   * The panel owes the "is available" toast for `latest_version`: the card is up, the switch is on, and that version
+   * was neither acknowledged, found by Check now, nor seen.
+   */
+  toast_owed: boolean;
+  /** The user has seen `latest_version` in Settings › Updates — its dots are gone for good. */
+  seen: boolean;
 }
 
 export const getUpdateNotice = endpoint<[], UpdateNotice>("get_update_notice");
@@ -1199,6 +1211,14 @@ export type UpdateSettingWrite = { success: true } | EndpointFailure;
 
 /** Wave the card away for one release version; the next release raises it again. */
 export const dismissUpdateNotice = endpoint<[string], UpdateSettingWrite>("dismiss_update_notice");
+
+/** Record that the "is available" toast for one release version was raised; the next release owes its own. */
+export const acknowledgeUpdateAvailableToast = endpoint<[string], UpdateSettingWrite>(
+  "acknowledge_update_available_toast",
+);
+
+/** Record that the user has seen one release version in Settings › Updates; the next release is unseen again. */
+export const markUpdateAvailableSeen = endpoint<[string], UpdateSettingWrite>("mark_update_available_seen");
 
 /** Switch the daily release check on or off — the reads the program makes by itself. On by default. */
 export const setUpdateCheckEnabled = endpoint<[boolean], UpdateSettingWrite>("set_update_check_enabled");
@@ -1308,7 +1328,7 @@ export interface UpdateInstallAttempt {
 }
 
 /**
- * Whether Install is offered for the last seen release, and what it waits for.
+ * Whether Install is offered for the release the last check stored, and what it waits for.
  *
  * `offered` holds only on the installed program, with the check on and a stored
  * release newer than the running one, which `version` names. `wait_reasons` is

@@ -6,7 +6,7 @@
 // one with zero expects.
 
 import "@testing-library/jest-dom/vitest";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { createElement, type ComponentProps, type ReactElement } from "react";
 import { SettingsPage } from "./SettingsPage";
@@ -16,6 +16,7 @@ import type { RegisteredDevice, SettingsSection } from "../types";
 import { showModal } from "@decky/ui";
 import { toaster } from "../api/host";
 import { pendingEdits } from "./settings/TextInputModal";
+import { DOT_FADE_MS, SEEN_AFTER_MS } from "../utils/updateDot";
 import {
   resetUpdateNoticeStoreForTests,
   setUpdateNoticeState,
@@ -167,6 +168,12 @@ vi.mock("../utils/scrollHelpers", () => ({
   scrollToTop: vi.fn(),
   offsetWithinScroller: () => 0,
 }));
+
+/** Move the fake clock on by *ms*, inside act so what the timers set is rendered. */
+const pass = (ms: number) =>
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
 
 // Wait one microtask for the mount-time useEffect promises to resolve.
 const flushAsync = () =>
@@ -1895,6 +1902,8 @@ describe("SettingsPage", () => {
         current_version: "0.33.0",
         enabled: true,
         installed_program: true,
+        toast_owed: false,
+        seen: false,
         reached: true,
         ...over,
       });
@@ -1907,6 +1916,8 @@ describe("SettingsPage", () => {
         currentVersion: "0.33.0",
         enabled: true,
         installedProgram: false,
+        toastOwed: false,
+        seen: false,
       });
       renderPage();
       await flushAsync();
@@ -1928,6 +1939,8 @@ describe("SettingsPage", () => {
           current_version: "0.33.0",
           enabled: true,
           installed_program: true,
+          toast_owed: false,
+          seen: false,
         }),
       );
 
@@ -1986,6 +1999,8 @@ describe("SettingsPage", () => {
           current_version: "0.33.0",
           enabled: true,
           installed_program: true,
+          toast_owed: false,
+          seen: false,
           reached: true,
         });
       });
@@ -2037,6 +2052,117 @@ describe("SettingsPage", () => {
       expect(logError).toHaveBeenCalledWith(expect.stringContaining("Failed to save the update check switch"));
       expect(lastUpdates().update.enabled).toBe(true);
       logError.mockRestore();
+    });
+  });
+
+  describe("the release counts as seen", () => {
+    const CARD = {
+      available: true,
+      newer: true,
+      latestVersion: "0.34.0",
+      currentVersion: "0.33.0",
+      enabled: true,
+      installedProgram: true,
+      toastOwed: false,
+      seen: false,
+    } as const;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.mocked(backend.markUpdateAvailableSeen).mockResolvedValue({ success: true });
+      setUpdateNoticeState(CARD);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const focusRow = (getByTestId: (id: string) => HTMLElement, section: SettingsSection) =>
+      fireEvent.focusIn(getByTestId(`settings-section-${section}`));
+
+    it("after a second on Updates when the page opens on it, as the card's Open Updates does", async () => {
+      openOn = "updates";
+      renderPage();
+      await flushAsync();
+
+      pass(SEEN_AFTER_MS - 1);
+      expect(backend.markUpdateAvailableSeen).not.toHaveBeenCalled();
+      pass(1);
+      await flushAsync();
+
+      expect(backend.markUpdateAvailableSeen).toHaveBeenCalledExactlyOnceWith("0.34.0");
+    });
+
+    it("after a second on Updates reached from the list", async () => {
+      const { getByTestId } = renderPage();
+      await flushAsync();
+
+      focusRow(getByTestId, "updates");
+      pass(SEEN_AFTER_MS);
+      await flushAsync();
+
+      expect(backend.markUpdateAvailableSeen).toHaveBeenCalledExactlyOnceWith("0.34.0");
+    });
+
+    it("not when the list is moved through past Updates", async () => {
+      const { getByTestId } = renderPage();
+      await flushAsync();
+
+      focusRow(getByTestId, "steam-library");
+      focusRow(getByTestId, "updates");
+      pass(SEEN_AFTER_MS - 1);
+      focusRow(getByTestId, "advanced");
+      pass(SEEN_AFTER_MS * 5);
+
+      expect(backend.markUpdateAvailableSeen).not.toHaveBeenCalled();
+    });
+
+    const rowDots = (getByTestId: (id: string) => HTMLElement, section: SettingsSection) =>
+      getByTestId(`settings-section-${section}`).querySelectorAll('[data-testid="update-dot"]');
+
+    it("the Updates row carries the dot until then, and no other row does", async () => {
+      const { getByTestId } = renderPage();
+      await flushAsync();
+
+      expect(rowDots(getByTestId, "updates")).toHaveLength(1);
+      expect(getByTestId("settings-section-updates").textContent).toBe("Updates");
+      for (const section of ["connections", "save-sync", "controller", "steam-library", "advanced"] as const) {
+        expect(rowDots(getByTestId, section)).toHaveLength(0);
+      }
+    });
+
+    it("the Updates row carries no dot for a release already seen", async () => {
+      setUpdateNoticeState({ ...CARD, seen: true });
+      const { getByTestId } = renderPage();
+      await flushAsync();
+
+      expect(rowDots(getByTestId, "updates")).toHaveLength(0);
+    });
+
+    it("the Updates row's dot fades out once it is recorded, then is gone", async () => {
+      openOn = "updates";
+      const { getByTestId } = renderPage();
+      await flushAsync();
+      const atRest = rowDots(getByTestId, "updates")[0];
+      expect(atRest?.getAttribute("style")).not.toMatch(/transition/);
+
+      pass(SEEN_AFTER_MS);
+      await flushAsync();
+
+      const [fading] = rowDots(getByTestId, "updates");
+      expect(fading).toBe(atRest);
+      expect(fading?.getAttribute("style")).toMatch(/transition: transform 450ms ease-out, opacity 450ms ease-out/);
+      pass(DOT_FADE_MS);
+      expect(rowDots(getByTestId, "updates")).toHaveLength(0);
+    });
+
+    it("not on any other section", async () => {
+      renderPage();
+      await flushAsync();
+
+      pass(SEEN_AFTER_MS * 5);
+
+      expect(backend.markUpdateAvailableSeen).not.toHaveBeenCalled();
     });
   });
 });

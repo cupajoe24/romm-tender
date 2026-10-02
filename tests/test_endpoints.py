@@ -124,14 +124,17 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     # is the condition the relocation exists to end.
     "get_shortcut_relocation",
     # The release check: whether a newer release exists, the card's per-version
-    # Dismiss, the daily-check switch and the reader's own Check now. None of
-    # the four touches RetroDECK state — the reads talk to GitHub and one
-    # kv_config row, the writes are settings keys — and the read is fired at
-    # panel load whatever page the panel is showing.
+    # Dismiss, the daily-check switch, the reader's own Check now, the
+    # acknowledgement of the "is available" toast and the record that the
+    # release was seen. None of the six touches RetroDECK state — the reads talk
+    # to GitHub and kv_config, the writes are settings keys and kv_config rows —
+    # and the read is fired at panel load whatever page the panel is showing.
     "get_update_notice",
     "check_for_update_now",
     "dismiss_update_notice",
     "set_update_check_enabled",
+    "acknowledge_update_available_toast",
+    "mark_update_available_seen",
     # What the last update did: the read the panel makes at load, its
     # acknowledgement of the announcement's one toast, the announcement card's
     # Dismiss, and the rolled-back card's per-record Dismiss. None touches
@@ -143,7 +146,7 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "acknowledge_update_toast",
     "dismiss_update_announcement",
     "dismiss_update_failure",
-    # Installing the last seen release from the panel. The read touches no
+    # Installing the release the last check stored from the panel. The read touches no
     # RetroDECK state — it reads the stored release, the installer's record,
     # the reload limit's record, this process's memory and Steam's running
     # apps. The press does not name the migration rule because it asks the

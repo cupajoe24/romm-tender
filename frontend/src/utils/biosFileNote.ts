@@ -42,11 +42,22 @@ import type { BiosFileStatus } from "../types";
  *  satisfy it, so neither has to be converted into the other's. */
 export type BiosNoteRow = Pick<
   BiosFileStatus,
-  "downloaded" | "on_server" | "supplied_by" | "satisfied" | "declared_kind" | "caveats" | "images" | "checked"
+  | "downloaded"
+  | "on_server"
+  | "supplied_by"
+  | "satisfied"
+  | "declared_kind"
+  | "caveats"
+  | "images"
+  | "checked"
+  | "missing_configured_image"
 >;
 
 /** The subset {@link biosFileDescription} reads — the same both-surfaces rule. */
-export type BiosDescriptionRow = Pick<BiosFileStatus, "file_name" | "description" | "declared_kind" | "declaration">;
+export type BiosDescriptionRow = Pick<
+  BiosFileStatus,
+  "file_name" | "description" | "declared_kind" | "declaration" | "caveats"
+>;
 
 /**
  * Everything a row says about itself: one sentence, and the lines under it.
@@ -61,8 +72,9 @@ export type BiosDescriptionRow = Pick<BiosFileStatus, "file_name" | "description
 export interface BiosFileWords {
   /** The em-dash note after the row's name, or `""` where there is none. */
   note: string;
-  /** One line each, rendered under the row. Empty for every row but a folder
-   *  whose read identified images, where the list IS the content. */
+  /** One line each, rendered under the row: the images a folder's read
+   *  identified, where the list IS the content, and the neutral line saying an
+   *  emulator's setting names a file the folder does not hold. */
   lines: string[];
   /**
    * The note is the library one — "not in your RomM library" and its missing
@@ -90,6 +102,13 @@ const HOLDS_NO_IMAGE = ["firmware-directory-holds-no-image", "firmware-directory
 /** The identity table names the bytes and the core's own header check denies
  *  them: two reads that disagree, and neither is taken over the other. */
 const IMAGE_CONTRADICTED = "firmware-image-contradicted";
+/** The reading identified the file by its CONTENT — the emulator's own search of
+ *  the BIOS folder found it — whether or not its packaged table also files
+ *  those bytes. */
+const IDENTIFIED_BY_CONTENT = ["firmware-image-identified", "firmware-image-unlisted"];
+/** What a file found that way says about itself, in place of the resolver's
+ *  own prose about its search. */
+const FOUND_IN_THE_BIOS_FOLDER = "found in the BIOS folder";
 /** The folder could not be listed in full, or a candidate's bytes would not come
  *  back — a read failure, never a finding about what is in there. */
 const READ_INCOMPLETE = ["firmware-scan-incomplete", "firmware-unreadable"];
@@ -158,13 +177,15 @@ const said = (note: string): BiosFileWords => ({ note, lines: [], fromLibrary: f
  * - **`refused`** — the emulator will not open the file at all, on its size,
  *   before reading a byte. It arrives with the verdict already `false`, so the
  *   row is red with or without this note; what the note adds is the reason, and
- *   without it the row says a file that is sitting right there is missing. **It
- *   is not reachable on an unmodified RetroDECK**: the resolver reaches that
- *   size gate only for a file one of DuckStation's per-region BIOS keys NAMES
- *   (`PathNTSCU` / `PathNTSCJ` / `PathPAL`), and RetroDECK sets `SearchDirectory`
- *   alone and leaves all three empty — cited, with the upstream line numbers, on
- *   the DuckStation card in `backend/_vendor/atlas/data/standalone_firmware.json`.
- *   A user who fills one of those keys in reaches it.
+ *   without it the row says a file that is sitting right there is missing. The
+ *   resolver reaches that size gate only for a file a per-region BIOS setting
+ *   NAMES — SwanStation's (`swanstation_BIOS_PathNTSCJ` / `PathNTSCU` /
+ *   `PathPAL`) or DuckStation's (`PathNTSCU` / `PathNTSCJ` / `PathPAL`), cited
+ *   in `backend/_vendor/atlas/data/core_firmware.json` and
+ *   `backend/_vendor/atlas/data/standalone_firmware.json`. Whether it reaches a
+ *   ROW is a further question that has not been shown: a row carries the
+ *   reading of the first declaration under its name, and for SwanStation's
+ *   default names that is its `.info` row, not the one the setting names.
  *
  * `verified` and `mismatch` get no note: the first is the ordinary met row and
  * the second is an unmet one whose surfaces already say so. Every other value,
@@ -220,8 +241,12 @@ function folderWithheld(satisfied: boolean | null | undefined, has: (code: strin
  * for a row no placement covers, the file name itself (`build_file_entry`'s
  * `else file_name`). Both spell the name into the words.
  *
- * **Only a `read` declaration's prose is shown at all**, which is the first
- * thing decided here. That prose is a packager's LABEL for the file and says
+ * **A file the reading identified by its contents is described as "found in
+ * the BIOS folder"**, whichever declaration it came from, and that is decided
+ * first: the emulator's own search found it, and the resolver's prose for such a
+ * file explains the search rather than the file.
+ *
+ * **Otherwise only a `read` declaration's prose is shown at all**. That prose is a packager's LABEL for the file and says
  * what the row's own name does not — `(PS1 JP BIOS)` on `scph5500.bin`, a
  * region the name never states. A `packaged` row's is a different
  * kind of writing under the same field: atlas explaining the requirement in
@@ -273,6 +298,10 @@ export function biosFileDescription(file: BiosDescriptionRow): string | null {
   // "folder": a restatement of `declared_kind`. This is a rule about what a
   // folder ROW shows, not a prediction about what descriptions exist.
   if (file.declared_kind === "directory") return null;
+  // A file the reading identified by its contents was found by a search of the
+  // BIOS folder, and the resolver's description of such a file explains that
+  // search ("named by no option"). Where the file is is what a reader needs.
+  if (foundByContent(file)) return FOUND_IN_THE_BIOS_FOLDER;
   if (file.declaration !== "read") return null;
   const description = file.description.trim();
   if (!description) return null;
@@ -296,6 +325,11 @@ export function biosFileDescription(file: BiosDescriptionRow): string | null {
   return rest || null;
 }
 
+/** Did the reading identify *row*'s file by its contents — the emulator's search of the BIOS folder? */
+export function foundByContent(row: { caveats?: string[] }): boolean {
+  return IDENTIFIED_BY_CONTENT.some((code) => (row.caveats ?? []).includes(code));
+}
+
 /**
  * What *row* says about itself — an empty note where its own state is the whole story.
  *
@@ -304,6 +338,30 @@ export function biosFileDescription(file: BiosDescriptionRow): string | null {
  * (the platform detail marks it in its On-disk cell; the tab's dot carries it).
  */
 export function biosFileNote(row: BiosNoteRow): BiosFileWords {
+  const words = rowWords(row);
+  const stale = row.missing_configured_image;
+  return stale ? { ...words, lines: [...words.lines, configuredImageLine(stale)] } : words;
+}
+
+/**
+ * The neutral line under a folder whose emulator is set to open a file in it
+ * that is not there — "LRPS2's settings name scph10000.bin, which is not here —
+ * it uses another BIOS from this folder instead."
+ *
+ * It changes nothing about the row: the emulator lists the folder instead, so
+ * the folder's verdict is what the launch rests on, and the dot and the counts
+ * read that verdict alone. The emulator's name and the file's come from the
+ * answer; a half it did not state is left out of the sentence rather than
+ * guessed.
+ */
+function configuredImageLine(stale: NonNullable<BiosNoteRow["missing_configured_image"]>): string {
+  const whose = stale.emulator_label ? `${stale.emulator_label}'s settings` : "The emulator's settings";
+  const named = stale.file_name ? `name ${stale.file_name}, which is not here` : "name a BIOS file that is not here";
+  return `ℹ ${whose} ${named} — it uses another BIOS from this folder instead.`;
+}
+
+/** Everything the row says before the configured-image line — see {@link biosFileNote}. */
+function rowWords(row: BiosNoteRow): BiosFileWords {
   if (row.supplied_by) return { note: `provided by ${row.supplied_by}`, lines: [], fromLibrary: false };
   const verdict = verdictNote(row);
   if (verdict.note || verdict.lines.length > 0) return verdict;

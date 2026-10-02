@@ -73,7 +73,7 @@ class FirmwareService:
 
     Each download and delete an endpoint calls checks that endpoint's conflict
     rules here, under its name, and answers the canonical refusal when one
-    holds (CONTEXT.md → Conflict rules); the sub-services check none.
+    holds (GLOSSARY.md → Conflict rules); the sub-services check none.
     """
 
     def __init__(
@@ -168,10 +168,16 @@ class FirmwareService:
         return await self._status.get_platform_firmware_status(platform_slug)
 
     async def check_platform_bios(
-        self, platform_slug, launching_emulator: LaunchingEmulator | None = None
+        self,
+        platform_slug,
+        launching_emulator: LaunchingEmulator | None = None,
+        rom_regions: tuple[str, ...] = (),
     ) -> dict[str, Any]:
-        """Return the platform's BIOS status, filtered by what *launching_emulator* needs."""
-        return await self._status.check_platform_bios(platform_slug, launching_emulator)
+        """Return the platform's BIOS status, filtered by what *launching_emulator* needs.
+
+        *rom_regions* narrows a one-of group to the game's own regions.
+        """
+        return await self._status.check_platform_bios(platform_slug, launching_emulator, rom_regions)
 
     async def download_firmware(self, firmware_id) -> dict[str, Any]:
         """Download one firmware file by its RomM id."""
