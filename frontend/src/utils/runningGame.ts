@@ -7,8 +7,7 @@
 import { Navigation } from "@decky/ui";
 import { debugLog, stopRunningGame } from "../api/backend";
 import { detach } from "./detach";
-import { isAppRunning } from "./runningApps";
-import { isSessionActive } from "./sessionManager";
+import { readGameRunning } from "./sessionManager";
 import { showToast } from "./toast";
 
 /**
@@ -75,7 +74,7 @@ export async function executeStopRunningGame({
 
   // Stale-overlay self-heal: if nothing is actually running, clear it back to Play
   // without prompting or touching the backend.
-  if (!(isAppRunning(appId) || (romId !== null && isSessionActive(romId)))) {
+  if (!readGameRunning(appId, romId).running) {
     detach(debugLog(`${tag}: Stop on appId=${appId} but nothing is running — clearing stale overlay`));
     onClearOverlay();
     return false;

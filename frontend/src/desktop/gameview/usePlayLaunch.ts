@@ -31,8 +31,7 @@ import { confirmCoreChangeIfNeeded } from "../../utils/coreChange";
 import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
 import { announceSaveSync, resolveConflictsSequentially, resolveKnownConflicts } from "../../utils/saveConflictFlow";
 import { reportServerReachable } from "../../utils/connectionState";
-import { isSessionActive } from "../../utils/sessionManager";
-import { isAppRunning } from "../../utils/runningApps";
+import { readGameRunning } from "../../utils/sessionManager";
 import { saveSyncToastBody } from "../../utils/saveSyncToast";
 import { reconfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
 import {
@@ -279,7 +278,7 @@ export function usePlayLaunch({
     if (!romId || effectiveState === "syncing" || effectiveState === "launching") return;
 
     // Already running -> bring to front without re-entering launch gate or RunGame
-    if (isSessionActive(romId) || isAppRunning(appId)) {
+    if (readGameRunning(appId, romId).running) {
       activateRunningApp(appId, "DesktopPlayButton");
       return;
     }
