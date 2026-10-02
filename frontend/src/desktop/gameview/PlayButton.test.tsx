@@ -64,9 +64,17 @@ vi.mock("../../utils/connectionHeartbeat", () => ({
   CONNECTION_HEARTBEAT_INTERVAL_MS: 30_000,
 }));
 
-vi.mock("../../utils/sessionManager", () => ({
-  isSessionActive: vi.fn(() => false),
-}));
+vi.mock("../../utils/sessionManager", async () => {
+  const { isAppRunning } = await import("../../utils/runningApps");
+  const isSessionActive = vi.fn((_romId: number) => false);
+  return {
+    isSessionActive,
+    readGameRunning: vi.fn((appId: number, romId: number | null | undefined) => {
+      const running = (romId != null && isSessionActive(romId)) || isAppRunning(appId);
+      return { running, decidedBy: running ? "store" : "none", diagnostics: "" };
+    }),
+  };
+});
 
 vi.mock("../../utils/runningApps", () => ({
   isAppRunning: vi.fn(() => false),

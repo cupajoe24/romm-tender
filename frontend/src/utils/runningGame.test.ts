@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { activateRunningApp, executeStopRunningGame } from "./runningGame";
 import * as backend from "../api/backend";
 import * as toast from "./toast";
-import * as runningApps from "./runningApps";
 import * as sessionManager from "./sessionManager";
 import { Navigation } from "@decky/ui";
 
@@ -25,13 +24,17 @@ vi.mock("./toast", () => ({
   showToast: vi.fn(),
 }));
 
-vi.mock("./runningApps", () => ({
-  isAppRunning: vi.fn(),
+vi.mock("./sessionManager", () => ({
+  readGameRunning: vi.fn(),
 }));
 
-vi.mock("./sessionManager", () => ({
-  isSessionActive: vi.fn(),
-}));
+function setRunning(running: boolean): void {
+  vi.mocked(sessionManager.readGameRunning).mockReturnValue({
+    running,
+    decidedBy: running ? "store" : "none",
+    diagnostics: "",
+  });
+}
 
 describe("runningGame", () => {
   beforeEach(() => {
@@ -129,11 +132,10 @@ describe("runningGame", () => {
       expect(stopInFlightRef.current).toBe(true);
     });
 
-    it("self-heals stale overlay when neither app nor session is active", async () => {
+    it("self-heals stale overlay when nothing reads as running", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
-      vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
+      setRunning(false);
 
       const stopped = await executeStopRunningGame({
         appId: 10,
@@ -155,7 +157,7 @@ describe("runningGame", () => {
     it("warns and aborts if romId is null", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
+      setRunning(true);
 
       const stopped = await executeStopRunningGame({
         appId: 10,
@@ -175,7 +177,7 @@ describe("runningGame", () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
       const confirmModal = vi.fn().mockResolvedValue(false);
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
+      setRunning(true);
 
       const stopped = await executeStopRunningGame({
         appId: 10,
@@ -197,7 +199,7 @@ describe("runningGame", () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
       const onSetPending = vi.fn();
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
+      setRunning(true);
       vi.mocked(backend.stopRunningGame).mockResolvedValueOnce({
         success: true,
         stopped: 1,
@@ -227,7 +229,7 @@ describe("runningGame", () => {
     it("treats reason=not_running as success and clears overlay", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
+      setRunning(true);
       vi.mocked(backend.stopRunningGame).mockResolvedValueOnce({
         success: false,
         reason: "not_running",
@@ -249,7 +251,7 @@ describe("runningGame", () => {
     it("handles backend refusal, toasts message, and preserves overlay", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
+      setRunning(true);
       vi.mocked(backend.stopRunningGame).mockResolvedValueOnce({
         success: false,
         reason: "game_not_running",
@@ -276,7 +278,7 @@ describe("runningGame", () => {
     it("catches errors, toasts generic failure, and preserves overlay", async () => {
       const stopInFlightRef = { current: false };
       const onClearOverlay = vi.fn();
-      vi.mocked(runningApps.isAppRunning).mockReturnValue(true);
+      setRunning(true);
       vi.mocked(backend.stopRunningGame).mockRejectedValueOnce(new Error("Bridge died"));
 
       const stopped = await executeStopRunningGame({
