@@ -46,8 +46,7 @@ import { useGameDetail } from "../../utils/gameDetailStore";
 import { useDownloads } from "../../utils/downloadStore";
 import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
-import { isSessionActive } from "../../utils/sessionManager";
-import { isAppRunning } from "../../utils/runningApps";
+import { readGameRunning } from "../../utils/sessionManager";
 import { hasAnySaveConflict } from "../../utils/saveStatus";
 import { setLaunchOptionsConfirmed } from "../../utils/steamShortcuts";
 import { usePruneLeaseOwner } from "../../utils/pruneLease";
@@ -362,7 +361,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     effectiveState = stateOverride;
   } else if (isTransferActive) {
     effectiveState = "downloading";
-  } else if (romId && (isSessionActive(romId) || isAppRunning(appId))) {
+  } else if (romId && readGameRunning(appId, romId).running) {
     effectiveState = "running";
   } else if (heldVerdictApplies) {
     effectiveState = heldVerdict.state;
