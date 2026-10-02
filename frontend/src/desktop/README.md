@@ -12,7 +12,11 @@ are sorted into dedicated lowercase subdirectories:
 
 - `desktop/` (root) — Shared desktop infrastructure:
   - `desktopWindow.ts` — finding the desktop client window, React 19's `createRoot`, cover and hero candidate URLs.
-  - `navigationWatcher.ts` — watches the desktop client's location and DOM and mounts the views.
+  - `navigationWatcher.ts` — watches the desktop client's location and DOM and mounts the views; while it runs, the
+    launch watcher may ask through this surface's dialogs.
+  - `launchPromptHost.tsx` — draws a question of the launch watcher's into the desktop window, each in a React root of
+    its own
+    ([Dialogs for a start the launch watcher catches](../../../docs/architecture/desktop-dom-architecture.md#dialogs-for-a-start-the-launch-watcher-catches)).
   - `index.ts` — Public surface exports.
 - `desktop/watcher/` — what the navigation watcher adapts Steam's page with: `elementSelectors.ts` (finding Steam's
   elements), `fiberInspector.ts` (read-only Fiber reads), `restorationLedger.ts` (recording every change so it can be
@@ -27,9 +31,9 @@ are sorted into dedicated lowercase subdirectories:
     fallback launch, core change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share,
     `desktopDialogs.tsx` puts them in the shapes the shared flows ask for (`desktopLaunchPrompts` for a launch), and
     `useDialogHost.tsx` is how a component asks one: a promise that settles with the button pressed, and with the
-    dialog's cancel answer on Escape, a backdrop click or unmount. Only a start from Tender's Play button asks through
-    the launch dialogs: a start the launch watcher catches (`utils/launchInterceptor.ts`) asks through `../shared/`'s
-    gamepad modals, on this surface too.
+    dialog's cancel answer on Escape, a backdrop click or unmount. A start from Tender's Play button asks through the
+    launch dialogs, and so does a start the launch watcher catches (`utils/launchInterceptor.ts`) while the desktop
+    client is Steam's main UI.
 - `desktop/gamesettings/` — (Planned) `GameSettingsView` specific components.
 - `desktop/settings/` — (Planned) `TenderSettings` specific components.
 

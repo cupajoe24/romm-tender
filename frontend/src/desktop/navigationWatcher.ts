@@ -11,6 +11,7 @@ import { createElement } from "react";
 import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
 import { findDesktopWindow, findReactClient } from "./desktopWindow";
 import { GameView } from "./gameview/GameView";
+import { offerDesktopLaunchPrompts, withdrawDesktopLaunchPrompts } from "./launchPromptHost";
 import { PlayButton } from "./gameview/PlayButton";
 import { ensurePulseStyles } from "./gameview/styles";
 import { getAppIdFromFiber } from "./watcher/fiberInspector";
@@ -335,6 +336,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
 
 export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   stopDesktopNavigationWatcher();
+  offerDesktopLaunchPrompts();
 
   if (customWin) {
     if (typeof customWin.setInterval !== "function") {
@@ -423,6 +425,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 }
 
 export function stopDesktopNavigationWatcher(): void {
+  withdrawDesktopLaunchPrompts();
   if (activeWatcherStop) {
     activeWatcherStop();
     activeWatcherStop = null;

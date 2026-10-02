@@ -1036,8 +1036,9 @@ the first cancel. Four callers reach it:
 - `CustomPlayButton`, through `handleConflicts` — on the launch gate's `conflict` verdict (as
   `gamepadLaunchPrompts.resolveConflicts`), and when the user resolves the conflict the button is already showing.
 - The launch watcher (`frontend/src/utils/launchInterceptor.ts`), through `handleConflicts` — on a `conflict` verdict
-  for a start it caught. It does not import the modal: `index.tsx` hands it `gamepadLaunchPrompts`
-  (`frontend/src/shared/launchPrompts.ts`), whose `resolveConflicts` is `handleConflicts`.
+  for a start it caught while the desktop client is not Steam's main UI. It does not import the modal: `index.tsx` hands
+  it `gamepadLaunchPrompts` (`frontend/src/shared/launchPrompts.ts`), whose `resolveConflicts` is `handleConflicts`, as
+  the fallback of `launchPromptsForThisStart` ([Pre-launch sync](#pre-launch-sync)).
 - `VersionHistoryPanel.handleRestore` (in `SavesTab`), through `showSyncConflictModal` for the first conflict — when a
   version-restore pre-flight returns `conflict_blocked`.
 - `useCopyToSlot` (the Saves tab's "Copy to slot…"), through `showSyncConflictModal` for the first conflict — when a
@@ -1399,13 +1400,22 @@ parts are the migration check, the launch-target check, a fresh reachability pro
 itself (`runPreLaunchSync`) and what each verdict means: a missing launch target toasts, resolved conflicts announce the
 save change to the page and then launch. A path supplies only what is its own:
 
-| Supplied by the path               | Play button (gamepad and desktop)                                                                | Launch watcher                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`shared/launchPrompts.ts`); `desktopLaunchPrompts` on the desktop client | `gamepadLaunchPrompts`, from `index.tsx`, on either surface |
-| Tracking setup                     | `ensureTrackingConfiguredOnPage` — a slot to choose aborts and opens the Saves tab               | adopts a default silently and always proceeds               |
-| Toast for a sync that moved saves  | yes                                                                                              | no                                                          |
-| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                   | nothing; a pending migration is toasted                     |
-| A gate run that throws             | the trigger returns to Play                                                                      | fails open: the game starts                                 |
+| Supplied by the path               | Play button (gamepad and desktop)                                                                | Launch watcher                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`shared/launchPrompts.ts`); `desktopLaunchPrompts` on the desktop client | chosen once per start (below)                 |
+| Tracking setup                     | `ensureTrackingConfiguredOnPage` — a slot to choose aborts and opens the Saves tab               | adopts a default silently and always proceeds |
+| Toast for a sync that moved saves  | yes                                                                                              | no                                            |
+| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                   | nothing; a pending migration is toasted       |
+| A gate run that throws             | the trigger returns to Play                                                                      | fails open: the game starts                   |
+
+The watcher has no surface of its own, so `index.tsx` hands it a function rather than a set of prompts:
+`launchPromptsForThisStart(gamepadLaunchPrompts)` (`frontend/src/utils/launchPromptRouter.ts`), called once per start as
+its gate begins, so every question one start puts comes from the same surface. It answers with the desktop client's
+dialogs (`desktopLaunchPrompts`, drawn by `desktop/launchPromptHost.tsx`) while the desktop client is Steam's main UI
+and the desktop surface has offered them and has a window to draw into, and with `gamepadLaunchPrompts` otherwise —
+always, in a shipped bundle, which carries no desktop surface to offer them. How Steam's main UI is read, and the one
+case it cannot see — a desktop client closed to the tray, where the dialog waits unseen until Steam is opened again —
+are on [Desktop Mode DOM Adaptation](desktop-dom-architecture.md#dialogs-for-a-start-the-launch-watcher-catches).
 
 The watcher listens on `SteamClient.Apps.RegisterForGameActionStart`, which reports a start with `action` `"LaunchApp"`
 before Steam creates the game's process. Its second argument is **not the appId but the 64-bit game ID** in decimal: for
@@ -1900,7 +1910,8 @@ empty, so the store answers unopposed until the next stop is observed.
 Each launch guard logs one line per decision, whether it skips the gate or runs it. The launch watcher logs at `info`
 and the Play button at `debug`, so neither line is written at the default `warn` level. The line names the signal that
 decided (`session`, `store`, `stop` or `none`) beside the session state, whether a stop was observed, and the store's
-`diagnostics`.
+`diagnostics`. The launch watcher's line for a start it gates also names Steam's `launchSource` for it, which nothing
+acts on.
 
 ### State-aware Resume button (#1313)
 

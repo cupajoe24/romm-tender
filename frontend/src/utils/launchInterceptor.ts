@@ -220,9 +220,14 @@ async function readStartRom(appId: number): Promise<{ romId: number; installed: 
   return { romId, installed: await isRomInstalled(appId, romId) };
 }
 
-export function registerLaunchInterceptor(prompts: LaunchPrompts): void {
+/**
+ * Gate every caught start of a RomM shortcut. `promptsForStart` is asked once
+ * per start, as its gate begins, so every question one start puts is drawn by
+ * the same surface.
+ */
+export function registerLaunchInterceptor(promptsForStart: () => LaunchPrompts): void {
   SteamClient.Apps.RegisterForGameActionStart(
-    (gameActionId: number, gameId: string, action: string, _launchSource: number) => {
+    (gameActionId: number, gameId: string, action: string, launchSource: number) => {
       if (action !== "LaunchApp") return;
 
       const appId = appIdFromGameId(gameId);
@@ -249,7 +254,9 @@ export function registerLaunchInterceptor(prompts: LaunchPrompts): void {
       // against the un-pausable launch: from here the launch is stopped and we
       // relaunch only on approval.
       SteamClient.Apps.CancelGameAction(gameActionId);
-      logInfo(`Launch interceptor: appId=${appId} not running — running the launch gate [${running.diagnostics}]`);
+      logInfo(
+        `Launch interceptor: appId=${appId} not running — running the launch gate [${running.diagnostics}] launchSource=${launchSource}`,
+      );
       const admission = capturePruneLeaseAdmission();
       const start: CancelledStart = { appId, gameId };
 
@@ -296,7 +303,7 @@ export function registerLaunchInterceptor(prompts: LaunchPrompts): void {
               return;
             }
 
-            await runWatcherGate(start, rom.romId, admission, prompts);
+            await runWatcherGate(start, rom.romId, admission, promptsForStart());
           } catch (e) {
             // An unexpected error must not trap a current launch. A stale launch
             // belongs to a torn-down generation and must remain cancelled.

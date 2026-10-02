@@ -26,6 +26,7 @@ import { registerRomMAppId, unregisterRomMAppId } from "./utils/rommAppIds";
 import { registerMetadataPatches, applyAllPlaytime, applyAllMetadata } from "./utils/metadataPatches";
 import { registerLaunchInterceptor } from "./utils/launchInterceptor";
 import { gamepadLaunchPrompts } from "./shared/launchPrompts";
+import { launchPromptsForThisStart } from "./utils/launchPromptRouter";
 import { hasAnySaveConflict } from "./utils/saveStatus";
 import {
   getAppIdRomIdMap,
@@ -400,7 +401,7 @@ const tender = definePlugin(() => {
   mountPruneLeasePlugin();
   const pluginAdmission = capturePruneLeaseAdmission();
   registerGameDetailPatch();
-  registerLaunchInterceptor(gamepadLaunchPrompts);
+  registerLaunchInterceptor(() => launchPromptsForThisStart(gamepadLaunchPrompts));
 
   // Load metadata cache, register store patches, and populate RomM app ID set.
   // Retries with backoff if the backend isn't ready yet (e.g. boot without network).
