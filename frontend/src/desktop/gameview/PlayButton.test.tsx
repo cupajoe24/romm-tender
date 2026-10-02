@@ -79,7 +79,7 @@ vi.mock("../../utils/metadataPatches", () => ({
 vi.mock("../../api/backend", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/backend")>();
   return {
-    isCallableFailure: actual.isCallableFailure,
+    isEndpointFailure: actual.isEndpointFailure,
     isTargetOccupied: actual.isTargetOccupied,
     isCandidatesFound: actual.isCandidatesFound,
     isUnusableNamesake: actual.isUnusableNamesake,

@@ -580,7 +580,7 @@ describe("GameView", () => {
       expect(alert).toBeInTheDocument();
       expect(screen.getByText("RetroDECK Migration Required")).toBeInTheDocument();
       expect(
-        screen.getByText("Open the plugin QAM to migrate files or dismiss the migration before playing."),
+        screen.getByText("Open the Tender menu (QAM) to migrate files or dismiss the migration before playing."),
       ).toBeInTheDocument();
 
       const alertContainer = container.querySelector(".tender-desktop-migration-alert-container");
