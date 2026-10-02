@@ -23,7 +23,10 @@ import {
   getUpdateOutcome,
   acknowledgeUpdateToast,
   acknowledgeUpdateAttemptToast,
+  acknowledgeUpdateAvailableToast,
+  getStoppedUpdateAttempt as readStoppedUpdateAttempt,
   getUpdateAttemptToast,
+  getUpdateInstallState,
   getAllPlaytime,
   getAppIdRomIdMap,
   getInstalledRelaunchOptions,
@@ -32,13 +35,18 @@ import {
   releasePruneConflictLease,
   renewPruneConflictLease,
   waitForPruneRelease,
+  type UpdateOutcome,
 } from "./api/backend";
 import { registerGameDetailPatch } from "./bigpicture/patches/gameDetailPatch";
 import { registerLaunchInterceptor } from "./utils/launchInterceptor";
 import { getSettingsResetState, setSettingsResetState } from "./utils/settingsResetStore";
 import { getUpdateNoticeState, resetUpdateNoticeStoreForTests } from "./utils/updateNoticeStore";
 import { getUpdateOutcomeState, resetUpdateOutcomeStoreForTests } from "./utils/updateOutcomeStore";
-import { getUpdateInstallAttempt, setUpdateInstallAttempt } from "./utils/updateInstallStore";
+import {
+  getUpdateInstallAttempt,
+  resetUpdateInstallStoreForTests,
+  setUpdateInstallAttempt,
+} from "./utils/updateInstallStore";
 import { resetFailedUpdateToastsForTests } from "./utils/failedUpdateToast";
 import { getStoppedUpdateAttempt, resetStoppedUpdateStoreForTests } from "./utils/stoppedUpdateStore";
 import { getDownloadState, setDownloads } from "./utils/downloadStore";
@@ -215,6 +223,16 @@ function flush(): Promise<void> {
   return new Promise((r) => setTimeout(r, 0));
 }
 
+/** The install's read where nothing is offered and no attempt was made. */
+const NOTHING_INSTALLING = {
+  offered: false,
+  version: null,
+  wait_reasons: [],
+  paused_downloads: 0,
+  attempt: null,
+  try_again: false,
+};
+
 beforeEach(() => {
   // The metadata cache is paged at init; default to a single empty page so
   // loadAppIdsAndMetadata terminates and reaches initDone in every test. Cases
@@ -233,6 +251,7 @@ beforeEach(() => {
   });
   vi.mocked(releasePruneConflictLease).mockReset().mockResolvedValue({ success: true, message: "released" });
   vi.mocked(invalidateCachedGameDetail).mockClear();
+  vi.mocked(getUpdateInstallState).mockResolvedValue(NOTHING_INSTALLING);
   // The global afterEach's vi.unstubAllGlobals wipes the Steam ambient globals
   // after the file's first test; several sync_complete paths read SteamClient /
   // appStore, so default them to no-ops here.
@@ -1376,6 +1395,8 @@ describe("index.tsx — the release check at panel load", () => {
       current_version: "0.33.0",
       enabled: true,
       installed_program: true,
+      toast_owed: false,
+      seen: false,
     });
     pluginFactory();
     await flush();
@@ -1420,6 +1441,7 @@ describe("index.tsx — what the backend pushes about updates", () => {
         current_version: "0.33.0",
         enabled: true,
         installed_program: true,
+        toast_owed: false,
       }),
     );
 
@@ -1604,6 +1626,119 @@ describe("index.tsx — what the last update did, at panel load", () => {
 
     expect(logError).toHaveBeenCalledWith(expect.stringContaining("Failed to read what the last update did"));
     expect(vi.mocked(toaster.toast).mock.calls.filter(([t]) => /updated to/.test(String(t.body)))).toHaveLength(0);
+  });
+});
+
+describe("index.tsx — the toast that a newer release is out, at panel load", () => {
+  const OWED = {
+    available: true,
+    newer: true,
+    latest_version: "1.4.0",
+    current_version: "1.3.0",
+    enabled: true,
+    installed_program: true,
+    toast_owed: true,
+    seen: false,
+  };
+  const NOTHING_MOVED: UpdateOutcome = {
+    announce_version: null,
+    announce_direction: null,
+    toast_owed: false,
+    failure: null,
+    failure_dismissed: false,
+    failure_toast_owed: false,
+  };
+  const availableToasts = () =>
+    vi.mocked(toaster.toast).mock.calls.filter(([t]) => /is available/.test(String(t.body)));
+
+  beforeEach(() => {
+    vi.stubGlobal("App", { GetServicesInitialized: () => true });
+    vi.stubGlobal("securitystore", { IsLockScreenActive: () => false });
+    vi.stubGlobal("SteamUIStore", { WindowStore: { GamepadUIMainWindowInstance: null } });
+    resetFailedUpdateToastsForTests();
+    resetUpdateNoticeStoreForTests();
+    resetUpdateOutcomeStoreForTests();
+    resetStoppedUpdateStoreForTests();
+    resetUpdateInstallStoreForTests();
+    vi.mocked(toaster.toast).mockClear();
+    vi.mocked(getUpdateNotice).mockReset().mockResolvedValue(OWED);
+    vi.mocked(getUpdateOutcome).mockReset().mockResolvedValue(NOTHING_MOVED);
+    vi.mocked(readStoppedUpdateAttempt).mockReset().mockResolvedValue(null);
+    vi.mocked(acknowledgeUpdateAvailableToast).mockReset().mockResolvedValue({ success: true });
+  });
+
+  afterEach(() => {
+    vi.mocked(getUpdateNotice).mockReset();
+    vi.mocked(getUpdateOutcome).mockReset();
+    vi.mocked(readStoppedUpdateAttempt).mockReset();
+  });
+
+  it("raises it once the reads answered, and acknowledges it", async () => {
+    pluginFactory();
+
+    await vi.waitFor(() => expect(acknowledgeUpdateAvailableToast).toHaveBeenCalledWith("1.4.0"));
+    expect(availableToasts()).toEqual([
+      [{ title: "Tender", body: "Tender 1.4.0 is available. Settings › Updates to install it." }],
+    ]);
+  });
+
+  it("raises none where the last read to answer names a failed update to that release", async () => {
+    let answerOutcome!: () => void;
+    vi.mocked(getUpdateOutcome).mockReturnValue(
+      new Promise((resolve) => {
+        answerOutcome = () =>
+          resolve({
+            announce_version: null,
+            announce_direction: null,
+            toast_owed: false,
+            failure: {
+              attempted_version: "1.4.0",
+              restored_version: "1.3.0",
+              rolled_back_at: "2026-09-25T10:15:00Z",
+              kind: "rollback",
+            },
+            failure_dismissed: true,
+            failure_toast_owed: false,
+          });
+      }),
+    );
+    pluginFactory();
+    await flush();
+    await flush();
+
+    answerOutcome();
+    await flush();
+    await flush();
+
+    expect(availableToasts()).toHaveLength(0);
+    expect(acknowledgeUpdateAvailableToast).not.toHaveBeenCalled();
+  });
+
+  it("raises none, and acknowledges none, where what the last update did could not be read", async () => {
+    vi.mocked(getUpdateOutcome).mockRejectedValue(new Error("socket closed"));
+    pluginFactory();
+    await vi.waitFor(() =>
+      expect(logError).toHaveBeenCalledWith("Failed to read what the last update did: Error: socket closed"),
+    );
+    await flush();
+    await flush();
+
+    expect(availableToasts()).toHaveLength(0);
+    expect(acknowledgeUpdateAvailableToast).not.toHaveBeenCalled();
+  });
+
+  it("raises none while the install's read at load finds an attempt under way", async () => {
+    vi.mocked(getUpdateInstallState).mockResolvedValue({
+      ...NOTHING_INSTALLING,
+      attempt: { version: "1.4.0", step: "downloading", bytes_done: 10, bytes_total: 100, failure: null },
+    });
+    pluginFactory();
+    await vi.waitFor(() => expect(getUpdateInstallAttempt()?.step).toBe("downloading"));
+    await flush();
+    await flush();
+
+    expect(availableToasts()).toHaveLength(0);
+    expect(acknowledgeUpdateAvailableToast).not.toHaveBeenCalled();
   });
 });
 

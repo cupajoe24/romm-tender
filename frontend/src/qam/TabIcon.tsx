@@ -8,11 +8,18 @@
  * capsules with nothing marking the button positions. The one number of its own
  * is the default edge length, {@link GLYPH_SIZE}.
  *
- * **It does not animate, and that is a measurement rather than a taste.** It
- * shipped with a turning ring and a folding body, and the fold alone cost
- * roughly 29% of one core for as long as the menu was open — measured on the
- * device over CDP. An animation added back here costs that again:
- * `docs/architecture/qam-panel.md` holds the reading in full.
+ * It carries one piece of state: a dot, drawn while the "is available" card on
+ * Main would show and its release was not yet seen (`utils/updateDot.ts`). The
+ * stores are read through `useSyncExternalStore`, which subscribes on mount and
+ * lets go on unmount, so the glyph binds nothing that outlives the Quick Access
+ * view it renders in.
+ *
+ * **Nothing about it moves at rest, and that is a measurement rather than a
+ * taste**. It shipped with a turning ring and a folding body, and the fold alone
+ * cost roughly 29% of one core for as long as the menu was open — measured on
+ * the device over CDP. An animation that runs while the menu is open costs
+ * that again: `docs/architecture/qam-panel.md` holds the reading in full, and
+ * the one motion allowed, the dot's fade.
  *
  * **Two things about this are UNMEASURED**, and neither is guessed at here.
  * Whether `size` below lands at the 28 px it is aiming for: its `1.633em` is
@@ -25,6 +32,8 @@
 
 import type { FC } from "react";
 import { TAB_ICON_ARC, TAB_ICON_BARS, TAB_ICON_CENTRE, TAB_ICON_VIEW_BOX } from "./tabIconArt";
+import { UPDATE_AVAILABLE_COLOR } from "../utils/updateAvailableView";
+import { DOT_FADE_STYLE, useUpdateDot } from "../utils/updateDot";
 
 /**
  * Where the glyph's halves are defined, for the `<use>` that draws each one a
@@ -48,6 +57,21 @@ const BODY_ID = "tender-tab-icon-body";
  * glyph scaling with Steam's UI where a pixel length would pin it.
  */
 const GLYPH_SIZE = "1.633em";
+
+/**
+ * The dot, in the 200-unit square: in the top-right corner, over the arc's end
+ * and reaching past the square's edge, which the glyph's `overflow: visible`
+ * lets show. A dot clear of the arc fits only up to a radius of about 23, which
+ * read too small on the device's strip.
+ */
+const DOT = { cx: 180, cy: 20, r: 32 } as const;
+
+/**
+ * The fade, about the dot's own centre: an SVG element's transform is
+ * otherwise taken about the view box's origin, and the dot would grow away
+ * from where it sat.
+ */
+const DOT_FADE = { ...DOT_FADE_STYLE, transformBox: "fill-box", transformOrigin: "center" } as const;
 
 export interface TabIconProps {
   /** Edge length. See {@link GLYPH_SIZE} for what the default is and why. */
@@ -73,6 +97,7 @@ const Arc: FC = () => (
 
 export const TabIcon: FC<TabIconProps> = ({ size = GLYPH_SIZE }) => {
   const turn = `rotate(180 ${TAB_ICON_CENTRE})`;
+  const dot = useUpdateDot();
 
   return (
     <svg
@@ -83,7 +108,7 @@ export const TabIcon: FC<TabIconProps> = ({ size = GLYPH_SIZE }) => {
       // Decorative: the strip entry carries the accessible name in its title,
       // so the glyph must not announce itself a second time.
       aria-hidden="true"
-      style={{ display: "block" }}
+      style={{ display: "block", overflow: "visible" }}
       data-testid="tender-tab-icon"
     >
       <g>
@@ -103,6 +128,16 @@ export const TabIcon: FC<TabIconProps> = ({ size = GLYPH_SIZE }) => {
         </g>
         <use href={`#${BODY_ID}`} transform={turn} />
       </g>
+      {dot !== "none" && (
+        <circle
+          cx={DOT.cx}
+          cy={DOT.cy}
+          r={DOT.r}
+          fill={UPDATE_AVAILABLE_COLOR}
+          style={dot === "fading" ? DOT_FADE : undefined}
+          data-testid="tender-update-dot"
+        />
+      )}
     </svg>
   );
 };

@@ -70,6 +70,8 @@ describe("the button rows of the notices on Main", () => {
           currentVersion: "0.33.0",
           enabled: true,
           installedProgram: true,
+          toastOwed: false,
+          seen: false,
         });
         return <UpdateNotice onOpenUpdates={() => {}} />;
       },

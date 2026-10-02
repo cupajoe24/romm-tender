@@ -4,12 +4,17 @@
  * Updated by:
  *   - panel load in index.tsx (fetchUpdateNotice), detached
  *   - the card's Dismiss (dismissUpdateForVersion), after the backend persisted it
+ *   - Settings › Updates shown long enough to count as seen (markReleaseSeen),
+ *     after the backend persisted it
  *   - the Settings switch (setUpdateCheckSwitch), after the backend persisted it
  *   - Settings' Check now (runUpdateCheckNow), with the answer it asked for
  *   - the backend's own check while it runs (takePushedUpdateNotice), from `update_notice`
  *
  * Read by:
- *   - bigpicture/UpdateNotice.tsx, the card on Main, which shows nothing unless `available`
+ *   - utils/updateAvailableView.ts, whether the card on Main shows — for the
+ *     card itself, the "is available" toast and the three dots, which `seen`
+ *     takes away
+ *   - utils/updateAvailableToast.ts, which raises that toast where `toastOwed`
  *   - bigpicture/settings/UpdatesSection.tsx through SettingsPage, the card's home
  *
  * `enabled` starts true because that is the default: an install that never
@@ -25,6 +30,7 @@ import {
   checkForUpdateNow,
   dismissUpdateNotice,
   getUpdateNotice,
+  markUpdateAvailableSeen,
   setUpdateCheckEnabled,
   type UpdateNotice,
   type UpdateSettingWrite,
@@ -42,6 +48,10 @@ export interface UpdateNoticeState {
   enabled: boolean;
   /** This process can be updated in place — false for a run from a checkout. */
   installedProgram: boolean;
+  /** The backend owes the "is available" toast for `latestVersion`. */
+  toastOwed: boolean;
+  /** The user has seen `latestVersion` in Settings › Updates. */
+  seen: boolean;
 }
 
 const INITIAL: UpdateNoticeState = {
@@ -51,6 +61,8 @@ const INITIAL: UpdateNoticeState = {
   currentVersion: "",
   enabled: true,
   installedProgram: false,
+  toastOwed: false,
+  seen: false,
 };
 
 let _state: UpdateNoticeState = INITIAL;
@@ -58,7 +70,8 @@ let _listeners: Array<() => void> = [];
 
 /**
  * Ordering fence: every write that crosses an `await` takes the number before
- * the `await` and writes nothing if the number has moved by the time it lands.
+ * the `await` and writes nothing if the number has moved by the time it lands —
+ * all but {@link markReleaseSeen}, which says why.
  *
  * A read can sit on a GitHub request for up to its timeout, and its answer
  * carries `enabled`, which belongs to the user: without the fence, switching the
@@ -114,6 +127,8 @@ function stateFromNotice(notice: UpdateNotice): UpdateNoticeState {
     currentVersion: notice.current_version,
     enabled: notice.enabled,
     installedProgram: notice.installed_program,
+    toastOwed: notice.toast_owed,
+    seen: notice.seen,
   };
 }
 
@@ -183,6 +198,25 @@ export async function dismissUpdateForVersion(version: string): Promise<void> {
   requireAccepted(write);
   if (seq !== _seq) return;
   setUpdateNoticeState({ ..._state, available: false });
+}
+
+/**
+ * Record that the user has seen *version* in Settings › Updates, then reflect
+ * it here — only once the backend answered that it persisted it, and only while
+ * the store still names *version*, so a newer release that landed meanwhile is
+ * not marked seen in its place. A seen release owes no toast either, as the
+ * backend's next answer will say too. A refused or failed write rejects and
+ * leaves the dots standing.
+ *
+ * It does not move {@link _seq}: it is started by a timer rather than a press,
+ * and moving the fence would make a Check now, a Dismiss or a switch press
+ * still in flight write nothing.
+ */
+export async function markReleaseSeen(version: string): Promise<void> {
+  const write = await markUpdateAvailableSeen(version);
+  requireAccepted(write);
+  if (_state.latestVersion !== version) return;
+  setUpdateNoticeState({ ..._state, seen: true, toastOwed: false });
 }
 
 /**

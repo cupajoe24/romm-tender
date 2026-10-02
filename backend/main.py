@@ -721,13 +721,19 @@ class Endpoints:
         """Report the last available release a check saw, and whether the card should say so.
 
         Returns ``{"available", "newer", "latest_version", "current_version",
-        "enabled", "installed_program"}``. ``available`` is the card itself: a
-        newer release with its tarball and checksum file attached exists, and
-        the user has not dismissed that exact version — whatever the check's
-        switch says. ``newer`` is the first of those alone, for the Settings
-        section that states the versions whether or not the card was dismissed.
-        ``installed_program`` says whether this process is the installed program
-        an update could replace — False for a run from a checkout.
+        "enabled", "installed_program", "toast_owed", "seen"}``. ``available`` is the
+        card itself: a newer release with its tarball and checksum file attached
+        exists, and the user has not dismissed that exact version — whatever the
+        check's switch says. ``newer`` is the first of those alone, for the
+        Settings section that states the versions whether or not the card was
+        dismissed. ``installed_program`` says whether this process is the
+        installed program an update could replace — False for a run from a
+        checkout. ``toast_owed`` says the panel owes the "is available" toast
+        for ``latest_version``: the card is up, the switch is on, and that
+        version was neither acknowledged by
+        :meth:`acknowledge_update_available_toast`, found by
+        :meth:`check_for_update_now`, nor seen. ``seen`` says
+        :meth:`mark_update_available_seen` recorded ``latest_version`` as seen.
 
         GitHub is asked at most once a day and the answer is kept, so a reload
         inside that window shows the card without a request; with the check
@@ -744,8 +750,9 @@ class Endpoints:
         Answers everything :meth:`get_update_notice` does, plus ``reached`` —
         whether the release read answered at all, which is what lets the Settings
         section tell "nothing newer" from "nothing found out". A dismissed card
-        comes back. The check's switch does not hold this back: it governs only
-        what the program asks by itself.
+        comes back. A newer release this read found counts as told, so no toast
+        follows for it. The check's switch does not hold this back: it governs
+        only what the program asks by itself.
         """
         return await self._services.update_check_service.check_for_update_now()
 
@@ -758,6 +765,29 @@ class Endpoints:
         is not a non-empty string.
         """
         return self._services.update_check_service.dismiss_update_notice(version)
+
+    @route
+    async def acknowledge_update_available_toast(self, version):
+        """Record that the panel raised the "is available" toast for one release version, for every later start.
+
+        Per version, so the next release owes its own. Returns ``{"success":
+        True}``, or the canonical failure shape — ``invalid_value`` for a
+        version that is not a non-empty string, ``version_changed`` for one that
+        is not the release the last check stored.
+        """
+        return await self._services.update_check_service.acknowledge_update_available_toast(version)
+
+    @route
+    async def mark_update_available_seen(self, version):
+        """Record that the user has seen one release version in Settings → Updates, for every later start.
+
+        A seen release carries no dots and owes no toast; the card on Main stays.
+        Per version, so the next release is unseen again. Returns ``{"success":
+        True}``, or the canonical failure shape — ``invalid_value`` for a
+        version that is not a non-empty string, ``version_changed`` for one that
+        is not the release the last check stored.
+        """
+        return await self._services.update_check_service.mark_update_available_seen(version)
 
     @route
     def set_update_check_enabled(self, enabled):
@@ -834,7 +864,7 @@ class Endpoints:
 
     @route
     async def get_update_install_state(self):
-        """Report whether the panel may offer to install the last seen release, and what a press waits for.
+        """Report whether the panel may offer to install the release the last check stored, and what a press waits for.
 
         Returns ``{"offered", "version", "wait_reasons", "paused_downloads",
         "attempt", "try_again"}``. ``offered`` holds only on the installed

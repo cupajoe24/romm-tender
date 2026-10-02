@@ -287,6 +287,25 @@ names the version you have — a check made while the panel is open brings it up
 you to **Settings › Updates**, where you can install it, and **Dismiss** puts the notice away for that version only —
 the next release brings it back.
 
+Tender also says so in a message that goes by itself — once Steam has finished starting, or as soon as a check while
+Tender runs finds the release — so you hear of it without opening the panel: **Tender X is available. Settings › Updates
+to install it.** Tapping it does nothing. It says it once for each release: reopening the panel, restarting Steam or
+restarting Tender does not bring it back, and a release you found yourself with **Check now** does not say it at all. It
+says nothing while the daily check is switched off, for a release whose notice you dismissed, or while the main panel
+does not call that release available because an update to it failed (see below) — after the installer went back or
+refused the new version, that holds even once you dismissed the failure's notice. From the moment you press **Install**
+until the install has ended it waits; if the update did not go through, it comes then, unless one of the above holds it
+back.
+
+While the notice is on the main panel, small blue dots show you the way to the release — on Tender's icon in the Quick
+Access menu, beside **Settings** on the main panel, and beside **Updates** in the Settings list — with the daily check
+switched off too. Once **Settings › Updates** has been open for about a second, whether you went there from the list or
+with **Open Updates**, the release counts as seen: the dots grow and fade out, and they stay away for that release, also
+after a restart. Moving through the Settings list past **Updates** does not count, and neither does closing the menu
+within that second. Seeing it there also means no message comes for it. The notice on the main panel stays until you
+dismiss it or install the update; dismissing it takes the dots away too, and so does installing the update. A newer
+release brings them back.
+
 After an update, once Steam has finished starting, it says **Tender updated to X** in a message that goes by itself;
 after installing an earlier version, it says **Tender is back on X** instead. It says it once: reopening the panel, or
 restarting Steam, does not bring it back. The main panel also shows a notice, **Tender was updated to X.** or **Tender
@@ -297,9 +316,9 @@ If the new version did not start after an update, and the installer went back to
 main panel says **Update to X failed — you are still on Y.**, and under it where the reason is.
 [Troubleshooting](troubleshooting.md#an-update-was-rolled-back) says what to look at there. **Open Updates** takes you
 to **Settings › Updates**, and **Dismiss** puts the notice away for that failed update only; another one brings it back.
-It also goes away by itself once a later update goes through. While it is there, the main panel does not also call X
-available — you have just seen it fail — although a release newer than X brings back an **is available** notice for that
-release.
+It also goes away by itself once a later update goes through. While it is there, and after you dismiss it until a later
+update goes through, the main panel does not also call X available — you have just seen it fail — although a release
+newer than X brings back an **is available** notice for that release.
 
 A failed update also says so in a message that goes by itself, once Steam has finished starting, so you hear of it
 without opening the panel. After the installer went back to the version you had or refused the new version, and after an
