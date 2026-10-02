@@ -116,12 +116,12 @@ Instead, Tender employs **Read-Only React Fiber Introspection**:
 ### 2. Atomic DOM Restoration Ledger (`watcher/restorationLedger.ts`)
 
 Desktop UI adaptations mutate native Steam DOM nodes (hiding default non-Steam placeholder notices, replacing play
-buttons, clipping overflow, and setting auto margins). An untracked DOM mutation causes permanent layout corruption when
-navigating to non-RomM shortcuts or official Steam games.
+buttons, making the play bar sticky, keeping the hero wrapper's overflow visible, and setting auto margins). An
+untracked DOM mutation causes permanent layout corruption when navigating to non-RomM shortcuts or official Steam games.
 
 The **`DomRestorationLedger`** guarantees atomic, idempotent restoration:
 
-- **Style Recording**: When setting inline styles (e.g. `overflow: hidden`, `margin-left: auto`), the element's
+- **Style Recording**: When setting inline styles (e.g. `position: sticky`, `margin-left: auto`), the element's
   _original_ pre-mutation style is preserved in an internal map. Successive mutations preserve the earliest recorded
   value.
 - **Visibility Tracking**: Hiding elements (`ledger.hide(el)`) backs up the initial `display` property and sets
@@ -164,11 +164,11 @@ When a user selects a game in the desktop library:
 
 1. Steam constructs the initial DOM skeleton (`overviewPanel`, `playBar`).
 2. Tender's watcher detects the route and mounts `TENDER_SUBSTITUTE_ID` (`GameView`).
-3. **Asynchronously (100–500ms later)**: Steam's background threads render blurred background gradient canvases into the
-   hero wrapper.
-4. These canvas elements have natural dimensions exceeding the container, inflating the hero wrapper's `scrollHeight`
-   from ~307px to 1978px (with `overflow: visible`).
-5. This creates an enormous empty gap below the game cards, allowing the user to scroll endlessly past content.
+3. **Asynchronously (100–500ms later)**: Steam renders the rest of the page — the blurred background gradient canvases
+   in the hero wrapper, the play bar's badges, and its duplicate sticky header.
+4. An adaptation made only at mount never sees those elements: the badges and the duplicate header stay on screen, and
+   the hero wrapper, which `findInflatedHeroWrapper` recognises by the canvases inflating its `scrollHeight`, is not
+   there yet to be kept at `overflow: visible`.
 
 ### The Pass Order Invariant
 
@@ -179,10 +179,11 @@ An agent or developer might instinctively short-circuit `reinject()` if `existin
 if (existingSubstitute && existingSubstitute.isConnected && existingSubstitute.dataset.appid === String(appId)) {
   return;
 }
-// Hero wrapper overflow clipping, badges hiding, and duplicate sticky bar suppression NEVER RUN!
+// Keeping the hero wrapper visible, hiding badges, and duplicate sticky bar suppression NEVER RUN!
 ```
 
-Because `GameView` mounts on tick 0 before the canvases render, returning early skips all subsequent layout containment.
+Because `GameView` mounts on tick 0 before the rest of the page renders, returning early skips every adaptation for what
+renders later.
 
 **The Invariant**: In `reinject()`, **DOM adaptations must precede the substitute mount guard**:
 
@@ -264,6 +265,28 @@ semi-transparent glass play bar and scrolls at half speed behind content cards.
     (`STEAM_CARD_BG`).
   - Because `heroWrapper` preserves `overflow: visible`, the hero banner continues to scroll in 3D parallax behind the
     cards even after the play bar pins to the top, providing continuous artwork refraction across the remaining content.
+
+### Bounding the artwork's overflow (`boundHeroOverflow`)
+
+The hero image container — the parallax layer — is 307px tall, but what it holds runs much further: the image, then a
+canvas Steam flips vertically to continue the blurred background below it (989px in all on the page measured). Chromium
+counts that overflow towards the scroller's scrollable height at the layer's own scale, so on that page the scroller
+reached 2 × 989 = 1978px against content ending at 1405px, and the page scrolled on past the last card into empty space.
+
+Clipping the hero wrapper removes that, and flattens the parallax with it (above). `boundHeroOverflow`
+(`watcher/stickyPlayBarController.ts`) clips one level lower instead, on the parallax layer itself, which is the end of
+the 3D chain and already `transform-style: flat`, so nothing above it changes:
+
+- **`overflow: clip`** on the layer, with an **`overflow-clip-margin`** that lets the artwork run on exactly as far as
+  the page does. The layer's scrollable bottom is `layerTop + scale × (layer height + margin)`, measured on the device
+  for margins from 400 to 600px, so the margin is `(target − layerTop) / scale − layer height`, rounded down. The target
+  is the content's bottom, or the scroller's own height on a page shorter than the window.
+- **A fade on the flipped canvas** over its last 160px before the clip edge, so the artwork ends in a gradient rather
+  than on a straight line. The mask goes on the canvas rather than the layer: on the layer, a mask covers only the
+  layer's own box, however its `mask-clip` is set, so it never reached the overflow.
+
+Both are recomputed whenever the sticky controller updates its pinning — on scroll, on resize, and on every watcher pass
+— because the cards change height, and both go through the ledger.
 
 ---
 

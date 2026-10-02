@@ -4,6 +4,7 @@ import {
   isPlayBarPinned,
   findInflatedHeroWrapper,
   createStickyPlayBarController,
+  boundHeroOverflow,
 } from "./stickyPlayBarController";
 import { DomRestorationLedger } from "./restorationLedger";
 import { GLASS_PLAY_BAR_BG, PINNED_PLAY_BAR_SHADOW, SOLID_PLAY_BAR_BG } from "../gameview/styles";
@@ -284,6 +285,116 @@ describe("stickyPlayBarController", () => {
       controller.dispose();
       ledger.restoreAll();
       otherBar.remove();
+    });
+  });
+
+  describe("boundHeroOverflow", () => {
+    // The shape measured on the device: a 307px parallax layer at the top of the
+    // page, scaled 2x by its matrix3d, holding the artwork and a flipped canvas
+    // 369px down that runs far below it.
+    function heroPage({ contentBottom, clientHeight = 617 }: { contentBottom: number; clientHeight?: number }) {
+      const scroller = document.createElement("div");
+      Object.defineProperty(scroller, "clientHeight", { value: clientHeight, configurable: true });
+      scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+
+      const wrapper = document.createElement("div");
+      wrapper.style.overflow = "visible";
+      const header = document.createElement("div");
+      header.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      const layer = document.createElement("div");
+      layer.style.transform = "matrix3d(2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 0, -1, 1)";
+      Object.defineProperty(layer, "offsetParent", { value: header, configurable: true });
+      Object.defineProperty(layer, "offsetTop", { value: 0, configurable: true });
+      Object.defineProperty(layer, "offsetHeight", { value: 307, configurable: true });
+      const mirror = document.createElement("canvas");
+      mirror.style.transform = "matrix(1, 0, 0, -1, 0, 0)";
+      Object.defineProperty(mirror, "offsetParent", { value: layer, configurable: true });
+      Object.defineProperty(mirror, "offsetTop", { value: 369, configurable: true });
+      layer.appendChild(mirror);
+      header.appendChild(layer);
+      wrapper.appendChild(header);
+
+      const content = document.createElement("div");
+      content.getBoundingClientRect = () => ({ bottom: contentBottom }) as DOMRect;
+      scroller.appendChild(wrapper);
+      scroller.appendChild(content);
+      document.body.appendChild(scroller);
+      return { scroller, wrapper, layer, mirror, content };
+    }
+
+    it("clips the parallax layer so its scaled overflow ends where the content does", () => {
+      const page = heroPage({ contentBottom: 1405 });
+
+      boundHeroOverflow(page.wrapper, page.scroller, page.content, ledger);
+
+      // 2 × (307 + 395) = 1404, the last whole pixel inside 1405.
+      expect(page.layer.style.overflow).toBe("clip");
+      expect(page.layer.style.getPropertyValue("overflow-clip-margin")).toBe("395px");
+      page.scroller.remove();
+    });
+
+    it("fades the flipped canvas out over the pixels before the clip edge", () => {
+      const page = heroPage({ contentBottom: 1405 });
+
+      boundHeroOverflow(page.wrapper, page.scroller, page.content, ledger);
+
+      // The clip edge is 307 + 395 = 702 into the layer, 333 into the canvas.
+      expect(page.mirror.style.getPropertyValue("mask-image")).toBe(
+        "linear-gradient(to top, black 173px, transparent 333px)",
+      );
+      page.scroller.remove();
+    });
+
+    it("lets a page shorter than the window keep the artwork down to the window's bottom", () => {
+      const page = heroPage({ contentBottom: 500, clientHeight: 900 });
+
+      boundHeroOverflow(page.wrapper, page.scroller, page.content, ledger);
+
+      expect(page.layer.style.getPropertyValue("overflow-clip-margin")).toBe("143px");
+      page.scroller.remove();
+    });
+
+    it("never clips the hero wrapper, and hands every style back on restore", () => {
+      const page = heroPage({ contentBottom: 1405 });
+
+      boundHeroOverflow(page.wrapper, page.scroller, page.content, ledger);
+      expect(page.wrapper.style.overflow).toBe("visible");
+
+      ledger.restoreAll();
+      expect(page.layer.style.overflow).toBe("");
+      expect(page.layer.style.getPropertyValue("overflow-clip-margin")).toBe("");
+      expect(page.mirror.style.getPropertyValue("mask-image")).toBe("");
+      page.scroller.remove();
+    });
+
+    it("is applied by the sticky controller on every pinning update", () => {
+      const page = heroPage({ contentBottom: 1405 });
+      page.scroller.style.overflowY = "scroll";
+      Object.defineProperty(page.wrapper, "scrollHeight", { value: 1978, configurable: true });
+      Object.defineProperty(page.wrapper, "offsetHeight", { value: 307, configurable: true });
+      const playBar = document.createElement("div");
+      page.content.appendChild(playBar);
+
+      const controller = createStickyPlayBarController(playBar, playBar, ledger, page.content, page.scroller);
+      expect(page.layer.style.getPropertyValue("overflow-clip-margin")).toBe("395px");
+
+      page.content.getBoundingClientRect = () => ({ bottom: 1805 }) as DOMRect;
+      controller.updatePinning();
+      expect(page.layer.style.getPropertyValue("overflow-clip-margin")).toBe("595px");
+
+      controller.dispose();
+      page.scroller.remove();
+    });
+
+    it("does nothing where the hero carries no matrix3d layer", () => {
+      const page = heroPage({ contentBottom: 1405 });
+      page.layer.style.transform = "none";
+
+      boundHeroOverflow(page.wrapper, page.scroller, page.content, ledger);
+
+      expect(page.layer.style.overflow).toBe("");
+      expect(page.mirror.style.getPropertyValue("mask-image")).toBe("");
+      page.scroller.remove();
     });
   });
 
