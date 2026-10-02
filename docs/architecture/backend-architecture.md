@@ -2640,11 +2640,6 @@ installed copy and `launcher_path` for the one the release ships beside the prog
 `/bin/tender-rom-launcher` have one spelling, and the suffix ownership detection matches is derived from that same
 tuple.
 
-What it writes is the shipped file with a leading UTF-8 BOM removed and, when the result starts with `#!`, every CRLF
-turned into LF — a copy checked out or carried over on Windows otherwise fails in bash with `bad interpreter`. The
-already-in-place comparison is made against that normalized content, so an installed copy that still carries CRLF is
-replaced.
-
 The bin root is the one directory on `AppDirectories` not named after this program: it is shared with every other
 program the user installed for themselves, which is why the install creates it at the umask's mode rather than
 owner-only, and why an uninstaller leaves it alone. The reason the launcher is there rather than beside the code is that
