@@ -7,12 +7,9 @@
  * RomM shortcut detail pages without leaving orphaned styles or hidden elements.
  */
 
-import { createElement } from "react";
+import { createElement, type ComponentType } from "react";
 import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
 import { findDesktopWindow, findReactClient, type ReactClientModule } from "./desktopWindow";
-import { GameView } from "./gameview/GameView";
-import { offerDesktopLaunchPrompts, withdrawDesktopLaunchPrompts } from "./launchPromptHost";
-import { PlayButton } from "./gameview/PlayButton";
 import { ensurePulseStyles } from "./gameview/styles";
 import { getAppIdFromFiber } from "./watcher/fiberInspector";
 import { DomRestorationLedger } from "./watcher/restorationLedger";
@@ -36,6 +33,18 @@ import {
   type StickyPlayBarController,
 } from "./watcher/stickyPlayBarController";
 
+/**
+ * What the watcher draws on a RomM game page. A part left out leaves Steam's
+ * own in its place: without `gameView` the page's content sections stay, and
+ * without `playButton` Steam's Play button and the badges beside it stay.
+ */
+export interface DesktopGamePage {
+  /** Drawn below the play bar, in place of the page's content sections. */
+  gameView?: ComponentType<{ appId: number }>;
+  /** Drawn in place of Steam's Play button and its badges. */
+  playButton?: ComponentType<{ appId: number }>;
+}
+
 interface MainWindowBrowserManagerStub {
   m_lastLocation?: {
     pathname?: string;
@@ -58,7 +67,8 @@ export function appIdOf(path: string | undefined | null): number | null {
 let activeWatcherStop: (() => void) | null = null;
 let supervisorInterval: number | null = null;
 
-function attachToDesktopWindow(deskWin: Window): () => void {
+function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => void {
+  const { gameView: GameView, playButton: PlayButton } = page;
   const d = deskWin.document;
   const ledger = new DomRestorationLedger();
   let stickyController: StickyPlayBarController | null = null;
@@ -140,9 +150,13 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       steamPanel.style.display = "";
     }
 
-    client ??= findReactClient();
-    if (!client) {
-      return;
+    let roots: ReactClientModule | undefined;
+    if (GameView || PlayButton) {
+      client ??= findReactClient();
+      if (!client) {
+        return;
+      }
+      roots = client;
     }
 
     // Locate play bar and content container
@@ -161,14 +175,15 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     }
 
     // 1. Hide native content sections (non-Steam placeholder, notes, screenshots)
-    const contentSections = findSteamContentSections(steamPanel, playSection);
-    for (const sec of contentSections) {
-      ledger.hide(sec);
+    if (GameView) {
+      for (const sec of findSteamContentSections(steamPanel, playSection)) {
+        ledger.hide(sec);
+      }
     }
 
     // 2. Replace native Play button in playSection with our PlayButton
     const nativePlayBtn = findSteamPlayButton(playSection);
-    if (nativePlayBtn) {
+    if (PlayButton && roots && nativePlayBtn) {
       ledger.hide(nativePlayBtn);
 
       let playBtnHost = d.getElementById(TENDER_PLAY_BUTTON_ID);
@@ -196,7 +211,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
         }
 
         try {
-          const pbRoot = client.createRoot(playBtnHost);
+          const pbRoot = roots.createRoot(playBtnHost);
           pbRoot.render(createElement(PlayButton, { appId }));
           ledger.recordRoot(pbRoot, playBtnHost);
         } catch {
@@ -233,16 +248,18 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     }
 
     // 6. Hide native play bar badges (Last Played, Playtime, Cloud Status, etc.)
-    const badgeElements = findSteamPlayBarBadges(playBarTop, nativePlayBtn);
-    if (!playBarTop.contains(playSection)) {
-      for (const badge of findSteamPlayBarBadges(playSection, nativePlayBtn)) {
-        if (!badgeElements.includes(badge)) {
-          badgeElements.push(badge);
+    if (PlayButton) {
+      const badgeElements = findSteamPlayBarBadges(playBarTop, nativePlayBtn);
+      if (!playBarTop.contains(playSection)) {
+        for (const badge of findSteamPlayBarBadges(playSection, nativePlayBtn)) {
+          if (!badgeElements.includes(badge)) {
+            badgeElements.push(badge);
+          }
         }
       }
-    }
-    for (const badge of badgeElements) {
-      ledger.hide(badge);
+      for (const badge of badgeElements) {
+        ledger.hide(badge);
+      }
     }
 
     // 7. Pin Steam's right-side controls container to the right edge
@@ -251,11 +268,14 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       ledger.style(rightControls, "margin-left", "auto");
     }
 
+    // Set before the guard: what the passes above recorded is restored on leaving
+    // this page even when no GameView is mounted.
+    activeAppId = appId;
+
     // 8. The substitute mount guard: a GameView for this game is already in place
-    if (substitute) {
+    if (!GameView || !roots || substitute) {
       return;
     }
-    activeAppId = appId;
     const insertParent = container;
     const insertBeforeRef = playBarTop.nextElementSibling as HTMLElement | null;
 
@@ -274,7 +294,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     }
 
     try {
-      const gvRoot = client.createRoot(host);
+      const gvRoot = roots.createRoot(host);
       gvRoot.render(createElement(GameView, { appId }));
       ledger.recordRoot(gvRoot, host);
     } catch {
@@ -295,7 +315,8 @@ function attachToDesktopWindow(deskWin: Window): () => void {
     const substitute = d.getElementById(TENDER_SUBSTITUTE_ID);
     const playBtn = d.getElementById(TENDER_PLAY_BUTTON_ID);
     const isMountedForCurrent =
-      substitute && substitute.dataset.appid === String(appId) && playBtn && playBtn.dataset.appid === String(appId);
+      (!GameView || substitute?.dataset.appid === String(appId)) &&
+      (!PlayButton || playBtn?.dataset.appid === String(appId));
 
     if (p !== lastPath || (isRomM && !isMountedForCurrent)) {
       lastPath = p || null;
@@ -339,15 +360,14 @@ function attachToDesktopWindow(deskWin: Window): () => void {
   return stop;
 }
 
-export function startDesktopNavigationWatcher(customWin?: Window): () => void {
+export function startDesktopNavigationWatcher(page: DesktopGamePage, customWin?: Window): () => void {
   stopDesktopNavigationWatcher();
-  offerDesktopLaunchPrompts();
 
   if (customWin) {
     if (typeof customWin.setInterval !== "function") {
       return () => {};
     }
-    const stop = attachToDesktopWindow(customWin);
+    const stop = attachToDesktopWindow(page, customWin);
     activeWatcherStop = stop;
     return () => {
       stop();
@@ -385,7 +405,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 
     if (foundWin && !foundWin.closed && currentDeskWin !== foundWin) {
       currentDeskWin = foundWin;
-      currentDetach = attachToDesktopWindow(foundWin);
+      currentDetach = attachToDesktopWindow(page, foundWin);
     }
   };
 
@@ -435,7 +455,6 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 }
 
 export function stopDesktopNavigationWatcher(): void {
-  withdrawDesktopLaunchPrompts();
   if (activeWatcherStop) {
     activeWatcherStop();
     activeWatcherStop = null;

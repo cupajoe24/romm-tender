@@ -74,9 +74,9 @@ A start Tender's Play button did not make — Steam's own Play, a `steam://runga
 watcher (`utils/launchInterceptor.ts`), which may have questions to ask before the game starts. Which surface draws them
 is decided once per start, as its gate begins, by `launchPromptsForThisStart` (`utils/launchPromptRouter.ts`): the
 desktop dialogs while `MainInstanceUIMode` is 7 and the desktop surface has offered them and has a window, and Steam's
-gamepad modals otherwise. The desktop surface offers them from `startDesktopNavigationWatcher` and withdraws them from
-`stopDesktopNavigationWatcher`, so a bundle without the desktop surface — every shipped one — always asks through the
-gamepad modals.
+gamepad modals otherwise. The desktop surface offers them from `startDesktopSurface` and withdraws them from
+`stopDesktopSurface` (`desktop/index.ts`), so a bundle without the desktop surface — every shipped one — always asks
+through the gamepad modals.
 
 Such a start has no Tender page to draw from, so `askInDesktopWindow` (`desktop/launchPromptHost.tsx`) draws each
 question into the body of the desktop window that exists at the moment it is asked: a container created with that
@@ -222,6 +222,12 @@ sequenceDiagram
    up or refresh the sticky play bar controller; keep the hero wrapper's overflow `visible`; hide Steam's duplicate
    sticky header; hide the native play bar badges; push the right controls to the right edge.
 3. **Gated**: if a `GameView` for the current `appId` is still in place, return. Otherwise mount one after the play bar.
+
+The watcher imports neither view: it draws what `startDesktopNavigationWatcher` is handed (`DesktopGamePage`), and
+`startDesktopSurface` (`desktop/index.ts`) hands it `GameView` and `PlayButton`. A part it is not handed leaves Steam's
+own in place — without a `gameView` the content sections stay and nothing is mounted after the play bar; without a
+`playButton` Steam's Play button and its badges stay. The play bar, hero, duplicate-header and right-control adaptations
+run either way.
 
 ### Continuous Adaptation Mechanisms
 
