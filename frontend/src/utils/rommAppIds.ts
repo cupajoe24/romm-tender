@@ -19,7 +19,14 @@
 
 const rommAppIds = new Set<number>();
 const listeners = new Set<() => void>();
+let notifyQueued = false;
 
+/**
+ * Call *listener* after the set has changed. Changes made in one synchronous
+ * run — start-up registers the whole appId map in a loop — reach it as one call,
+ * on the microtask after that run; a register or unregister that changes
+ * nothing reaches it not at all.
+ */
 export function onRomMAppIdsChanged(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -27,27 +34,29 @@ export function onRomMAppIdsChanged(listener: () => void): () => void {
   };
 }
 
+function queueNotify(): void {
+  if (notifyQueued) return;
+  notifyQueued = true;
+  queueMicrotask(() => {
+    notifyQueued = false;
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch (e) {
+        console.error("rommAppIds: a change listener threw", e);
+      }
+    }
+  });
+}
+
 export function registerRomMAppId(appId: number) {
   if (rommAppIds.has(appId)) return;
   rommAppIds.add(appId);
-  for (const listener of listeners) {
-    try {
-      listener();
-    } catch {
-      // Ignored
-    }
-  }
+  queueNotify();
 }
 
 export function unregisterRomMAppId(appId: number) {
-  rommAppIds.delete(appId);
-  for (const listener of listeners) {
-    try {
-      listener();
-    } catch {
-      // Ignored
-    }
-  }
+  if (rommAppIds.delete(appId)) queueNotify();
 }
 
 export function isRomMAppId(appId: number): boolean {

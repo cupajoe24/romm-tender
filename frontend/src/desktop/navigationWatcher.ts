@@ -9,7 +9,7 @@
 
 import { createElement } from "react";
 import { isRomMAppId, onRomMAppIdsChanged } from "../utils/rommAppIds";
-import { findDesktopWindow, findReactClient } from "./desktopWindow";
+import { findDesktopWindow, findReactClient, type ReactClientModule } from "./desktopWindow";
 import { GameView } from "./gameview/GameView";
 import { offerDesktopLaunchPrompts, withdrawDesktopLaunchPrompts } from "./launchPromptHost";
 import { PlayButton } from "./gameview/PlayButton";
@@ -64,6 +64,9 @@ function attachToDesktopWindow(deskWin: Window): () => void {
   let stickyController: StickyPlayBarController | null = null;
   let activeAppId: number | null = null;
   let lastPath: string | null = null;
+  // `findReactClient` sweeps Steam's whole module registry, and reinject runs
+  // several times a second; the module it finds does not change within a context.
+  let client: ReactClientModule | undefined;
   // Settle timeouts already scheduled still fire after stop; they must not mount again.
   let stopped = false;
 
@@ -137,7 +140,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       steamPanel.style.display = "";
     }
 
-    const client = findReactClient();
+    client ??= findReactClient();
     if (!client) {
       return;
     }
