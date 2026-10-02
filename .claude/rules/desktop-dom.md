@@ -28,6 +28,9 @@ it (`docs/architecture/frontend-bundles.md`, "The desktop dev build").
   `steamPanel.style.display` directly.
 - All adaptations must tear down cleanly via `ledger.restoreAll()` on route changes, non-RomM navigation, or window
   close.
+- The ledger cannot cancel what it never recorded: a timeout, or a callback registered with Steam, that can still fire
+  after its teardown must do nothing once that teardown has run (the `stopped` / `disposed` flags in
+  `navigationWatcher.ts` and `stickyPlayBarController.ts`).
 
 ## 3. Read-Only React Fiber Introspection
 
@@ -40,11 +43,12 @@ it (`docs/architecture/frontend-bundles.md`, "The desktop dev build").
 ## 4. Continuous Adaptation Pass Order Invariant
 
 - Steam renders hero banner background canvases and play bar badges asynchronously (100–500ms after initial DOM mount).
-- In `reinject()`, continuous layout adaptations (synchronizing hero wrapper overflow with pinning state, hiding native
-  badges, suppressing duplicate sticky bars, aligning right controls) **must execute before** checking if
-  `existingSubstitute` is already mounted.
+- In `reinject()`, continuous layout adaptations (keeping the hero wrapper's overflow visible, hiding native badges,
+  suppressing duplicate sticky bars, aligning right controls) **must execute before** checking if `existingSubstitute`
+  is already mounted.
 - The `existingSubstitute` check (`dataset.appid === appId`) must **only** gate React root instantiation
-  (`client.createRoot` / `render`).
+  (`client.createRoot` / `render`). A substitute left from another game is torn down **before** the adaptations:
+  `unmountCurrent()` runs `ledger.restoreAll()`, so after them it would undo the whole pass.
 - The hero wrapper's overflow must remain `visible` throughout scroll so the hero banner continues to scroll in 3D
   parallax on `z-index: -1000` behind the play bar and subsequent cards, creating the artwork refraction and
   bleed-through effect.

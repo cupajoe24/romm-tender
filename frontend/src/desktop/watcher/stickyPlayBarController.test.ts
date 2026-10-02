@@ -126,6 +126,30 @@ describe("stickyPlayBarController", () => {
       scroller.remove();
     });
 
+    it("writes nothing back from a settle timer that fires after dispose and restore", () => {
+      vi.useFakeTimers();
+      try {
+        const scroller = document.createElement("div");
+        scroller.style.overflowY = "scroll";
+        document.body.appendChild(scroller);
+        const playBar = document.createElement("div");
+        scroller.appendChild(playBar);
+        scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+        playBar.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+
+        const controller = createStickyPlayBarController(playBar, playBar, ledger);
+        controller.dispose();
+        ledger.restoreAll();
+        vi.advanceTimersByTime(1000);
+
+        expect(playBar.style.position).toBe("");
+        expect(playBar.style.backgroundColor).toBe("");
+        scroller.remove();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("resets playSection background to transparent on dispose if disposed while pinned", () => {
       const scroller = document.createElement("div");
       scroller.style.overflowY = "scroll";

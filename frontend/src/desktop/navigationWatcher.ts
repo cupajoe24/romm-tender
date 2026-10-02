@@ -64,6 +64,8 @@ function attachToDesktopWindow(deskWin: Window): () => void {
   let stickyController: StickyPlayBarController | null = null;
   let activeAppId: number | null = null;
   let lastPath: string | null = null;
+  // Settle timeouts already scheduled still fire after stop; they must not mount again.
+  let stopped = false;
 
   function unmountCurrent() {
     if (stickyController) {
@@ -92,6 +94,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
   }
 
   function reinject() {
+    if (stopped) return;
     const path = getCurrentPath();
     let appId = appIdOf(path);
 
@@ -141,6 +144,18 @@ function attachToDesktopWindow(deskWin: Window): () => void {
 
     // Locate play bar and content container
     const { playBarTop, container } = findPlayBarAndContainer(steamPanel, playSection);
+
+    // A GameView left from another game, or outside the container, is torn down
+    // BEFORE this pass adapts the page: the teardown restores everything the
+    // ledger holds, so after the adaptations it would undo them all.
+    let substitute = existingSubstitute;
+    if (
+      substitute &&
+      !(substitute.isConnected && substitute.dataset.appid === String(appId) && substitute.parentElement === container)
+    ) {
+      unmountCurrent();
+      substitute = null;
+    }
 
     // 1. Hide native content sections (non-Steam placeholder, notes, screenshots)
     const contentSections = findSteamContentSections(steamPanel, playSection);
@@ -233,27 +248,13 @@ function attachToDesktopWindow(deskWin: Window): () => void {
       ledger.style(rightControls, "margin-left", "auto");
     }
 
-    // 8. Determine insertion target: immediately after the play bar
-    const insertParent = container;
-    const insertBeforeRef = playBarTop.nextElementSibling as HTMLElement | null;
-
-    if (
-      existingSubstitute &&
-      existingSubstitute.isConnected &&
-      existingSubstitute.dataset.appid === String(appId) &&
-      existingSubstitute.parentElement === insertParent
-    ) {
+    // 8. The substitute mount guard: a GameView for this game is already in place
+    if (substitute) {
       return;
     }
-
-    // Navigation from a different RomM game or fresh mount: clean up first
-    if (existingSubstitute) {
-      unmountCurrent();
-      for (const sec of contentSections) {
-        ledger.hide(sec);
-      }
-    }
     activeAppId = appId;
+    const insertParent = container;
+    const insertBeforeRef = playBarTop.nextElementSibling as HTMLElement | null;
 
     // 9. Mount GameView immediately after the play bar
     const host = d.createElement("div");
@@ -317,6 +318,7 @@ function attachToDesktopWindow(deskWin: Window): () => void {
   });
 
   const stop = () => {
+    stopped = true;
     if (typeof deskWin.clearInterval === "function") {
       deskWin.clearInterval(iv);
     }
@@ -354,6 +356,9 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
 
   let currentDeskWin: Window | null = null;
   let currentDetach: (() => void) | null = null;
+  // Nothing here unregisters the popup callbacks below, so they outlive this
+  // supervisor; once it has stopped they must do nothing.
+  let supervisorStopped = false;
 
   const detachCurrent = () => {
     if (currentDetach) {
@@ -368,6 +373,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   };
 
   const pollDesktop = () => {
+    if (supervisorStopped) return;
     const foundWin = findDesktopWindow();
 
     if (currentDeskWin && (currentDeskWin.closed || currentDeskWin !== foundWin)) {
@@ -410,6 +416,7 @@ export function startDesktopNavigationWatcher(customWin?: Window): () => void {
   }
 
   const stop = () => {
+    supervisorStopped = true;
     if (supervisorInterval !== null && typeof window.clearInterval === "function") {
       window.clearInterval(supervisorInterval);
       supervisorInterval = null;

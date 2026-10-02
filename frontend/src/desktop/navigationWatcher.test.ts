@@ -565,6 +565,105 @@ describe("navigationWatcher", () => {
       expect(mockRoot.unmount).toHaveBeenCalled();
     });
 
+    describe("switching games and stopping", () => {
+      function playBarPage(appId: number) {
+        const createRoot = vi.fn().mockImplementation(() => ({ render: vi.fn(), unmount: vi.fn() }));
+        const findClient = vi.spyOn(desktopWin, "findReactClient").mockReturnValue({ createRoot });
+
+        const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
+        const overviewPanel = mockDoc.createElement("div");
+        overviewPanel.className = "AppDetailsOverviewPanel";
+        const playBar = mockDoc.createElement("div");
+        playBar.className = "PlayBar";
+        const nativePlayBtn = mockDoc.createElement("button");
+        nativePlayBtn.className = deckyUiInternals.appActionButtonClasses?.PlayButton || "PlayButton";
+        playBar.appendChild(nativePlayBtn);
+        const contentSection = mockDoc.createElement("div");
+        contentSection.className = "AppDetailSectionList";
+        overviewPanel.appendChild(playBar);
+        overviewPanel.appendChild(contentSection);
+        mockDoc.body.appendChild(overviewPanel);
+
+        const timeouts: Array<() => void> = [];
+        const mockWin = {
+          document: mockDoc,
+          setInterval: vi.fn().mockReturnValue(123),
+          clearInterval: vi.fn(),
+          setTimeout: vi.fn((cb: () => void) => {
+            timeouts.push(cb);
+            return timeouts.length;
+          }),
+          MutationObserver: window.MutationObserver,
+          location: { pathname: `/library/app/${appId}` },
+        } as unknown as Window;
+        navigateTo(appId);
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+        const tick = () => {
+          const intervalCallback = vi.mocked(mockWin.setInterval).mock.calls[0]?.[0];
+          if (typeof intervalCallback === "function") intervalCallback();
+        };
+        return { mockDoc, mockWin, nativePlayBtn, createRoot, findClient, timeouts, tick };
+      }
+
+      function navigateTo(appId: number) {
+        (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
+          m_lastLocation: { pathname: `/library/app/${appId}` },
+        };
+      }
+
+      it("keeps Steam's play button hidden through a switch to another RomM game", () => {
+        const page = playBarPage(99999);
+        const stop = startDesktopNavigationWatcher(page.mockWin);
+
+        navigateTo(88888);
+        page.tick();
+
+        expect(page.nativePlayBtn.style.display).toBe("none");
+        expect(page.mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)?.dataset.appid).toBe("88888");
+        expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("88888");
+        stop();
+      });
+
+      it("mounts nothing from a settle timeout that fires after the watcher stopped", () => {
+        const page = playBarPage(99999);
+        const stop = startDesktopNavigationWatcher(page.mockWin);
+        const rootsBeforeStop = page.createRoot.mock.calls.length;
+
+        stop();
+        for (const settle of page.timeouts) settle();
+
+        expect(page.createRoot).toHaveBeenCalledTimes(rootsBeforeStop);
+        expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+        expect(page.nativePlayBtn.style.display).toBe("");
+      });
+
+      it("attaches nothing from a popup callback that fires after the supervisor stopped", () => {
+        const page = playBarPage(99999);
+        const popupCallbacks: Array<() => void> = [];
+        const findWindow = vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(undefined);
+        const g = window as unknown as { g_PopupManager?: unknown };
+        const originalPopupManager = g.g_PopupManager;
+        g.g_PopupManager = {
+          AddPopupCreatedCallback: (cb: () => void) => popupCallbacks.push(cb),
+          AddPopupDestroyedCallback: (cb: () => void) => popupCallbacks.push(cb),
+        };
+        try {
+          const stop = startDesktopNavigationWatcher();
+          stop();
+
+          findWindow.mockReturnValue(page.mockWin);
+          for (const cb of popupCallbacks) cb();
+
+          expect(popupCallbacks).toHaveLength(2);
+          expect(page.mockWin.setInterval).not.toHaveBeenCalled();
+          expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+        } finally {
+          g.g_PopupManager = originalPopupManager;
+        }
+      });
+    });
+
     it("hides Steam default play bar badges alongside native play button and restores on unmount", () => {
       const mockRoot = { render: vi.fn(), unmount: vi.fn() };
       vi.spyOn(desktopWin, "findReactClient").mockReturnValue({

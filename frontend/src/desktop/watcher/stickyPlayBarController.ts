@@ -244,8 +244,12 @@ export function createStickyPlayBarController(
     }
   }
 
+  // The settle timeouts below still fire after dispose; once the ledger has
+  // restored the page they must write nothing back onto it.
+  let disposed = false;
+
   const updatePinning = () => {
-    if (!playBarTop.isConnected) return;
+    if (disposed || !playBarTop.isConnected) return;
     applyBaselineStyles();
     const heroWrapper = getHeroWrapper();
     ensureHeroVisible(heroWrapper);
@@ -288,6 +292,7 @@ export function createStickyPlayBarController(
       top === playBarTop && sec === playSection && playBarTop.isConnected,
     updatePinning,
     dispose: () => {
+      disposed = true;
       if (ro) {
         ro.disconnect();
         ro = null;
