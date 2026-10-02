@@ -28,24 +28,13 @@ import { stateTransaction } from "./steamState";
  * `docs/architecture/steam-non-steam-shortcuts.md`). So the retry ladder's
  * "still unavailable after all retries" covers both, and this function cannot
  * tell them apart.
+ *
+ * `null` also answers a context with no appStore at all, which no retry will
+ * change; a lookup that throws is not swallowed.
  */
 export function overviewFor(appId: number): SteamAppOverview | null {
-  try {
-    if (typeof appStore !== "undefined" && typeof appStore.GetAppOverviewByAppID === "function") {
-      return appStore.GetAppOverviewByAppID(appId) ?? null;
-    }
-    const winStore =
-      typeof window !== "undefined"
-        ? (window as unknown as { appStore?: { GetAppOverviewByAppID?: (id: number) => SteamAppOverview | null } })
-            .appStore
-        : undefined;
-    if (winStore && typeof winStore.GetAppOverviewByAppID === "function") {
-      return winStore.GetAppOverviewByAppID(appId) ?? null;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
+  if (typeof appStore === "undefined" || typeof appStore.GetAppOverviewByAppID !== "function") return null;
+  return appStore.GetAppOverviewByAppID(appId) ?? null;
 }
 
 /**
