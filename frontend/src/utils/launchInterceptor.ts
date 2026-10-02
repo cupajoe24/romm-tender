@@ -228,9 +228,14 @@ async function readStartRom(appId: number): Promise<{ romId: number; installed: 
   return { romId, installed: await isRomInstalled(appId, romId) };
 }
 
-export function registerLaunchInterceptor(prompts: LaunchPrompts): void {
+/**
+ * Gate every caught start of a RomM shortcut. `promptsForStart` is asked once
+ * per start, as its gate begins, so every question one start puts is drawn by
+ * the same surface.
+ */
+export function registerLaunchInterceptor(promptsForStart: () => LaunchPrompts): void {
   SteamClient.Apps.RegisterForGameActionStart(
-    (gameActionId: number, gameId: string, action: string, _launchSource: number) => {
+    (gameActionId: number, gameId: string, action: string, launchSource: number) => {
       if (action !== "LaunchApp") return;
 
       const appId = appIdFromGameId(gameId);
@@ -257,17 +262,9 @@ export function registerLaunchInterceptor(prompts: LaunchPrompts): void {
       // against the un-pausable launch: from here the launch is stopped and we
       // relaunch only on approval.
       SteamClient.Apps.CancelGameAction(gameActionId);
-
-      // A stranded panel reaches no backend, so this start could only run
-      // without its pre-launch sync: it is refused before the launch gate asks
-      // anything.
-      const stranded = strandedAnswer();
-      if (stranded) {
-        tellStrandedPress("Couldn't start the game", strandedPanelSentence(stranded));
-        return;
-      }
-
-      logInfo(`Launch interceptor: appId=${appId} not running — running the launch gate [${running.diagnostics}]`);
+      logInfo(
+        `Launch interceptor: appId=${appId} not running — running the launch gate [${running.diagnostics}] launchSource=${launchSource}`,
+      );
       const start: CancelledStart = { appId, gameId };
 
       detach(
@@ -310,7 +307,7 @@ export function registerLaunchInterceptor(prompts: LaunchPrompts): void {
               return;
             }
 
-            await runWatcherGate(start, rom.romId, prompts);
+            await runWatcherGate(start, rom.romId, promptsForStart());
           } catch (e) {
             // An unexpected error must not trap the launch. Use the bare
             // relaunch (no re-confirm): the failure may be the re-confirm's own
