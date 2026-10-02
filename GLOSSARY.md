@@ -322,8 +322,11 @@ Residents (per [ADR-0003](docs/adr/0003-json-sqlite-persistence-boundary.md)): t
 (platform_slug → display_name cache), `save_directories_recorded`, the marker that the one-time pass recording the
 installed ROMs' [answered save directories](#answered-save-directory) has finished over a detected emulator installation
 with no ROM failing, `update_check_last_seen`, what the release checks last established (see _Available release_ below),
-and `last_run_version`, the version the previous start ran as (see _Rolled-back update_ below). The schema version is
-**not** a `kv_config` key — it lives in `PRAGMA user_version`.
+`update_available_toasted_version`, the release the user has been told about, `update_available_seen_version`, the
+release the user has seen in Settings › Updates, `last_run_version`, the version the previous start ran as (see
+_Rolled-back update_ below), and `update_failure_toasted_at` and `update_stopped_toasted_at`, the failed update and the
+stopped attempt whose toasts were raised (see _Failed-update toast_ below). The schema version is **not** a `kv_config`
+key — it lives in `PRAGMA user_version`.
 
 **Not** a dumping ground: anything with its own lifecycle, invariants, or repeat-row potential gets its own aggregate.
 `kv_config` is for the truly small, the truly singleton, and the truly miscellaneous.
@@ -1061,8 +1064,9 @@ the same name.
 The **tab glyph** is what the strip draws: the mark reduced to one tone with no disc, the sync ring levelled and
 thickened for the size the strip draws it at, and the body as the button bars, solid and with nothing marking the four
 button positions — at the size the glyph asks for a bar is too narrow to hold a second shape. It is generated from the
-mark's own drawing routines (`scripts/logo/tabicon.py`) rather than drawn by hand, and it is **static** — it reads no
-state and has none, because the motion it shipped with cost roughly 29% of one core for as long as the menu was open (→
+mark's own drawing routines (`scripts/logo/tabicon.py`) rather than drawn by hand, and nothing about it moves at rest —
+the one state it reads is the update dot (→ Available release), whose only motion is one fade when its release is seen —
+because the motion it shipped with cost roughly 29% of one core for as long as the menu was open (→
 `docs/architecture/qam-panel.md`, The glyph).
 
 _Avoid_: **tab** on its own for the entry, which is also Steam's word for the L1/R1 views inside a wide page (→ QAM
@@ -1148,7 +1152,10 @@ only an available release that is strictly newer than the running version and no
 **installed program** is the process the installed service runs, the one an update can replace; a run from a checkout
 checks and shows the notice like any other, and is never offered an install. `domain/update_release.py` answers which
 process is the installed program; `services/update_check.py` keeps the last available release a check saw and decides
-whether the notice shows. _Avoid_: "new version" for a release that is merely published.
+whether the notice shows. A release is **seen** once the user has had Settings › Updates open on it; seen is per
+version, and it takes the dots that mark the way to the release and its toast, never the notice. _Avoid_: "new version"
+for a release that is merely published; **seen** for what a check found — that is the stored release
+(`update_check_last_seen` predates the term).
 
 ### Install attempt / wait reason
 

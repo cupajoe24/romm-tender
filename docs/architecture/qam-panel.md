@@ -81,7 +81,8 @@ each is a way to get this wrong:
 - The entry is added again to whatever array the pass is handed, and the entry's own marker is what keeps a second pass
   over an array it is already in from adding a second one.
 - Anything bound to the menu's own window is bound from inside the menu's React tree, so the remount re-binds it. The
-  entry itself binds nothing there — the glyph is static and reads no state at all — but a page the panel mounts does:
+  entry itself binds nothing there — the glyph's update dot reads stores that are module state of the plugin's own
+  window, and subscribes to them from the tree through `useSyncExternalStore` — but a page the panel mounts does:
   `utils/qamExpansion.ts`'s stylesheet and `MutationObserver`, `utils/entryFocus.ts`'s focus listeners,
   `bigpicture/layout/WidePage.tsx`'s `ResizeObserver`, and `bigpicture/layout/ScrollRegion.tsx`, which reads the view
   per event and retains nothing. Each of the four sits inside an effect or an event handler of a component the menu
@@ -117,9 +118,9 @@ It is **generated**, by `scripts/logo/tabicon.py` through `build.py --tab-icon`,
 the geometry comes from the mark's own drawing routines, so the two cannot drift. Its two departures from the mark's
 geometry, and why, are at `tabicon.STRIP_GEOMETRY`.
 
-**Nothing about it moves, and that is a measurement rather than a taste.** It shipped with a ring that turned while a
-sync ran and a body that folded while the entry was active. Read over CDP on the QuickAccess target in 6-second windows,
-with only the fold running:
+**Nothing about it moves at rest, and that is a measurement rather than a taste.** It shipped with a ring that turned
+while a sync ran and a body that folded while the entry was active. Read over CDP on the QuickAccess target in 6-second
+windows, with only the fold running:
 
 |                    | fold running | animation off |
 | ------------------ | ------------ | ------------- |
@@ -133,10 +134,26 @@ That is roughly 29% of one core for as long as the menu is open, and a full layo
 either reading**, so nothing here is a measurement of it: starting a sync run was not possible in that session. It was
 an `<animateTransform type="rotate">` on a `<g>` rather than an animation of `d`, so the mechanism above does not reach
 it and what it would have added is simply unknown. On a handheld, that is not a trade a decoration rendering at 24 px
-gets to make. `TabIcon.test.tsx` fails if any of SMIL's animation elements comes back — it can see nothing else, and
-motion driven from CSS or a rAF loop would pass it — because the cost is invisible to every other check here.
+gets to make. `TabIcon.test.tsx` fails if any of SMIL's animation elements comes back, or a `<style>`, a `class` a
+stylesheet could reach, or an inline `animation` or `transition` — with the update dot drawn at rest — because the cost
+is invisible to every other check here. The one motion it allows is the update dot's fade (below), which runs once and
+ends with the dot gone. It can see nothing else: a rAF loop, or a stylesheet elsewhere that targets the glyph's elements
+by tag, id or attribute, would pass it.
 
-Two things about it are unmeasured, and neither is guessed at:
+**The update dot** is the one thing on the glyph that reads state: a filled circle in the top-right corner, over the
+arc's end, in the "is available" card's blue (`UPDATE_AVAILABLE_COLOR`), drawn while that card would show on Main and
+its release was not yet seen — `updateDotVersion` over the card's own answer, `availableCardVersion` in
+`utils/updateAvailableView.ts`, through `useUpdateDot` in `utils/updateDot.ts`, which every dot draws through, so none
+of them can disagree with the card (§ Notices and homes). At rest it does not move either. When its release is seen it
+plays its one **fade**: it grows to 2.2 times its size about its own centre and fades out over 450 ms, ease-out, then is
+taken out. That is one CSS transition of `transform` and `opacity`, set on the dot only for the fade, so a dot at rest
+carries none. The fade is inline style on the element the glyph renders and its end a timer of the plugin's own window,
+so nothing is taken from, or bound to, the menu's window. The strip has no error boundary (§ The boundary), so a store
+state the answer cannot be worked out from draws no dot rather than throwing; with every store as it starts — the
+start-up failure page's case — there is none. Its size and place on the strip, and how the fade looks there, are device
+questions; nothing in the suite can see them.
+
+Two things about the glyph are unmeasured, and neither is guessed at:
 
 - **Whether it lands at the 28 px it asks for.** It asks in em rather than in pixels so it scales with Steam's UI, and
   the `1.633em` it asks with is scaled off a measurement rather than arithmetic: the `1.4em` it used to carry drew a box
@@ -691,19 +708,19 @@ hide exactly that. What decides is what the reader has to see while typing, not 
 A notice on Main names a condition and jumps to its home; the action exists only there. A condition with no home in the
 plugin stays a card without a jump, with Dismiss where the condition has a sensible end.
 
-| Condition                                                      | On Main                                                                               | Home                                                                                                                              |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Settings were reset                                            | text, backup path, Dismiss                                                            | none — the card is the whole of it                                                                                                |
-| Cross-device playtime needs a fresh sign-in                    | text, **Open Connections**, Dismiss                                                   | Settings › Connections, where the accounts are                                                                                    |
-| RetroDECK paths missing or unreadable                          | warning card, no action                                                               | none — the fix is outside the plugin                                                                                              |
-| Steam answers for no notifications                             | warning card, no action                                                               | none — the fix is outside the plugin                                                                                              |
-| RetroArch `input_driver` is wrong                              | text, **Open Controller**                                                             | Settings › Controller, which holds the Fix button                                                                                 |
-| Sync paused on the session budget                              | text, **Open Sync**                                                                   | Sync, which holds Restart Steam now and Resume                                                                                    |
-| An update was rolled back, or refused by its pre-install check | both versions, where the reason is, **Open Updates**, Dismiss — and a toast, once     | Settings › Updates, which states the same fact whether or not the card was dismissed, and shows what the installer said           |
-| An update's installer stopped without updating                 | both versions, the installer's journal, **Open Updates**, Dismiss — and a toast, once | Settings › Updates, where the attempt stands as failed with Try again for the rest of that run, and shows what the installer said |
-| An install from Settings failed or was cancelled               | none — a toast, once                                                                  | Settings › Updates, where the attempt stands as failed with Try again                                                             |
-| A newer Tender release is out                                  | both versions, **Open Updates**, Dismiss                                              | Settings › Updates, which states both versions and holds the install, the check's switch and Check now                            |
-| Tender was updated, or went back                               | the version, Dismiss — and a toast, once                                              | none — the card is the whole of it                                                                                                |
+| Condition                                                      | On Main                                                                                               | Home                                                                                                                              |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Settings were reset                                            | text, backup path, Dismiss                                                                            | none — the card is the whole of it                                                                                                |
+| Cross-device playtime needs a fresh sign-in                    | text, **Open Connections**, Dismiss                                                                   | Settings › Connections, where the accounts are                                                                                    |
+| RetroDECK paths missing or unreadable                          | warning card, no action                                                                               | none — the fix is outside the plugin                                                                                              |
+| Steam answers for no notifications                             | warning card, no action                                                                               | none — the fix is outside the plugin                                                                                              |
+| RetroArch `input_driver` is wrong                              | text, **Open Controller**                                                                             | Settings › Controller, which holds the Fix button                                                                                 |
+| Sync paused on the session budget                              | text, **Open Sync**                                                                                   | Sync, which holds Restart Steam now and Resume                                                                                    |
+| An update was rolled back, or refused by its pre-install check | both versions, where the reason is, **Open Updates**, Dismiss — and a toast, once                     | Settings › Updates, which states the same fact whether or not the card was dismissed, and shows what the installer said           |
+| An update's installer stopped without updating                 | both versions, the installer's journal, **Open Updates**, Dismiss — and a toast, once                 | Settings › Updates, where the attempt stands as failed with Try again for the rest of that run, and shows what the installer said |
+| An install from Settings failed or was cancelled               | none — a toast, once                                                                                  | Settings › Updates, where the attempt stands as failed with Try again                                                             |
+| A newer Tender release is out                                  | both versions, **Open Updates**, Dismiss — a toast, once per version, and dots on the way to its home | Settings › Updates, which states both versions and holds the install, the check's switch and Check now                            |
+| Tender was updated, or went back                               | the version, Dismiss — and a toast, once                                                              | none — the card is the whole of it                                                                                                |
 
 Every row of that table is what the panel does today. The two full-page states — a version error and a pending RetroDECK
 migration — are not notices; they replace the page, and neither carries a condition inside it any more: the one that did
@@ -734,13 +751,61 @@ the playtime notice's sit in Steam's `Field` with its children below, because th
 update notice's Dismiss is **per version**: it records the version the card names (`update_notice_dismissed_version`),
 so the next release raises the card again, and **Check now** in its home forgets it. The home states the versions and
 holds the install, the check's switch and Check now, and to a run from a checkout it shows a line naming this a
-development build in place of the install. The card's condition is `available` on the backend's answer and nothing else
-— a newer release with its tarball, a valid digest and its checksum file attached, not the dismissed version, whatever
-the check's switch says: the switch governs only what the program asks GitHub by itself, so a release Check now found is
-announced and offered to install with it off too. The answer is fetched at panel load by a detached call nothing awaits
-(the store's `fetchUpdateNotice` says why), rewritten by Dismiss, the switch and Check now, and replaced by the notice
-the backend pushes (`update_notice`) when its own check while it runs finds a different answer, so the card and its home
-follow without a reload.
+development build in place of the install. The card's condition is `availableCardVersion`
+(`utils/updateAvailableView.ts`): `available` on the backend's answer — a newer release with its tarball, a valid digest
+and its checksum file attached, not the dismissed version, whatever the check's switch says — unless a failed update to
+that release takes the card's place (below). The switch governs only what the program asks GitHub by itself, so a
+release Check now found is announced and offered to install with it off too. The answer is fetched at panel load by a
+detached call nothing awaits (the store's `fetchUpdateNotice` says why), rewritten by Dismiss, the switch and Check now,
+and replaced by the notice the backend pushes (`update_notice`) when its own check while it runs finds a different
+answer, so the card and its home follow without a reload.
+
+**The card has companions that follow it**, all off the one answer `availableCardVersion` the card itself renders from:
+three **dots** in the card's blue that mark the way to its home — on Tender's glyph in the Quick Access strip
+([The glyph](#the-glyph)), beside **Settings** on Main, and beside **Updates** in the Settings list — and a **toast**,
+**Tender X is available. Settings › Updates to install it.**, in Tender's name, which does nothing when tapped
+(`utils/updateAvailableToast.ts`). The backend owes the toast once per version, across every start — `toast_owed` on the
+notice; when it holds, and what records a version as told, is
+[UpdateCheckService notes](backend-architecture.md#updatecheckservice-notes) — and the panel acknowledges it once
+raised. Beyond `toast_owed` and the card's own answer, the panel holds it back in five cases:
+
+- **Until the reads made at panel load have answered.** The notice only has to settle; what the last update did, a
+  stopped attempt and the install's state have to have succeeded, so a failure record for the same version that answers
+  last still suppresses it rather than being overtaken. Where one of those three failed, this JavaScript context raises
+  none at all and the toast stays owed for the next load: what was not read might be what holds it back.
+- **While an update is being installed**, from the press of Install until the attempt has ended — before its first frame
+  too, while the press waits for its answer and once the backend accepted it. An attempt under way when the JavaScript
+  context was replaced is known at load from the install's state read (`updateInstallStore.ts`'s
+  `seedUpdateInstallAttempt`), not only from its next frame. Once an attempt failed, it is raised where nothing else
+  holds it back.
+- **While Steam's notification lookups are missing** (`notificationsUnavailable`), since a toast raised then is never
+  seen and its acknowledgement would take it away for good.
+- **While the switch is off as the store holds it**, since `toast_owed` is the backend's answer as last read.
+- **Until Steam can show it**, as the other update toasts wait (`utils/steamReadyForToasts.ts`); a running game does not
+  hold it back. Once Steam can, it is asked again: where the card was dismissed, the switch went off, Install was
+  pressed, the release was seen or a newer release arrived meanwhile, it is neither raised nor acknowledged, and a later
+  change can ask for it again.
+
+It is asked again whenever the notice, the outcome, a stopped attempt or the install attempt changes, so a pushed
+`update_notice` or the end of an attempt raises it without a reload. A push and a read of the same version in one
+JavaScript context raise one toast between them.
+
+The dots show while the card would, the switch off included, until the release is **seen**: Settings › Updates on screen
+for a second without a break (`SEEN_AFTER_MS`, `useSeenAfterDwell` in `utils/updateDot.ts`), with the Quick Access menu
+open on Tender's tab — reached from the list, or opened on it by the card's **Open Updates** — records the card's
+release through `mark_update_available_seen`. Moving through the list past Updates does not count: focus selects, so
+Updates is on screen while focus passes it, and leaving it, closing the menu or choosing another of its tabs before the
+second is up cancels the wait; coming back to Updates, to the menu or to Tender's tab starts it over. Which tab is the
+active one is the answer `useWideQamPanel` already works out from inside the page's tree; it publishes it to
+`utils/owningQamTab.ts` for the Settings page above it, and nothing is bound to the menu's window to get it. Seen is per
+version and kept across restarts ([UpdateCheckService notes](backend-architecture.md#updatecheckservice-notes)), so a
+newer release brings the dots back. It takes every dot for that version, and the toast with them, and leaves the card,
+which goes only by Dismiss or the install — and a Dismiss takes the dots too, since they follow the card. A dot that
+goes because its release was seen plays the one fade [The glyph](#the-glyph) describes, each dot on screen at that
+moment playing its own; every other way a dot goes, it simply goes. The two in the panel are drawn by
+`bigpicture/UpdateDot.tsx`: 9 px across, about 8 px past the end of the word and centred on its height, positioned
+absolutely so they take no room of their own and the label does not move when a dot comes or goes. How they look there
+is a device question.
 
 The rolled-back notice says **Update to X failed — you are still on Y.** over a line naming where the reason is. For a
 rollback that is Tender's log, `backend.log`, which both versions write to, so what the new version logged before it was

@@ -4,16 +4,18 @@ import {
   installUpdate,
   logError,
   type UpdateInstallAttempt,
+  type UpdateInstallRefusal,
   type UpdateInstallState,
   type UpdateWaitReason,
 } from "../../api/backend";
 import { detach } from "../../utils/detach";
 import { endStoppedAttempt } from "../../utils/stoppedUpdateStore";
 import {
+  endPress,
   getUpdateInstallAttempt,
   installerSeenAt,
   noteAttempt,
-  setUpdateInstallAttempt,
+  notePress,
   useUpdateInstallAttempt,
 } from "../../utils/updateInstallStore";
 import {
@@ -150,13 +152,24 @@ export function useUpdateInstall(): UpdateInstall {
   const seenAt = installerSeenAt();
   const overdue = restarting && seenAt !== null && lookedAt >= seenAt + INSTALLER_OVERDUE_MS;
 
+  const takeAnswer = (answer: { success: true } | UpdateInstallRefusal, pressedVersion: string) => {
+    const now = lastReading.current;
+    if (answer.success) {
+      if (now !== null) take({ ...now, attempt: started(pressedVersion), wait_reasons: [] });
+    } else if (answer.reason === "update_waiting") {
+      if (now !== null) take({ ...now, wait_reasons: answer.wait_reasons });
+    } else {
+      setRefusal({ reason: answer.reason, version: pressedVersion });
+    }
+  };
+
   const install = async () => {
     // A disabled control still reports a press on the device.
     const last = lastReading.current;
     if (pressInFlight.current || version === null || underWay || (last?.wait_reasons.length ?? 0) > 0) return;
     pressInFlight.current = true;
     generation.current += 1;
-    setUpdateInstallAttempt(null);
+    notePress();
     if (last !== null) take({ ...last, attempt: null });
     setPressing(true);
     setRefusal(null);
@@ -166,17 +179,11 @@ export function useUpdateInstall(): UpdateInstall {
       // The new attempt ended the stopped one's record, and the card on Main
       // with it, whether or not this section is still on screen.
       if (answer.success) endStoppedAttempt();
-      if (!mounted.current) return;
-      const now = lastReading.current;
-      if (answer.success) {
-        if (now !== null) take({ ...now, attempt: started(version), wait_reasons: [] });
-      } else if (answer.reason === "update_waiting") {
-        if (now !== null) take({ ...now, wait_reasons: answer.wait_reasons });
-      } else {
-        setRefusal({ reason: answer.reason, version });
-      }
+      else endPress();
+      if (mounted.current) takeAnswer(answer, version);
     } catch (e) {
       logError(`Failed to request the update install: ${e}`);
+      endPress();
       if (mounted.current) setRefusal({ reason: "request_failed", version });
     } finally {
       pressInFlight.current = false;
