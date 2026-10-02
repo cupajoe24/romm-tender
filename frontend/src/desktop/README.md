@@ -12,12 +12,13 @@ are sorted into dedicated lowercase subdirectories:
 
 - `desktop/` (root) — Shared desktop infrastructure:
   - `desktopWindow.ts` — finding the desktop client window, React 19's `createRoot`, cover and hero candidate URLs.
-  - `navigationWatcher.ts` — watches the desktop client's location and DOM and mounts the views; while it runs, the
-    launch watcher may ask through this surface's dialogs.
+  - `navigationWatcher.ts` — watches the desktop client's location and DOM, adapts Steam's game page and mounts the
+    views it is given (`DesktopGamePage`); it imports no view.
   - `launchPromptHost.tsx` — draws a question of the launch watcher's into the desktop window, each in a React root of
     its own
     ([Dialogs for a start the launch watcher catches](../../../docs/architecture/desktop-dom-architecture.md#dialogs-for-a-start-the-launch-watcher-catches)).
-  - `index.ts` — Public surface exports.
+  - `index.ts` — Public surface exports, and `startDesktopSurface` / `stopDesktopSurface`: the one place that hands the
+    watcher `GameView` and `PlayButton` and offers this surface's dialogs to the launch watcher.
 - `desktop/watcher/` — what the navigation watcher adapts Steam's page with: `elementSelectors.ts` (finding Steam's
   elements), `fiberInspector.ts` (read-only Fiber reads), `restorationLedger.ts` (recording every change so it can be
   undone), `stickyPlayBarController.ts` (the play bar's pinned and glass states).
@@ -41,8 +42,8 @@ are sorted into dedicated lowercase subdirectories:
 
 `rollup.config.js` builds the panel from `./src/index.tsx` — the module that mounts the bigpicture surface — and nothing
 there imports this directory, so `pnpm build`, `build:dev`, CI and the release tarball ship none of it. The one build
-that does is `build:desktop` (`rollup.desktop.config.js`), which rewrites `index.tsx` as it is bundled to start and stop
-the navigation watcher
+that does is `build:desktop` (`rollup.desktop.config.js`), which rewrites `index.tsx` as it is bundled to call
+`startDesktopSurface()`
 ([the desktop dev build](../../../docs/architecture/frontend-bundles.md#the-desktop-dev-build-dev-build-only)).
 
 It is checked all the same, and each check has its own reason: `pnpm lint` runs `eslint .` over the frontend package,
