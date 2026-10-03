@@ -1,5 +1,3 @@
-import type { EntryKind } from "../types";
-
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 /** Format a Unix timestamp (seconds) as a coarse human-readable date.
@@ -156,20 +154,3 @@ export function formatModalUnlockDate(dateStr: string): string {
   }
   return dateStr.replace(/:\d{2}$/, "");
 }
-
-/**
- * What each entry kind is called on screen (#260). One map for every dialog that
- * names one, so a fourth kind cannot be spelled out in one place and left to
- * render as its raw wire value in another: `Record<EntryKind, string>` makes
- * adding one to the wire a type error at every door at once.
- *
- * Absence is deliberately not in here. A kind the backend declined to name is a
- * different question per dialog — one of them never receives such an entry at
- * all, the other has its own word for it — and folding that in would put a
- * policy inside a vocabulary.
- */
-export const ENTRY_KIND_LABEL: Record<EntryKind, string> = {
-  file: "file",
-  dir: "folder",
-  link: "shortcut to somewhere else",
-};
