@@ -330,9 +330,9 @@ async function processCoverRefreshes(data: SyncApplyUnitData): Promise<void> {
  * A newly-managed shortcut — a fresh create OR an adopted orphan (#1366) — has
  * its cover applied through Steam's artwork API in the same iteration (see
  * {@link applyCoverArtwork}), then its SGDB icon ({@link applySyncIcon}), so
- * artwork appears as the shortcuts land — one per
- * item under the 50ms pacing, safe under the session-budget gate that brakes a
- * large run before the CEF heap overflows. Updates/rebinds keep their existing
+ * artwork appears as the shortcuts land — one per item under the 50ms pacing.
+ * The cover is priced by the session-budget gate that brakes a large run before
+ * the CEF heap overflows; the icon is not. Updates/rebinds keep their existing
  * grid file here; an update whose SERVER cover changed instead arrives on the
  * chunk's ``cover_refreshes`` list and is re-applied by
  * {@link processCoverRefreshes} (#1386). A cover failure is fail-soft and never
