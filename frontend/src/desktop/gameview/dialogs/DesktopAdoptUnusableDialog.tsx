@@ -5,9 +5,9 @@
  */
 
 import type { FC } from "react";
-import { ENTRY_KIND_LABEL } from "../../../utils/formatters";
 import {
   CANCEL_LABEL,
+  ENTRY_KIND_LABEL,
   UNUSABLE_DOWNLOAD_NOTE,
   UNUSABLE_TITLE,
   unusableDownloadLabel,
