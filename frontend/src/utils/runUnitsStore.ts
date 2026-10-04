@@ -157,7 +157,7 @@ export function seedRunUnits(units: readonly SyncPlanUnit[], runId: string): voi
  * Empty the rows, so nothing of the previous run stands over the next one.
  *
  * Called by the Sync page at each press that starts a run — the start button,
- * Apply Sync and Refresh (`bigpicture/sync/useSyncPage.ts`) — and skipped where
+ * Apply Sync and Refresh (`utils/useSyncPage.ts`) — and skipped where
  * that press CONTINUES the run the rows belong to, which is the one start they
  * are still true for: they are the progress it resumes from.
  *

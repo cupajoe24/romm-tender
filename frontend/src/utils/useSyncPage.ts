@@ -33,34 +33,29 @@ import {
   syncCancelPreview,
   syncPreview,
   startSync,
-} from "../../api/backend";
-import type { SessionBudgetStatus, SyncPreview, SyncRunRecord, SyncStats } from "../../types";
-import { detach } from "../../utils/detach";
+} from "../api/backend";
+import type { SessionBudgetStatus, SyncPreview, SyncRunRecord, SyncStats } from "../types";
+import { detach } from "./detach";
 import {
   adoptPreview,
   clearPendingPreview,
   getPendingPreviewSnapshot,
   refreshPendingPreview,
   usePendingPreview,
-} from "../../utils/pendingPreviewStore";
-import { PREVIEW_COUNTDOWN_TICK_MS, previewHasChanges, previewSecondsLeft } from "../../utils/previewState";
-import { clearRunUnits, useRunUnits, type RunUnit } from "../../utils/runUnitsStore";
-import { previewApplySeconds } from "../../utils/syncEstimate";
+} from "./pendingPreviewStore";
+import { PREVIEW_COUNTDOWN_TICK_MS, previewHasChanges, previewSecondsLeft } from "./previewState";
+import { clearRunUnits, useRunUnits, type RunUnit } from "./runUnitsStore";
+import { previewApplySeconds } from "./syncEstimate";
 import {
   getSyncProgress,
   isTerminalStage,
   onSyncProgressChange,
   setSyncProgress as setStoredSyncProgress,
-} from "../../utils/syncProgress";
-import {
-  isCancelRequested,
-  reconcileStaleShortcuts,
-  requestSyncCancel,
-  resetSyncCancel,
-} from "../../utils/syncManager";
-import { syncFailedMessage } from "../../utils/syncFailed";
-import { startButtonLabel, syncResumeState, type SyncButton, type SyncResumeState } from "../../utils/syncResume";
-import { useSyncRunView, type SyncRunView } from "../../utils/syncRunView";
+} from "./syncProgress";
+import { isCancelRequested, reconcileStaleShortcuts, requestSyncCancel, resetSyncCancel } from "./syncManager";
+import { syncFailedMessage } from "./syncFailed";
+import { startButtonLabel, syncResumeState, type SyncButton, type SyncResumeState } from "./syncResume";
+import { useSyncRunView, type SyncRunView } from "./syncRunView";
 import {
   getSyncStatsSnapshot,
   refreshSessionBudget,
@@ -70,7 +65,7 @@ import {
   useSessionBudget,
   useSyncStats,
   useSyncStatsFailed,
-} from "../../utils/syncStatsStore";
+} from "./syncStatsStore";
 
 /** What a preview action that did not take says when the call itself failed and
  *  there is no answer to quote. A refusal always carries a message

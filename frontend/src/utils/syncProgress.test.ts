@@ -181,7 +181,7 @@ describe("withinUnitFraction sub-slice model (#1407)", () => {
 // Every frame below is copied from a real writer: the apply loop's per-item
 // write and the cover-refresh line (`utils/syncManager.ts`), the `sync_complete`
 // merge (`index.tsx`), the backend's own terminal frame, and the Sync page's
-// optimistic start and its retraction (`bigpicture/sync/useSyncPage.ts`).
+// optimistic start and its retraction (`utils/useSyncPage.ts`).
 describe("a run that has ended stays ended", () => {
   beforeEach(() => {
     resetSyncProgressStoreForTests();
