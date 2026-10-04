@@ -35,7 +35,7 @@ import { pluralize } from "../../utils/pluralize";
 import { previewHasChanges } from "../../utils/previewState";
 import { formatDuration, formatTimeRemaining, previewApplySeconds } from "../../utils/syncEstimate";
 import { AMBER, ButtonRow, FLAT_BUTTON, MUTED, Muted, SECONDARY_FONT, SectionTitle } from "../layout/pane";
-import type { SyncPageState } from "./useSyncPage";
+import type { SyncPageState } from "../../utils/useSyncPage";
 import { PaneRow, TableHeader, TableRow, TABLE_LINE } from "./paneTable";
 
 /** Platform, then the three counts. The numeric columns are sized for the

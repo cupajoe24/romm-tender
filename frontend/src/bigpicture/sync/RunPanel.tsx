@@ -42,7 +42,7 @@ import { offsetWithinScroller } from "../../utils/scrollHelpers";
 import { ButtonRow, FLAT_BUTTON, GREEN, MUTED, Muted, SECONDARY_FONT, SectionTitle } from "../layout/pane";
 import { FOCUS_RING_REACH, ScrollRegion } from "../layout/ScrollRegion";
 import { InlineBar, PaneRow, TableHeader, TableRow } from "./paneTable";
-import type { SyncPageState } from "./useSyncPage";
+import type { SyncPageState } from "../../utils/useSyncPage";
 
 /** Unit, what is happening to it, what it produced. */
 const RUN_COLUMNS = "minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr)";

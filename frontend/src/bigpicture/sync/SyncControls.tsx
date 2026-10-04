@@ -15,7 +15,7 @@ import type { SyncRunRecord, SyncStats } from "../../types";
 import { pluralize } from "../../utils/pluralize";
 import { formatGb, formatSignedGb, memoryLevelColor } from "../SessionBudgetBanner";
 import { AMBER, GREEN, MUTED, Muted, RED, SECONDARY_FONT, SectionTitle } from "../layout/pane";
-import type { SyncPageState } from "./useSyncPage";
+import type { SyncPageState } from "../../utils/useSyncPage";
 
 /** How a run ended, in one word and one colour. `running` is the one in flight;
  *  the five terminals a run reaches exactly once are the rest. */

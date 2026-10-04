@@ -33,7 +33,7 @@ import { WidePage } from "./layout/WidePage";
 import { PreviewPanel } from "./sync/PreviewPanel";
 import { RunPanel } from "./sync/RunPanel";
 import { SyncControls } from "./sync/SyncControls";
-import { useSyncPage, type SyncPageState } from "./sync/useSyncPage";
+import { useSyncPage, type SyncPageState } from "../utils/useSyncPage";
 
 /** The width the controls column is drawn at, and the reason the run rows are
  *  set small: what is left of the panel's 806 px is the table's. */
