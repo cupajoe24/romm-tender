@@ -130,12 +130,14 @@ The **`DomRestorationLedger`** guarantees atomic, idempotent restoration:
   module registry (`findReactClient`, `desktop/desktopWindow.ts`), because Steam's React 19 keeps it in its own client
   module rather than on `SP_REACTDOM`. That lookup sweeps the whole registry, so the watcher makes it once per window it
   attaches to and keeps the answer.
+- **Inserted Elements**: An element of Tender's own inserted among Steam's nodes (`ledger.insert(el, parent, before)`),
+  such as the Tender Settings menu entry, is recorded and removed on teardown.
 - **Listener Tracking**: Attached event listeners are registered for guaranteed teardown.
 - **Atomic Teardown**: `ledger.restoreAll()` detaches registered event listeners, unmounts all React roots and removes
-  their hosts, then restores original displays and inline styles, in one pass — when the page leaves a RomM shortcut,
-  when it moves to another RomM game, and when the watcher detaches from the window. A pass or a sticky-bar settle timer
-  scheduled before that teardown does nothing once it has run, and the supervisor's popup callbacks, which nothing
-  unregisters, do nothing once it has stopped.
+  their hosts, removes inserted elements, then restores original displays and inline styles, in one pass — when the page
+  leaves a RomM shortcut, when it moves to another RomM game, and when the watcher detaches from the window. A pass or a
+  sticky-bar settle timer scheduled before that teardown does nothing once it has run, and the supervisor's popup
+  callbacks, which nothing unregisters, do nothing once it has stopped.
 
 ### 3. Multi-Tier Resilient Selection Ladder (`watcher/elementSelectors.ts`)
 
@@ -303,14 +305,14 @@ Both are recomputed whenever the sticky controller updates its pinning — on sc
 
 ---
 
-## The Tender Settings Window (planned)
+## The Tender Settings Window
 
-> **Planned, not built.** Nothing in this section exists in the source tree: `frontend/src/desktop/` opens no window of
-> its own and touches no Steam menu. The section records what Steam's own settings window and its "Steam" menu were
-> measured to be, and the plan for a "Tender Settings" window built from the same parts. The feature-by-feature mapping
-> and the ordered steps are on the parity matrix
-> ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The decisions at the end of
-> this section are settled; the device checks beside them gate the first PR.
+> **The frame is built; every tab is blank.** `frontend/src/desktop/settings/` puts a "Tender Settings" item in Steam's
+> "Steam" menu and opens a window made from the parts of Steam's own settings window, with the ten tabs below in its
+> sidebar and nothing on any of them yet. What each tab will carry, and the ordered steps that remain, are on the parity
+> matrix ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records
+> what Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
+> behind it, and the device checks still open.
 
 ### What Steam's settings window is
 
@@ -376,13 +378,33 @@ own, and the backend's per-process token is not built for a second page
 ([Talking to the backend](frontend-bundles.md#talking-to-the-backend)). W1 and W3 both keep every line of Tender's code
 in SharedJSContext.
 
+W1 is what is built, without the W3 fallback: a window that cannot find one of its parts does not open, and says which
+part in the debug log.
+
+### The parts Tender's window is built from
+
+Read in SharedJSContext on the device (SteamOS, desktop client) on 2026-10-04, from module source text only; nothing was
+rendered or called. The searches live in `desktop/settings/steamSettingsParts.ts`, and each was checked to match exactly
+one module of that Steam build.
+
+| Part                | Found by                                                                                                                                       | What it needs and does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| :------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Popup component     | the exported function that chooses between drawing `"inline"` and `"popout"` and reads `onlyPopoutIfNeeded`                                    | The module exports it and a variant with `modal` defaulted on; Steam's settings host renders the variant with `modal={false}`, which is the same render. Its props are `strTitle`, `popupWidth`, `popupHeight`, `minWidth`, `minHeight`, `resizable`, `modal`, `onDismiss`, `refPopup` (a function or a ref object, handed the popup's window), `titleBarClassName` and `saveDimensionsKey`. It reads the owner window from a window context whose default is `{ ownerWindow: window }`, so a React root of Tender's own needs no window provider. Its saved-size hook, which it calls whether or not `saveDimensionsKey` is passed, asks the account context for the signed-in account and **throws without the account provider above it** (below) It pops out wherever `IN_GAMEPADUI` is not true; that flag comes from a config context which, with no provider, logs an assertion and reads `undefined`. It asks for centring on the owner window only through a modal-manager context, whose default is empty, so Tender's window is not centred |
+| Router              | the exported function that starts react-router's `MemoryRouter` at its last entry (`initialIndex:<entries>.length-1`)                          | Steam's own wrapper, `{ initialRoute, initialEntries, children }`, which the settings host renders. Another module names `initialRoute`, `initialEntries` and `initialIndex` too, in separate functions, which is why the predicate reads the expression rather than the three names                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `SidebarNavigation` | `@decky/ui`'s own prop-list search                                                                                                             | It reads the router's location on every render and calls `history.replace` on every page change, so it cannot render outside a router (the trap below). It hands `fnSetNavigateToPage` a function that moves it to a page, calls `onPageRequested` with the page's route on every move, and reports the route to Steam unless `disableRouteReporting` is set. A page entry equal to `"separator"` is drawn as a separator only where a page after it says `visible: true` — explicitly, an unset `visible` does not count — and the highlighted row is chosen by an index into the list the dropped separators still count, so pages that leave `visible` unset lose their separators and are highlighted one row low per separator before them. Tender's pages all say `visible: true`                                                                                                                                                                                                                                                                |
+| Account provider    | the module that exports the hook throwing `called useActiveAccount outside of ActiveAccountProvider`, and the React context exported beside it | Steam's `ActiveAccountProvider`, whose value is `{ useActiveAccount }`, a hook answering the signed-in account's 64-bit SteamID. Steam builds that value from its connection manager, `window.cm.steamid.ConvertTo64BitString()`, in its main root and again in the voice-chat root it creates in SharedJSContext, which is a React root of its own as Tender's is; Tender builds the same value from the same global. The popup hands the account to the popup manager's `SetCurrentLoggedInAccountID`, which keys every popup's saved size, so the value is never one Tender makes up                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+`saveDimensionsKey` names an entry in the popup manager's restore details, which hold the window's size and position, so
+Tender's window comes back where its reader last left it. Its key is `TenderSettings`.
+
 ### The router trap
 
 `SidebarNavigation` calls `history.replace(route)` whenever a page is chosen, and takes the history from the nearest
-react-router context. Rendered under a tree that carries the main window's contexts — which W1 wants, for centring — it
-would find **the library window's** router and move the library to a settings route. Tender's window therefore renders a
-`MemoryRouter` of its own around `SidebarNavigation`, as Steam's settings host does. This is required, not a matter of
-style, and no test here can show it: it is a device check.
+react-router context. Rendered under a tree that carries the main window's contexts it would find **the library
+window's** router and move the library to a settings route; rendered from a root of Tender's own, with no router above
+it, it cannot render at all. Tender's window therefore renders Steam's router wrapper around `SidebarNavigation`, as
+Steam's settings host does, starting it on the tab the window opens on (`/tender-settings/<tab>`). That the library
+window's route never moves is a device check: no test here can show it.
 
 ### The "Tender Settings" menu entry
 
@@ -410,12 +432,18 @@ The stable anchor is on the Fiber: the component above the Settings item carries
 | **M3. `afterPatch` on a Steam export**      | Patch the item-list component through `@decky/ui`'s patcher                                                                                                                                                                                                                                                                                                                                                                                                     | Not a Fiber write, but the list is read through a webpack export getter at render time, so replacing the export most likely changes nothing; unproven                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | **M4. Another entry point**                 | A gear button in the play bar or the title bar — the earlier Phase 2 idea                                                                                                                                                                                                                                                                                                                                                                                       | Ruled out: the entry belongs in Steam's "Steam" menu, beside Steam's own Settings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
-**M1 is the plan**, installed from `desktop/index.ts`, anchored on the Fiber's `steamURL` / `#Menu_Settings` and never
-on the localised label "Settings" or a class. Its callbacks registered with Steam do nothing once the surface has
-stopped, as the supervisor's do (`.claude/rules/desktop-dom.md` §2). Where Steam creates the menu on each open instead
-of retaining it, the same callback sees each new popup, and a menu drawn inside the library window is found there. M2
-stays documented as the fallback should a later Steam build wipe the inserted item on show. Hiding the menu through its
-`instance` is allowed (D2): it is a method on Steam's menu object, not a reconciler call.
+**M1 is built** (`desktop/settings/settingsMenuEntry.ts`), anchored on the Fiber's `steamURL` and never on the localised
+label "Settings" or a class. The read that finds the menu's `instance` was taken on the device: the Settings item's own
+div, two components, then the component carrying the entry's props, and fourteen levels up a component whose props hold
+`instance` with `Show`, `Hide` and `ForceHide`. Every document `g_PopupManager.GetPopups()` lists is looked at when the
+surface starts, whenever Steam reports a popup created or destroyed, and every 500 ms. A menu popup (a body carrying
+`ContextMenuPopupBody`) is also watched by a `MutationObserver` from its own realm, which puts the item back should
+React drop it; any other document, such as the library window where a menu Steam does not retain may be drawn, is looked
+at only on those occasions, so there the item can appear up to half a second after the menu opens. Its callbacks
+registered with Steam do nothing once the surface has stopped, as the supervisor's do (`.claude/rules/desktop-dom.md`
+§2), and stopping takes the item out of every menu. M2 stays documented as the fallback should a later Steam build wipe
+the inserted item on show. Hiding the menu through its `instance` is allowed (D2): it is a method on Steam's menu
+object, not a reconciler call.
 
 ### Realms, the backend, and where it starts
 
@@ -436,21 +464,27 @@ Components rendered into the popup are SharedJSContext code calling the same `ap
 `addEventListener()` reach the backend over the panel's one WebSocket unchanged, as the desktop `GameView` already does.
 The window needs no endpoint the Big Picture pages do not already call.
 
-- **Where it starts.** `startDesktopSurface` (`desktop/index.ts`) installs the menu entry beside the navigation watcher,
-  and `stopDesktopSurface` withdraws it. The window and its tabs live in `desktop/settings/`, which
-  `frontend/src/desktop/README.md` already plans. The window's React root is its own, not in the library window's
-  document, and is recorded in a ledger of its own together with the popup's `pagehide` and `unload`, as
-  `askInDesktopWindow` records a question's. The window closes when the desktop surface stops and when Steam switches to
-  Big Picture; if it was open, it reopens on the same tab once the desktop surface starts again, as Steam's own settings
-  window does (D16).
-- **Opening it on a tab.** One entry opens the window: `openTenderSettings(tab?)`. Like Steam's own, a second call
-  brings the open window to the front and navigates it to `tab` rather than opening another. The menu item opens it with
-  no tab; the desktop `PlaytimeScopeBanner`'s `onOpenConnections`, which nothing passes today, would open Connections;
-  and any desktop counterpart of Main's notice doors (Open Controller, Open Updates) would open its tab the same way.
+- **Where it starts.** `startDesktopSurface` (`desktop/index.ts`) calls `startTenderSettings`
+  (`desktop/settings/settingsWindow.tsx`) beside the navigation watcher, and `stopDesktopSurface` calls
+  `stopTenderSettings`. The window's React root is its own, created on a detached element in SharedJSContext rather than
+  in the library window's document, and is recorded in a ledger of its own together with the popup window's `keydown`
+  listener. Closing the window unmounts that root, and Steam's popup component closes the window it created.
+- **When it closes.** The reader closes it with the title bar's button, by closing the window, or with Escape in it
+  unless something inside took the key; Steam's popup component reports the first two through `onDismiss`. Tender closes
+  it when the desktop surface stops and when the library window is gone or replaced, which is what a switch to Big
+  Picture does; a window Tender closed reopens on the tab it showed once a library window is there again, or once the
+  surface starts again, as Steam's own settings window was seen to do (D16). A window the reader closed does not reopen.
+- **Opening it on a tab.** One entry opens the window: `openTenderSettings(tab?)`, exported from `desktop/index.ts`.
+  Like Steam's own, a second call brings the open window to the front and moves it to `tab` rather than opening another,
+  through the function `SidebarNavigation` hands `fnSetNavigateToPage`. The menu item opens it with no tab, which is
+  Sync; the desktop `PlaytimeScopeBanner`'s `onOpenConnections`, which nothing passes today, would open Connections; and
+  any desktop counterpart of Main's notice doors (Open Controller, Open Updates) would open its tab the same way.
 
 ### Tabs
 
-Ten tabs, in this order, in three groups split by `SidebarNavigation`'s `'separator'` entries (D5):
+Ten tabs, in this order, in three groups split by `SidebarNavigation`'s `'separator'` entries (D5). The union is
+`SettingsTab` (`types/navigation.ts`); the order, the groups, the labels and the `react-icons` icons are
+`desktop/settings/tabs.tsx`, where every tab's content is empty until it is drawn:
 
 | Tab                 | Big Picture counterpart                                          | Kind               |
 | :------------------ | :--------------------------------------------------------------- | :----------------- |
@@ -470,10 +504,12 @@ Picture pages, which Big Picture deliberately keeps out of Settings; gathering t
 desktop control centre rather than a preferences dialog, a product decision the issue states. **Library** (the RomM
 side: what is synced) and **Steam Library** (the Steam side) stay apart as Big Picture keeps them.
 
-Drawn with Steam's components, the rows are `Field`, `DialogButton`, `Toggle` / `ToggleField` and `Dropdown` — the first
-`@decky/ui` UI in `desktop/`, whose only `@decky/ui` import today is `findModule`. Every value imported is classified by
-the start-up check (CLAUDE.md's invariant register; [The start-up check](frontend-bundles.md#the-start-up-check)), and
-`"feature"` is the cost that fits a dev-only surface, even though `boot/steamModules.ts` ships in every bundle.
+Drawn with Steam's components, the rows will be `Field`, `DialogButton`, `Toggle` / `ToggleField` and `Dropdown`.
+`SidebarNavigation` is the first `@decky/ui` UI in `desktop/`, beside `findModule` and `findModuleExport`. Every value
+imported is classified by the start-up check (CLAUDE.md's invariant register;
+[The start-up check](frontend-bundles.md#the-start-up-check)), and `"feature"` is the cost that fits a dev-only surface,
+even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation` is classified so, and each row component
+will be.
 
 ### Moving the logic down first
 
@@ -576,10 +612,19 @@ the issue, which owns them from then on:
 ### Device checks
 
 Each is read through a Steam DevTools URL from the owner (`.claude/rules/steam-ui.md`) and marked "(device)" in the
-issue's `## Done when`, because happy-dom has one realm and renders no Steam component:
+issue's `## Done when`, because happy-dom has one realm and renders no Steam component.
 
-1. A popup Tender renders through Steam's popup component opens with `createflags=4114`, centres on its owner window, is
-   listed by `g_PopupManager.GetPopups()`, is titled "Tender Settings", and keeps its saved size.
+**The owner's pass, 2026-10-04:** choosing "Tender Settings" in the "Steam" menu opens the window, its ten tabs are in
+the sidebar in three groups split by separators, and choosing a tab highlights that tab. What that pass does not settle
+is listed below.
+
+1. A popup Tender renders through Steam's popup component opens with `createflags=4114`, is listed by
+   `g_PopupManager.GetPopups()`, is titled "Tender Settings", and comes back at its saved size and position. **Read
+   2026-10-04:** while open it was a debugger target titled "Tender Settings"; and, from the component's source, it is
+   not centred on the library window, because centring is asked only through a modal-manager context that a root of
+   Tender's own does not have ([the parts](#the-parts-tenders-window-is-built-from)). Still open: its creation flags,
+   where it first opens, its saved size and position across a reopen, and whether the config-context assertion it logs
+   on render matters.
 2. **Read 2026-10-04:** across one open and close of the retained "Steam Root Menu", its body, its eleven item nodes and
    the Settings item's React props object were all the same objects, so the open replaced no node and did not re-render
    that item. Still open: the same with a Tender item inserted, and the open observed directly rather than inferred from
@@ -593,7 +638,8 @@ issue's `## Done when`, because happy-dom has one realm and renders no Steam com
 6. `SidebarNavigation` inside Tender's `MemoryRouter` never moves the library window's route.
 7. `@decky/ui` components render with desktop styling under the popup's `DesktopUI` body.
 8. A `Dropdown` and the emulator menu open inside the settings window, not in `findSP()` or SharedJSContext.
-9. Escape, focus and key listeners are bound to the settings window's own `window`.
+9. Escape, focus and key listeners are bound to the settings window's own `window`: the one built today is the `keydown`
+   listener that closes the window on Escape, added to the window `refPopup` hands over.
 10. **Big Picture half read 2026-10-04:** entering Big Picture closed Steam's Settings window together with the library
     window and every menu popup; returning created a new library window, new menu popups, and reopened Steam's Settings
     window in a new popup unasked (D16). Still open: Tender's own window across the round trip, and the desktop client

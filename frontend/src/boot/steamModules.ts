@@ -66,6 +66,7 @@ import {
   PanelSectionRow,
   ProgressBar,
   ScrollPanel,
+  SidebarNavigation,
   Spinner,
   Tabs,
   TextField,
@@ -240,6 +241,9 @@ export const STEAM_LOOKUPS: readonly SteamLookup[] = [
   truthy("TextField", "panel", () => TextField),
   truthy("ToggleField", "panel", () => ToggleField),
   truthy("showContextMenu", "panel", () => showContextMenu),
+  // Read only by the desktop Tender Settings window, which no shipped bundle
+  // carries and which does not open without it. No panel page reads it.
+  truthy("SidebarNavigation", "feature", () => SidebarNavigation),
 
   // Not truthiness: `@decky/ui` declares `Navigation` as an empty object and
   // fills it from a lookup inside a `try`, so a miss leaves an object that is

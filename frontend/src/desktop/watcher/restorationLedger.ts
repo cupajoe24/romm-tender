@@ -1,9 +1,9 @@
 /**
  * Atomic DOM restoration ledger for tracking and reverting DOM mutations.
  *
- * Guarantees that any elements hidden, inline styles mutated, React roots mounted,
- * or event listeners attached by the desktop watcher can be completely and
- * idempotently restored when navigating away from a RomM shortcut.
+ * Guarantees that any elements hidden or inserted, inline styles mutated, React
+ * roots mounted, or event listeners attached by the desktop surface can be
+ * completely and idempotently restored when it lets go of what it changed.
  */
 
 import type { Root } from "react-dom/client";
@@ -24,6 +24,7 @@ export class DomRestorationLedger {
   private originalStyles = new Map<HTMLElement, Map<string, string>>();
   private hiddenElements = new Map<HTMLElement, string>();
   private mountedRoots: TrackedRoot[] = [];
+  private insertedElements: HTMLElement[] = [];
   private attachedListeners: TrackedListener[] = [];
 
   /**
@@ -94,6 +95,17 @@ export class DomRestorationLedger {
   }
 
   /**
+   * Insert an element of Tender's own under `parent`, before `before` (at the
+   * end when `null`), and record it for removal. Inserting it again moves it.
+   */
+  insert(el: HTMLElement, parent: Node, before: Node | null): void {
+    parent.insertBefore(el, before);
+    if (!this.insertedElements.includes(el)) {
+      this.insertedElements.push(el);
+    }
+  }
+
+  /**
    * Attach an event listener and record it for automatic cleanup.
    */
   addListener(
@@ -153,7 +165,15 @@ export class DomRestorationLedger {
     }
     this.mountedRoots = [];
 
-    // 3. Restore hidden elements
+    // 3. Remove inserted elements
+    for (const el of this.insertedElements) {
+      if (el.isConnected) {
+        el.remove();
+      }
+    }
+    this.insertedElements = [];
+
+    // 4. Restore hidden elements
     for (const [el, originalDisplay] of this.hiddenElements) {
       if (el.isConnected) {
         el.style.display = originalDisplay;
@@ -161,7 +181,7 @@ export class DomRestorationLedger {
     }
     this.hiddenElements.clear();
 
-    // 4. Restore original inline styles
+    // 5. Restore original inline styles
     for (const [el, propMap] of this.originalStyles) {
       if (el.isConnected) {
         for (const [prop, origVal] of propMap) {

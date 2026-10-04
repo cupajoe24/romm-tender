@@ -18,7 +18,8 @@ are sorted into dedicated lowercase subdirectories:
     its own
     ([Dialogs for a start the launch watcher catches](../../../docs/architecture/desktop-dom-architecture.md#dialogs-for-a-start-the-launch-watcher-catches)).
   - `index.ts` — Public surface exports, and `startDesktopSurface` / `stopDesktopSurface`: the one place that hands the
-    watcher `GameView` and `PlayButton` and offers this surface's dialogs to the launch watcher.
+    watcher `GameView` and `PlayButton`, offers this surface's dialogs to the launch watcher, and starts and stops the
+    Tender Settings window's menu entry.
 - `desktop/watcher/` — what the navigation watcher adapts Steam's page with: `elementSelectors.ts` (finding Steam's
   elements), `fiberInspector.ts` (read-only Fiber reads), `restorationLedger.ts` (recording every change so it can be
   undone), `stickyPlayBarController.ts` (the play bar's pinned and glass states).
@@ -36,7 +37,12 @@ are sorted into dedicated lowercase subdirectories:
     launch dialogs, and so does a start the launch watcher catches (`utils/launchInterceptor.ts`) while the desktop
     client is Steam's main UI.
 - `desktop/gamesettings/` — (Planned) `GameSettingsView` specific components.
-- `desktop/settings/` — (Planned) `TenderSettings` specific components.
+- `desktop/settings/` — the Tender Settings window and its entry in Steam's "Steam" menu
+  ([The Tender Settings Window](../../../docs/architecture/desktop-dom-architecture.md#the-tender-settings-window)):
+  `settingsWindow.tsx` (`openTenderSettings`, and `startTenderSettings` / `stopTenderSettings`, which keep the menu
+  entry in place and close and reopen the window with the library window), `TenderSettingsWindow.tsx` (the window, from
+  the parts `steamSettingsParts.ts` finds in Steam), `settingsMenuEntry.ts` (the menu item) and `tabs.tsx` (the tabs'
+  order, groups, labels and icons; every tab is blank).
 
 ## What reaches a bundle
 

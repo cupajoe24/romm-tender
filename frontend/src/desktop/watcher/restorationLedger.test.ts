@@ -55,6 +55,49 @@ describe("DomRestorationLedger", () => {
     });
   });
 
+  describe("inserted elements", () => {
+    it("inserts before the reference node and removes the element on restore", () => {
+      const parent = document.createElement("div");
+      const first = parent.appendChild(document.createElement("span"));
+      const last = parent.appendChild(document.createElement("span"));
+      document.body.appendChild(parent);
+      const inserted = document.createElement("div");
+
+      ledger.insert(inserted, parent, last);
+      expect([...parent.children]).toEqual([first, inserted, last]);
+
+      ledger.restoreAll();
+      expect([...parent.children]).toEqual([first, last]);
+      parent.remove();
+    });
+
+    it("moves an element inserted again and removes it once", () => {
+      const parent = document.createElement("div");
+      const anchor = parent.appendChild(document.createElement("span"));
+      document.body.appendChild(parent);
+      const inserted = document.createElement("div");
+
+      ledger.insert(inserted, parent, anchor);
+      ledger.insert(inserted, parent, null);
+      expect([...parent.children]).toEqual([anchor, inserted]);
+
+      ledger.restoreAll();
+      expect([...parent.children]).toEqual([anchor]);
+      parent.remove();
+    });
+
+    it("leaves alone an element whose parent is already gone", () => {
+      const parent = document.createElement("div");
+      document.body.appendChild(parent);
+      const inserted = document.createElement("div");
+      ledger.insert(inserted, parent, null);
+      parent.remove();
+
+      expect(() => ledger.restoreAll()).not.toThrow();
+      expect(inserted.parentElement).toBe(parent);
+    });
+  });
+
   describe("style mutations and restore", () => {
     it("records original styles and restores them accurately", () => {
       const el = document.createElement("div");

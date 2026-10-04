@@ -365,6 +365,9 @@ vi.mock("@decky/ui", () => {
     MenuItem: ({ children, onClick, disabled }: AnyProps) =>
       createElement("button", { type: "button", onClick, disabled }, children as never),
     MenuSeparator: () => createElement("hr"),
+    // Only the desktop settings window renders it, and its tests hand the
+    // window a sidebar of their own; this only has to exist for the start-up check.
+    SidebarNavigation: () => createElement("nav"),
     Navigation: { NavigateToExternalWeb: vi.fn(), Navigate: vi.fn() },
     // findSP locates Steam's <SteamRoot> iframe document for stylesheet
     // injection. Tests run in happy-dom — no Steam, no iframe — so the
@@ -389,6 +392,7 @@ vi.mock("@decky/ui", () => {
     // is what a Steam build that renamed the module would render.
     findModule: vi.fn(() => undefined),
     findModuleExport: vi.fn(() => undefined),
+    findModuleByExport: vi.fn(() => undefined),
     findClassModule: vi.fn(() => undefined),
     // The patcher and the registry the game-page install reaches Steam through.
     // Named explicitly rather than left off: Vitest throws on an import of a
