@@ -303,8 +303,292 @@ Both are recomputed whenever the sticky controller updates its pinning — on sc
 
 ---
 
+## The Tender Settings Window (planned)
+
+> **Planned, not built.** Nothing in this section exists in the source tree: `frontend/src/desktop/` opens no window of
+> its own and touches no Steam menu. The section records what Steam's own settings window and its "Steam" menu were
+> measured to be, and the plan for a "Tender Settings" window built from the same parts. The feature-by-feature mapping
+> and the ordered steps are on the parity matrix
+> ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The decisions at the end of
+> this section are settled; the device checks beside them gate the first PR.
+
+### What Steam's settings window is
+
+Read on the device (SteamOS, desktop client) on 2026-10-04, without opening, pressing or changing anything:
+
+- **It is not a separate web page.** The "Steam Settings" window is an `about:blank` popup —
+  `about:blank?createflags=4114&minwidth=850&minheight=722` — whose document SharedJSContext's React fills through a
+  portal. Through the creation-flag enum in Steam's `library.js`, `4114` is Hidden | Resizable |
+  ApplyBrowserScaleToDimensions: the component asks for the last two, and the popup layer adds Hidden, creating the
+  window hidden and then showing it.
+- **It is drawn by a generic popup component**, the one Steam uses for any React-filled popup window. Steam's settings
+  host renders it with `popupWidth={850} popupHeight={722} minWidth={850} minHeight={722} resizable modal={false}`, a
+  title, an `onDismiss` and a title-bar class. The component creates the window through Steam's popup hook (with
+  `html_class: "client_chat_frame fullheight ModalDialogPopup"`), sets its `document.title`, copies Steam's stylesheets
+  into it, saves its size under a `saveDimensionsKey`, and portals in a `PopupFullWindow` holding Steam's `TitleBar`
+  (close, maximise, minimise), a modal-manager root for its children and, when resizable, a resize grip.
+- **Inside the frame**: a `MemoryRouter`, then Steam's `SidebarNavigation` — the component `@decky/ui` exports under
+  that name — then `PagedSettings`. The rows are Steam's `Field` and `DialogButton` under `DialogHeader` / `DialogBody`,
+  all of which `@decky/ui` exports too.
+- **Steam opens it from a store flag.** `steam://settings` sets a settings store visible with a target page, and an
+  always-mounted host renders the popup while the flag is set. Opening it again while it is open brings the existing
+  window to the front and navigates it to the page asked for.
+
+| Part           | Measured                                                                                                   |
+| :------------- | :--------------------------------------------------------------------------------------------------------- |
+| Window         | 850 × 722 by default and at minimum, resizable; the popup's `body` carries `DesktopUI`                     |
+| Title bar      | 40 px, absolute and transparent over the content; three 32 × 32 window buttons                             |
+| Sidebar column | about 198 px (160 to 220), background `rgb(42, 45, 52)`, 36 px of padding at the top                       |
+| Sidebar title  | the `title` prop uppercased by CSS: 17 px, weight 700, `rgb(26, 159, 255)` — in the sidebar, not the bar   |
+| Sidebar item   | a 40 px row, a 20 × 20 icon, 14 px text in `rgb(184, 188, 191)`; the active row white on `rgb(61, 68, 80)` |
+| Separator      | 1 px `rgb(61, 68, 80)` inset by 12 px; transparent beside the active item                                  |
+| Page header    | `DialogHeader`, 22 px, weight 700, white                                                                   |
+
+The structural classes are readable (`PopupFullWindow`, `TitleBar`, `DialogContent`, `DialogHeader`, `DialogBody`,
+`DialogButton`, `window_resize_grip`), but every sidebar item, separator, the sidebar title and every part of a `Field`
+carries only CSS-module hashes. Those are reachable by **semantic key**: the sidebar component receives a `stylesheet`
+prop, a CSS-module object that maps keys such as `PagedSettingsDialog_PageListItem`, `Active` and `PageListSeparator` to
+the build's hashes. Anything Tender draws to look like this window resolves a class by its key in that object at
+runtime, as the selection ladder's first rung takes tokens from Steam's modules, and never spells a hash
+(`.claude/rules/desktop-dom.md` §1). Rendering Steam's own components avoids the question, because they apply their
+classes themselves.
+
+Webpack module numbers and minified names seen during that reading belong to the Steam build inspected on 2026-10-04 and
+change between builds, so none is a way to find anything. Each part is found by a stable property instead: the popup
+component by its source text (`"PopupWindow_"` beside `ModalDialogPopup`), `PagedSettings` by the name Steam registers
+it under (`"PagedSettings"`), and `SidebarNavigation` by `@decky/ui`'s own prop-list lookup (`pages`,
+`fnSetNavigateToPage`, `disableRouteReporting`).
+
+### How the window is made
+
+| Option                                 | What it is                                                                                                                                                                                                                  | Verdict                                                                                                                                                                                                                                                                                    |
+| :------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **W1. Steam's popup component**        | Tender renders the component Steam's settings host renders, titled "Tender Settings", 850 × 722 and at least that, `resizable`, `modal={false}`, with an `onDismiss`; its own `MemoryRouter` and `SidebarNavigation` inside | **Chosen (D1).** The frame — title bar, window buttons, resize grip, copied stylesheets, saved size, `DesktopUI` body — is Steam's own code path. It costs a module lookup `@decky/ui` does not have, and centring on the owner window needs the window context Steam's host renders under |
+| **W2. `showModal` popped out**         | `@decky/ui`'s `showModal(…, { bForcePopOut, popupWidth, popupHeight, strTitle })`: Steam's modal manager moves a modal into a window of its own                                                                             | Unverified. Probably a modal-dialog frame rather than the settings window's; the pop-out is undocumented, and the default parent is `findSP()`, a Big Picture lookup that may resolve wrongly in a desktop-only session                                                                    |
+| **W3. A bare popup**                   | `window.open("about:blank?createflags=4114&minwidth=850&minheight=722", …)`, or `g_PopupManager`'s static `CreatePopup`, then `findReactClient().createRoot()` into it                                                      | **Fallback.** A native window with nothing in it: Tender supplies the title bar, the window controls, the stylesheets, the lifecycle and the saved size                                                                                                                                    |
+| **W4. A dialog in the desktop window** | A modal portaled into the library window's `document.body` — the earlier Phase 2 plan                                                                                                                                       | Ruled out: a dialog inside the library window is not a window of its own                                                                                                                                                                                                                   |
+| **W5. `SteamClient.BrowserView`**      | `BrowserView` / `BrowserView.CreatePopup` loading a URL: a separate web page                                                                                                                                                | Ruled out: a separate JavaScript context (below)                                                                                                                                                                                                                                           |
+
+A `BrowserView` hosts a web page with a JavaScript context of its own. Everything the panel works with lives in
+SharedJSContext: its one WebSocket to the backend (`api/host.ts`), every store under `utils/`, and the token the backend
+put on the bundle it injected. A page of its own would have none of them; it would need a bundle and an admission of its
+own, and the backend's per-process token is not built for a second page
+([Talking to the backend](frontend-bundles.md#talking-to-the-backend)). W1 and W3 both keep every line of Tender's code
+in SharedJSContext.
+
+### The router trap
+
+`SidebarNavigation` calls `history.replace(route)` whenever a page is chosen, and takes the history from the nearest
+react-router context. Rendered under a tree that carries the main window's contexts — which W1 wants, for centring — it
+would find **the library window's** router and move the library to a settings route. Tender's window therefore renders a
+`MemoryRouter` of its own around `SidebarNavigation`, as Steam's settings host does. This is required, not a matter of
+style, and no test here can show it: it is a device check.
+
+### The "Tender Settings" menu entry
+
+The menu bar's "Steam" button opens a context-menu instance. On the device that instance is created hidden and retained
+in a popup of its own, titled **"Steam Root Menu"** (`body.ContextMenuPopupBody.DesktopUI`), so its document exists
+while the menu is closed. A Steam predicate that has not been read decides whether the instance is retained or created
+on first open; where it is created on open, its document appears only then. The items come from a static array built
+inside a component private to its Steam module, so the array cannot be reached by replacing an export. The Settings
+entry is `{ name: "#Menu_Settings", steamURL: "steam://settings", … }`, followed by a separator and Exit; an entry with
+no action renders as a separator.
+
+In the menu's document only `ContextMenuPopupBody`, `DesktopUI`, `visible` and `contextMenuItem` are readable classes.
+The stable anchor is on the Fiber: the component above the Settings item carries `name: "#Menu_Settings"` and
+`steamURL: "steam://settings"` in its props, and further up the context-menu host holds the menu's `instance`, with
+`Show()` and `Hide()`.
+
+| Option                                      | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Fit and risk                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| :------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **M1. A DOM item in the "Steam Root Menu"** | Find the menu's popup through `g_PopupManager.GetPopups()`, with `AddPopupCreatedCallback` for a menu created late; anchor on the `contextMenuItem` whose Fiber props read `steamURL === "steam://settings"` (a read-only Fiber read); insert a sibling after it, copying that item's `className` at runtime; its click calls `openTenderSettings()` and hides the menu through its `instance`; record every insertion and listener in a `DomRestorationLedger` | **Chosen (D2).** Only techniques `.claude/rules/desktop-dom.md` already allows: DOM adaptation through the ledger, read-only Fiber reads, and no spelled hash, because the class is copied from the live sibling. React may drop or reorder a foreign node when the retained subtree re-renders, so an observer from the menu document's realm re-inserts it; keyboard navigation inside the menu may not reach an item React does not know |
+| **M2. Wrap the menu component's `type`**    | Render the original, then append `{ name: "Tender Settings", onClick }` to the item list                                                                                                                                                                                                                                                                                                                                                                        | Steam renders the item, so hover, focus and keyboard behave natively. It is a Fiber write, which `.claude/rules/desktop-dom.md` §3 forbids (the same write as the half of `qam/installEntry.tsx`'s `adoptMountedMenu` that sets `node.type`), and the retained instance must be made to re-render. Adopting it reverses a written desktop rule, so it needs an ADR                                                                          |
+| **M3. `afterPatch` on a Steam export**      | Patch the item-list component through `@decky/ui`'s patcher                                                                                                                                                                                                                                                                                                                                                                                                     | Not a Fiber write, but the list is read through a webpack export getter at render time, so replacing the export most likely changes nothing; unproven                                                                                                                                                                                                                                                                                       |
+| **M4. Another entry point**                 | A gear button in the play bar or the title bar — the earlier Phase 2 idea                                                                                                                                                                                                                                                                                                                                                                                       | Ruled out: the entry belongs in Steam's "Steam" menu, beside Steam's own Settings                                                                                                                                                                                                                                                                                                                                                           |
+
+**M1 is the plan**, installed from `desktop/index.ts`, anchored on the Fiber's `steamURL` / `#Menu_Settings` and never
+on the localised label "Settings" or a class. Its callbacks registered with Steam do nothing once the surface has
+stopped, as the supervisor's do (`.claude/rules/desktop-dom.md` §2). M2 stays documented as the fallback should the
+device show React wiping the inserted item on every show. Hiding the menu through its `instance` is allowed (D2): it is
+a method on Steam's menu object, not a reconciler call.
+
+### Realms, the backend, and where it starts
+
+The window is a third document beside SharedJSContext and the library window, and what the
+[Dual-Window Execution Model](#dual-window-execution-model) says of the library window holds for it: listeners, timers
+and observers are bound to the popup's own window, taken from the node (`el.ownerDocument.defaultView`) as
+`DesktopDialog` does for Escape, and `instanceof` against a DOM global is false there. Two things run the other way:
+
+- **`romm_data_changed` stays on SharedJSContext's global.** The settings logic dispatches it, and its listeners
+  (`bigpicture/panelEvents.ts`, `utils/gameDetailStore.ts`) are in SharedJSContext. The logic's code runs there, so
+  `window.dispatchEvent` already reaches them; "correcting" it to the popup's window would silence them.
+- **Steam menus opened from inside the window** — a `Dropdown`, the emulator menu — need a parent in the popup's
+  document, not `findSP()` or SharedJSContext.
+
+happy-dom has one realm, so the suite sees none of this; each is a device check.
+
+Components rendered into the popup are SharedJSContext code calling the same `api/host.ts`, so `endpoint()` and
+`addEventListener()` reach the backend over the panel's one WebSocket unchanged, as the desktop `GameView` already does.
+The window needs no endpoint the Big Picture pages do not already call.
+
+- **Where it starts.** `startDesktopSurface` (`desktop/index.ts`) installs the menu entry beside the navigation watcher,
+  and `stopDesktopSurface` withdraws it. The window and its tabs live in `desktop/settings/`, which
+  `frontend/src/desktop/README.md` already plans. The window's React root is its own, not in the library window's
+  document, and is recorded in a ledger of its own together with the popup's `pagehide` and `unload`, as
+  `askInDesktopWindow` records a question's. The window closes when the desktop surface stops and when Steam switches to
+  Big Picture (D4).
+- **Opening it on a tab.** One entry opens the window: `openTenderSettings(tab?)`. Like Steam's own, a second call
+  brings the open window to the front and navigates it to `tab` rather than opening another. The menu item opens it with
+  no tab; the desktop `PlaytimeScopeBanner`'s `onOpenConnections`, which nothing passes today, would open Connections;
+  and any desktop counterpart of Main's notice doors (Open Controller, Open Updates) would open its tab the same way.
+
+### Tabs
+
+Ten tabs, in this order, in three groups split by `SidebarNavigation`'s `'separator'` entries (D5):
+
+| Tab                 | Big Picture counterpart                                          | Kind               |
+| :------------------ | :--------------------------------------------------------------- | :----------------- |
+| **Sync**            | the [Sync](qam-panel.md#sync) page                               | a whole page       |
+| **Library**         | the [Library](qam-panel.md#library) page: Platforms, Collections | a whole page       |
+| **Downloads**       | the [Downloads](qam-panel.md#downloads) page: the queue          | a whole page       |
+| **Connections**     | [Settings](qam-panel.md#settings) › Connections                  | a settings section |
+| **Save Sync**       | Settings › Save Sync                                             | a settings section |
+| **Controller**      | Settings › Controller                                            | a settings section |
+| **Steam Library**   | Settings › Steam Library                                         | a settings section |
+| **Updates**         | Settings › Updates                                               | a settings section |
+| **Data Management** | the [Data Management](qam-panel.md#data-management) page         | a whole page       |
+| **Advanced**        | Settings › Advanced                                              | a settings section |
+
+Six tabs are the six sections of Big Picture's Settings page, one to one and under the same names. Four are whole Big
+Picture pages, which Big Picture deliberately keeps out of Settings; gathering them into one window makes it Tender's
+desktop control centre rather than a preferences dialog, a product decision the issue states. **Library** (the RomM
+side: what is synced) and **Steam Library** (the Steam side) stay apart as Big Picture keeps them.
+
+Drawn with Steam's components, the rows are `Field`, `DialogButton`, `Toggle` / `ToggleField` and `Dropdown` — the first
+`@decky/ui` UI in `desktop/`, whose only `@decky/ui` import today is `findModule`. Every value imported is classified by
+the start-up check (CLAUDE.md's invariant register; [The start-up check](frontend-bundles.md#the-start-up-check)), and
+`"feature"` is the cost that fits a dev-only surface, even though `boot/steamModules.ts` ships in every bundle.
+
+### Moving the logic down first
+
+`desktop/` may import `api/`, `utils/`, `types/` and `shared/`, never `bigpicture/` (CLAUDE.md's invariant register, the
+frontend-direction entry; `frontend/eslint.config.js`). No Big Picture settings section can be hosted, so what both
+surfaces need moves down before any desktop drawing, in the shape the adopt and save-conflict extractions set: flows and
+hooks go flat into `utils/`, dialogs are injected through an interface the flow declares (as `AdoptionDialogs` in
+`utils/adoptFlow.ts`), wording has one `*Wording.ts` home, and each surface keeps its own drawing. A hook that renders
+nothing goes to `utils/`, which holds every such hook today, not `shared/`.
+
+Three preconditions come first:
+
+1. **`SyncButton` moves into `utils/syncResume.ts`.** `bigpicture/sync/useSyncPage.ts` imports that type from
+   `bigpicture/SessionBudgetBanner.tsx`, and `no-restricted-paths` has no exemption for a type-only import (read from
+   the rule's source; a trial move settles it), so the hook cannot move while it does.
+2. **The prune-lease owner becomes a parameter.** `useDataPage` holds the fixed owner `"data-management"` and
+   `usePlatformsPage` `"library-platforms"`, and an owner must be unique among the pages that hold leases: with one key
+   on both surfaces, the settings window closing would release leases an open QAM page still holds, or the reverse.
+3. **Tones replace Big Picture's colours.** `bigpicture/settings/UpdateInstallRows.tsx`'s `Block.note` is a React node
+   coloured from `bigpicture/layout/pane`, and the installer output's line colours come from the same place. They become
+   tone data that each surface maps to its own palette.
+
+|  #  | Logic, from                                                                                                                                                      | Destination                                                                                                                       | Note                                                                                                                                                                                                             |
+| :-: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|  1  | State, loads and handlers of `bigpicture/SettingsPage.tsx`                                                                                                       | new `utils/useSettingsPage.ts`: `useSettingsPage(prompts)`, `SettingsPrompts = { confirmEnableSaveSync, confirmPreferredRegion }` | `pendingEdits` (a QAM remount carry) and `saveSyncToggleKey` (a `ToggleField` reset) stay in Big Picture. One hook keeps behaviour; per-tab hooks over a shared store would cache `get_settings` across surfaces |
+|  2  | The three sign-in handlers; `ConnectModal.tsx`'s types, timeout, pairing-code logic, mode labels and help text                                                   | new `utils/rommSignIn.ts`                                                                                                         | `GENERIC_SIGN_IN_ERROR` exists twice today, and one copy survives; the timeout's reasoning moves with it                                                                                                         |
+|  3  | `CustomHeadersModal.tsx`'s row model, `keepsStoredValue`, `toEntries`, hints                                                                                     | new `utils/customHeaders.ts`                                                                                                      | the keep/set rule is a wire contract and gets one home                                                                                                                                                           |
+|  4  | `SgdbApiKeyModal.tsx`'s verify-then-save                                                                                                                         | new `utils/sgdbApiKey.ts`                                                                                                         | —                                                                                                                                                                                                                |
+|  5  | Wording of Connections, Save Sync, Controller and Advanced                                                                                                       | new `utils/settingsWording.ts`                                                                                                    | the sign-out confirm, the insecure-SSL warning, the enable-save-sync confirm, the option lists, `FIX_INPUT_DRIVER_DESCRIPTION`; every exported string pinned by a test, as `adoptWording.ts`'s are               |
+|  6  | `formatRelativeTime` (`bigpicture/settings/helpers.ts`)                                                                                                          | `utils/formatters.ts`, as `formatLastSeen`                                                                                        | `utils/saveHelpers.ts` already exports a `formatRelativeTime` that answers `""` where this one answers "never" or "unknown": rename, do not merge                                                                |
+|  7  | Device row text and the device list's load states                                                                                                                | new `utils/registeredDevices.ts`                                                                                                  | —                                                                                                                                                                                                                |
+|  8  | `AUTO_REGION`, `ANCHOR_REGIONS`, `buildRegionOptions`, `regionLabel`, the region dialog's copy                                                                   | new `utils/preferredRegion.ts`                                                                                                    | `ANCHOR_REGIONS` mirrors the backend's `DEFAULT_REGION_PRIORITY`                                                                                                                                                 |
+|  9  | `asSection`                                                                                                                                                      | `types/navigation.ts`, as `asSettingsSection`                                                                                     | the desktop's tab ids are not defined yet                                                                                                                                                                        |
+| 10  | `bigpicture/settings/useUpdateInstall.ts`                                                                                                                        | `utils/useUpdateInstall.ts`, unchanged, with its tests                                                                            | it polls only while mounted; both surfaces mounted means two pollers, likely harmless through `furtherAttempt` but unverified                                                                                    |
+| 11  | `UpdateInstallRows.tsx`'s decisions, from the button label to `shownBlock`                                                                                       | `utils/updateInstallView.ts`                                                                                                      | precondition 3                                                                                                                                                                                                   |
+| 12  | `availableNewer`, `availableValue`, `NOT_INSTALLED_PROGRAM`; `CHECK_OUTCOME_LINES`                                                                               | `utils/updateAvailableView.ts`; `utils/updateNoticeStore.ts`                                                                      | —                                                                                                                                                                                                                |
+| 13  | `UpdateOutputModal.tsx`'s wording, line tone, body decision and single-flight read                                                                               | new `utils/updateOutputView.ts`                                                                                                   | its in-flight flag becomes process-wide, which is stated as intended; the focus-stop chunking stays in Big Picture                                                                                               |
+| 14  | `bigpicture/sync/useSyncPage.ts`                                                                                                                                 | `utils/useSyncPage.ts`                                                                                                            | precondition 1                                                                                                                                                                                                   |
+| 15  | `usePlatformsPage`, `useCollectionsPage`, `collectionKinds`, `latestWrites`, `syncWriteFailed` (`bigpicture/library/`)                                           | `utils/`, as one set                                                                                                              | precondition 2                                                                                                                                                                                                   |
+| 16  | `bigpicture/data/useDataPage.ts`, `bigpicture/data/rows.ts`                                                                                                      | `utils/useDataPage.ts`, `utils/dataRows.ts`                                                                                       | precondition 2                                                                                                                                                                                                   |
+| 17  | The pure logic of `DataManagementPage.tsx` and `data/DataDetail.tsx`: figures, `figureLine`, `newestFirst`, the whitelist toggle, the non-Steam removal's arming | new `utils/dataInventoryView.ts`                                                                                                  | —                                                                                                                                                                                                                |
+| 18  | `RemovedGamesCleanup.tsx`'s flow: stage labels, `confirmBlockedReason`, `verdictFor`, the scan, the review's state and actions, the section's subscriptions      | new `utils/pruneReview.ts` and `utils/pruneWording.ts` (`useCleanupReview`, `useRemovedGamesSection`)                             | its private `formatBytes` (KiB, MiB) differs from `utils/formatters.ts`'s (KB, MB): rename it (`formatBinaryBytes`), do not merge                                                                                |
+| 19  | `DownloadQueue.tsx`'s seed, handlers and active/finished split                                                                                                   | new `utils/downloadQueue.ts` (`useDownloadQueue`)                                                                                 | —                                                                                                                                                                                                                |
+| 20  | `MigrationBlockedPage.tsx`'s `runMigration` and dismiss; the settings-reset title and message                                                                    | new `utils/retrodeckMigration.ts`; `utils/settingsResetStore.ts`                                                                  | the reset card's message sends the reader to the QAM and needs a desktop variant                                                                                                                                 |
+
+No move creates an import cycle: every edge among the library modules points one way. Two things are not copied blindly:
+
+- **Six handlers drop a refusal.** `save_server_url`, `save_steam_input_setting`, `save_log_level`,
+  `save_preferred_region`, `update_save_sync_settings` and the two collection toggles handle only a throw, and ignore
+  the backend's `{success: false, reason, message}` answer, so the refusal vanishes from the screen. A hook lifted
+  verbatim would hand that to the desktop; they are fixed in the shared hook instead, in a commit of its own (D10).
+- **Each extraction is one behaviour-preserving `refactor(frontend)` commit** with its tests moved, followed by a
+  `docs(frontend)` pass over the comments at every touched line (`.claude/rules/comments.md`). Moved lines count as new
+  code for the coverage gate.
+
+### Decisions
+
+Settled with the owner on 2026-10-04. Each becomes a checked `## To decide` item pointing at its `## Decisions` entry in
+the issue, which owns them from then on:
+
+1. **D1 — the window is W1**, Steam's popup component, found by its source text. W3 stays the fallback.
+2. **D2 — the menu entry is M1**, a ledger-recorded DOM item after the one whose Fiber props read
+   `steamURL === "steam://settings"`. Hiding the menu through its `instance` is allowed: `Hide()` is a method on Steam's
+   menu object, not a reconciler call, so `.claude/rules/desktop-dom.md` §3 does not reach it. M2 would still need an
+   ADR reversing §3 before any code.
+3. **D3 — Steam's components**: `SidebarNavigation`, `Field`, `DialogButton`, `Toggle` and `Dropdown` through
+   `@decky/ui`, each classified in `boot/steamModules.ts` with the cost `"feature"`. No Tender-drawn look-alikes.
+4. **D4 — the window's React root is its own**, not in the library window's document, and recorded in a ledger of its
+   own. The window closes when the desktop surface stops and when Steam switches to Big Picture.
+5. **D5 — a new `SettingsTab` union** in `types/navigation.ts`: `SettingsSection` plus `"sync"`, `"library"`,
+   `"downloads"` and `"data-management"`. Three groups split by separators — Sync, Library, Downloads | Connections,
+   Save Sync, Controller, Steam Library | Updates, Data Management, Advanced. Icons come from `react-icons`.
+6. **D6 — "Library" and "Steam Library" keep their names**, as Big Picture has them.
+7. **D7 — plain values are edited inline**: the RomM URL and the default save slot are fields in their rows, with a Save
+   button that appears once the value differs from the stored one; nothing saves on Enter or blur alone. Sign-in, custom
+   headers and the SteamGridDB key stay dialogs, because they validate before they save.
+8. **D8 — Data Management's two-press `ConfirmButton` becomes a confirm dialog** drawn in the settings window's own
+   document; the removed-games review is a pane inside the Data Management tab, not a dialog.
+9. **D9 — one `useSettingsPage`**, lifted whole, with the two prompts injected.
+10. **D10 — the six handlers that drop `{success: false}` are fixed** in the shared hook, in a `fix(frontend)` commit of
+    their own with tests seen failing first, so the refusal is shown on both surfaces.
+11. **D11 — opening Save Sync still registers this device**, as Big Picture does. `ensure_device_registered` is safe to
+    repeat: it keeps a cached id and only touches it, the server dedupes by machine id, and every sync already calls it
+    unconditionally.
+12. **D12 — an update is marked seen when the Updates tab is shown**, the condition Big Picture's Updates section uses,
+    and the update dot sits on the Updates sidebar item. The injected menu item carries no dot.
+13. **D13 — Downloads is always in the sidebar**, with an empty state, so `openTenderSettings("downloads")` always
+    lands.
+14. **D14 — the settings-reset notice and a pending RetroDECK migration are one banner** above every tab's content: the
+    reset notice with Dismiss, the migration with its run and dismiss actions. A migration does not take the window
+    over, as `MigrationBlockedPage` takes over the QAM; what it blocks answers with its refusal (D10).
+15. **D15 — moved code's importers are repointed**; no `export *` barrel stays behind in `bigpicture/`, and each moved
+    test sits beside its module.
+
+### Device checks
+
+Each is read through a Steam DevTools URL from the owner (`.claude/rules/steam-ui.md`) and marked "(device)" in the
+issue's `## Done when`, because happy-dom has one realm and renders no Steam component:
+
+1. A popup Tender renders through Steam's popup component opens with `createflags=4114`, centres on its owner window, is
+   listed by `g_PopupManager.GetPopups()`, is titled "Tender Settings", and keeps its saved size.
+2. Whether the retained "Steam Root Menu" re-renders its React subtree on `Show()`, and whether that drops or reorders
+   an inserted item.
+3. On which configurations the "Steam" menu is created on first open rather than retained hidden.
+4. Whether keyboard navigation inside the menu reaches the inserted item, and whether its hover styling follows the
+   copied classes.
+5. Hiding the menu through its `instance` closes it once the Tender item is chosen.
+6. `SidebarNavigation` inside Tender's `MemoryRouter` never moves the library window's route.
+7. `@decky/ui` components render with desktop styling under the popup's `DesktopUI` body.
+8. A `Dropdown` and the emulator menu open inside the settings window, not in `findSP()` or SharedJSContext.
+9. Escape, focus and key listeners are bound to the settings window's own `window`.
+10. What happens to the window across a Big Picture round trip, and with the desktop client hidden in the tray.
+11. Whether a QAM page and the settings window can be mounted at once, and what that does to lease owners and the update
+    poll.
+12. What the unexplained `data:text/html` page target, whose comment names `/library/home`, is for.
+
+---
+
 ## Feature Parity & Roadmap
 
 For a comprehensive comparison of features implemented in Big Picture mode versus Desktop mode, as well as the
 multi-phase development roadmap for desktop parity, see the
-[Desktop vs. Big Picture Feature Parity Matrix](desktop-parity-matrix.md).
+[Desktop vs. Big Picture Feature Parity Matrix](desktop-parity-matrix.md). Its Phase 2 is the Tender Settings window
+above, as ordered steps, and its tables map every Big Picture feature to the tab that will carry it.

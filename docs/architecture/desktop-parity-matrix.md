@@ -20,7 +20,7 @@ parity.
 | **Host Entry Point**            | Quick Access entry (`qam/quickAccessEntry.tsx`) + Game Detail route            | Desktop library window (the `SP Desktop …` popup)                                                                                                                                                                                                                                                                              |
 | **Injection Mechanism**         | Route patch through `createReactTreePatcher` (`bigpicture/patches/`)           | DOM watcher mounting React roots (`startDesktopNavigationWatcher`)                                                                                                                                                                                                                                                             |
 | **Dialog / Modal Host**         | Steam's gamepad modal stack (`showModal()`)                                    | `DesktopDialog`, drawn into the desktop window's `document.body`; a start from Tender's Play button asks through it (`desktopLaunchPrompts`), and so does a start the launch watcher catches (`utils/launchInterceptor.ts`) while the desktop client is Steam's main UI, in a root of its own (`desktop/launchPromptHost.tsx`) |
-| **Global Plugin Configuration** | Settings page (`SettingsPage.tsx`, `bigpicture/settings/*`) behind the QAM tab | ❌ _Pending_ (No desktop settings window yet)                                                                                                                                                                                                                                                                                  |
+| **Global Plugin Configuration** | Settings page (`SettingsPage.tsx`, `bigpicture/settings/*`) behind the QAM tab | ❌ _Pending_ (planned: a "Tender Settings" item in Steam's "Steam" menu opening a window of its own, `desktop/settings/`)                                                                                                                                                                                                      |
 
 ---
 
@@ -44,18 +44,121 @@ parity.
 
 ---
 
-### 2. Global Library, Sync & Settings
+### 2. Tender Settings Window: Entry & Frame
 
-| Feature / Capability                 | Big Picture Implementation                                         | Desktop Implementation |     Status     | Notes & Roadmap                                                                     |
-| :----------------------------------- | :----------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------- |
-| **RomM Connection Settings**         | `ConnectionSection.tsx` (Host URL, Username, Password, Token)      | ❌ _Not Implemented_   | ❌ **Missing** | No desktop settings UI exists. Configured through the Big Picture settings page.    |
-| **SteamGridDB API Key & Settings**   | `SteamGridDBSection.tsx` & `SgdbApiKeyModal.tsx`                   | ❌ _Not Implemented_   | ❌ **Missing** | Needs desktop input dialog or settings tab.                                         |
-| **Save Sync Global Options**         | `SaveSyncSection.tsx` (Auto-upload, slot limits, conflict policy)  | ❌ _Not Implemented_   | ❌ **Missing** | Currently inherits settings configured in Big Picture.                              |
-| **Library Browser & Full Sync**      | `LibraryPage.tsx`, `SyncPage.tsx`                                  | ❌ _Not Implemented_   | ❌ **Missing** | Users cannot browse uninstalled RomM games from Steam Desktop.                      |
-| **BIOS & Firmware Manager**          | `BiosTab.tsx`, `library/PlatformsTab.tsx` / `PlatformDetail.tsx`   | ❌ _Not Implemented_   | ❌ **Missing** | The desktop Emulation card shows one ROM's BIOS summary; no platform-wide view.     |
-| **Data Management & Cache Pruning**  | `DataManagementPage.tsx`, `RemovedGamesCleanup.tsx`                | ❌ _Not Implemented_   | ❌ **Missing** | Bulk cache cleanup not yet surfaced in desktop.                                     |
-| **Download Queue & Active Progress** | `DownloadQueue.tsx`, `DownloadProgressRow.tsx`, `downloadStore.ts` | ⚠️ **Partial**         | ⚠️ **Partial** | Individual game progress renders on desktop `PlayButton`, but no global queue list. |
-| **Controller & Emulator Overrides**  | `ControllerSection.tsx`, `AdvancedSection.tsx`                     | ❌ _Not Implemented_   | ❌ **Missing** | Global RetroDECK emulator mapping and controller profile tweaks.                    |
+Everything Big Picture configures lives in its Settings page and in four other QAM pages; on desktop, all of it is
+planned for one window, opened from Steam's own "Steam" menu. The mechanism, the measurements behind it and the open
+decisions are on [Desktop Mode DOM Adaptation](desktop-dom-architecture.md#the-tender-settings-window-planned).
+
+| Feature / Capability            | Big Picture Implementation                                                                                                                                                        | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                                                       |
+| :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tender Settings Entry Point** | Quick Access entry (`qam/quickAccessEntry.tsx`) → Main's **Settings** button                                                                                                      | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a "Tender Settings" item after Steam's own Settings in the "Steam" menu — a ledger-tracked DOM item in the retained "Steam Root Menu" popup, anchored on the Fiber's `steamURL: "steam://settings"` and installed from `desktop/index.ts`.                                                   |
+| **Tender Settings Window**      | `SettingsPage.tsx` (`WidePage` + `ListDetail`, six sections), beside the Sync, Library, Downloads and Data Management pages                                                       | ❌ _Not Implemented_   | ❌ **Missing** | Planned: `desktop/settings/` — Steam's own popup component (850 × 722, resizable) titled "Tender Settings", with Tender's `MemoryRouter` around `SidebarNavigation`; ten tabs, below.                                                                                                                 |
+| **Open on a Tab (Deep Links)**  | `{ page: "settings", section }` from Main's notices: Open Connections (`PlaytimeScopeBanner.tsx`), Open Controller (the `input_driver` notice), Open Updates (the update notices) | ❌ _Not Implemented_   | ❌ **Missing** | Planned: `openTenderSettings(tab?)`; a second call brings the open window to the front and navigates it. The desktop `PlaytimeScopeBanner`'s `onOpenConnections` is passed by nothing today.                                                                                                          |
+| **Settings-Reset Notice**       | `SettingsResetBanner.tsx` on Main, with Dismiss                                                                                                                                   | ❌ _Not Implemented_   | ❌ **Missing** | No tab is its home: it is a banner above every tab's content, with Dismiss (D14). Its card sends the reader to the QAM, so the wording gains a desktop variant (`utils/settingsResetStore.ts`).                                                                                                       |
+| **Pending RetroDECK Migration** | `MigrationBlockedPage.tsx` replaces the whole panel                                                                                                                               | ❌ _Not Implemented_   | ❌ **Missing** | The game page already shows `MigrationBlockedCard.tsx`; the window shows a banner above every tab's content with the migration's actions and does not take the window over, and what the migration blocks answers with its refusal (D14, D10). The flow moves to a new `utils/retrodeckMigration.ts`. |
+
+### 3. Tender Settings Window: Tabs
+
+One table per tab, in the window's order. Six tabs are the six sections of Big Picture's Settings page, one to one and
+under the same names; four (Sync, Library, Downloads, Data Management) are whole Big Picture pages. Big Picture files
+are under `frontend/src/bigpicture/`. Every tab is drawn by the desktop over logic moved down into `utils/`, because
+`desktop/` may not import `bigpicture/`; a module marked _new_ does not exist yet.
+
+#### Sync
+
+| Feature / Capability                        | Big Picture Implementation            | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                        |
+| :------------------------------------------ | :------------------------------------ | :--------------------- | :------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Start: Check for Changes / Sync Library** | `SyncPage.tsx`, `sync/useSyncPage.ts` | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the same button (Check for changes, Sync Library or Resume Sync, as Skip preview and a paused run decide) and its idle and scope lines. Shared: `utils/useSyncPage.ts` (moved once `SyncButton` is in `utils/syncResume.ts`). |
+| **Preview Table**                           | `sync/PreviewPanel.tsx`               | ❌ _Not Implemented_   | ❌ **Missing** | Planned: Platform / New / Updated / Removed with the collection rows and the total, scope, estimate and pause advisory, and the expired state. Shared: `utils/pendingPreviewStore.ts`, `utils/previewState.ts`.                        |
+| **Apply Sync / Refresh / Cancel**           | `sync/PreviewPanel.tsx`               | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the same three answers, each ending the preview on both sides (CLAUDE.md's invariant register, the preview-answer entry).                                                                                                     |
+| **Run View & Cancel Sync**                  | `sync/RunPanel.tsx`                   | ❌ _Not Implemented_   | ❌ **Missing** | Planned: bar, stage caption, step counter and estimate, Cancel Sync under the bar, the unit list, and "Sync failed — …" on an apply failure. Shared: `utils/syncRunView.ts`, `utils/runUnitsStore.ts`.                                 |
+| **Session-Budget Card (Restart Steam now)** | `SessionBudgetBanner.tsx`             | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the same card. Shared: `utils/syncStatsStore.ts`.                                                                                                                                                                             |
+| **Skip Preview & Force Full Sync**          | `sync/SyncControls.tsx`               | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the persisted toggle, and Force Full Sync behind a desktop confirm ("Force a full re-sync?") with its disabled-state lines.                                                                                                   |
+| **Steam Memory & Last Runs**                | `sync/SyncControls.tsx`               | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the memory reading and its change, and a table of the ten newest runs. Shared: `utils/syncStatsStore.ts`.                                                                                                                     |
+
+#### Library
+
+| Feature / Capability                     | Big Picture Implementation                                                                     | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                                                                                                                                                                       |
+| :--------------------------------------- | :--------------------------------------------------------------------------------------------- | :--------------------- | :------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Platform Sync Switches**               | `LibraryPage.tsx`, `library/PlatformsTab.tsx`, `library/usePlatformsPage.ts`                   | ❌ _Not Implemented_   | ❌ **Missing** | Planned: list and detail — Synced above Available, each row a BIOS dot, the name and a toggle; Enable all / Disable all. Shared: `usePlatformsPage`, `latestWrites` and `syncWriteFailed` moved to `utils/`, the lease owner a parameter.                                                                                                                                                                             |
+| **Platform Detail & Core Picker**        | `library/PlatformDetail.tsx`                                                                   | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the `N on RomM · M in Steam · <core>` header and the core-picker chip; the emulator menu needs a parent in the settings window's document. Shared: `utils/emulatorMenu.tsx`.                                                                                                                                                                                                                                 |
+| **BIOS & Firmware Manager**              | `library/PlatformDetail.tsx` (BIOS FILES); the game page's `BiosTab.tsx`                       | ❌ _Not Implemented_   | ❌ **Missing** | The desktop Emulation card shows one ROM's BIOS summary; no platform-wide view. Planned: the status and sentence, the File / On disk / Contents table with per-row Download and Delete, Download required (N), Download all, Delete BIOS behind a confirm — worded through `utils/biosSummary.ts` and gated by `isFetchable` (`utils/biosFetchable.ts`), as CLAUDE.md's invariant register requires of every surface. |
+| **Remove Shortcuts / Delete Save Files** | `library/PlatformDetail.tsx`                                                                   | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the two red buttons, each behind a desktop confirm and never hidden.                                                                                                                                                                                                                                                                                                                                         |
+| **Collections & Per-Collection Sync**    | `library/CollectionsTab.tsx`, `library/CollectionsDetail.tsx`, `library/useCollectionsPage.ts` | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the kinds list (Collections, Smart collections, Autogenerated, Favorites, Other users' collections with the owner scope) and each kind's search, Enable / Disable all (confirm above 20) and table. Shared: `useCollectionsPage` and `collectionKinds` moved to `utils/`.                                                                                                                                    |
+
+#### Downloads
+
+| Feature / Capability                 | Big Picture Implementation                                          | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                              |
+| :----------------------------------- | :------------------------------------------------------------------ | :--------------------- | :------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Download Queue & Active Progress** | `DownloadQueue.tsx`, `DownloadProgressRow.tsx`, `downloadStore.ts`  | ⚠️ **Partial**         | ⚠️ **Partial** | Individual game progress renders on desktop `PlayButton`, but no queue list. Planned: active rows with Pause / Resume / Cancel, finished rows, Clear Completed. Shared: _new_ `utils/downloadQueue.ts` (`useDownloadQueue`) beside `utils/downloadStore.ts`. |
+| **Empty Queue**                      | Reached through View All on Main; no entry while the queue is empty | ❌ _Not Implemented_   | ❌ **Missing** | Planned: always shown, with an empty state (D13), so a deep link to Downloads always lands. No download setting exists to bind to: `get_settings` carries none.                                                                                              |
+
+#### Connections
+
+| Feature / Capability               | Big Picture Implementation                                                              | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                 |
+| :--------------------------------- | :-------------------------------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RomM URL**                       | `settings/ConnectionSection.tsx`, `settings/TextInputModal.tsx`                         | ❌ _Not Implemented_   | ❌ **Missing** | Planned: an inline field with a Save button that appears once the value differs (D7), trimmed and validated before it is saved. Shared: `utils/serverUrl.ts`, _new_ `utils/useSettingsPage.ts`. |
+| **Custom Headers**                 | `settings/ConnectionSection.tsx`, `settings/CustomHeadersModal.tsx`                     | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a desktop headers dialog; a stored value shows "••••" and is kept unless a new one is typed. Shared: _new_ `utils/customHeaders.ts` (the keep/set wire rule).                          |
+| **RomM Sign-In**                   | `settings/ConnectModal.tsx`: pairing code (the default), API token, username & password | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a desktop sign-in dialog with the same three modes and the same default, the 60 s timeout and an inline error. Shared: _new_ `utils/rommSignIn.ts`.                                    |
+| **Sign Out**                       | `settings/ConnectionSection.tsx` ("Sign out of RomM?" confirm)                          | ❌ _Not Implemented_   | ❌ **Missing** | Planned: last in its group, behind a desktop confirm; it forgets the token on this device only. Shared: _new_ `utils/settingsWording.ts`.                                                       |
+| **Allow Insecure SSL**             | `settings/ConnectionSection.tsx` (an https URL only)                                    | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a toggle with the same security warning, word for word. Shared: _new_ `utils/settingsWording.ts`.                                                                                      |
+| **Connection Status Line**         | `settings/ConnectionSection.tsx`                                                        | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a status row for the sign-in result, URL errors and save failures.                                                                                                                     |
+| **SteamGridDB API Key & Settings** | `settings/SteamGridDBSection.tsx` & `settings/SgdbApiKeyModal.tsx`                      | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a desktop key dialog that verifies before it saves and keeps the two failures apart. Shared: _new_ `utils/sgdbApiKey.ts`.                                                              |
+| **RetroAchievements Sign-In**      | Not built yet (#1627)                                                                   | ❌ _Not Implemented_   | ❌ **Missing** | On neither surface; Connections is its intended home on both.                                                                                                                                   |
+
+#### Save Sync
+
+| Feature / Capability         | Big Picture Implementation                                                                                | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                        |
+| :--------------------------- | :-------------------------------------------------------------------------------------------------------- | :--------------------- | :------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Save Sync Global Options** | `settings/SaveSyncSection.tsx`: Enable Save Sync, Sync before launch, Sync after exit, Save History Limit | ❌ _Not Implemented_   | ❌ **Missing** | Planned: toggle and dropdown rows. Turning sync on asks "Enable Save Sync?" through a confirm injected into the hook; a change still dispatches `romm_data_changed` on SharedJSContext's global. Shared: _new_ `utils/useSettingsPage.ts`, `utils/settingsWording.ts`. |
+| **Default Save Slot**        | `settings/SaveSyncSection.tsx`, `settings/TextInputModal.tsx`                                             | ❌ _Not Implemented_   | ❌ **Missing** | Planned: an inline field with Save once changed (D7), and Reset to default while the slot is not "default". Reset writes `"default"`, while the backend turns a blank slot into `"autosave"`.                                                                          |
+| **Device Registration**      | `SettingsPage.tsx` (`ensure_device_registered` on opening the section)                                    | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the "Registered as" row. Opening the tab registers this device, as in Big Picture (D11); the call is safe to repeat.                                                                                                                                          |
+| **Sync All Saves Now**       | `settings/SaveSyncSection.tsx`                                                                            | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a button and its result line; it covers only games whose save slot is confirmed.                                                                                                                                                                              |
+| **Registered Devices**       | `settings/RegisteredDevicesSection.tsx`                                                                   | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a read-only table (Device, Client, Last seen) with no per-device actions. Shared: _new_ `utils/registeredDevices.ts`, `formatLastSeen` in `utils/formatters.ts`.                                                                                              |
+
+#### Controller
+
+| Feature / Capability             | Big Picture Implementation                                               | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                            |
+| :------------------------------- | :----------------------------------------------------------------------- | :--------------------- | :------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Steam Input Mode**             | `settings/ControllerSection.tsx`                                         | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a dropdown of Default (Recommended), Force On and Force Off. Shared: _new_ `utils/settingsWording.ts`.                                                                                                                                                            |
+| **Apply to All Shortcuts**       | `settings/ControllerSection.tsx`                                         | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a button and its status line; a second press while one runs is refused.                                                                                                                                                                                           |
+| **RetroArch `input_driver` Fix** | `settings/ControllerSection.tsx` ("Fix RetroArch input_driver?" confirm) | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the warning row and a button behind a desktop confirm. The backend keeps no copy of the file it rewrites, so that confirm is the confirm leg of backup-or-confirm and is not dropped. Shared: `FIX_INPUT_DRIVER_DESCRIPTION` in _new_ `utils/settingsWording.ts`. |
+
+#### Steam Library
+
+| Feature / Capability                      | Big Picture Implementation                                         | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                |
+| :---------------------------------------- | :----------------------------------------------------------------- | :--------------------- | :------------: | :--------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Preferred Region**                      | `settings/LibrarySection.tsx`, `settings/PreferredRegionModal.tsx` | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a dropdown, and a desktop explainer (old → new) injected into the hook; only Save persists. Shared: _new_ `utils/preferredRegion.ts`. |
+| **Collection Games in Platform Groups**   | `settings/LibrarySection.tsx`                                      | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a toggle, written optimistically and reverted on a throw.                                                                             |
+| **Distinguish Collection Types in Names** | `settings/LibrarySection.tsx`                                      | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a toggle (`by_label` / `merge`), written optimistically and reverted on a throw.                                                      |
+
+#### Updates
+
+| Feature / Capability               | Big Picture Implementation                                       | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                 |
+| :--------------------------------- | :--------------------------------------------------------------- | :--------------------- | :------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Installed & Available Versions** | `settings/UpdatesSection.tsx`                                    | ❌ _Not Implemented_   | ❌ **Missing** | Planned: two rows, and the development-build line in place of the install. Shared: `utils/updateAvailableView.ts`.                                                              |
+| **Install Update**                 | `settings/UpdateInstallRows.tsx`, `settings/useUpdateInstall.ts` | ❌ _Not Implemented_   | ❌ **Missing** | Planned: Install update / Try again / Installing… with its wait reasons, paused-downloads hint and refusals. Shared: `useUpdateInstall` moved to `utils/` unchanged.            |
+| **Install Progress & Failure**     | `settings/UpdateInstallRows.tsx`                                 | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the progress bar and the four steps, and the failure card, in tones mapped to a desktop palette. Shared: `utils/updateInstallView.ts`, once `Block.note` is tone data. |
+| **Installer Output**               | `settings/UpdateOutputModal.tsx`                                 | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a desktop dialog with an ordinary scrolling region, without the gamepad's focus-stop chunking. Shared: _new_ `utils/updateOutputView.ts`.                              |
+| **Daily Check & Check Now**        | `settings/UpdatesSection.tsx`                                    | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a toggle, and a button with its result line. Shared: `utils/updateNoticeStore.ts`.                                                                                     |
+| **Update Seen & Update Dot**       | `SettingsPage.tsx` (`useSeenAfterDwell`), `UpdateDot.tsx`        | ❌ _Not Implemented_   | ❌ **Missing** | Planned: an update is marked seen when the Updates tab is shown, and the dot sits on the Updates sidebar item, not on the Steam menu item (D12). Shared: `utils/updateDot.ts`.  |
+
+#### Data Management
+
+| Feature / Capability                                         | Big Picture Implementation                                             | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                         |
+| :----------------------------------------------------------- | :--------------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Data Management Inventory**                                | `DataManagementPage.tsx`, `data/DataDetail.tsx`, `data/useDataPage.ts` | ❌ _Not Implemented_   | ❌ **Missing** | Planned: list and detail over the six populations — Tender's shortcuts, Installed ROMs, Grid images, Other non-Steam games, Gone from RomM, Recovery bundles. Shared: `useDataPage` moved to `utils/`, the lease owner a parameter; _new_ `utils/dataInventoryView.ts`. |
+| **Remove Shortcuts / Uninstall ROMs / Orphaned Grid Images** | `data/DataDetail.tsx`                                                  | ❌ _Not Implemented_   | ❌ **Missing** | Planned: each behind a desktop confirm.                                                                                                                                                                                                                                 |
+| **Non-Steam Whitelist & Removal**                            | `data/DataDetail.tsx`                                                  | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the whitelist and its search, and the removal with its RetroDECK-at-risk escalation; the two-press arming becomes a confirm dialog in the settings window (D8).                                                                                                |
+| **Removed-Game Cleanup**                                     | `RemovedGamesCleanup.tsx`                                              | ❌ _Not Implemented_   | ❌ **Missing** | Planned: the review — options, recovery estimate against free space, Confirm Cleanup, progress and Stop Cleanup, result, candidates — as a pane inside the Data Management tab (D8). Shared: _new_ `utils/pruneReview.ts` and `utils/pruneWording.ts`.                  |
+| **Recovery Bundles**                                         | `data/DataDetail.tsx`                                                  | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a read-only table, newest first.                                                                                                                                                                                                                               |
+
+#### Advanced
+
+| Feature / Capability | Big Picture Implementation     | Desktop Implementation |     Status     | Notes & Roadmap                                                                                         |
+| :------------------- | :----------------------------- | :--------------------- | :------------: | :------------------------------------------------------------------------------------------------------ |
+| **Log Level**        | `settings/AdvancedSection.tsx` | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a dropdown of Error, Warn (default), Info and Debug. Shared: _new_ `utils/settingsWording.ts`. |
 
 ---
 
@@ -84,28 +187,45 @@ and alerts:
    - `DesktopOfflineDriftDialog.tsx`, `DesktopFallbackLaunchDialog.tsx` and `DesktopUnsyncedSavesDialog.tsx`, wired to
      `PlayButton.tsx` and `DiscSelector.tsx`.
 
-### Phase 2: Global Settings Access in Desktop Mode (Medium Priority)
+### Phase 2: The Tender Settings Window (Medium Priority)
 
-Provide a way to access plugin settings without requiring Big Picture / Steam Deck Game Mode:
+Planned, not built. A "Tender Settings" item in Steam's "Steam" menu opens a window of its own, made from the parts of
+Steam's own settings window, with the ten tabs of sections 2 and 3 above. No Big Picture section is hosted in it:
+`desktop/` may not import `bigpicture/`, so the logic moves down first and the desktop draws its own. The mechanism, the
+measurements, the decisions and the device checks are on
+[Desktop Mode DOM Adaptation](desktop-dom-architecture.md#the-tender-settings-window-planned).
 
-1. **Desktop Entry Point**:
-   - Add a settings button to the desktop play bar (e.g. a gear icon beside the right controls) or a persistent menu bar
-     hook.
-2. **Portaled Settings Modal (`desktop/settings/DesktopSettingsModal.tsx`)**:
-   - Mount a multi-tab settings dialog portaled to `deskWin.document.body`.
-   - Host `ConnectionSection`, `SteamGridDBSection`, `SaveSyncSection`, and `ControllerSection`.
+1. **Record the decisions** (D1–D15, settled 2026-10-04) in the issue's `## To decide` and `## Decisions`, and fix the
+   six handlers that drop a refusal in a `fix(frontend)` commit of its own (D10).
+2. **Clear the three preconditions**, each a behaviour-preserving commit:
+   - `SyncButton` moves into `utils/syncResume.ts`, so `useSyncPage` no longer imports from `bigpicture/`.
+   - The prune-lease owner becomes a parameter of `useDataPage` and `usePlatformsPage`, so the two surfaces never share
+     a key.
+   - Tone data replaces Big Picture's pane colours in the update-install rows and the installer output.
+3. **Move the logic down into `utils/`** — the twenty extractions the architecture page lists — one `refactor(frontend)`
+   commit each with its tests, then a `docs(frontend)` pass over the comments at every touched line. Big Picture keeps
+   drawing from the moved modules, and nothing it shows changes.
+4. **Build the window** in `desktop/settings/`: `openTenderSettings(tab?)` over Steam's popup component (or the bare
+   popup, the fallback), titled "Tender Settings", 850 × 722 and resizable, with Tender's own `MemoryRouter` around
+   `SidebarNavigation`, and every new `@decky/ui` name classified by the start-up check.
+5. **Add the menu entry**: a ledger-tracked "Tender Settings" item after `#Menu_Settings` in the "Steam Root Menu"
+   popup, anchored on the Fiber's `steamURL`, installed by `startDesktopSurface` and withdrawn by `stopDesktopSurface`.
+6. **Draw the tabs** over the moved hooks and wording, with the injected confirmations drawn by the desktop's dialogs
+   (`useDialogHost`): the six settings tabs (Connections, Save Sync, Controller, Steam Library, Updates, Advanced), then
+   the four page tabs (Sync, Library, Downloads, Data Management).
+7. **Wire the deep links**: the desktop `PlaytimeScopeBanner`'s Open Connections opens the window on Connections.
+8. **Run the device checks**, marked "(device)" under the issue's `## Done when`, and update this matrix as each row
+   lands.
 
-### Phase 3: Standalone Library, BIOS & Data Management (Long-term)
+### Phase 3: Beyond Big Picture Parity (Long-term)
 
-Surface full RomM catalog browsing and maintenance tools on desktop:
+BIOS management and Data Management are no longer separate phases: the Library and Data Management tabs of Phase 2 carry
+them. What remains has no Big Picture counterpart either:
 
-1. **Desktop Library Browser Window / Overlay**:
-   - Explore opening a dedicated standalone window or full-page tab for browsing un-synced RomM titles and queuing batch
-     installs.
-2. **BIOS Management View**:
-   - Expose the firmware audit and missing BIOS downloader within the desktop settings or a dedicated diagnostic tool.
-3. **Data Management View**:
-   - Expose cache pruning, un-synced save cleanup, and artwork repair tools.
+1. **Desktop Library Browser**:
+   - Explore browsing RomM titles that are not synced and queuing batch installs, in a window of its own. Big Picture's
+     Library page is not such a browser — it holds the platform and collection sync switches — so this is new ground on
+     both surfaces.
 
 ---
 
