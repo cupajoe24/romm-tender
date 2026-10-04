@@ -98,11 +98,15 @@ export const DesktopDialog: FC<DesktopDialogProps> = ({ titleId, title, onDismis
   // The listener goes on the window that owns the box, not the global one: this
   // code runs in SharedJSContext while the box lives in the desktop client's own
   // document, and a key pressed there never reaches SharedJSContext's window.
+  // The Escape is claimed (`preventDefault`), so a window that closes on Escape
+  // — the Tender Settings window — leaves this one to the dialog.
   useEffect(() => {
     const view = boxRef.current?.ownerDocument.defaultView;
     if (!view || !onDismiss) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onDismiss();
     };
     view.addEventListener("keydown", onKeyDown);
     return () => view.removeEventListener("keydown", onKeyDown);

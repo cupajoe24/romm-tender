@@ -6,6 +6,8 @@
  * It lives above the components for the reason `usePlatformsPage` does — the
  * page's three left-column bodies are three renderings of one state, and a
  * component owning its own reads would re-issue them whenever the body changed.
+ * Both drawings of the page read it: the QAM's Sync page and the Sync tab of the
+ * desktop's Tender Settings window, each holding an instance of its own.
  *
  * **The run is read, never owned.** `useSyncRunView` fires its end-of-run
  * callbacks for the page that owns them, which is Main; this page passes none

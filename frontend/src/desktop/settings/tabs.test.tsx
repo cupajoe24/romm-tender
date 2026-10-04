@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { isValidElement } from "react";
 import { SETTINGS_SECTIONS, type SettingsTab } from "../../types/navigation";
 import {
   DEFAULT_SETTINGS_TAB,
@@ -7,6 +8,7 @@ import {
   settingsTabOfRoute,
   settingsTabRoute,
 } from "./tabs";
+import { SyncTab } from "./sync/SyncTab";
 
 const EVERY_TAB: readonly SettingsTab[] = [...SETTINGS_SECTIONS, "sync", "library", "downloads", "data-management"];
 
@@ -48,15 +50,21 @@ describe("the settings window's tabs", () => {
     }
   });
 
-  it("gives every page its tab's route, an icon and no content yet", () => {
+  it("gives every page its tab's route and an icon, and content only to the tabs drawn so far", () => {
+    const drawn: string[] = [];
     for (const page of settingsSidebarPages()) {
       if (page === "separator") continue;
       expect(settingsTabOfRoute(page.route ?? "")).not.toBeNull();
       expect(page.icon).toBeTruthy();
-      expect(page.content).toBeNull();
+      if (page.content !== null) drawn.push(String(page.title));
     }
+    expect(drawn).toEqual(["Sync"]);
   });
 
+  it("draws the Sync tab as SyncTab", () => {
+    const sync = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Sync");
+    expect(sync !== "separator" && isValidElement(sync?.content) && sync.content.type).toBe(SyncTab);
+  });
   it("reads a tab back from its route and nothing from any other route", () => {
     for (const tab of EVERY_TAB) expect(settingsTabOfRoute(settingsTabRoute(tab))).toBe(tab);
     expect(settingsTabOfRoute("/library/home")).toBeNull();

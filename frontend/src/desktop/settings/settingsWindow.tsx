@@ -66,8 +66,14 @@ function attachPopup(opened: ShownWindow, popup: Window | undefined): void {
   if (shown !== opened || opened.popup === popup) return;
   opened.popup = popup;
   if (!popup) return;
+  // Registered when the window is created, so it runs before any listener a tab
+  // adds; whether something inside claimed the key (a dialog's Escape) is only
+  // known once the whole dispatch is over, so the answer waits for it.
   opened.ledger.addListener(popup, "keydown", (event) => {
-    if ((event as KeyboardEvent).key === "Escape" && !event.defaultPrevented) dismiss(opened);
+    if ((event as KeyboardEvent).key !== "Escape") return;
+    setTimeout(() => {
+      if (!event.defaultPrevented) dismiss(opened);
+    }, 0);
   });
 }
 
