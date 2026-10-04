@@ -18,7 +18,7 @@ import {
   slotDeleteFailureToast,
   switchSlotFailureMessage,
   formatSlotDeleteDescription,
-} from "./helpers";
+} from "../../utils/saveHelpers";
 import { renderSaveFileRow } from "./SaveFileRow";
 import { InactiveSlotBody } from "./InactiveSlotBody";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";

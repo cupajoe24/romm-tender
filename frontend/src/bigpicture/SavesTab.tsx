@@ -16,7 +16,7 @@ import { switchSlot, getVersionList, checkLocalDrift, debugLog, logWarn } from "
 import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../utils/connectionState";
 import type { SaveStatus, SyncConflict, SaveSlotSummary, LastKnownSlots } from "../types";
 import { scrollFocusedToCenter } from "../utils/scrollHelpers";
-import { MUTED_COLOR, sortSaveSlots, filterSaveSlotsForDisplay, switchSlotFailureMessage } from "./saves/helpers";
+import { MUTED_COLOR, sortSaveSlots, filterSaveSlotsForDisplay, switchSlotFailureMessage } from "../utils/saveHelpers";
 import { renderLastKnownSlots } from "./saves/LastKnownSlotList";
 import { NewSlotModal } from "./saves/NewSlotModal";
 import { SlotPanel } from "./saves/SlotPanel";

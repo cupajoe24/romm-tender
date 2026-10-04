@@ -16,9 +16,9 @@ import {
   formatSlotDeleteDescription,
   sortSaveSlots,
   filterSaveSlotsForDisplay,
-} from "./helpers";
-import type { EndpointFailure } from "../../api/backend";
-import type { DeviceSyncInfo, SaveStatus, SyncConflict, SlotDeleteInfo, SaveSlotSummary } from "../../types";
+} from "./saveHelpers";
+import type { EndpointFailure } from "../api/backend";
+import type { DeviceSyncInfo, SaveStatus, SyncConflict, SlotDeleteInfo, SaveSlotSummary } from "../types";
 
 describe("displaySlot", () => {
   it("returns 'Manual archive' for null", () => {
