@@ -1,7 +1,6 @@
 /**
- * Resolving save conflicts: what one resolution sends and says, the order a list
- * of them is asked in, and the read that fetches the conflict a surface is
- * already showing. The dialog that asks is the surface's, injected.
+ * Resolving save conflicts: one resolution, a list of them, and the conflict a
+ * surface is already showing. The dialog that asks is the surface's, injected.
  */
 
 import { getSaveStatus, isEndpointFailure, logError, debugLog, resolveSyncConflict } from "../api/backend";
@@ -123,13 +122,15 @@ export function announceSaveSync(romId: number): void {
 export type KnownConflictOutcome = "resolved" | "cancelled" | "failed";
 
 /**
- * Resolve the conflict a surface is already showing. This is a READ, not a
- * re-sync: it pulls the already-known conflict via `getSaveStatus` and hands it
- * to `resolveAll`. Re-running the act-capable `preLaunchSync` here (the
- * pre-#1276 behavior) could upload/download OTHER files in the ROM as a side
- * effect and re-derive the conflict through a different path than the one that
- * put the surface in conflict — so the launch path keeps `preLaunchSync`, but
- * conflict resolution must not act.
+ * Resolve the conflict a surface is already showing. This is not a re-sync: it
+ * pulls the already-known conflict via `getSaveStatus` and hands it to
+ * `resolveAll`. `getSaveStatus` uploads and downloads nothing, but it may
+ * follow a moved save directory first and so move local files. Re-running the
+ * act-capable `preLaunchSync` here (the pre-#1276 behavior) could
+ * upload/download OTHER files in the ROM as a side effect and re-derive the
+ * conflict through a different path than the one that put the surface in
+ * conflict — so the launch path keeps `preLaunchSync`, but conflict resolution
+ * must not act.
  */
 export async function resolveKnownConflicts(
   romId: number,
