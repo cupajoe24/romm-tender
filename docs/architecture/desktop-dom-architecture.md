@@ -522,9 +522,9 @@ nothing goes to `utils/`, which holds every such hook today, not `shared/`.
 
 Three preconditions come first:
 
-1. **`SyncButton` moves into `utils/syncResume.ts`.** `bigpicture/sync/useSyncPage.ts` imports that type from
-   `bigpicture/SessionBudgetBanner.tsx`, and `no-restricted-paths` has no exemption for a type-only import (read from
-   the rule's source; a trial move settles it), so the hook cannot move while it does.
+1. **`SyncButton` moves into `utils/syncResume.ts`** (done). `bigpicture/sync/useSyncPage.ts` imported that type from
+   `bigpicture/SessionBudgetBanner.tsx`, and `no-restricted-paths` has no exemption for a type-only import, so the hook
+   could not move while it did.
 2. **The prune-lease owner becomes a parameter.** `useDataPage` holds the fixed owner `"data-management"` and
    `usePlatformsPage` `"library-platforms"`, and an owner must be unique among the pages that hold leases: with one key
    on both surfaces, the settings window closing would release leases an open QAM page still holds, or the reverse.

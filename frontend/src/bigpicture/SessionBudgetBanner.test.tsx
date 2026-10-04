@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { toaster } from "../api/host";
 import { SessionBudgetBanner, formatGb, formatSignedGb, memoryLevelColor, HIGH_HEAP_KB } from "./SessionBudgetBanner";
-import type { SyncButton } from "./SessionBudgetBanner";
+import type { SyncButton } from "../utils/syncResume";
 
 /** The two sync buttons the panel can be offering. The banner is told which one it
  *  is pointing at; it may never work that out for itself, so every render below

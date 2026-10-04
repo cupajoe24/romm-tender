@@ -2,6 +2,7 @@ import { FC, ReactNode } from "react";
 import { PanelSectionRow, ButtonItem, Focusable } from "@decky/ui";
 import { isAnyAppRunning } from "../utils/runningApps";
 import { restartSteam } from "../utils/steamRestart";
+import type { SyncButton } from "../utils/syncResume";
 
 /**
  * Live renderer RSS (KB) above which a completed run recommends a Steam restart.
@@ -63,23 +64,6 @@ function bannerCard(accent: string, background: string, testId: string, title: s
       </Focusable>
     </PanelSectionRow>
   );
-}
-
-/**
- * The panel's sync button as the rest of the panel is TOLD it, never as anything
- * re-derives it. One value carries both halves because they are one fact: a
- * consumer holding only the label would have to read the resume question back out
- * of the text, and a consumer holding only the flag would have to spell the name a
- * second time. That second spelling is exactly how the banner came to say "then
- * Resume Sync" while the button said "Sync Library" (#1789) — it decided the name
- * from ``last_attempt`` alone, which stopped implying a resume the moment Force
- * Full Sync cleared the completion stamps.
- */
-export interface SyncButton {
-  /** Exactly the text on the panel's sync button — quote it, never reconstruct it. */
-  label: string;
-  /** Whether pressing it continues an incomplete run or starts a full one. */
-  resumes: boolean;
 }
 
 interface SessionBudgetBannerProps {

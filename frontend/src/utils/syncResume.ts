@@ -23,6 +23,23 @@ export interface SyncResumeState {
   scopeText: string | null;
 }
 
+/**
+ * The Sync page's button as the rest of the page is TOLD it, never as anything
+ * re-derives it. One value carries both halves because they are one fact: a
+ * consumer holding only the label would have to read the resume question back out
+ * of the text, and a consumer holding only the flag would have to spell the name a
+ * second time. That second spelling is exactly how the session-budget card came to
+ * say "then Resume Sync" while the button said "Sync Library" (#1789) — it decided
+ * the name from ``last_attempt`` alone, which stopped implying a resume the moment
+ * Force Full Sync cleared the completion stamps.
+ */
+export interface SyncButton {
+  /** Exactly the text on the page's sync button — quote it, never reconstruct it. */
+  label: string;
+  /** Whether pressing it continues an incomplete run or starts a full one. */
+  resumes: boolean;
+}
+
 /** What a press that only works out a preview says. It deliberately matches the
  *  words Main's conditional slot shows while that run is going ("Checking for
  *  changes"), so the button and the state it produces read as one thing. */
