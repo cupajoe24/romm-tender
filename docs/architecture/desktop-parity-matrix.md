@@ -204,9 +204,9 @@ mechanism, the measurements, the decisions and the device checks are on
    - The prune-lease owner becomes a parameter of `useDataPage` and `usePlatformsPage`, so the two surfaces never share
      a key.
    - Tone data replaces Big Picture's pane colours in the update-install rows and the installer output.
-3. **Move the logic down into `utils/`** — the twenty extractions the architecture page lists — one `refactor(frontend)`
-   commit each with its tests, then a `docs(frontend)` pass over the comments at every touched line. Big Picture keeps
-   drawing from the moved modules, and nothing it shows changes.
+3. **Move the logic down into `utils/`** — the twenty-one extractions the architecture page lists — one
+   `refactor(frontend)` commit each with its tests, then a `docs(frontend)` pass over the comments at every touched
+   line. Big Picture keeps drawing from the moved modules, and nothing it shows changes.
 4. **Build the window** (✅ Built, tabs blank) in `desktop/settings/`: `openTenderSettings(tab?)` over Steam's popup
    component, titled "Tender Settings", 850 × 722 and resizable, with Steam's router wrapper around `SidebarNavigation`,
    which the start-up check classifies.

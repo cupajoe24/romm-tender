@@ -54,6 +54,7 @@ import {
 } from "./syncProgress";
 import { isCancelRequested, reconcileStaleShortcuts, requestSyncCancel, resetSyncCancel } from "./syncManager";
 import { syncFailedMessage } from "./syncFailed";
+import { APPLY_SYNC_LABEL, REFRESH_LABEL } from "./syncPageWording";
 import { startButtonLabel, syncResumeState, type SyncButton, type SyncResumeState } from "./syncResume";
 import { useSyncRunView, type SyncRunView } from "./syncRunView";
 import {
@@ -172,8 +173,8 @@ function primaryActionFor(
   if (preview === null) return { label: startLabel, resumes: resume.canResume };
   // A preview is up, so the start button is not on screen. Apply is the way on
   // while it is still good; past that, Refresh is the only thing that moves.
-  if (!expired && previewHasChanges(preview)) return { label: "Apply Sync", resumes: resume.canResume };
-  return { label: "Refresh", resumes: resume.canResume };
+  if (!expired && previewHasChanges(preview)) return { label: APPLY_SYNC_LABEL, resumes: resume.canResume };
+  return { label: REFRESH_LABEL, resumes: resume.canResume };
 }
 
 export function useSyncPage(): SyncPageState {
