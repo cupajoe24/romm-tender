@@ -36,9 +36,17 @@
 import { useEffect, useRef, type CSSProperties, type FC, type ReactNode } from "react";
 import { DialogButton, ProgressBar } from "@decky/ui";
 import type { RunUnit } from "../../utils/runUnitsStore";
-import { pluralize } from "../../utils/pluralize";
-import type { SyncProgress, SyncStage } from "../../types";
 import { offsetWithinScroller } from "../../utils/scrollHelpers";
+import { runUnitRow } from "../../utils/syncPageView";
+import {
+  CANCELLING_LABEL,
+  CANCEL_SYNC_LABEL,
+  COLLECTION_UNIT_NOTE,
+  RUN_COLUMN_NAMES,
+  RUN_HEADING,
+  noUnitsLine,
+  runProgressNote,
+} from "../../utils/syncPageWording";
 import { ButtonRow, FLAT_BUTTON, GREEN, MUTED, Muted, SECONDARY_FONT, SectionTitle } from "../layout/pane";
 import { FOCUS_RING_REACH, ScrollRegion } from "../layout/ScrollRegion";
 import { InlineBar, PaneRow, TableHeader, TableRow } from "./paneTable";
@@ -87,58 +95,9 @@ function centreRowInRegion(region: HTMLElement, row: HTMLElement): void {
   region.scrollTo({ top: Math.max(0, Math.min(furthest, centred)), behavior: "smooth" });
 }
 
-/**
- * What the running row's status says, scoped to the UNIT rather than to the run.
- *
- * `stageLabel` on the shared hook names the run's phase ("Fetching library"),
- * which is the right caption over the whole-run bar and the wrong one in a row
- * that already names one platform. Same stages, said from one row's point of
- * view.
- */
-const UNIT_STAGE_TEXT: Record<SyncStage, string> = {
-  discovering: "starting",
-  fetching: "fetching",
-  applying: "applying shortcuts",
-  finalizing: "finishing",
-  done: "done",
-  cancelled: "stopped",
-  error: "stopped",
-};
-
-function unitStageText(stage: SyncProgress["stage"]): string {
-  return stage ? UNIT_STAGE_TEXT[stage] : "working";
-}
-
-/** What a unit's apply has brought about so far — "4 added · 1 updated", with a
- *  zero part dropped. The em dash is "nothing yet", which for a finished unit is
- *  also the honest reading of a wholesale incremental skip: no shortcut was
- *  written, and the run never said why. */
-function unitOutcome(unit: RunUnit): string {
-  const parts: string[] = [];
-  if (unit.created > 0) parts.push(`${unit.created} added`);
-  if (unit.updated > 0) parts.push(`${unit.updated} updated`);
-  return parts.length > 0 ? parts.join(" · ") : "—";
-}
-
-/**
- * What the plan holds for a unit the run has not reached.
- *
- * `predictedSkip` is a plan-time prediction and never the run's verdict
- * (ADR-0023), so it is worded as an expectation. The new-shortcut count is what
- * the reader is waiting on where the plan carried one; a collection or an older
- * backend carries none, and then the unit's ROM count is what can honestly be
- * said about it.
- */
-function unitPlan(unit: RunUnit): string {
-  if (unit.predictedSkip) return "expected to skip";
-  if (unit.newShortcutCount !== null && unit.newShortcutCount > 0) return `${unit.newShortcutCount} new`;
-  return pluralize(unit.romCount, "ROM");
-}
-
 export const RunPanel: FC<{ state: SyncPageState }> = ({ state }) => {
   const run = state.run;
-  const stepText = run.totalSteps > 0 ? `unit ${run.step} of ${run.totalSteps}` : "";
-  const noteParts = [stepText, run.etaText ?? ""].filter((part) => part !== "");
+  const note = runProgressNote(run);
   const pane = useRef<HTMLDivElement | null>(null);
   const running = state.units.find((unit) => unit.state === "running");
   const runningTestId = running ? unitTestId(running) : null;
@@ -151,7 +110,7 @@ export const RunPanel: FC<{ state: SyncPageState }> = ({ state }) => {
   }, [runningTestId]);
   return (
     <div ref={pane} style={RUN_PANE}>
-      <SectionTitle title="Sync running" {...(noteParts.length > 0 ? { note: noteParts.join(" · ") } : {})} />
+      <SectionTitle title={RUN_HEADING} {...(note !== null ? { note } : {})} />
       <PaneRow>
         <div style={{ fontSize: SECONDARY_FONT, color: MUTED, paddingBottom: "4px" }} data-testid="run-stage">
           {run.stageLabel}
@@ -163,18 +122,14 @@ export const RunPanel: FC<{ state: SyncPageState }> = ({ state }) => {
       </PaneRow>
       <ButtonRow padding="6px 16px 4px">
         <DialogButton style={FLAT_BUTTON} disabled={state.cancelling} onClick={state.cancelRun}>
-          {state.cancelling ? "Cancelling…" : "Cancel Sync"}
+          {state.cancelling ? CANCELLING_LABEL : CANCEL_SYNC_LABEL}
         </DialogButton>
       </ButtonRow>
       {state.units.length === 0 ? (
-        // The plan arrives once per run, so a store that started empty after a
-        // JS-context rebuild stays empty for the rest of it. The frames still carry
-        // the fine-detail line the whole panel is reading, so that is what the
-        // column shows; the sentence is for the run that has neither.
-        <Muted>{run.hasFineDetail ? run.fineDetailText : "Per-unit detail is not available for this run."}</Muted>
+        <Muted>{noUnitsLine(run)}</Muted>
       ) : (
         <ScrollRegion testId={UNIT_REGION_TESTID} style={UNIT_REGION}>
-          <TableHeader columns={RUN_COLUMNS} cells={["Unit", "Status", "Result"]} numericFrom={2} />
+          <TableHeader columns={RUN_COLUMNS} cells={[...RUN_COLUMN_NAMES]} numericFrom={2} />
           {state.units.map((unit) => (
             <RunUnitRow key={`${unit.type}:${unit.id}`} unit={unit} state={state} />
           ))}
@@ -192,33 +147,27 @@ function unitTestId(unit: RunUnit): string {
 }
 
 const RunUnitRow: FC<{ unit: RunUnit; state: SyncPageState }> = ({ unit, state }) => {
+  const row = runUnitRow(unit, state.run.stage);
   // The cell clips; the title is what the reader gets back.
   const nameCell: ReactNode = (
-    <span title={unit.type === "collection" ? `${unit.name} · collection` : unit.name}>
+    <span title={unit.type === "collection" ? `${unit.name} · ${COLLECTION_UNIT_NOTE}` : unit.name}>
       {unit.name}
-      {unit.type === "collection" && <span style={{ color: MUTED }}> · collection</span>}
+      {unit.type === "collection" && <span style={{ color: MUTED }}>{` · ${COLLECTION_UNIT_NOTE}`}</span>}
     </span>
   );
 
   let status: ReactNode;
-  let result: string;
-  if (unit.state === "done") {
-    status = <span style={{ color: GREEN }}>done</span>;
-    result = unitOutcome(unit);
-  } else if (unit.state === "running") {
-    // Exactly one unit runs at a time, so the live position of THIS row is the
-    // frame the whole page is already reading — paired here rather than mirrored
-    // onto the row, which would re-render every reader on every frame.
+  if (row.state === "done") {
+    status = <span style={{ color: GREEN }}>{row.status}</span>;
+  } else if (row.state === "running") {
     status = (
       <span>
-        {unitStageText(state.run.stage)}
+        {row.status}
         <InlineBar fraction={state.run.withinUnitFraction} />
       </span>
     );
-    result = unitOutcome(unit);
   } else {
-    status = <span style={{ color: MUTED }}>waiting</span>;
-    result = unitPlan(unit);
+    status = <span style={{ color: MUTED }}>{row.status}</span>;
   }
 
   return (
@@ -229,8 +178,8 @@ const RunUnitRow: FC<{ unit: RunUnit; state: SyncPageState }> = ({ unit, state }
       cells={[
         nameCell,
         status,
-        <span key="result" style={{ color: unit.state === "waiting" ? MUTED : undefined }}>
-          {result}
+        <span key="result" style={{ color: row.state === "waiting" ? MUTED : undefined }}>
+          {row.result}
         </span>,
       ]}
     />

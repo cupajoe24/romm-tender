@@ -27,6 +27,7 @@ import { useRef, type CSSProperties, type FC, type ReactNode } from "react";
 import { DialogButton } from "@decky/ui";
 import { SessionBudgetBanner } from "./SessionBudgetBanner";
 import { useEntryFocusOnBodySwap } from "../utils/entryFocus";
+import { PREVIEW_HEADING, idleLine } from "../utils/syncPageWording";
 import { ButtonRow, FLAT_BUTTON, Muted, SectionTitle } from "./layout/pane";
 import { Columns } from "./layout/Columns";
 import { WidePage } from "./layout/WidePage";
@@ -109,12 +110,8 @@ const SyncMainColumn: FC<{ state: SyncPageState }> = ({ state }) => {
  *  the scope line. */
 const IdlePanel: FC<{ state: SyncPageState }> = ({ state }) => (
   <>
-    <SectionTitle title="Preview" />
-    <Muted>
-      {state.skipPreview
-        ? `Nothing is waiting to be applied. Skip preview is on, so ${state.startLabel} applies changes without showing them first.`
-        : "Nothing is waiting to be applied. Start a preview to see what would change."}
-    </Muted>
+    <SectionTitle title={PREVIEW_HEADING} />
+    <Muted>{idleLine(state.skipPreview, state.startLabel)}</Muted>
     <ButtonRow padding="4px 16px">
       <DialogButton style={FLAT_BUTTON} disabled={state.busy} onClick={state.startPreview}>
         {state.startLabel}

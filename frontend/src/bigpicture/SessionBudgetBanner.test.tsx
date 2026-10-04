@@ -3,13 +3,16 @@
  * Props in, banner (or nothing) out, plus the "Restart Steam now" button. Covers
  * the blue paused banner, the yellow high-heap banner, precedence, the live-number
  * render, the ``rssKb === null`` text-only degradation, the memory-value colour
- * helper, and the restart-button wiring / disabled + running-game guard.
+ * helper, and the restart-button wiring / disabled + running-game guard. The
+ * formatters the card's sentences use are pinned beside them, in
+ * `utils/sessionBudget.test.ts`.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { toaster } from "../api/host";
-import { SessionBudgetBanner, formatGb, formatSignedGb, memoryLevelColor, HIGH_HEAP_KB } from "./SessionBudgetBanner";
+import { SessionBudgetBanner, memoryLevelColor } from "./SessionBudgetBanner";
+import { HIGH_HEAP_KB } from "../utils/sessionBudget";
 import type { SyncButton } from "../utils/syncResume";
 
 /** The two sync buttons the panel can be offering. The banner is told which one it
@@ -23,22 +26,6 @@ function buttonByText(container: HTMLElement, text: string): HTMLButtonElement |
   return (Array.from(container.querySelectorAll("button")).find((b) => b.textContent === text) ??
     null) as HTMLButtonElement | null;
 }
-
-describe("formatGb", () => {
-  it("renders KB as one-decimal decimal-GB", () => {
-    expect(formatGb(2252712)).toBe("2.3 GB");
-    expect(formatGb(1900000)).toBe("1.9 GB");
-    expect(formatGb(440000)).toBe("0.4 GB");
-  });
-});
-
-describe("formatSignedGb", () => {
-  it("prefixes an explicit sign and drops the unit (rendered inline after the GB reading)", () => {
-    expect(formatSignedGb(800000)).toBe("+0.8");
-    expect(formatSignedGb(-300000)).toBe("-0.3");
-    expect(formatSignedGb(0)).toBe("+0.0");
-  });
-});
 
 describe("memoryLevelColor", () => {
   const WARN = 1_800_000;

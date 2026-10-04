@@ -355,7 +355,7 @@ class TestPauseGuidanceNamesNoControl:
     the toast then told them to press something that was not on screen.
 
     **What this can see is the names the panel puts on that button today**, read
-    off ``frontend/src/utils/syncResume.ts`` and ``useSyncPage.ts`` and repeated
+    off ``frontend/src/utils/syncResume.ts`` and ``syncPageWording.ts`` and repeated
     here because no import crosses the two languages — a fifth label added there
     passes green here. What it cannot see at all is whether the sentence names an
     ACTION, which is the half a reader has to judge; the constant's own comment
