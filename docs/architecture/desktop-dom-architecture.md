@@ -307,12 +307,12 @@ Both are recomputed whenever the sticky controller updates its pinning — on sc
 
 ## The Tender Settings Window
 
-> **The frame is built; every tab is blank.** `frontend/src/desktop/settings/` puts a "Tender Settings" item in Steam's
-> "Steam" menu and opens a window made from the parts of Steam's own settings window, with the ten tabs below in its
-> sidebar and nothing on any of them yet. What each tab will carry, and the ordered steps that remain, are on the parity
-> matrix ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records
-> what Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
-> behind it, and the device checks still open.
+> **The frame is built and the Sync tab is drawn; the other nine tabs are blank.** `frontend/src/desktop/settings/` puts
+> a "Tender Settings" item in Steam's "Steam" menu and opens a window made from the parts of Steam's own settings
+> window, with the ten tabs below in its sidebar. What each tab will carry, and the ordered steps that remain, are on
+> the parity matrix ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The
+> section records what Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from
+> them, the decisions behind it, and the device checks still open.
 
 ### What Steam's settings window is
 
@@ -470,10 +470,13 @@ The window needs no endpoint the Big Picture pages do not already call.
   in the library window's document, and is recorded in a ledger of its own together with the popup window's `keydown`
   listener. Closing the window unmounts that root, and Steam's popup component closes the window it created.
 - **When it closes.** The reader closes it with the title bar's button, by closing the window, or with Escape in it
-  unless something inside took the key; Steam's popup component reports the first two through `onDismiss`. Tender closes
-  it when the desktop surface stops and when the library window is gone or replaced, which is what a switch to Big
-  Picture does; a window Tender closed reopens on the tab it showed once a library window is there again, or once the
-  surface starts again, as Steam's own settings window was seen to do (D16). A window the reader closed does not reopen.
+  unless something inside took the key; Steam's popup component reports the first two through `onDismiss`. A dialog in
+  the window takes its own Escape: the desktop dialog frame claims the key (`preventDefault`), and because the window's
+  listener was registered first and so runs first, the window decides only once the key's whole dispatch is over. Tender
+  closes it when the desktop surface stops and when the library window is gone or replaced, which is what a switch to
+  Big Picture does; a window Tender closed reopens on the tab it showed once a library window is there again, or once
+  the surface starts again, as Steam's own settings window was seen to do (D16). A window the reader closed does not
+  reopen.
 - **Opening it on a tab.** One entry opens the window: `openTenderSettings(tab?)`, exported from `desktop/index.ts`.
   Like Steam's own, a second call brings the open window to the front and moves it to `tab` rather than opening another,
   through the function `SidebarNavigation` hands `fnSetNavigateToPage`. The menu item opens it with no tab, which is
@@ -484,7 +487,7 @@ The window needs no endpoint the Big Picture pages do not already call.
 
 Ten tabs, in this order, in three groups split by `SidebarNavigation`'s `'separator'` entries (D5). The union is
 `SettingsTab` (`types/navigation.ts`); the order, the groups, the labels and the `react-icons` icons are
-`desktop/settings/tabs.tsx`, where every tab's content is empty until it is drawn:
+`desktop/settings/tabs.tsx`, where a tab not drawn yet has no content:
 
 | Tab                 | Big Picture counterpart                                          | Kind               |
 | :------------------ | :--------------------------------------------------------------- | :----------------- |
@@ -504,12 +507,28 @@ Picture pages, which Big Picture deliberately keeps out of Settings; gathering t
 desktop control centre rather than a preferences dialog, a product decision the issue states. **Library** (the RomM
 side: what is synced) and **Steam Library** (the Steam side) stay apart as Big Picture keeps them.
 
-Drawn with Steam's components, the rows will be `Field`, `DialogButton`, `Toggle` / `ToggleField` and `Dropdown`.
-`SidebarNavigation` is the first `@decky/ui` UI in `desktop/`, beside `findModule` and `findModuleExport`. Every value
-imported is classified by the start-up check (CLAUDE.md's invariant register;
+Drawn with Steam's components, the rows are `Field`, `DialogButton`, `ToggleField`, `ProgressBar` and, where a tab needs
+one, `Dropdown`, and a tab's section headings are `DialogControlsSectionHeader` (`desktop/settings/SectionHeading.tsx`).
+Every value imported is classified by the start-up check (CLAUDE.md's invariant register;
 [The start-up check](frontend-bundles.md#the-start-up-check)), and `"feature"` is the cost that fits a dev-only surface,
-even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation` is classified so, and each row component
-will be.
+even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation` and `DialogControlsSectionHeader` are
+classified so, and the row components Big Picture imports too keep the cost their Big Picture use gives them. Tables,
+notice cards and plain lines are drawn by the tab itself, in the look `desktop/settings/settingsStyles.ts` holds.
+
+### The Sync tab
+
+`desktop/settings/sync/` draws the QAM's [Sync](qam-panel.md#sync) page for the desktop client, over the same state
+(`utils/useSyncPage.ts`), the same words (`utils/syncPageWording.ts`) and the same decisions (`utils/syncPageView.ts`,
+and `utils/sessionBudget.ts` for the session-budget card); only the drawing is its own. Every press reaches the
+`useSyncPage` action the QAM page's does, so what a preview answer ends, what a cancel disarms and what a refusal leaves
+on screen are the hook's and are the same on both surfaces.
+
+It is one column, because the window's content area scrolls as a whole: the session-budget card while no run is in
+flight, then the one thing the tab leads with — the run in flight, the pending preview, or the button that starts one,
+in that order of authority — then Options, Steam memory and Last runs. Where the QAM page makes a controller reach
+things (buttons above long tables, the running unit scrolled into view, every row a focus stop), the tab does not: the
+reader scrolls it with a mouse. Force Full Sync asks first through `DesktopConfirmDialog`, drawn in the window's own
+document by `useDialogHost` (D8).
 
 ### Moving the logic down first
 

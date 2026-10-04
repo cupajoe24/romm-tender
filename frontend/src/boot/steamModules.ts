@@ -55,6 +55,7 @@ import {
   ButtonItem,
   ConfirmModal,
   DialogButton,
+  DialogControlsSectionHeader,
   Field,
   Focusable,
   Menu,
@@ -244,6 +245,9 @@ export const STEAM_LOOKUPS: readonly SteamLookup[] = [
   // Read only by the desktop Tender Settings window, which no shipped bundle
   // carries and which does not open without it. No panel page reads it.
   truthy("SidebarNavigation", "feature", () => SidebarNavigation),
+  // The section headings of the Tender Settings window's tabs; desktop only,
+  // like the sidebar above.
+  truthy("DialogControlsSectionHeader", "feature", () => DialogControlsSectionHeader),
 
   // Not truthiness: `@decky/ui` declares `Navigation` as an empty object and
   // fills it from a lookup inside a `try`, so a miss leaves an object that is

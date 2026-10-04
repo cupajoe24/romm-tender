@@ -30,19 +30,22 @@ are sorted into dedicated lowercase subdirectories:
   - `desktop/gameview/dialogs/` — the game page's dialogs, drawn for the desktop client over the flows and words in
     `utils/` (`adoptFlow.ts`, `adoptWording.ts`, `launchPromptWording.ts`, `saveConflictFlow.ts`, `saveHelpers.ts`): the
     already-on-your-device dialogs a Download press opens, the save-conflict dialog, the launch dialogs (offline drift,
-    fallback launch, core change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share,
-    `desktopDialogs.tsx` puts them in the shapes the shared flows ask for (`desktopLaunchPrompts` for a launch), and
-    `useDialogHost.tsx` is how a component asks one: a promise that settles with the button pressed, and with the
-    dialog's cancel answer on Escape, a backdrop click or unmount. A start from Tender's Play button asks through the
-    launch dialogs, and so does a start the launch watcher catches (`utils/launchInterceptor.ts`) while the desktop
-    client is Steam's main UI.
+    fallback launch, core change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share (and
+    the settings window's confirms share, through `DesktopConfirmDialog.tsx`), `desktopDialogs.tsx` puts them in the
+    shapes the shared flows ask for (`desktopLaunchPrompts` for a launch), and `useDialogHost.tsx` is how a component
+    asks one: a promise that settles with the button pressed, and with the dialog's cancel answer on Escape, a backdrop
+    click or unmount. A start from Tender's Play button asks through the launch dialogs, and so does a start the launch
+    watcher catches (`utils/launchInterceptor.ts`) while the desktop client is Steam's main UI.
 - `desktop/gamesettings/` — (Planned) `GameSettingsView` specific components.
 - `desktop/settings/` — the Tender Settings window and its entry in Steam's "Steam" menu
   ([The Tender Settings Window](../../../docs/architecture/desktop-dom-architecture.md#the-tender-settings-window)):
   `settingsWindow.tsx` (`openTenderSettings`, and `startTenderSettings` / `stopTenderSettings`, which keep the menu
   entry in place and close and reopen the window with the library window), `TenderSettingsWindow.tsx` (the window, from
   the parts `steamSettingsParts.ts` finds in Steam), `settingsMenuEntry.ts` (the menu item) and `tabs.tsx` (the tabs'
-  order, groups, labels and icons; every tab is blank).
+  order, groups, labels and icons, and what each tab draws; a tab not drawn yet is blank). `SectionHeading.tsx` and
+  `settingsStyles.ts` are what the tabs draw with.
+  - `desktop/settings/sync/` — the Sync tab: the QAM's Sync page drawn for the desktop over `utils/useSyncPage.ts`,
+    `utils/syncPageWording.ts`, `utils/syncPageView.ts` and `utils/sessionBudget.ts`.
 
 ## What reaches a bundle
 

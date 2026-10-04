@@ -111,6 +111,11 @@ const parts = { AccountProvider, account, Popup, Router, Sidebar } as unknown as
 const debugLines = (): string[] => vi.mocked(backend.debugLog).mock.calls.map((c) => String(c[0]));
 const popups = (): HTMLElement[] => screen.queryAllByTestId("popup");
 const flushMicrotasks = (): Promise<void> => act(async () => {});
+/** The window decides on an Escape once the key's whole dispatch is over. */
+const afterTheKey = (): Promise<void> =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
 let libraryWindow: Window;
 let popupCreated: (() => void)[];
@@ -232,14 +237,27 @@ describe("openTenderSettings", () => {
       popupWindow.dispatchEvent(taken);
       popupWindow.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
     });
-    await flushMicrotasks();
+    await afterTheKey();
     expect(popups()).toHaveLength(1);
 
     act(() => {
       popupWindow.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    await flushMicrotasks();
+    await afterTheKey();
     expect(popups()).toHaveLength(0);
+  });
+
+  it("leaves an Escape to a dialog in it that claims the key after the window heard it", async () => {
+    // The window's listener is registered first, so a dialog's runs after it in
+    // the same dispatch — as the desktop dialog frame's does.
+    open();
+    popupWindow.addEventListener("keydown", (event) => event.preventDefault());
+    act(() => {
+      popupWindow.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    });
+    await afterTheKey();
+
+    expect(popups()).toHaveLength(1);
   });
 
   it("stops listening to a window it has closed", async () => {

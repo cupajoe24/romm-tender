@@ -4,7 +4,7 @@
  */
 
 import type { SidebarNavigationPage } from "@decky/ui";
-import type { ReactNode } from "react";
+import type { ComponentType } from "react";
 import type { IconType } from "react-icons";
 import {
   FaArrowCircleUp,
@@ -19,25 +19,26 @@ import {
   FaSync,
 } from "react-icons/fa";
 import type { SettingsTab } from "../../types/navigation";
+import { SyncTab } from "./sync/SyncTab";
 
 interface TabEntry {
   readonly title: string;
   readonly Icon: IconType;
-  /** What the tab shows. Every tab is blank until its content is drawn. */
-  readonly content: ReactNode;
+  /** What the tab shows; `null` for a tab still blank. */
+  readonly Content: ComponentType | null;
 }
 
 const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
-  sync: { title: "Sync", Icon: FaSync, content: null },
-  library: { title: "Library", Icon: FaLayerGroup, content: null },
-  downloads: { title: "Downloads", Icon: FaDownload, content: null },
-  connections: { title: "Connections", Icon: FaPlug, content: null },
-  "save-sync": { title: "Save Sync", Icon: FaSave, content: null },
-  controller: { title: "Controller", Icon: FaGamepad, content: null },
-  "steam-library": { title: "Steam Library", Icon: FaSteam, content: null },
-  updates: { title: "Updates", Icon: FaArrowCircleUp, content: null },
-  "data-management": { title: "Data Management", Icon: FaDatabase, content: null },
-  advanced: { title: "Advanced", Icon: FaSlidersH, content: null },
+  sync: { title: "Sync", Icon: FaSync, Content: SyncTab },
+  library: { title: "Library", Icon: FaLayerGroup, Content: null },
+  downloads: { title: "Downloads", Icon: FaDownload, Content: null },
+  connections: { title: "Connections", Icon: FaPlug, Content: null },
+  "save-sync": { title: "Save Sync", Icon: FaSave, Content: null },
+  controller: { title: "Controller", Icon: FaGamepad, Content: null },
+  "steam-library": { title: "Steam Library", Icon: FaSteam, Content: null },
+  updates: { title: "Updates", Icon: FaArrowCircleUp, Content: null },
+  "data-management": { title: "Data Management", Icon: FaDatabase, Content: null },
+  advanced: { title: "Advanced", Icon: FaSlidersH, Content: null },
 };
 
 /** The tabs in sidebar order, in the groups a separator splits them into. */
@@ -72,7 +73,8 @@ export function settingsSidebarPages(): (SidebarNavigationPage | "separator")[] 
   return SETTINGS_TAB_GROUPS.flatMap((group, index) => [
     ...(index === 0 ? [] : (["separator"] as const)),
     ...group.map((tab) => {
-      const { title, Icon, content } = TABS[tab];
+      const { title, Icon, Content } = TABS[tab];
+      const content = Content === null ? null : <Content />;
       return { title, icon: <Icon />, content, route: settingsTabRoute(tab), visible: true };
     }),
   ]);

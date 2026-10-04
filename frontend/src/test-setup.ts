@@ -368,6 +368,7 @@ vi.mock("@decky/ui", () => {
     // Only the desktop settings window renders it, and its tests hand the
     // window a sidebar of their own; this only has to exist for the start-up check.
     SidebarNavigation: () => createElement("nav"),
+    DialogControlsSectionHeader: passthrough("h3"),
     Navigation: { NavigateToExternalWeb: vi.fn(), Navigate: vi.fn() },
     // findSP locates Steam's <SteamRoot> iframe document for stylesheet
     // injection. Tests run in happy-dom — no Steam, no iframe — so the
