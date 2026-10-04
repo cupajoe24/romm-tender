@@ -200,7 +200,7 @@ mechanism, the measurements, the decisions and the device checks are on
 1. **Record the decisions** (D1–D16, settled 2026-10-04; D16 replaces D4) in the issue's `## To decide` and
    `## Decisions`, and fix the six handlers that drop a refusal in a `fix(frontend)` commit of its own (D10).
 2. **Clear the three preconditions**, each a behaviour-preserving commit:
-   - `SyncButton` moves into `utils/syncResume.ts`, so `useSyncPage` no longer imports from `bigpicture/`.
+   - `SyncButton` moves into `utils/syncResume.ts`, so `useSyncPage` no longer imports from `bigpicture/` (✅ Done).
    - The prune-lease owner becomes a parameter of `useDataPage` and `usePlatformsPage`, so the two surfaces never share
      a key.
    - Tone data replaces Big Picture's pane colours in the update-install rows and the installer output.

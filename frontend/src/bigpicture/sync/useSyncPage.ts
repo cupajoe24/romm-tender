@@ -59,7 +59,7 @@ import {
   resetSyncCancel,
 } from "../../utils/syncManager";
 import { syncFailedMessage } from "../../utils/syncFailed";
-import { startButtonLabel, syncResumeState, type SyncResumeState } from "../../utils/syncResume";
+import { startButtonLabel, syncResumeState, type SyncButton, type SyncResumeState } from "../../utils/syncResume";
 import { useSyncRunView, type SyncRunView } from "../../utils/syncRunView";
 import {
   getSyncStatsSnapshot,
@@ -71,7 +71,6 @@ import {
   useSyncStats,
   useSyncStatsFailed,
 } from "../../utils/syncStatsStore";
-import type { SyncButton } from "../SessionBudgetBanner";
 
 /** What a preview action that did not take says when the call itself failed and
  *  there is no answer to quote. A refusal always carries a message
