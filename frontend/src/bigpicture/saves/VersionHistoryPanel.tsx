@@ -12,7 +12,7 @@ import type { SaveVersionEntry, ListFileVersionsResult } from "../../types";
 import { showSyncConflictModal } from "../../shared/SyncConflictModal";
 import { scrollFocusedToCenter } from "../../utils/scrollHelpers";
 import { formatBytes, formatTimestamp } from "../../utils/formatters";
-import { formatAttributionSegment, pickLastSyncer, formatRollbackFeedback } from "./helpers";
+import { formatAttributionSegment, pickLastSyncer, formatRollbackFeedback } from "../../utils/saveHelpers";
 import { renderCopyToSlotButton, type CopyToSlotHandler } from "./CopyToSlotButton";
 import { detach } from "../../utils/detach";
 

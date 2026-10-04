@@ -14,7 +14,7 @@ import { copySaveToSlot, debugLog, isEndpointFailure } from "../../api/backend";
 import type { CopySaveToSlotStatus, EndpointFailure, SaveSlotSummary } from "../../types";
 import { showSyncConflictModal } from "../../shared/SyncConflictModal";
 import { detach } from "../../utils/detach";
-import { formatCopySaveToSlotFeedback } from "./helpers";
+import { formatCopySaveToSlotFeedback } from "../../utils/saveHelpers";
 import { CopyToSlotModal } from "./CopyToSlotModal";
 import type { CopyToSlotHandler } from "./CopyToSlotButton";
 import { announceSaveSync } from "../../utils/saveSyncEvents";
