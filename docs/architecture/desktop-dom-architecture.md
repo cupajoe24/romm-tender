@@ -388,29 +388,34 @@ style, and no test here can show it: it is a device check.
 
 The menu bar's "Steam" button opens a context-menu instance. On the device that instance is created hidden and retained
 in a popup of its own, titled **"Steam Root Menu"** (`body.ContextMenuPopupBody.DesktopUI`), so its document exists
-while the menu is closed. A Steam predicate that has not been read decides whether the instance is retained or created
-on first open; where it is created on open, its document appears only then. The items come from a static array built
-inside a component private to its Steam module, so the array cannot be reached by replacing an export. The Settings
-entry is `{ name: "#Menu_Settings", steamURL: "steam://settings", … }`, followed by a separator and Exit; an entry with
-no action renders as a separator.
+while the menu is closed. Whether it is retained is decided by the menu button: it creates the instance hidden and
+retains it on hide only where Steam reports no underlay support, the window is an overlay, or small mode is on. This
+device is the first case. Elsewhere — underlay supported, small mode off — the instance is created on each open, is not
+forced into a popup, so it may be drawn inside the library window's own document, and is dropped when it hides. The
+retained popup does not outlive the library window either: a Big Picture round trip closes every menu popup with it, and
+the return creates new ones. The items come from a static array built inside a component private to its Steam module, so
+the array cannot be reached by replacing an export. The Settings entry is
+`{ name: "#Menu_Settings", steamURL: "steam://settings", … }`, followed by a separator and Exit; an entry with no action
+renders as a separator.
 
 In the menu's document only `ContextMenuPopupBody`, `DesktopUI`, `visible` and `contextMenuItem` are readable classes.
 The stable anchor is on the Fiber: the component above the Settings item carries `name: "#Menu_Settings"` and
 `steamURL: "steam://settings"` in its props, and further up the context-menu host holds the menu's `instance`, with
 `Show()` and `Hide()`.
 
-| Option                                      | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Fit and risk                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| :------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **M1. A DOM item in the "Steam Root Menu"** | Find the menu's popup through `g_PopupManager.GetPopups()`, with `AddPopupCreatedCallback` for a menu created late; anchor on the `contextMenuItem` whose Fiber props read `steamURL === "steam://settings"` (a read-only Fiber read); insert a sibling after it, copying that item's `className` at runtime; its click calls `openTenderSettings()` and hides the menu through its `instance`; record every insertion and listener in a `DomRestorationLedger` | **Chosen (D2).** Only techniques `.claude/rules/desktop-dom.md` already allows: DOM adaptation through the ledger, read-only Fiber reads, and no spelled hash, because the class is copied from the live sibling. React may drop or reorder a foreign node when the retained subtree re-renders, so an observer from the menu document's realm re-inserts it; keyboard navigation inside the menu may not reach an item React does not know |
-| **M2. Wrap the menu component's `type`**    | Render the original, then append `{ name: "Tender Settings", onClick }` to the item list                                                                                                                                                                                                                                                                                                                                                                        | Steam renders the item, so hover, focus and keyboard behave natively. It is a Fiber write, which `.claude/rules/desktop-dom.md` §3 forbids (the same write as the half of `qam/installEntry.tsx`'s `adoptMountedMenu` that sets `node.type`), and the retained instance must be made to re-render. Adopting it reverses a written desktop rule, so it needs an ADR                                                                          |
-| **M3. `afterPatch` on a Steam export**      | Patch the item-list component through `@decky/ui`'s patcher                                                                                                                                                                                                                                                                                                                                                                                                     | Not a Fiber write, but the list is read through a webpack export getter at render time, so replacing the export most likely changes nothing; unproven                                                                                                                                                                                                                                                                                       |
-| **M4. Another entry point**                 | A gear button in the play bar or the title bar — the earlier Phase 2 idea                                                                                                                                                                                                                                                                                                                                                                                       | Ruled out: the entry belongs in Steam's "Steam" menu, beside Steam's own Settings                                                                                                                                                                                                                                                                                                                                                           |
+| Option                                      | Mechanism                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Fit and risk                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| :------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **M1. A DOM item in the "Steam Root Menu"** | Find the menu's popup through `g_PopupManager.GetPopups()`, with `AddPopupCreatedCallback` for a menu created late; anchor on the `contextMenuItem` whose Fiber props read `steamURL === "steam://settings"` (a read-only Fiber read); insert a sibling after it, copying that item's `className` at runtime; its click calls `openTenderSettings()` and hides the menu through its `instance`; record every insertion and listener in a `DomRestorationLedger` | **Chosen (D2).** Only techniques `.claude/rules/desktop-dom.md` already allows: DOM adaptation through the ledger, read-only Fiber reads, and no spelled hash, because the class is copied from the live sibling. Opening the retained menu replaced no node and did not re-render the Settings item (device check 2), but an observer from the menu document's realm still re-inserts the item should React drop it; every new "Steam Root Menu" popup, after each Big Picture round trip, gets the item again; keyboard navigation inside the menu may not reach an item React does not know |
+| **M2. Wrap the menu component's `type`**    | Render the original, then append `{ name: "Tender Settings", onClick }` to the item list                                                                                                                                                                                                                                                                                                                                                                        | Steam renders the item, so hover, focus and keyboard behave natively. It is a Fiber write, which `.claude/rules/desktop-dom.md` §3 forbids (the same write as the half of `qam/installEntry.tsx`'s `adoptMountedMenu` that sets `node.type`), and the retained instance must be made to re-render. Adopting it reverses a written desktop rule, so it needs an ADR                                                                                                                                                                                                                             |
+| **M3. `afterPatch` on a Steam export**      | Patch the item-list component through `@decky/ui`'s patcher                                                                                                                                                                                                                                                                                                                                                                                                     | Not a Fiber write, but the list is read through a webpack export getter at render time, so replacing the export most likely changes nothing; unproven                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **M4. Another entry point**                 | A gear button in the play bar or the title bar — the earlier Phase 2 idea                                                                                                                                                                                                                                                                                                                                                                                       | Ruled out: the entry belongs in Steam's "Steam" menu, beside Steam's own Settings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 **M1 is the plan**, installed from `desktop/index.ts`, anchored on the Fiber's `steamURL` / `#Menu_Settings` and never
 on the localised label "Settings" or a class. Its callbacks registered with Steam do nothing once the surface has
-stopped, as the supervisor's do (`.claude/rules/desktop-dom.md` §2). M2 stays documented as the fallback should the
-device show React wiping the inserted item on every show. Hiding the menu through its `instance` is allowed (D2): it is
-a method on Steam's menu object, not a reconciler call.
+stopped, as the supervisor's do (`.claude/rules/desktop-dom.md` §2). Where Steam creates the menu on each open instead
+of retaining it, the same callback sees each new popup, and a menu drawn inside the library window is found there. M2
+stays documented as the fallback should a later Steam build wipe the inserted item on show. Hiding the menu through its
+`instance` is allowed (D2): it is a method on Steam's menu object, not a reconciler call.
 
 ### Realms, the backend, and where it starts
 
@@ -436,7 +441,8 @@ The window needs no endpoint the Big Picture pages do not already call.
   `frontend/src/desktop/README.md` already plans. The window's React root is its own, not in the library window's
   document, and is recorded in a ledger of its own together with the popup's `pagehide` and `unload`, as
   `askInDesktopWindow` records a question's. The window closes when the desktop surface stops and when Steam switches to
-  Big Picture (D4).
+  Big Picture; if it was open, it reopens on the same tab once the desktop surface starts again, as Steam's own settings
+  window does (D16).
 - **Opening it on a tab.** One entry opens the window: `openTenderSettings(tab?)`. Like Steam's own, a second call
   brings the open window to the front and navigates it to `tab` rather than opening another. The menu item opens it with
   no tab; the desktop `PlaytimeScopeBanner`'s `onOpenConnections`, which nothing passes today, would open Connections;
@@ -535,8 +541,8 @@ the issue, which owns them from then on:
    ADR reversing §3 before any code.
 3. **D3 — Steam's components**: `SidebarNavigation`, `Field`, `DialogButton`, `Toggle` and `Dropdown` through
    `@decky/ui`, each classified in `boot/steamModules.ts` with the cost `"feature"`. No Tender-drawn look-alikes.
-4. **D4 — the window's React root is its own**, not in the library window's document, and recorded in a ledger of its
-   own. The window closes when the desktop surface stops and when Steam switches to Big Picture.
+4. ~~**D4 — the window's React root is its own**, not in the library window's document, and recorded in a ledger of its
+   own. The window closes when the desktop surface stops and when Steam switches to Big Picture.~~ Replaced by D16.
 5. **D5 — a new `SettingsTab` union** in `types/navigation.ts`: `SettingsSection` plus `"sync"`, `"library"`,
    `"downloads"` and `"data-management"`. Three groups split by separators — Sync, Library, Downloads | Connections,
    Save Sync, Controller, Steam Library | Updates, Data Management, Advanced. Icons come from `react-icons`.
@@ -561,6 +567,11 @@ the issue, which owns them from then on:
     over, as `MigrationBlockedPage` takes over the QAM; what it blocks answers with its refusal (D10).
 15. **D15 — moved code's importers are repointed**; no `export *` barrel stays behind in `bigpicture/`, and each moved
     test sits beside its module.
+16. **D16 (2026-10-04, replaces D4) — the window's React root is its own**, not in the library window's document, and
+    recorded in a ledger of its own. The window closes when the desktop surface stops and when Steam switches to Big
+    Picture. If it was open then, it reopens on the tab it showed once the desktop surface starts again, as Steam's own
+    settings window was seen to do (device check 10): Tender keeps that open flag and tab across the round trip, as
+    Steam's settings store keeps its own.
 
 ### Device checks
 
@@ -569,9 +580,13 @@ issue's `## Done when`, because happy-dom has one realm and renders no Steam com
 
 1. A popup Tender renders through Steam's popup component opens with `createflags=4114`, centres on its owner window, is
    listed by `g_PopupManager.GetPopups()`, is titled "Tender Settings", and keeps its saved size.
-2. Whether the retained "Steam Root Menu" re-renders its React subtree on `Show()`, and whether that drops or reorders
-   an inserted item.
-3. On which configurations the "Steam" menu is created on first open rather than retained hidden.
+2. **Read 2026-10-04:** across one open and close of the retained "Steam Root Menu", its body, its eleven item nodes and
+   the Settings item's React props object were all the same objects, so the open replaced no node and did not re-render
+   that item. Still open: the same with a Tender item inserted, and the open observed directly rather than inferred from
+   the owner's press.
+3. **Read 2026-10-04:** see [the menu entry](#the-tender-settings-menu-entry) — retained where Steam reports no underlay
+   support, in an overlay window or in small mode; created on each open otherwise. Still open: which Linux desktops
+   report underlay support.
 4. Whether keyboard navigation inside the menu reaches the inserted item, and whether its hover styling follows the
    copied classes.
 5. Hiding the menu through its `instance` closes it once the Tender item is chosen.
@@ -579,10 +594,15 @@ issue's `## Done when`, because happy-dom has one realm and renders no Steam com
 7. `@decky/ui` components render with desktop styling under the popup's `DesktopUI` body.
 8. A `Dropdown` and the emulator menu open inside the settings window, not in `findSP()` or SharedJSContext.
 9. Escape, focus and key listeners are bound to the settings window's own `window`.
-10. What happens to the window across a Big Picture round trip, and with the desktop client hidden in the tray.
+10. **Big Picture half read 2026-10-04:** entering Big Picture closed Steam's Settings window together with the library
+    window and every menu popup; returning created a new library window, new menu popups, and reopened Steam's Settings
+    window in a new popup unasked (D16). Still open: Tender's own window across the round trip, and the desktop client
+    hidden in the tray.
 11. Whether a QAM page and the settings window can be mounted at once, and what that does to lease owners and the update
     poll.
-12. What the unexplained `data:text/html` page target, whose comment names `/library/home`, is for.
+12. **Read 2026-10-04, unrelated:** the `data:text/html` target is the library home's web view parked on an empty page
+    (hidden, no opener, sized to the library's content area, created by no Steam UI module and by nothing in Tender); it
+    closed with the library window and came back as "Welcome to Steam".
 
 ---
 
