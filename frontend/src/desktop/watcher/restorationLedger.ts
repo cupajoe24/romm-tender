@@ -1,5 +1,5 @@
 /**
- * DOM restoration ledger: records each change the desktop watcher makes to
+ * DOM restoration ledger: records each change the desktop surface makes to
  * Steam's page so that `restoreAll` can give it back, idempotently
  * (docs/architecture/desktop-dom-architecture.md, "The restoration ledger").
  */
@@ -32,6 +32,7 @@ export class DomRestorationLedger {
   private readonly originalStyles = new Map<HTMLElement, Map<string, string>>();
   private readonly hiddenElements = new Map<HTMLElement, string>();
   private mountedRoots: TrackedRoot[] = [];
+  private insertedElements: HTMLElement[] = [];
   private attachedListeners: TrackedListener[] = [];
 
   /**
@@ -79,6 +80,17 @@ export class DomRestorationLedger {
     if (host.isConnected) host.remove();
   }
 
+  /**
+   * Insert an element of Tender's own under `parent`, before `before` (at the
+   * end when `null`), and record it for removal. Inserting it again moves it.
+   */
+  insert(el: HTMLElement, parent: Node, before: Node | null): void {
+    parent.insertBefore(el, before);
+    if (!this.insertedElements.includes(el)) {
+      this.insertedElements.push(el);
+    }
+  }
+
   addListener(
     target: EventTarget | null | undefined,
     type: string,
@@ -108,14 +120,19 @@ export class DomRestorationLedger {
       this.originalStyles.size === 0 &&
       this.hiddenElements.size === 0 &&
       this.mountedRoots.length === 0 &&
+      this.insertedElements.length === 0 &&
       this.attachedListeners.length === 0
     );
   }
 
-  /** Detach the listeners, unmount the roots and remove their hosts, then restore displays and styles. */
+  /**
+   * Detach the listeners, unmount the roots and remove their hosts, remove the
+   * inserted elements, then restore displays and styles.
+   */
   restoreAll(): void {
     this.detachListeners();
     this.unmountRoots();
+    this.removeInserted();
     this.restoreDisplays();
     this.restoreStyles();
   }
@@ -135,6 +152,15 @@ export class DomRestorationLedger {
       });
     }
     this.mountedRoots = [];
+  }
+
+  private removeInserted(): void {
+    for (const el of this.insertedElements) {
+      attempt("remove an inserted element", () => {
+        if (el.isConnected) el.remove();
+      });
+    }
+    this.insertedElements = [];
   }
 
   private restoreDisplays(): void {

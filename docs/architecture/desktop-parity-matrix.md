@@ -46,17 +46,18 @@ parity.
 
 ### 2. Tender Settings Window: Entry & Frame
 
-Everything Big Picture configures lives in its Settings page and in four other QAM pages; on desktop, all of it is
-planned for one window, opened from Steam's own "Steam" menu. The mechanism, the measurements behind it and the open
-decisions are on [Desktop Mode DOM Adaptation](desktop-dom-architecture.md#the-tender-settings-window-planned).
+Everything Big Picture configures lives in its Settings page and in four other QAM pages; on desktop, all of it goes
+into one window, opened from Steam's own "Steam" menu. The window and its entry are built, and every tab is still blank.
+The mechanism, the measurements behind it and the open device checks are on
+[Desktop Mode DOM Adaptation](desktop-dom-architecture.md#the-tender-settings-window).
 
-| Feature / Capability            | Big Picture Implementation                                                                                                                                                        | Desktop Implementation |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                                                       |
-| :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------- | :------------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tender Settings Entry Point** | Quick Access entry (`qam/quickAccessEntry.tsx`) → Main's **Settings** button                                                                                                      | ❌ _Not Implemented_   | ❌ **Missing** | Planned: a "Tender Settings" item after Steam's own Settings in the "Steam" menu — a ledger-tracked DOM item in the retained "Steam Root Menu" popup, anchored on the Fiber's `steamURL: "steam://settings"` and installed from `desktop/index.ts`.                                                   |
-| **Tender Settings Window**      | `SettingsPage.tsx` (`WidePage` + `ListDetail`, six sections), beside the Sync, Library, Downloads and Data Management pages                                                       | ❌ _Not Implemented_   | ❌ **Missing** | Planned: `desktop/settings/` — Steam's own popup component (850 × 722, resizable) titled "Tender Settings", with Tender's `MemoryRouter` around `SidebarNavigation`; ten tabs, below.                                                                                                                 |
-| **Open on a Tab (Deep Links)**  | `{ page: "settings", section }` from Main's notices: Open Connections (`PlaytimeScopeBanner.tsx`), Open Controller (the `input_driver` notice), Open Updates (the update notices) | ❌ _Not Implemented_   | ❌ **Missing** | Planned: `openTenderSettings(tab?)`; a second call brings the open window to the front and navigates it. The desktop `PlaytimeScopeBanner`'s `onOpenConnections` is passed by nothing today.                                                                                                          |
-| **Settings-Reset Notice**       | `SettingsResetBanner.tsx` on Main, with Dismiss                                                                                                                                   | ❌ _Not Implemented_   | ❌ **Missing** | No tab is its home: it is a banner above every tab's content, with Dismiss (D14). Its card sends the reader to the QAM, so the wording gains a desktop variant (`utils/settingsResetStore.ts`).                                                                                                       |
-| **Pending RetroDECK Migration** | `MigrationBlockedPage.tsx` replaces the whole panel                                                                                                                               | ❌ _Not Implemented_   | ❌ **Missing** | The game page already shows `MigrationBlockedCard.tsx`; the window shows a banner above every tab's content with the migration's actions and does not take the window over, and what the migration blocks answers with its refusal (D14, D10). The flow moves to a new `utils/retrodeckMigration.ts`. |
+| Feature / Capability            | Big Picture Implementation                                                                                                                                                        | Desktop Implementation                                            |     Status     | Notes & Roadmap                                                                                                                                                                                                                                                                                       |
+| :------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------- | :------------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tender Settings Entry Point** | Quick Access entry (`qam/quickAccessEntry.tsx`) → Main's **Settings** button                                                                                                      | `desktop/settings/settingsMenuEntry.ts`                           | ✅ **Parity**  | A "Tender Settings" item after Steam's own Settings in the "Steam" menu — a ledger-tracked DOM item anchored on the Fiber's `steamURL: "steam://settings"`, installed by `startDesktopSurface`. Hover, keyboard reach and hiding the menu on choice are device checks.                                |
+| **Tender Settings Window**      | `SettingsPage.tsx` (`WidePage` + `ListDetail`, six sections), beside the Sync, Library, Downloads and Data Management pages                                                       | `desktop/settings/settingsWindow.tsx`, `TenderSettingsWindow.tsx` | ⚠️ **Partial** | The frame is built: Steam's own popup component (850 × 722, resizable) titled "Tender Settings", with Steam's router wrapper around `SidebarNavigation` and the ten tabs below in its sidebar. Every tab is blank.                                                                                    |
+| **Open on a Tab (Deep Links)**  | `{ page: "settings", section }` from Main's notices: Open Connections (`PlaytimeScopeBanner.tsx`), Open Controller (the `input_driver` notice), Open Updates (the update notices) | `openTenderSettings(tab?)`                                        | ⚠️ **Partial** | A second call brings the open window to the front and moves it to the tab. Nothing calls it with a tab yet: the desktop `PlaytimeScopeBanner`'s `onOpenConnections` is passed by nothing today.                                                                                                       |
+| **Settings-Reset Notice**       | `SettingsResetBanner.tsx` on Main, with Dismiss                                                                                                                                   | ❌ _Not Implemented_                                              | ❌ **Missing** | No tab is its home: it is a banner above every tab's content, with Dismiss (D14). Its card sends the reader to the QAM, so the wording gains a desktop variant (`utils/settingsResetStore.ts`).                                                                                                       |
+| **Pending RetroDECK Migration** | `MigrationBlockedPage.tsx` replaces the whole panel                                                                                                                               | ❌ _Not Implemented_                                              | ❌ **Missing** | The game page already shows `MigrationBlockedCard.tsx`; the window shows a banner above every tab's content with the migration's actions and does not take the window over, and what the migration blocks answers with its refusal (D14, D10). The flow moves to a new `utils/retrodeckMigration.ts`. |
 
 ### 3. Tender Settings Window: Tabs
 
@@ -189,11 +190,12 @@ and alerts:
 
 ### Phase 2: The Tender Settings Window (Medium Priority)
 
-Planned, not built. A "Tender Settings" item in Steam's "Steam" menu opens a window of its own, made from the parts of
-Steam's own settings window, with the ten tabs of sections 2 and 3 above. No Big Picture section is hosted in it:
-`desktop/` may not import `bigpicture/`, so the logic moves down first and the desktop draws its own. The mechanism, the
-measurements, the decisions and the device checks are on
-[Desktop Mode DOM Adaptation](desktop-dom-architecture.md#the-tender-settings-window-planned).
+A "Tender Settings" item in Steam's "Steam" menu opens a window of its own, made from the parts of Steam's own settings
+window, with the ten tabs of sections 2 and 3 above. Steps 4 and 5 are built, ahead of the extractions they were listed
+after, because a blank tab needs none of them; every tab stays blank until step 6 draws it. No Big Picture section is
+hosted in it: `desktop/` may not import `bigpicture/`, so the logic moves down first and the desktop draws its own. The
+mechanism, the measurements, the decisions and the device checks are on
+[Desktop Mode DOM Adaptation](desktop-dom-architecture.md#the-tender-settings-window).
 
 1. **Record the decisions** (D1–D16, settled 2026-10-04; D16 replaces D4) in the issue's `## To decide` and
    `## Decisions`, and fix the six handlers that drop a refusal in a `fix(frontend)` commit of its own (D10).
@@ -205,11 +207,11 @@ measurements, the decisions and the device checks are on
 3. **Move the logic down into `utils/`** — the twenty extractions the architecture page lists — one `refactor(frontend)`
    commit each with its tests, then a `docs(frontend)` pass over the comments at every touched line. Big Picture keeps
    drawing from the moved modules, and nothing it shows changes.
-4. **Build the window** in `desktop/settings/`: `openTenderSettings(tab?)` over Steam's popup component (or the bare
-   popup, the fallback), titled "Tender Settings", 850 × 722 and resizable, with Tender's own `MemoryRouter` around
-   `SidebarNavigation`, and every new `@decky/ui` name classified by the start-up check.
-5. **Add the menu entry**: a ledger-tracked "Tender Settings" item after `#Menu_Settings` in the "Steam Root Menu"
-   popup, anchored on the Fiber's `steamURL`, installed by `startDesktopSurface` and withdrawn by `stopDesktopSurface`.
+4. **Build the window** (✅ Built, tabs blank) in `desktop/settings/`: `openTenderSettings(tab?)` over Steam's popup
+   component, titled "Tender Settings", 850 × 722 and resizable, with Steam's router wrapper around `SidebarNavigation`,
+   which the start-up check classifies.
+5. **Add the menu entry** (✅ Built): a ledger-tracked "Tender Settings" item after `#Menu_Settings`, anchored on the
+   Fiber's `steamURL`, installed by `startDesktopSurface` and withdrawn by `stopDesktopSurface`.
 6. **Draw the tabs** over the moved hooks and wording, with the injected confirmations drawn by the desktop's dialogs
    (`useDialogHost`): the six settings tabs (Connections, Save Sync, Controller, Steam Library, Updates, Advanced), then
    the four page tabs (Sync, Library, Downloads, Data Management).

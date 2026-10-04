@@ -21,6 +21,13 @@ export type SettingsSection =
   | "advanced";
 
 /**
+ * One tab of the desktop Tender Settings window: every Settings section, and the
+ * four QAM pages the window carries whole.
+ */
+export type SettingsTab =
+  Exclude<SettingsSection, "emulator-sources" | "interface"> | "sync" | "library" | "downloads" | "data-management";
+
+/**
  * Where a navigation lands: a page, or the Settings page opened on one of its
  * sections.
  *
