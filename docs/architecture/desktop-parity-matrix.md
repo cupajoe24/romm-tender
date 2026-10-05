@@ -204,7 +204,7 @@ the desktop draws its own. The mechanism, the measurements, the decisions and th
    - The prune-lease owner becomes a parameter of `useDataPage` and `usePlatformsPage`, so the two surfaces never share
      a key (✅ Done for `usePlatformsPage`).
    - Tone data replaces Big Picture's pane colours in the update-install rows and the installer output.
-3. **Move the logic down into `utils/`** — the twenty-one extractions the architecture page lists — one
+3. **Move the logic down into `utils/`** — the twenty-two extractions the architecture page lists — one
    `refactor(frontend)` commit each with its tests, then a `docs(frontend)` pass over the comments at every touched
    line. Big Picture keeps drawing from the moved modules, and nothing it shows changes.
 4. **Build the window** (✅ Built, tabs blank) in `desktop/settings/`: `openTenderSettings(tab?)` over Steam's popup

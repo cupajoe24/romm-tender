@@ -15,6 +15,7 @@
 
 import { useState, type CSSProperties, type FC, type FocusEvent, type ReactElement, type ReactNode } from "react";
 import { Focusable } from "@decky/ui";
+import { busyElsewhereLine } from "../../utils/busyElsewhere";
 
 /** The size every secondary LINE on a pane is set in: a header's counts clause,
  *  the under-row description and note lines, a table cell beside them, the muted
@@ -446,5 +447,5 @@ export const BusyElsewhere: FC<{ busyKey: string | null; ownKey: string; busyNam
   busyName,
 }) => {
   if (busyKey === null || busyKey === ownKey) return null;
-  return <Muted>{`Working on ${busyName} — actions here are paused until it finishes.`}</Muted>;
+  return <Muted>{busyElsewhereLine(busyName)}</Muted>;
 };

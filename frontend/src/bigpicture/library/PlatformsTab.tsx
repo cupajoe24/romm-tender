@@ -31,44 +31,18 @@ import { ListDetail, type ListDetailItem } from "../layout/ListDetail";
 import { ROW_CONTENT_INSET, ROW_MARKER_GAP, ROW_MARKER_WIDTH, SELECTION_ACCENT } from "../layout/pane";
 import { LoadingRow } from "../LoadingRow";
 import { biosColorForLevel } from "../../utils/biosColor";
-import { biosSummary } from "../../utils/biosSummary";
+import {
+  AVAILABLE_HEADING,
+  DISABLE_ALL_LABEL,
+  ENABLE_ALL_LABEL,
+  NO_PLATFORMS,
+  PICK_A_PLATFORM,
+  PLATFORMS_FAILED,
+  SYNCED_HEADING,
+  biosTooltip,
+} from "../../utils/platformsPageWording";
 import { PlatformDetail } from "./PlatformDetail";
 import type { PlatformRow, PlatformsPageState } from "../../utils/usePlatformsPage";
-
-/**
- * What the row's dot means, in words — its `title`.
- *
- * **The BIOS states are not this surface's to word.** `utils/biosSummary.ts`
- * holds every one, and this is the third surface to read it. It worded them for
- * itself until it drifted: the list went on saying an emulator "requires none of
- * the files it names" after the other two had moved to naming the declaration,
- * so one platform was described in two vocabularies a keypress apart — the exact
- * state the module was written to end, surviving in the one place its drift lock
- * did not look.
- *
- * Of the module's two answers the row takes the `sentence`. The short `status`
- * is a heading and says what a colour means, which needs the heading beside it
- * to land; a tooltip has no heading and has room for the longer form, and the
- * pane it is meant to agree with shows both.
- *
- * What stays here are the two answers that are not BIOS states at all — they
- * are about the READ, which the module has no input for and no business knowing.
- * Each is taken off the STATE rather than off the payload being absent:
- * `firmware` is non-null in the `answered` state alone, so both of these share
- * `firmware === null` and a truthiness test cannot tell them apart. A failed
- * RE-read keeps the answer it could not replace and the dot goes on showing it,
- * so only a failure with nothing behind it is worded as one — the pane is where
- * a kept answer is flagged as possibly out of date.
- */
-function biosTooltip(row: PlatformRow): string {
-  if (row.firmwareState === "pending") return "Checking this platform's BIOS files…";
-  if (row.firmwareState === "failed") return "Could not read this platform's BIOS state";
-  const firmware = row.firmware;
-  // `answered` is the one state left, and it always holds an entry: this only
-  // narrows the type.
-  if (firmware === null) return "";
-  return biosSummary(firmware, firmware.files, firmware.bios_level ?? null, row.name || null).sentence;
-}
 
 const GroupHeading: FC<{ title: string; count: number }> = ({ title, count }) => (
   // Plain text: it accompanies the rows under it and scrolls with them. Making
@@ -137,16 +111,12 @@ const RowLabel: FC<{ row: PlatformRow; selected: boolean }> = ({ row, selected }
 export const PlatformsTab: FC<{ state: PlatformsPageState }> = ({ state }) => {
   if (state.loading) return <LoadingRow />;
   if (state.failed) {
-    return (
-      <div style={{ padding: "16px", color: "#8f98a0" }}>
-        Could not read your platforms. Check the connection to RomM and open the page again.
-      </div>
-    );
+    return <div style={{ padding: "16px", color: "#8f98a0" }}>{PLATFORMS_FAILED}</div>;
   }
 
   const groups = state.groups;
   if (!groups || state.rows.size === 0) {
-    return <div style={{ padding: "16px", color: "#8f98a0" }}>RomM reports no platform holding any ROM.</div>;
+    return <div style={{ padding: "16px", color: "#8f98a0" }}>{NO_PLATFORMS}</div>;
   }
 
   const items: ListDetailItem[] = [];
@@ -179,8 +149,8 @@ export const PlatformsTab: FC<{ state: PlatformsPageState }> = ({ state }) => {
       });
     });
   };
-  pushGroup(groups.synced, "Synced");
-  pushGroup(groups.available, "Available");
+  pushGroup(groups.synced, SYNCED_HEADING);
+  pushGroup(groups.available, AVAILABLE_HEADING);
 
   const listHeader: ReactNode = (
     <>
@@ -197,10 +167,10 @@ export const PlatformsTab: FC<{ state: PlatformsPageState }> = ({ state }) => {
         style={{ display: "flex", gap: "8px", padding: `4px 0 8px ${ROW_CONTENT_INSET}px` }}
       >
         <DialogButton style={{ flex: 1, minWidth: 0, padding: "8px 0" }} onClick={() => state.setAllSync(true)}>
-          Enable all
+          {ENABLE_ALL_LABEL}
         </DialogButton>
         <DialogButton style={{ flex: 1, minWidth: 0, padding: "8px 0" }} onClick={() => state.setAllSync(false)}>
-          Disable all
+          {DISABLE_ALL_LABEL}
         </DialogButton>
       </Focusable>
       {/* Why a sync write did not take, under the buttons and inset with them;
@@ -224,21 +194,16 @@ export const PlatformsTab: FC<{ state: PlatformsPageState }> = ({ state }) => {
   // L2 and R2 step the shown platform's emulator selector wherever focus is on
   // this page, the list included.
   return (
-    <EmulatorStepScope>
-      {(onButtonDown) => (
-        <ListDetail
-          items={items}
-          listHeader={listHeader}
-          selectedId={state.selectedSlug}
-          onSelect={state.select}
-          onButtonDown={onButtonDown}
-          renderDetail={(slug) => {
-            const row = slug === null ? undefined : state.rows.get(slug);
-            if (!row) return <div style={{ padding: "16px", color: "#8f98a0" }}>Pick a platform on the left.</div>;
-            return <PlatformDetail row={row} state={state} />;
-          }}
-        />
-      )}
-    </EmulatorStepScope>
+    <ListDetail
+      items={items}
+      listHeader={listHeader}
+      selectedId={state.selectedSlug}
+      onSelect={state.select}
+      renderDetail={(slug) => {
+        const row = slug === null ? undefined : state.rows.get(slug);
+        if (!row) return <div style={{ padding: "16px", color: "#8f98a0" }}>{PICK_A_PLATFORM}</div>;
+        return <PlatformDetail row={row} state={state} />;
+      }}
+    />
   );
 };
