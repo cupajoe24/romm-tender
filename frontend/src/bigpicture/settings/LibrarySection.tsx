@@ -13,6 +13,7 @@
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, DropdownItem, ToggleField } from "@decky/ui";
 import type { CollectionNamingMode } from "../../types";
+import { buildRegionOptions } from "../../utils/preferredRegion";
 
 interface LibrarySectionProps {
   preferredRegion: string;
@@ -30,43 +31,6 @@ interface LibrarySectionProps {
   // docs/architecture/steam-non-steam-shortcuts.md § Collection naming mode.
   namingMode: CollectionNamingMode;
   onNamingModeChange: (mode: CollectionNamingMode) => void;
-}
-
-// The internal sentinel for "no preference — use the fixed build-time order".
-export const AUTO_REGION = "auto";
-
-// The fixed anchor regions, in the build-time default order. MIRRORS the backend
-// constant DEFAULT_REGION_PRIORITY (backend/domain/sibling_resolution.py) —
-// keep the two in sync. This is a fixed order, NOT language/system detection.
-export const ANCHOR_REGIONS: readonly string[] = ["World", "USA", "Europe", "Japan"];
-
-// The default option's label states the order explicitly so it never reads as
-// auto-detection.
-export const DEFAULT_REGION_LABEL = "Default (World > USA > Europe)";
-
-/**
- * Build the dropdown options: the "Default" sentinel + the fixed anchors, then
- * every OTHER region found in the local library (sorted, de-duped against the
- * anchors). The currently-selected value is always included so a preference for
- * a region no longer in the library still renders as selected.
- */
-export function buildRegionOptions(libraryRegions: string[], selected: string): { data: string; label: string }[] {
-  const options: { data: string; label: string }[] = [
-    { data: AUTO_REGION, label: DEFAULT_REGION_LABEL },
-    ...ANCHOR_REGIONS.map((r) => ({ data: r, label: r })),
-  ];
-  const known = new Set<string>([AUTO_REGION, ...ANCHOR_REGIONS]);
-  const extras = Array.from(new Set(libraryRegions))
-    .filter((r) => r && !known.has(r))
-    .sort((a, b) => a.localeCompare(b));
-  for (const r of extras) {
-    options.push({ data: r, label: r });
-    known.add(r);
-  }
-  if (selected !== AUTO_REGION && !known.has(selected)) {
-    options.push({ data: selected, label: selected });
-  }
-  return options;
 }
 
 export const LibrarySection: FC<LibrarySectionProps> = ({

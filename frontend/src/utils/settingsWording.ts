@@ -44,6 +44,29 @@ export const INSECURE_SSL_DESCRIPTION =
   "plugin sends — your RomM token, your password when you sign in with it, and any custom headers — and use your " +
   "account. Only on a network you trust.";
 
+// --- Save Sync ---
+
+export const ENABLE_SAVE_SYNC_CONFIRM = {
+  title: "Enable Save Sync?",
+  description:
+    "This will sync your RetroArch game saves between this device and your RomM server. " +
+    "Save sync covers the per-game save files RetroArch writes for the systems it supports " +
+    "- SRAM, RTC, EEPROM, and other per-system formats, not a single file type. " +
+    "Coverage varies by system; see the save sync support matrix in the docs.\n\n" +
+    "Before enabling, please back up your local save files. " +
+    "They are stored in your RetroArch/RetroDECK saves directory.\n\n" +
+    "Save sync follows RetroArch's own save sorting, so no setting is required: when you " +
+    "change how RetroArch sorts saves into folders, each game's save files are moved to " +
+    "the new folder the next time the plugin touches that game's saves. Saves RetroArch writes next to the " +
+    'game file ("Write Saves to Content Directory") are not synced.\n\n' +
+    "Also make sure you are not using this on a shared RomM account " +
+    "(e.g. admin, romm, guest) - unless you know what you are doing. " +
+    "Save sync is intended for single user accounts.\n\n" +
+    "Are you sure you want to proceed?",
+  confirm: "I am sure",
+  cancel: "Cancel",
+} as const;
+
 // --- Connections: SteamGridDB ---
 
 export const SGDB_HEADING = "SteamGridDB";

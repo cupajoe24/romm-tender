@@ -99,18 +99,12 @@ vi.mock("./settings/UpdatesSection", () => ({
     return createElement("div", { "data-testid": "updates-section" });
   },
 }));
-vi.mock("./settings/LibrarySection", async (importOriginal) => {
-  // Keep the real AUTO_REGION / DEFAULT_REGION_LABEL constants (SettingsPage
-  // imports them), but stub the component to capture props.
-  const actual = await importOriginal<typeof import("./settings/LibrarySection")>();
-  return {
-    ...actual,
-    LibrarySection: (p: LibraryProps) => {
-      capturedLibrary.push(p);
-      return createElement("div", { "data-testid": "library-section" });
-    },
-  };
-});
+vi.mock("./settings/LibrarySection", () => ({
+  LibrarySection: (p: LibraryProps) => {
+    capturedLibrary.push(p);
+    return createElement("div", { "data-testid": "library-section" });
+  },
+}));
 
 // The Preferred-region change modal — mocked so tests control confirm/cancel.
 vi.mock("./settings/PreferredRegionModal", () => ({

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  ENABLE_SAVE_SYNC_CONFIRM,
   INSECURE_SSL_DESCRIPTION,
   INSECURE_SSL_LABEL,
   SIGN_OUT_CONFIRM,
@@ -14,6 +15,21 @@ import {
 describe("phraseText", () => {
   it("joins a phrase's runs without their emphasis", () => {
     expect(phraseText([{ text: "a " }, { text: "b", strong: true }, { text: "." }])).toBe("a b.");
+  });
+});
+
+describe("Save Sync", () => {
+  it("asks before turning save sync on, and says what it covers and what to do first", () => {
+    expect(ENABLE_SAVE_SYNC_CONFIRM.title).toBe("Enable Save Sync?");
+    expect(ENABLE_SAVE_SYNC_CONFIRM.confirm).toBe("I am sure");
+    expect(ENABLE_SAVE_SYNC_CONFIRM.cancel).toBe("Cancel");
+    const paragraphs = ENABLE_SAVE_SYNC_CONFIRM.description.split("\n\n");
+    expect(paragraphs).toHaveLength(5);
+    expect(paragraphs[0]).toContain("see the save sync support matrix in the docs");
+    expect(paragraphs[1]).toContain("please back up your local save files");
+    expect(paragraphs[2]).toContain("Save sync follows RetroArch's own save sorting");
+    expect(paragraphs[3]).toContain("Save sync is intended for single user accounts.");
+    expect(paragraphs[4]).toBe("Are you sure you want to proceed?");
   });
 });
 

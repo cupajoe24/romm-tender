@@ -156,6 +156,19 @@ export async function fetchUpdateNotice(): Promise<void> {
 export type UpdateCheckOutcome = "found" | "none" | "unreachable" | "superseded";
 
 /**
+ * What a Check now found, as the line under the button says it — only where
+ * the Available row above does not say it already, so a release found, or none
+ * newer, is no line. A check that a later switch press or a notice the backend
+ * pushed overtook reports nothing: its answer was never written, and the store
+ * holds the newer one.
+ */
+export const CHECK_OUTCOME_LINES: Readonly<Record<Exclude<UpdateCheckOutcome, "superseded">, string>> = {
+  found: "",
+  none: "",
+  unreachable: "GitHub gave no usable answer. Try again later.",
+};
+
+/**
  * Ask now, past the daily throttle, past a Dismiss and whatever the switch says
  * — the backend forgets the dismissed version, so a card that was waved away
  * comes back.
