@@ -576,8 +576,8 @@ class TestTheConnectionRefusalsOnTheWire:
             "success": False,
             "reason": "version_error",
             "message": (
-                "This plugin requires RomM 5.3.0 or newer. Your server is running 4.5.0. "
-                "Please update your RomM server to continue using this plugin."
+                "Tender requires RomM 5.3.0 or newer. Your server is running 4.5.0. "
+                "Please update your RomM server to continue using Tender."
             ),
             "romm_version": "4.5.0",
         }

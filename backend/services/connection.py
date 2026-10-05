@@ -65,10 +65,12 @@ _FORBIDDEN_TOKEN_MESSAGE = (
 # the full scope list the plugin requires).
 _USER_TOKEN_INVALID_MESSAGE = "The API token is invalid or has been revoked. Create a new token in RomM and try again."
 _USER_TOKEN_SCOPE_MESSAGE = (
-    "The API token is missing required permissions (scopes). Grant the scopes listed in the plugin docs and try again."
+    "The API token is missing required permissions (scopes). "
+    "Grant the scopes listed in Tender's configuration guide and try again."
 )
 _USER_TOKEN_REJECTED_MESSAGE = (
-    "RomM rejected this token. Check you pasted it correctly and that it has the required scopes (see the plugin docs)."
+    "RomM rejected this token. Check you pasted it correctly and that it has the required scopes "
+    "(see Tender's configuration guide)."
 )
 
 # Pairing-code sign-in (``establish_paired_token``). The 60s single-use pairing
@@ -800,9 +802,9 @@ class ConnectionService:
         if version and version != "development" and not meets_min_version(version, self._min_required_version):
             min_str = ".".join(str(v) for v in self._min_required_version)
             raise VersionUnsupported(
-                f"This plugin requires RomM {min_str} or newer. "
+                f"Tender requires RomM {min_str} or newer. "
                 f"Your server is running {version}. "
-                "Please update your RomM server to continue using this plugin.",
+                "Please update your RomM server to continue using Tender.",
                 romm_version=version,
             )
 
