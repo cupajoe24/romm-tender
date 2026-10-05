@@ -17,8 +17,11 @@ import { useState, FC } from "react";
 import { WidePage, type WidePageTab } from "./layout/WidePage";
 import { CollectionsTab } from "./library/CollectionsTab";
 import { PlatformsTab } from "./library/PlatformsTab";
-import { useCollectionsPage } from "./library/useCollectionsPage";
-import { usePlatformsPage } from "./library/usePlatformsPage";
+import { useCollectionsPage } from "../utils/useCollectionsPage";
+import { usePlatformsPage } from "../utils/usePlatformsPage";
+
+/** The Platforms tab's prune leases; the desktop's Library tab holds them under a name of its own. */
+const LEASE_OWNER = "library-platforms";
 
 interface LibraryPageProps {
   onBack: () => void;
@@ -26,7 +29,7 @@ interface LibraryPageProps {
 
 export const LibraryPage: FC<LibraryPageProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<"platforms" | "collections">("platforms");
-  const platformsState = usePlatformsPage();
+  const platformsState = usePlatformsPage(LEASE_OWNER);
   const collectionsState = useCollectionsPage();
 
   const tabs: WidePageTab[] = [

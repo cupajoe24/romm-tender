@@ -56,8 +56,13 @@ import {
   type ScopedStatus,
   type TableRegister,
 } from "../layout/pane";
-import type { CoreAnswer, DetailStatus, PlatformRow, PlatformsPageState, StatusScope } from "./usePlatformsPage";
-import { useBiosFocus, type BiosFocus } from "./useBiosFocus";
+import type {
+  CoreAnswer,
+  DetailStatus,
+  PlatformRow,
+  PlatformsPageState,
+  StatusScope,
+} from "../../utils/usePlatformsPage";
 
 /** The page's status line as the pane primitives read it: on this page the key
  *  a line is bound to is the platform slug. The scope type travels with it, so

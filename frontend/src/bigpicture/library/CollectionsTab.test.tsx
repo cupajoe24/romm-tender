@@ -21,7 +21,7 @@ import { LibraryPage } from "../LibraryPage";
 import * as backend from "../../api/backend";
 import type { WireReason, CollectionSyncSetting, Settings } from "../../types";
 import { COLLECTION_RENDER_CAP } from "./CollectionsDetail";
-import { CONFIRM_ABOVE } from "./collectionKinds";
+import { CONFIRM_ABOVE } from "../../utils/collectionKinds";
 import { ENTRY_FOCUS_DELAY_MS, ENTRY_STOP_ATTR } from "../../utils/entryFocus";
 
 vi.mock("../../utils/deckyUiInternals", async () => {

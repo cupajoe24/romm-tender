@@ -14,8 +14,8 @@
  * Structure and vocabulary: `docs/architecture/qam-panel.md`, section Library.
  */
 
-import type { CollectionKind, CollectionOwnerScope, CollectionSyncSetting } from "../../types";
-import { fuzzyMatch } from "../../utils/fuzzyMatch";
+import type { CollectionKind, CollectionOwnerScope, CollectionSyncSetting } from "../types";
+import { fuzzyMatch } from "./fuzzyMatch";
 
 /** The kinds — every row of the list column but the owner switch;
  *  `KIND_ORDER` is the order they are drawn in. The wire keys stay `standard` / `smart` /

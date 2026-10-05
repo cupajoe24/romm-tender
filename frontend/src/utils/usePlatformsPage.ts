@@ -6,7 +6,9 @@
  * It lives above the tab boundary because Steam's tabbed page renders only the
  * active tab and keys it by tab id, so switching tabs unmounts the content and
  * mounting it again would re-issue every read and thaw the list's frozen order.
- * The page holds the state; the tab and its detail render it.
+ * The page holds the state; the tab and its detail render it. Both drawings of
+ * the tab read it: the QAM's Library page and the Library tab of the desktop's
+ * Tender Settings window, each holding an instance of its own.
  *
  * The three reads answer different questions: `get_platforms` is RomM's
  * platforms with ROMs (the list itself), `get_firmware_status` whether RomM's
@@ -47,19 +49,19 @@ import {
   savePlatformSync,
   setAllPlatformsSync,
   setSystemCore,
-} from "../../api/backend";
-import type { BiosDeleteResult } from "../../api/backend";
+} from "../api/backend";
+import type { BiosDeleteResult } from "../api/backend";
 import type {
   EndpointFailure,
   FirmwareDownloadResult,
   FirmwarePlatformExt,
   PlatformSyncSetting,
   SystemCoreInfo,
-} from "../../types";
-import { detach } from "../../utils/detach";
-import { emulatorName } from "../../utils/emulatorEntries";
-import { batchConfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
-import { clearPlatformCollection } from "../../utils/collections";
+} from "../types";
+import { detach } from "./detach";
+import { emulatorName } from "./emulatorEntries";
+import { batchConfirmLaunchOptions } from "./launchOptionsReconcile";
+import { clearPlatformCollection } from "./collections";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseCancellation,
@@ -67,9 +69,9 @@ import {
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
   withPruneLease,
-} from "../../utils/pruneLease";
-import { removeShortcutsPaced } from "../../utils/shortcutRemoval";
-import { withTimeout } from "../../utils/withTimeout";
+} from "./pruneLease";
+import { removeShortcutsPaced } from "./shortcutRemoval";
+import { withTimeout } from "./withTimeout";
 import { useLatestWrites, useLineWrites } from "./latestWrites";
 import { SYNC_WRITE_FAILED } from "./syncWriteFailed";
 
@@ -80,7 +82,6 @@ import { SYNC_WRITE_FAILED } from "./syncWriteFailed";
  *  goes rather than a moment earlier. */
 const FAILED_NOTICE_MS = 2000;
 
-const LEASE_OWNER = "library-platforms";
 const LIST_LINE = "list";
 const REMOVAL_REPORT_TIMEOUT_MS = 15000;
 
@@ -298,7 +299,12 @@ function freezeGroups(platforms: PlatformSyncSetting[]): FrozenGroups {
   };
 }
 
-export function usePlatformsPage(): PlatformsPageState {
+/**
+ * *leaseOwner* names this page's prune leases, and must be unique among the
+ * pages holding leases at once: the page's unmount releases every lease its
+ * owner holds, so two surfaces sharing a name would release each other's.
+ */
+export function usePlatformsPage(leaseOwner: string): PlatformsPageState {
   const [platforms, setPlatforms] = useState<PlatformSyncSetting[]>([]);
   const [groups, setGroups] = useState<FrozenGroups | null>(null);
   const [loading, setLoading] = useState(true);
@@ -540,7 +546,7 @@ export function usePlatformsPage(): PlatformsPageState {
   );
 
   useEffect(() => {
-    mountPruneLeaseOwner(LEASE_OWNER);
+    mountPruneLeaseOwner(leaseOwner);
     getPlatforms()
       .then((result) => {
         if (!result.success) {
@@ -568,9 +574,9 @@ export function usePlatformsPage(): PlatformsPageState {
     detach(readOverview());
     detach(refreshShortcutCounts());
     return () => {
-      detach(releasePruneLeasesByOwner(LEASE_OWNER));
+      detach(releasePruneLeasesByOwner(leaseOwner));
     };
-  }, [loadCore, loadSaveCount, readOverview, refreshShortcutCounts, syncWrites]);
+  }, [leaseOwner, loadCore, loadSaveCount, readOverview, refreshShortcutCounts, syncWrites]);
 
   /** Where a platform's BIOS answer stands — see {@link FirmwareState}.
    *
@@ -709,7 +715,7 @@ export function usePlatformsPage(): PlatformsPageState {
       setStatus({ slug, scope: "core", text: `Switching to ${emulatorName(answer?.emulators ?? [], pickedLabel)}…` });
       // Captured before the continuation starts, so the catch can tell a
       // cancelled continuation from a failed switch.
-      const admission = capturePruneLeaseAdmission(LEASE_OWNER);
+      const admission = capturePruneLeaseAdmission(leaseOwner);
       detach(debugLog(`setSystemCore: slug=${slug} label=${label} (selected=${pickedLabel})`));
       detach(
         (async () => {
@@ -733,7 +739,7 @@ export function usePlatformsPage(): PlatformsPageState {
               result.prune_lease_token,
               "setSystemCore",
               (signal) => batchConfirmLaunchOptions(result.rebake_items ?? [], "setSystemCore", signal),
-              LEASE_OWNER,
+              leaseOwner,
               admission,
             );
             clearCoreLine(slug);
@@ -762,7 +768,7 @@ export function usePlatformsPage(): PlatformsPageState {
         })(),
       );
     },
-    [clearCoreLine, cores, readPlatform, reloadCore],
+    [clearCoreLine, cores, leaseOwner, readPlatform, reloadCore],
   );
 
   /** Hold the pressed button on a red `Failed` for a moment before everything
@@ -906,7 +912,7 @@ export function usePlatformsPage(): PlatformsPageState {
     (row: PlatformRow) => {
       setBusySlug(row.slug);
       setStatus({ slug: row.slug, scope: "remove", text: `Removing ${row.name} shortcuts…` });
-      const admission = capturePruneLeaseAdmission(LEASE_OWNER);
+      const admission = capturePruneLeaseAdmission(leaseOwner);
       detach(
         (async () => {
           try {
@@ -937,7 +943,7 @@ export function usePlatformsPage(): PlatformsPageState {
                   );
                 }
               },
-              LEASE_OWNER,
+              leaseOwner,
               admission,
             );
             // What was actually removed, not what the pane thought was there:
@@ -964,7 +970,7 @@ export function usePlatformsPage(): PlatformsPageState {
         })(),
       );
     },
-    [refreshShortcutCounts],
+    [leaseOwner, refreshShortcutCounts],
   );
 
   const deleteSaves = useCallback(

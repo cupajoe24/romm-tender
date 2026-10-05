@@ -5,7 +5,8 @@
  *
  * It lives above the tab boundary for the reason `usePlatformsPage` does:
  * Steam's tabbed page renders only the active tab, so a tab owning its state
- * would re-read on every switch back and thaw the order it froze.
+ * would re-read on every switch back and thaw the order it froze. Both drawings
+ * read it, as they read `usePlatformsPage`.
  *
  * Structure and vocabulary: `docs/architecture/qam-panel.md`, section Library.
  */
@@ -17,9 +18,9 @@ import {
   saveCollectionSync,
   saveCollectionsSync,
   setCollectionOwnerScope,
-} from "../../api/backend";
-import type { CollectionOwnerScope, CollectionSyncSetting } from "../../types";
-import { detach } from "../../utils/detach";
+} from "../api/backend";
+import type { CollectionOwnerScope, CollectionSyncSetting } from "../types";
+import { detach } from "./detach";
 import {
   collectionKey,
   freezeOrder,

@@ -3,7 +3,7 @@
 // switch, what a kind row counts, and what the pane's sentence promises.
 
 import { describe, it, expect } from "vitest";
-import type { CollectionSyncSetting } from "../../types";
+import type { CollectionSyncSetting } from "../types";
 import {
   KIND_ORDER,
   freezeOrder,

@@ -33,7 +33,7 @@ import { LoadingRow } from "../LoadingRow";
 import { biosColorForLevel } from "../../utils/biosColor";
 import { biosSummary } from "../../utils/biosSummary";
 import { PlatformDetail } from "./PlatformDetail";
-import type { PlatformRow, PlatformsPageState } from "./usePlatformsPage";
+import type { PlatformRow, PlatformsPageState } from "../../utils/usePlatformsPage";
 
 /**
  * What the row's dot means, in words — its `title`.
