@@ -382,9 +382,10 @@ the one on this page that deploys to another machine rather than running beside 
 
    The three usual files with sourcemaps, and the desktop navigation watcher started beside the panel.
 
-2. **Push from your workstation to a Deck or another Linux machine** over SSH/SCP. Both scripts run step 1 themselves
-   unless told not to, stage `dist/` (and, for the backend, `backend/`, `bin/` and `defaults/`), and copy them to
-   `~/romm-tender` on the remote by default:
+2. **Push from your workstation to a Deck or another Linux machine** over SSH in a single batched session. Both scripts
+   run step 1 themselves unless told not to, stage `dist/` (and, for the backend, `backend/`, `bin/` and `defaults/`),
+   and push them to `~/romm-tender` on the remote by default. All remote steps (setup, directory creation, tar
+   extraction, permissions, Steam restart) are batched together so SSH authentication is prompted at most once:
 
    ```powershell
    .\scripts\dev_push_remote.ps1 [user@]<remote-ip>     # Windows
@@ -394,16 +395,19 @@ the one on this page that deploys to another machine rather than running beside 
    ./scripts/dev_push_remote.sh [user@]<remote-ip>      # Linux/macOS
    ```
 
-   | PowerShell      | Bash              | Does                                                                                                                                                            |
-   | --------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-   | `-Frontend`     | `--frontend`      | Build and push only `dist/`                                                                                                                                     |
-   | `-Backend`      | `--backend`       | Push only `backend/`, `bin/` and `defaults/`                                                                                                                    |
-   | `-Dest <dir>`   | `--dest <dir>`    | Remote directory (default `~/romm-tender`)                                                                                                                      |
-   | `-User <user>`  | `--user <user>`   | SSH user when the target names none (default `deck`)                                                                                                            |
-   | `-Port <port>`  | `--port <port>`   | SSH port (default 22)                                                                                                                                           |
-   | `-SkipBuild`    | `--skip-build`    | Push the `dist/` already there                                                                                                                                  |
-   | `-SetupRemote`  | `--setup-remote`  | Create the remote directories and Steam's remote-debugging marker first (the PowerShell script also adds your SSH public key to the remote's `authorized_keys`) |
-   | `-RestartSteam` | `--restart-steam` | Shut Steam down on the remote and start it again after the push                                                                                                 |
+   | PowerShell        | Bash               | Does                                                                                                                                     |
+   | ----------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+   | `-Frontend`       | `--frontend`       | Build and push only `dist/`                                                                                                              |
+   | `-Backend`        | `--backend`        | Push only `backend/`, `bin/` and `defaults/`                                                                                             |
+   | `-Dest <dir>`     | `--dest <dir>`     | Remote directory (default `~/romm-tender`)                                                                                               |
+   | `-User <user>`    | `--user <user>`    | SSH user when the target names none (default `deck`)                                                                                     |
+   | `-Port <port>`    | `--port <port>`    | SSH port (default 22)                                                                                                                    |
+   | `-SkipBuild`      | `--skip-build`     | Push the `dist/` already there                                                                                                           |
+   | `-SetupRemote`    | `--setup-remote`   | Create the remote directories and Steam's remote-debugging marker first (and adds your SSH public key to the remote's `authorized_keys`) |
+   | `-RestartSteam`   | `--restart-steam`  | Shut Steam down on the remote and start it again after the push                                                                          |
+   | `-SetPassword`    | `--set-password`   | Prompt for SSH password/key passphrase and save in user environment (`TENDER_SSH_PASSWORD`) so future runs do not prompt                 |
+   | `-Password <pwd>` | `--password <pwd>` | Specify SSH password or key passphrase for this execution                                                                                |
+   | `-ClearPassword`  | `--clear-password` | Remove cached SSH password from user and process environment                                                                             |
 
    The PowerShell script also rewrites every shell script it stages (and the local `bin/`) to LF line endings without a
    BOM, and strips CRs from the remote `bin/` after the push; the Bash script only marks `bin/` executable. The remote

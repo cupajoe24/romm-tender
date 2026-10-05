@@ -3,9 +3,11 @@
     Builds and pushes Tender to a remote Linux machine or Steam Deck over SSH.
 
 .DESCRIPTION
-    By default builds and deploys both the frontend and backend.
+    By default builds and deploys both the frontend and backend in a single batched SSH session.
     Use -Frontend or -Backend to deploy only one component.
-    At the end of deployment, prints instructions to start and run the backend on the remote machine.
+    All remote operations (setup, directory creation, extraction, permissions, Steam restart)
+    are batched so SSH authentication is required at most once per execution.
+    Supports caching the SSH password/passphrase in the user environment so you don't have to retype it.
 
 .PARAMETER Target
     The remote address: [user@]hostname-or-ip (e.g., "192.168.86.31" or "deck@192.168.86.31").
@@ -34,16 +36,30 @@
 .PARAMETER RestartSteam
     Shut Steam down on the remote and start it again after the push.
 
+.PARAMETER Password
+    Specify the SSH password or key passphrase for this execution.
+
+.PARAMETER SetPassword
+    Prompt for the SSH password or key passphrase and store it in the user environment (TENDER_SSH_PASSWORD)
+    so future runs don't require typing it.
+
+.PARAMETER SessionOnly
+    When used with -SetPassword, only store the password in the current PowerShell session rather than
+    persisting to the Windows user registry.
+
+.PARAMETER ClearPassword
+    Remove any cached SSH password from the user and process environment.
+
 .EXAMPLE
     .\scripts\dev_push_remote.ps1 192.168.86.31
-    .\scripts\dev_push_remote.ps1 deck@192.168.86.31 -Frontend
-    .\scripts\dev_push_remote.ps1 192.168.86.31 -Backend
     .\scripts\dev_push_remote.ps1 192.168.86.31 -Frontend -RestartSteam
+    .\scripts\dev_push_remote.ps1 192.168.86.31 -SetPassword
+    .\scripts\dev_push_remote.ps1 -ClearPassword
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Position = 0, Mandatory = $true)]
+    [Parameter(Position = 0, Mandatory = $false)]
     [string]$Target,
 
     [switch]$Frontend,
@@ -54,10 +70,78 @@ param(
     [string]$Port = 22,
     [switch]$SkipBuild,
     [switch]$SetupRemote,
-    [switch]$RestartSteam
+    [switch]$RestartSteam,
+
+    [Alias("Pass", "KeyPassword")]
+    [string]$Password,
+
+    [Alias("SavePassword", "StorePassword", "CachePassword")]
+    [switch]$SetPassword,
+
+    [switch]$SessionOnly,
+
+    [Alias("UnsetPassword", "ResetPassword")]
+    [switch]$ClearPassword
 )
 
 $ErrorActionPreference = "Stop"
+
+# -------------------------------------------------------------------------
+# Password and Environment Management
+# -------------------------------------------------------------------------
+if ($ClearPassword) {
+    [System.Environment]::SetEnvironmentVariable("TENDER_SSH_PASSWORD", $null, [System.EnvironmentVariableTarget]::User)
+    [System.Environment]::SetEnvironmentVariable("TENDER_SSH_PASSWORD", $null, [System.EnvironmentVariableTarget]::Process)
+    $env:TENDER_SSH_PASSWORD = $null
+    Write-Host "Cleared cached SSH password from user environment (TENDER_SSH_PASSWORD)." -ForegroundColor Green
+    if (-not $Target) {
+        exit 0
+    }
+}
+
+$effectivePassword = $Password
+if (-not $effectivePassword) {
+    $effectivePassword = $env:TENDER_SSH_PASSWORD
+}
+if (-not $effectivePassword) {
+    $effectivePassword = $env:SSH_PASSWORD
+}
+if (-not $effectivePassword) {
+    $effectivePassword = [System.Environment]::GetEnvironmentVariable("TENDER_SSH_PASSWORD", [System.EnvironmentVariableTarget]::User)
+}
+if (-not $effectivePassword) {
+    $effectivePassword = [System.Environment]::GetEnvironmentVariable("SSH_PASSWORD", [System.EnvironmentVariableTarget]::User)
+}
+
+if ($SetPassword) {
+    if (-not $effectivePassword) {
+        $sec = Read-Host "Enter SSH password or key passphrase to store in user environment" -AsSecureString
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+        $effectivePassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+    if ($effectivePassword) {
+        $env:TENDER_SSH_PASSWORD = $effectivePassword
+        if (-not $SessionOnly) {
+            [System.Environment]::SetEnvironmentVariable("TENDER_SSH_PASSWORD", $effectivePassword, [System.EnvironmentVariableTarget]::User)
+            Write-Host "SSH password/passphrase saved to user environment (TENDER_SSH_PASSWORD)." -ForegroundColor Green
+            Write-Host "Future runs will use this password automatically. Use -ClearPassword to remove it." -ForegroundColor Gray
+        } else {
+            Write-Host "SSH password/passphrase stored in current session environment." -ForegroundColor Green
+        }
+    }
+} elseif ($Password) {
+    $env:TENDER_SSH_PASSWORD = $effectivePassword
+}
+
+# Require Target for push operations
+if (-not $Target) {
+    $Target = Read-Host "Enter remote host IP address or hostname"
+    if (-not $Target) {
+        Write-Error "Target remote host is required."
+        exit 1
+    }
+}
 
 # Parse Target into User and Host
 $RemoteUser = $User
@@ -169,39 +253,6 @@ function Format-UnixShellScripts {
 }
 
 # -------------------------------------------------------------------------
-# Step 0: Optional Remote Host Setup
-# -------------------------------------------------------------------------
-if ($SetupRemote) {
-    Write-Host "`n[Setup] Configuring remote target (${RemoteUser}@${RemoteHost})..." -ForegroundColor Cyan
-
-    $pubKeyFile = "$HOME\.ssh\id_ed25519.pub"
-    if (-not (Test-Path $pubKeyFile)) {
-        $pubKeyFile = "$HOME\.ssh\id_rsa.pub"
-    }
-
-    $keySetupCmd = ""
-    if (Test-Path $pubKeyFile) {
-        $keyContent = (Get-Content $pubKeyFile -Raw).Trim()
-        $keySetupCmd = "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qxF '$keyContent' ~/.ssh/authorized_keys 2>/dev/null || echo '$keyContent' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-        Write-Host "Found SSH public key: $pubKeyFile" -ForegroundColor Cyan
-    }
-
-    $setupCmd = @"
-mkdir -p ~/.steam/steam
-touch ~/.steam/steam/.cef-enable-remote-debugging
-mkdir -p $Dest/dist
-$keySetupCmd
-echo "Remote host setup complete: CEF remote debugging enabled, directories ready."
-"@
-    ssh -p $Port -t "${RemoteUser}@${RemoteHost}" $setupCmd
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Setup commands returned non-zero exit code ($LASTEXITCODE)."
-    } else {
-        Write-Host "Setup finished successfully." -ForegroundColor Green
-    }
-}
-
-# -------------------------------------------------------------------------
 # Step 1: Build Frontend (if requested)
 # -------------------------------------------------------------------------
 if ($PushFrontend -and -not $SkipBuild) {
@@ -226,7 +277,7 @@ if ($PushFrontend -and -not (Test-Path (Join-Path $repoRoot "dist/index.js"))) {
 }
 
 # -------------------------------------------------------------------------
-# Step 2: Stage files for atomic, single-transfer SCP push
+# Step 2: Stage files and configure batched deployment
 # -------------------------------------------------------------------------
 Write-Host "`n==> Staging files for push..." -ForegroundColor Cyan
 
@@ -235,11 +286,27 @@ if (Test-Path $stageDir) {
 }
 New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
+$archiveFile = $null
+$askpassScript = $null
+$origAskPass = $env:SSH_ASKPASS
+$origAskPassReq = $env:SSH_ASKPASS_REQUIRE
+
 try {
+    # Configure SSH_ASKPASS if an environment/provided password exists
+    if ($effectivePassword) {
+        $askpassScript = Join-Path ([System.IO.Path]::GetTempPath()) "tender_askpass_$PID.cmd"
+        "@echo off
+setlocal EnableDelayedExpansion
+echo(!TENDER_SSH_PASSWORD!
+" | Set-Content -Path $askpassScript -Encoding ASCII
+        $env:TENDER_SSH_PASSWORD = $effectivePassword
+        $env:SSH_ASKPASS = $askpassScript
+        $env:SSH_ASKPASS_REQUIRE = "force"
+    }
+
     if ($PushFrontend) {
         $stageDist = Join-Path $stageDir "dist"
         New-Item -ItemType Directory -Path $stageDist -Force | Out-Null
-
         Copy-Item (Join-Path $repoRoot "dist/*") -Destination $stageDist -Recurse -Force
     }
 
@@ -270,43 +337,108 @@ try {
         Format-UnixShellScripts -Directory (Join-Path $repoRoot "bin")
     }
 
-    # Ensure remote destination directories exist
-    Write-Host "==> Ensuring remote directory ($Dest) exists on ${RemoteUser}@${RemoteHost}..." -ForegroundColor Cyan
-    $mkdirCmd = "mkdir -p $Dest"
-    if ($PushFrontend) { $mkdirCmd += " $Dest/dist" }
-    if ($PushBackend) { $mkdirCmd += " $Dest/backend $Dest/bin $Dest/defaults" }
-    ssh -p $Port "${RemoteUser}@${RemoteHost}" "$mkdirCmd"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to connect or create remote directories on ${RemoteUser}@${RemoteHost}"
-        exit $LASTEXITCODE
+    # Generate remote deployment script to run post-extract operations in the same SSH session
+    $setupSection = ""
+    if ($SetupRemote) {
+        $pubKeyFile = "$HOME\.ssh\id_ed25519.pub"
+        if (-not (Test-Path $pubKeyFile)) {
+            $pubKeyFile = "$HOME\.ssh\id_rsa.pub"
+        }
+        $keySetupBash = ""
+        if (Test-Path $pubKeyFile) {
+            $keyContent = (Get-Content $pubKeyFile -Raw).Trim()
+            $keySetupBash = @"
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+grep -qxF '$keyContent' ~/.ssh/authorized_keys 2>/dev/null || echo '$keyContent' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+echo "SSH public key authorized in ~/.ssh/authorized_keys."
+"@
+        }
+        $setupSection = @"
+echo "==> Configuring remote host..."
+mkdir -p ~/.steam/steam
+touch ~/.steam/steam/.cef-enable-remote-debugging
+$keySetupBash
+echo "Remote host setup complete: CEF remote debugging enabled, directories ready."
+"@
     }
 
-    # Push all staged items in a single recursive SCP command
-    Write-Host "==> Pushing files to ${RemoteUser}@${RemoteHost}:${Dest}/..." -ForegroundColor Cyan
-    $stageItems = (Get-ChildItem -Path "$stageDir\*").FullName
-    scp -P $Port -r $stageItems "${RemoteUser}@${RemoteHost}:${Dest}/"
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "SCP push failed with exit code $LASTEXITCODE"
-        exit $LASTEXITCODE
-    }
-
+    $backendSection = ""
     if ($PushBackend) {
-        # Ensure Unix line endings and executable permissions on launcher
-        ssh -p $Port "${RemoteUser}@${RemoteHost}" "sed -i 's/\r$//' $Dest/bin/* 2>/dev/null || true; chmod +x $Dest/bin/* 2>/dev/null || true"
+        $backendSection = @"
+if [ -d "`$DEST_DIR/bin" ]; then
+    sed -i 's/\r$//' "`$DEST_DIR/bin/"* 2>/dev/null || true
+    chmod +x "`$DEST_DIR/bin/"* 2>/dev/null || true
+fi
+"@
     }
 
+    $restartSection = ""
     if ($RestartSteam) {
-        Write-Host "==> Restarting Steam on ${RemoteUser}@${RemoteHost}..." -ForegroundColor Cyan
-        $restartCmd = 'if pgrep -x steam >/dev/null; then if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet --wait -- steam -shutdown >/dev/null 2>&1 || true; else steam -shutdown >/dev/null 2>&1 || true; fi; for i in $(seq 1 30); do if ! pgrep -x steam >/dev/null; then break; fi; sleep 1; done; fi; if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet -- steam >/dev/null 2>&1 & else nohup steam >/dev/null 2>&1 & fi'
-        ssh -p $Port "${RemoteUser}@${RemoteHost}" "$restartCmd"
-        Write-Host "Steam restarted. A backend already running there loads the panel into the fresh context; otherwise start one (below)." -ForegroundColor Green
+        $restartSection = @"
+echo "==> Restarting Steam on remote host..."
+if pgrep -x steam >/dev/null; then
+    if command -v systemd-run >/dev/null 2>&1; then
+        systemd-run --user --collect --quiet --wait -- steam -shutdown >/dev/null 2>&1 || true
+    else
+        steam -shutdown >/dev/null 2>&1 || true
+    fi
+    for i in `$(seq 1 30); do
+        if ! pgrep -x steam >/dev/null; then break; fi
+        sleep 1
+    done
+fi
+if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --user --collect --quiet -- steam >/dev/null 2>&1 &
+else
+    nohup steam >/dev/null 2>&1 &
+fi
+echo "Steam restarted. A backend already running there loads the panel into the fresh context; otherwise start one (below)."
+"@
+    }
+
+    $deployScript = @"
+#!/usr/bin/env bash
+set -e
+DEST_DIR="`$1"
+$setupSection
+$backendSection
+$restartSection
+"@
+    $deployScriptPath = Join-Path $stageDir ".tender_remote_deploy.sh"
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $deployScriptLF = $deployScript.Replace("`r`n", "`n").Replace("`r", "`n")
+    [System.IO.File]::WriteAllText($deployScriptPath, $deployScriptLF, $utf8NoBom)
+
+    # -------------------------------------------------------------------------
+    # Step 3: Single Batched Transfer and Remote Execution
+    # -------------------------------------------------------------------------
+    $archiveFile = Join-Path ([System.IO.Path]::GetTempPath()) "tender_push_$PID.tar.gz"
+    Write-Host "==> Compressing staged files for batched push..." -ForegroundColor Cyan
+    tar -czf $archiveFile -C $stageDir .
+
+    Write-Host "==> Pushing and deploying to ${RemoteUser}@${RemoteHost}:${Dest}/ (single batched session)..." -ForegroundColor Cyan
+    $remoteCmd = "eval DEST_DIR=$Dest; mkdir -p `"`$DEST_DIR`" && tar -xzf - -C `"`$DEST_DIR`" && if [ -f `"`$DEST_DIR/.tender_remote_deploy.sh`" ]; then bash `"`$DEST_DIR/.tender_remote_deploy.sh`" `"`$DEST_DIR`" && rm -f `"`$DEST_DIR/.tender_remote_deploy.sh`"; fi"
+
+    $p = Start-Process -FilePath "ssh" -ArgumentList @("-p", $Port, "${RemoteUser}@${RemoteHost}", $remoteCmd) -RedirectStandardInput $archiveFile -NoNewWindow -Wait -PassThru
+
+    if ($p.ExitCode -ne 0) {
+        Write-Error "Deployment to ${RemoteUser}@${RemoteHost} failed with exit code $($p.ExitCode)"
+        exit $p.ExitCode
     }
 }
 finally {
     if (Test-Path $stageDir) {
         Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+    if ($archiveFile -and (Test-Path $archiveFile)) {
+        Remove-Item $archiveFile -Force -ErrorAction SilentlyContinue
+    }
+    if ($askpassScript -and (Test-Path $askpassScript)) {
+        Remove-Item $askpassScript -Force -ErrorAction SilentlyContinue
+    }
+    $env:SSH_ASKPASS = $origAskPass
+    $env:SSH_ASKPASS_REQUIRE = $origAskPassReq
 }
 
 # -------------------------------------------------------------------------
