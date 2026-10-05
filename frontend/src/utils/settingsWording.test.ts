@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  EDIT_LABEL,
   ENABLE_SAVE_SYNC_CONFIRM,
+  SAVE_LABEL,
   INSECURE_SSL_DESCRIPTION,
   INSECURE_SSL_LABEL,
   SIGN_OUT_CONFIRM,
@@ -34,6 +36,10 @@ describe("Save Sync", () => {
 });
 
 describe("Connections", () => {
+  it("labels the row buttons", () => {
+    expect([EDIT_LABEL, SAVE_LABEL]).toEqual(["Edit", "Save"]);
+  });
+
   it("counts the custom headers, or says there are none", () => {
     expect(customHeadersSummary(0)).toBe("(none)");
     expect(customHeadersSummary(2)).toBe("2 set");

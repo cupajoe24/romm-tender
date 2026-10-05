@@ -507,13 +507,14 @@ Picture pages, which Big Picture deliberately keeps out of Settings; gathering t
 desktop control centre rather than a preferences dialog, a product decision the issue states. **Library** (the RomM
 side: what is synced) and **Steam Library** (the Steam side) stay apart as Big Picture keeps them.
 
-Drawn with Steam's components, the rows are `Field`, `DialogButton`, `ToggleField`, `ProgressBar` and, where a tab needs
-one, `Dropdown`, and a tab's section headings are `DialogControlsSectionHeader` (`desktop/settings/SectionHeading.tsx`).
-Every value imported is classified by the start-up check (CLAUDE.md's invariant register;
-[The start-up check](frontend-bundles.md#the-start-up-check)), and `"feature"` is the cost that fits a dev-only surface,
-even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation` and `DialogControlsSectionHeader` are
-classified so, and the row components Big Picture imports too keep the cost their Big Picture use gives them. Tables,
-notice cards and plain lines are drawn by the tab itself, in the look `desktop/settings/settingsStyles.ts` holds.
+Drawn with Steam's components, the rows are `Field`, `DialogButton`, `ToggleField`, `TextField`, `ProgressBar` and,
+where a tab needs one, `Dropdown`, and a tab's section headings are `DialogControlsSectionHeader`
+(`desktop/settings/SectionHeading.tsx`). Every value imported is classified by the start-up check (CLAUDE.md's invariant
+register; [The start-up check](frontend-bundles.md#the-start-up-check)), and `"feature"` is the cost that fits a
+dev-only surface, even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation` and
+`DialogControlsSectionHeader` are classified so, and the row components Big Picture imports too keep the cost their Big
+Picture use gives them. Tables, notice cards and plain lines are drawn by the tab itself, in the look
+`desktop/settings/settingsStyles.ts` holds.
 
 ### The Sync tab
 
@@ -529,6 +530,24 @@ in that order of authority — then Options, Steam memory and Last runs. Where t
 things (buttons above long tables, the running unit scrolled into view, every row a focus stop), the tab does not: the
 reader scrolls it with a mouse. Force Full Sync asks first through `DesktopConfirmDialog`, drawn in the window's own
 document by `useDialogHost` (D8).
+
+### The Connections tab
+
+`desktop/settings/connections/` draws the Connections section of the QAM's [Settings](qam-panel.md#settings) page for
+the desktop client, over the same state and handlers (`utils/useSettingsPage.ts`) and the same words and flows
+(`utils/settingsWording.ts`, `utils/rommSignIn.ts`, `utils/customHeaders.ts`, `utils/sgdbApiKey.ts`).
+
+Two groups, RomM and SteamGridDB. The RomM URL is a field in its row, saved only by a Save button that is there while
+the field differs from the stored URL (D7). Sign-in, the custom headers and the SteamGridDB key each validate before
+they save, so each is a dialog of its own (`SignInDialog`, `CustomHeadersDialog`, `SgdbKeyDialog`), and Sign out, last
+in its group, asks first through `DesktopConfirmDialog`; every one is drawn in the window's own document by
+`useDialogHost`. A dialog's fields are the desktop dialogs' own inputs, as on the game page. The sign-in dialog takes
+the pairing code in one field rather than the QAM's eight single-character boxes, which are there for a gamepad.
+
+The tab holds a `useSettingsPage` of its own, as the Sync tab holds a `useSyncPage`, so opening it runs the page's loads
+as opening Big Picture's Settings page does — including the device registration where save sync is on (D11). The hook's
+two questions are drawn by `desktop/settings/settingsPrompts.tsx` as desktop confirm dialogs, ready for the tabs that
+ask them.
 
 ### Moving the logic down first
 

@@ -46,6 +46,9 @@ are sorted into dedicated lowercase subdirectories:
   `settingsStyles.ts` are what the tabs draw with.
   - `desktop/settings/sync/` — the Sync tab: the QAM's Sync page drawn for the desktop over `utils/useSyncPage.ts`,
     `utils/syncPageWording.ts`, `utils/syncPageView.ts` and `utils/sessionBudget.ts`.
+  - `desktop/settings/connections/` — the Connections tab and its sign-in, custom-headers and SteamGridDB-key dialogs,
+    over `utils/useSettingsPage.ts` and the Connections section's words and flows in `utils/`. The settings hook's two
+    questions are drawn by `desktop/settings/settingsPrompts.tsx`.
 
 ## What reaches a bundle
 

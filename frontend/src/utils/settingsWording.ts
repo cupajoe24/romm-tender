@@ -14,6 +14,7 @@ export const phraseText = (phrase: Phrase): string => phrase.map((run) => run.te
 
 export const ROMM_HEADING = "RomM";
 export const EDIT_LABEL = "Edit";
+export const SAVE_LABEL = "Save";
 
 export const ROMM_URL_LABEL = "RomM URL";
 export const ROMM_URL_UNSET = "(not set)";

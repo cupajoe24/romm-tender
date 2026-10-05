@@ -1,7 +1,7 @@
 // coverage-exempt: the harness every suite runs inside — global mocks and
 // teardown only, so it has no behaviour of its own a test could assert.
 import { afterEach, beforeEach, vi } from "vitest";
-import { createElement, type ReactNode } from "react";
+import { Fragment, createElement, type ReactNode } from "react";
 import { resetHostEventBus } from "./test-utils/host-event-bus";
 
 // Vitest evaluates this file anew for every test file, so a second evaluation in
@@ -299,13 +299,27 @@ vi.mock("@decky/ui", () => {
     },
     PanelSection: passthrough("section"),
     PanelSectionRow: passthrough("div"),
-    TextField: (p: AnyProps & { value?: string; onChange?: (e: unknown) => void; onKeyDown?: (e: unknown) => void }) =>
-      createElement("input", {
-        "data-testid": "text-field",
-        value: p.value ?? "",
-        onChange: (e: unknown) => p.onChange?.(e),
-        onKeyDown: (e: unknown) => p.onKeyDown?.(e),
-      }),
+    // `inlineControls` is rendered after the input, as Steam draws it in the
+    // input's row: a control passed there would otherwise vanish from the test.
+    TextField: (
+      p: AnyProps & {
+        value?: string;
+        onChange?: (e: unknown) => void;
+        onKeyDown?: (e: unknown) => void;
+        inlineControls?: unknown;
+      },
+    ) =>
+      createElement(
+        Fragment,
+        null,
+        createElement("input", {
+          "data-testid": "text-field",
+          value: p.value ?? "",
+          onChange: (e: unknown) => p.onChange?.(e),
+          onKeyDown: (e: unknown) => p.onKeyDown?.(e),
+        }),
+        p.inlineControls as never,
+      ),
     // `disabled` rides the wrapper as an attribute rather than the checkbox's own
     // `disabled`, so what a test can SEE of a greyed toggle is added without
     // changing what a test that clicks one gets. `highlightOnFocus={false}` and
