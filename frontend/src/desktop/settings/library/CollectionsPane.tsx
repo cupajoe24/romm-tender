@@ -7,7 +7,7 @@
  */
 
 import { Fragment, useState, type FC, type ReactNode } from "react";
-import { DialogButton, Spinner, TextField, ToggleField } from "@decky/ui";
+import { DialogButton, Spinner, TextField, Toggle } from "@decky/ui";
 import { FaChevronRight } from "react-icons/fa";
 import type { CollectionSyncSetting } from "../../../types";
 import {
@@ -105,10 +105,9 @@ const KindList: FC<{
                 kind,
                 KIND_TEXT.favorites.name,
                 favoritesCount(state, favorites),
-                <ToggleField
-                  checked={favoritesRow?.sync_enabled ?? false}
+                <Toggle
+                  value={favoritesRow?.sync_enabled ?? false}
                   disabled={favoritesRow === null}
-                  bottomSeparator="none"
                   onChange={(value: boolean) => {
                     if (favoritesRow) state.toggleCollection(favoritesRow, value, "list");
                   }}
@@ -128,9 +127,8 @@ const KindList: FC<{
         "owner",
         OWNER_ROW_NAME,
         ownerCount(state),
-        <ToggleField
-          checked={state.ownerScope === "all"}
-          bottomSeparator="none"
+        <Toggle
+          value={state.ownerScope === "all"}
           onChange={(value: boolean) => state.setOwnerScope(value ? "all" : "own")}
         />,
       )}
@@ -207,9 +205,8 @@ const CollectionRow: FC<{ collection: CollectionSyncSetting; owned: boolean; sta
     <td style={{ ...TD_STYLE, ...NUMERIC_STYLE }}>{collection.rom_count}</td>
     <td style={{ ...TD_STYLE, ...NUMERIC_STYLE }}>{inSteamLabel(collection)}</td>
     <td style={{ ...TD_STYLE, width: "60px" }}>
-      <ToggleField
-        checked={collection.sync_enabled}
-        bottomSeparator="none"
+      <Toggle
+        value={collection.sync_enabled}
         onChange={(value: boolean) => state.toggleCollection(collection, value, "pane")}
       />
     </td>

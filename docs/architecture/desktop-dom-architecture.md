@@ -475,14 +475,23 @@ Picture pages, which Big Picture deliberately keeps out of Settings; gathering t
 desktop control centre rather than a preferences dialog, a product decision the issue states. **Library** (the RomM
 side: what is synced) and **Steam Library** (the Steam side) stay apart as Big Picture keeps them.
 
-Drawn with Steam's components, the rows are `Field`, `DialogButton`, `ToggleField`, `TextField`, `ProgressBar` and,
-where a tab needs one, `Dropdown`, and a tab's section headings are `DialogControlsSectionHeader`
+Drawn with Steam's components, the rows are `Field`, `DialogButton`, `Toggle`, `TextField`, `ProgressBar` and, where a
+tab needs one, `Dropdown`, and a tab's section headings are `DialogControlsSectionHeader`
 (`desktop/settings/SectionHeading.tsx`). Every value imported is classified by the start-up check (CLAUDE.md's invariant
 register; [The start-up check](frontend-bundles.md#the-start-up-check)), and `"feature"` is the cost that fits a
-dev-only surface, even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation` and
-`DialogControlsSectionHeader` are classified so, and the row components Big Picture imports too keep the cost their Big
-Picture use gives them. Tables, notice cards and plain lines are drawn by the tab itself, in the look
+dev-only surface, even though `boot/steamModules.ts` ships in every bundle: `SidebarNavigation`,
+`DialogControlsSectionHeader` and `Toggle` are classified so, and the row components Big Picture imports too keep the
+cost their Big Picture use gives them. Tables, notice cards and plain lines are drawn by the tab itself, in the look
 `desktop/settings/settingsStyles.ts` holds.
+
+A switch is Steam's bare `Toggle` — in a `Field` where it has a label (`desktop/settings/SettingsToggle.tsx`), alone in
+a list row or a table cell — and never `ToggleField`. Read on the device (SteamOS, desktop client) on 2026-10-05 through
+the two windows' debugger targets: `@decky/ui`'s `ToggleField` is Steam's name-keyed component selector, which answers
+with what the nearest component-override context maps `"ToggleField"` to and falls back to the classic dialog field — an
+OFF/ON pair — where the context is empty, as it is in a React root of Tender's own. Steam's settings window does not go
+through that selector: its rows render a field component of their own, which draws a `Field` around the switch that
+plays the `ToggleOff` sound — the one module in Steam's bundle that does, and the one `@decky/ui`'s `Toggle` finds.
+`SettingsToggle.test.tsx` fails on a desktop component that draws `ToggleField`.
 
 ### The Sync tab
 

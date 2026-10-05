@@ -345,6 +345,20 @@ vi.mock("@decky/ui", () => {
         }),
         p.inlineControls as never,
       ),
+    // The bare switch: `value` rather than `checked`, and no label of its own.
+    // The same test ids as `ToggleField`'s, and `disabled` on the wrapper for
+    // the same reason, so a test presses either the same way.
+    Toggle: (p: AnyProps & { value?: boolean; disabled?: boolean; onChange?: (v: boolean) => void }) =>
+      createElement(
+        "div",
+        { "data-testid": "toggle", "data-disabled": p.disabled ? "true" : undefined },
+        createElement("input", {
+          type: "checkbox",
+          "data-testid": "toggle-input",
+          checked: p.value ?? false,
+          onChange: (e: { target: { checked: boolean } }) => p.onChange?.(e.target.checked),
+        }),
+      ),
     // `disabled` rides the wrapper as an attribute rather than the checkbox's own
     // `disabled`, so what a test can SEE of a greyed toggle is added without
     // changing what a test that clicks one gets. `highlightOnFocus={false}` and

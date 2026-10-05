@@ -7,7 +7,7 @@
  */
 
 import { useState, type FC } from "react";
-import { DialogButton, Spinner, ToggleField } from "@decky/ui";
+import { DialogButton, Spinner, Toggle } from "@decky/ui";
 import { FaChevronRight } from "react-icons/fa";
 import { biosColorForLevel } from "../../../utils/biosColor";
 import {
@@ -68,11 +68,7 @@ const PlatformListRow: FC<{ row: PlatformRow; state: PlatformsPageState; onOpen:
       </span>
       <FaChevronRight size={10} color={MUTED} style={{ flexShrink: 0 }} />
     </button>
-    <ToggleField
-      checked={row.syncEnabled}
-      bottomSeparator="none"
-      onChange={(value: boolean) => state.toggleSync(row, value)}
-    />
+    <Toggle value={row.syncEnabled} onChange={(value: boolean) => state.toggleSync(row, value)} />
   </div>
 );
 

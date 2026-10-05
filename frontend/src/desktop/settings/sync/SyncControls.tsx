@@ -6,7 +6,7 @@
  */
 
 import type { FC } from "react";
-import { DialogButton, Field, ToggleField } from "@decky/ui";
+import { DialogButton, Field } from "@decky/ui";
 import type { SyncRunRecord } from "../../../types";
 import { formatGb, formatSignedGb, memoryLevel, type MemoryLevel } from "../../../utils/sessionBudget";
 import { forceFullSyncBlocked, forceFullSyncNote, runHistoryNotice } from "../../../utils/syncPageView";
@@ -26,6 +26,7 @@ import {
 } from "../../../utils/syncPageWording";
 import type { SyncPageState } from "../../../utils/useSyncPage";
 import { SectionHeading } from "../SectionHeading";
+import { SettingsToggle } from "../SettingsToggle";
 import {
   AMBER,
   BUTTON_STYLE,
@@ -63,7 +64,7 @@ export const OptionsSection: FC<{ state: SyncPageState; onForceFullSync: () => v
 }) => (
   <section style={SECTION_STYLE}>
     <SectionHeading title={OPTIONS_HEADING} />
-    <ToggleField
+    <SettingsToggle
       label={SKIP_PREVIEW_LABEL}
       description={SKIP_PREVIEW_DESCRIPTION}
       checked={state.skipPreview}

@@ -11,7 +11,7 @@
  */
 
 import { useState, type FC } from "react";
-import { DialogButton, Field, TextField, ToggleField } from "@decky/ui";
+import { DialogButton, Field, TextField } from "@decky/ui";
 import { verifySgdbApiKey } from "../../../api/backend";
 import { detach } from "../../../utils/detach";
 import { isHttpsUrl, trimServerUrl } from "../../../utils/serverUrl";
@@ -38,6 +38,7 @@ import { useSettingsPage, type SettingsPageState } from "../../../utils/useSetti
 import { DesktopConfirmDialog } from "../../gameview/dialogs/DesktopConfirmDialog";
 import { useDialogHost, type AskDialog } from "../../gameview/dialogs/useDialogHost";
 import { SectionHeading } from "../SectionHeading";
+import { SettingsToggle } from "../SettingsToggle";
 import { desktopSettingsPrompts } from "../settingsPrompts";
 import { BUTTON_ROW_STYLE, BUTTON_STYLE, MUTED_TEXT_STYLE, SECTION_STYLE } from "../settingsStyles";
 import { CustomHeadersDialog } from "./CustomHeadersDialog";
@@ -114,7 +115,7 @@ const RommSection: FC<{ state: SettingsPageState; ask: AskDialog }> = ({ state, 
         </DialogButton>
       </Field>
       {isHttpsUrl(state.url) && (
-        <ToggleField
+        <SettingsToggle
           label={INSECURE_SSL_LABEL}
           description={INSECURE_SSL_DESCRIPTION}
           checked={state.allowInsecureSsl}

@@ -117,7 +117,7 @@ describe("the RomM rows", () => {
     await renderTab();
     fireEvent.click(screen.getByTestId("toggle-input"));
     expect(backend.saveServerUrl).toHaveBeenCalledWith("https://romm.local", true);
-    expect(screen.getByTestId("toggle-desc")).toHaveTextContent("Only on a network you trust.");
+    expect(rowDescription("Allow Insecure SSL")).toContain("Only on a network you trust.");
   });
 
   it("has no insecure-SSL switch for an http URL", async () => {

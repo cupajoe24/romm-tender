@@ -250,6 +250,9 @@ export const STEAM_LOOKUPS: readonly SteamLookup[] = [
   // The section headings of the Tender Settings window's tabs; desktop only,
   // like the sidebar above.
   truthy("DialogControlsSectionHeader", "feature", () => DialogControlsSectionHeader),
+  // The switch the Tender Settings window draws in a `Field`, as Steam's own
+  // settings rows do; desktop only, like the two above.
+  truthy("Toggle", "feature", () => Toggle),
 
   // Not truthiness: `@decky/ui` declares `Navigation` as an empty object and
   // fills it from a lookup inside a `try`, so a miss leaves an object that is
