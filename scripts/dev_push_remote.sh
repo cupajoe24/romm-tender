@@ -17,6 +17,10 @@
 #   --skip-build        Skip frontend build step and push existing dist/ files
 #   --setup-remote      Run one-time setup on remote host (CEF debugging + directory creation)
 #   --restart-steam     Shut Steam down on the remote and start it again after the push
+#   --password <pass>   Specify the SSH password or key passphrase for this execution
+#   --set-password      Prompt for SSH password/key passphrase and save in user environment (~/.tender_ssh_env)
+#   --session-only      When used with --set-password, only set for this session rather than saving to ~/.tender_ssh_env
+#   --clear-password    Remove cached SSH password from user environment
 #
 
 set -euo pipefail
@@ -30,6 +34,10 @@ PORT=22
 SKIP_BUILD=false
 SETUP_REMOTE=false
 RESTART_STEAM=false
+PASSWORD=""
+SET_PASSWORD=false
+SESSION_ONLY=false
+CLEAR_PASSWORD=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,6 +73,22 @@ while [[ $# -gt 0 ]]; do
       RESTART_STEAM=true
       shift
       ;;
+    --password)
+      PASSWORD="$2"
+      shift 2
+      ;;
+    --set-password|--save-password)
+      SET_PASSWORD=true
+      shift
+      ;;
+    --session-only)
+      SESSION_ONLY=true
+      shift
+      ;;
+    --clear-password)
+      CLEAR_PASSWORD=true
+      shift
+      ;;
     -h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# *//'
       exit 0
@@ -85,8 +109,58 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# -------------------------------------------------------------------------
+# Password and Environment Management
+# -------------------------------------------------------------------------
+ENV_FILE="$HOME/.tender_ssh_env"
+
+if [[ "$CLEAR_PASSWORD" = true ]]; then
+  rm -f "$ENV_FILE"
+  unset TENDER_SSH_PASSWORD || true
+  echo "Cleared cached SSH password from user environment ($ENV_FILE)."
+  if [[ -z "$TARGET" ]]; then
+    exit 0
+  fi
+fi
+
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck source=/dev/null
+  source "$ENV_FILE" 2>/dev/null || true
+fi
+
+EFFECTIVE_PASSWORD="${PASSWORD:-${TENDER_SSH_PASSWORD:-${SSH_PASSWORD:-}}}"
+
+if [[ "$SET_PASSWORD" = true ]]; then
+  if [[ -z "$EFFECTIVE_PASSWORD" ]]; then
+    read -r -s -p "Enter SSH password or key passphrase to store in user environment: " INPUT_PASS
+    echo ""
+    EFFECTIVE_PASSWORD="$INPUT_PASS"
+  fi
+  if [[ -n "$EFFECTIVE_PASSWORD" ]]; then
+    export TENDER_SSH_PASSWORD="$EFFECTIVE_PASSWORD"
+    if [[ "$SESSION_ONLY" = false ]]; then
+      mkdir -p "$HOME"
+      cat << EOF > "$ENV_FILE"
+export TENDER_SSH_PASSWORD='$EFFECTIVE_PASSWORD'
+EOF
+      chmod 600 "$ENV_FILE"
+      echo "SSH password/passphrase saved to user environment ($ENV_FILE)."
+      echo "Future runs will use this password automatically. Run with --clear-password to remove it."
+    else
+      echo "SSH password/passphrase set in current session environment."
+    fi
+  fi
+elif [[ -n "$PASSWORD" ]]; then
+  export TENDER_SSH_PASSWORD="$PASSWORD"
+fi
+
 if [[ -z "$TARGET" ]]; then
   read -rp "Enter remote host IP address or hostname: " TARGET
+fi
+
+if [[ -z "$TARGET" ]]; then
+  echo "Error: Target remote host is required." >&2
+  exit 1
 fi
 
 # Parse target into user and host
@@ -109,19 +183,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 STAGE_DIR="$REPO_ROOT/.dev_stage"
 
 # -------------------------------------------------------------------------
-# Step 0: Optional Remote Host Setup
-# -------------------------------------------------------------------------
-if [[ "$SETUP_REMOTE" = true ]]; then
-  echo "==> Configuring remote target (${REMOTE_USER}@${REMOTE_HOST})..."
-  ssh -p "$PORT" -t "${REMOTE_USER}@${REMOTE_HOST}" "
-mkdir -p ~/.steam/steam
-touch ~/.steam/steam/.cef-enable-remote-debugging
-mkdir -p $DEST/dist
-echo 'Remote host setup complete: CEF remote debugging enabled, directories ready.'
-"
-fi
-
-# -------------------------------------------------------------------------
 # Step 1: Build Frontend (if requested)
 # -------------------------------------------------------------------------
 if [[ "$PUSH_FRONTEND" = true && "$SKIP_BUILD" = false ]]; then
@@ -139,20 +200,36 @@ if [[ "$PUSH_FRONTEND" = true && ! -f "$REPO_ROOT/dist/index.js" ]]; then
 fi
 
 # -------------------------------------------------------------------------
-# Step 2: Stage files for atomic, single-transfer SCP push
+# Step 2: Stage files and configure batched deployment
 # -------------------------------------------------------------------------
 echo "==> Staging files for push..."
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 
+ASKPASS_TMP=""
 cleanup() {
   rm -rf "$STAGE_DIR"
+  if [[ -n "$ASKPASS_TMP" && -f "$ASKPASS_TMP" ]]; then
+    rm -f "$ASKPASS_TMP"
+  fi
 }
 trap cleanup EXIT
 
+# Configure SSH_ASKPASS if an environment or supplied password exists
+if [[ -n "$EFFECTIVE_PASSWORD" ]]; then
+  ASKPASS_TMP=$(mktemp)
+  cat << 'EOF' > "$ASKPASS_TMP"
+#!/usr/bin/env bash
+echo "$TENDER_SSH_PASSWORD"
+EOF
+  chmod 700 "$ASKPASS_TMP"
+  export TENDER_SSH_PASSWORD="$EFFECTIVE_PASSWORD"
+  export SSH_ASKPASS="$ASKPASS_TMP"
+  export SSH_ASKPASS_REQUIRE="force"
+fi
+
 if [[ "$PUSH_FRONTEND" = true ]]; then
   mkdir -p "$STAGE_DIR/dist"
-  # Copy all dist files
   cp -r "$REPO_ROOT/dist/"* "$STAGE_DIR/dist/"
 fi
 
@@ -171,31 +248,79 @@ if [[ "$PUSH_BACKEND" = true ]]; then
   fi
 fi
 
-# Ensure remote destination directories exist
-echo "==> Ensuring remote directory ($DEST) exists on ${REMOTE_USER}@${REMOTE_HOST}..."
-MKDIR_CMD="mkdir -p $DEST"
-if [[ "$PUSH_FRONTEND" = true ]]; then
-  MKDIR_CMD="$MKDIR_CMD $DEST/dist"
-fi
-if [[ "$PUSH_BACKEND" = true ]]; then
-  MKDIR_CMD="$MKDIR_CMD $DEST/backend $DEST/bin $DEST/defaults"
-fi
-ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "$MKDIR_CMD"
+# Generate remote deployment script to run post-extract operations in the same SSH session
+REMOTE_DEPLOY_SCRIPT="$STAGE_DIR/.tender_remote_deploy.sh"
+cat << 'EOF' > "$REMOTE_DEPLOY_SCRIPT"
+#!/usr/bin/env bash
+set -e
+DEST_DIR="$1"
+EOF
 
-# Push all staged items in a single recursive SCP command
-echo "==> Pushing files to ${REMOTE_USER}@${REMOTE_HOST}:${DEST}/..."
-scp -P "$PORT" -r "$STAGE_DIR"/* "${REMOTE_USER}@${REMOTE_HOST}:${DEST}/"
+if [[ "$SETUP_REMOTE" = true ]]; then
+  PUB_KEY_FILE="$HOME/.ssh/id_ed25519.pub"
+  if [[ ! -f "$PUB_KEY_FILE" ]]; then
+    PUB_KEY_FILE="$HOME/.ssh/id_rsa.pub"
+  fi
+  KEY_SETUP=""
+  if [[ -f "$PUB_KEY_FILE" ]]; then
+    KEY_CONTENT=$(cat "$PUB_KEY_FILE")
+    KEY_SETUP="mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qxF '$KEY_CONTENT' ~/.ssh/authorized_keys 2>/dev/null || echo '$KEY_CONTENT' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+  fi
+  cat << EOF >> "$REMOTE_DEPLOY_SCRIPT"
+echo "==> Configuring remote host..."
+mkdir -p ~/.steam/steam
+touch ~/.steam/steam/.cef-enable-remote-debugging
+$KEY_SETUP
+echo "Remote host setup complete: CEF remote debugging enabled, directories ready."
+EOF
+fi
 
 if [[ "$PUSH_BACKEND" = true ]]; then
-  ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "chmod +x $DEST/bin/* 2>/dev/null || true"
+  cat << 'EOF' >> "$REMOTE_DEPLOY_SCRIPT"
+if [ -d "$DEST_DIR/bin" ]; then
+  sed -i 's/\r$//' "$DEST_DIR/bin/"* 2>/dev/null || true
+  chmod +x "$DEST_DIR/bin/"* 2>/dev/null || true
+fi
+EOF
 fi
 
 if [[ "$RESTART_STEAM" = true ]]; then
-  echo "==> Restarting Steam on ${REMOTE_USER}@${REMOTE_HOST}..."
-  RESTART_CMD='if pgrep -x steam >/dev/null; then if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet --wait -- steam -shutdown >/dev/null 2>&1 || true; else steam -shutdown >/dev/null 2>&1 || true; fi; for i in $(seq 1 30); do if ! pgrep -x steam >/dev/null; then break; fi; sleep 1; done; fi; if command -v systemd-run >/dev/null 2>&1; then systemd-run --user --collect --quiet -- steam >/dev/null 2>&1 & else nohup steam >/dev/null 2>&1 & fi'
-  ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "$RESTART_CMD"
-  echo "Steam restarted. A backend already running there loads the panel into the fresh context; otherwise start one (below)."
+  cat << 'EOF' >> "$REMOTE_DEPLOY_SCRIPT"
+echo "==> Restarting Steam on remote host..."
+if pgrep -x steam >/dev/null; then
+  if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --user --collect --quiet --wait -- steam -shutdown >/dev/null 2>&1 || true
+  else
+    steam -shutdown >/dev/null 2>&1 || true
+  fi
+  for i in $(seq 1 30); do
+    if ! pgrep -x steam >/dev/null; then break; fi
+    sleep 1
+  done
 fi
+if command -v systemd-run >/dev/null 2>&1; then
+  systemd-run --user --collect --quiet -- steam >/dev/null 2>&1 &
+else
+  nohup steam >/dev/null 2>&1 &
+fi
+echo "Steam restarted. A backend already running there loads the panel into the fresh context; otherwise start one (below)."
+EOF
+fi
+chmod +x "$REMOTE_DEPLOY_SCRIPT"
+
+# -------------------------------------------------------------------------
+# Step 3: Single Batched Transfer and Remote Execution
+# -------------------------------------------------------------------------
+echo "==> Pushing and deploying to ${REMOTE_USER}@${REMOTE_HOST}:${DEST}/ (single batched session)..."
+tar -czf - -C "$STAGE_DIR" . | ssh -p "$PORT" "${REMOTE_USER}@${REMOTE_HOST}" "
+eval DEST_DIR=$DEST
+mkdir -p \"\$DEST_DIR\"
+tar -xzf - -C \"\$DEST_DIR\"
+if [ -f \"\$DEST_DIR/.tender_remote_deploy.sh\" ]; then
+  bash \"\$DEST_DIR/.tender_remote_deploy.sh\" \"\$DEST_DIR\"
+  rm -f \"\$DEST_DIR/.tender_remote_deploy.sh\"
+fi
+"
 
 # -------------------------------------------------------------------------
 # Summary & How to Start Backend on Remote
@@ -217,7 +342,6 @@ echo "   - Or if using mise / a virtual environment:"
 echo "   ssh -t ${REMOTE_USER}@${REMOTE_HOST} \"cd $DEST && source .venv/bin/activate && python backend/main.py\""
 echo "   The backend will serve $DEST/dist over loopback, connect to Steam on port 8080,"
 echo "   and inject the panel directly into Steam's Quick Access Menu and Desktop Client."
-
 echo ""
 echo "Remote DevTools URL (SharedJSContext):"
 echo -e "   \033[33mhttp://${REMOTE_HOST}:8081\033[0m"
