@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isValidElement } from "react";
-import { SETTINGS_SECTIONS, type SettingsTab } from "../../types/navigation";
+import type { SettingsTab } from "../../types/navigation";
 import {
   DEFAULT_SETTINGS_TAB,
   SETTINGS_TAB_GROUPS,
@@ -10,7 +10,18 @@ import {
 } from "./tabs";
 import { SyncTab } from "./sync/SyncTab";
 
-const EVERY_TAB: readonly SettingsTab[] = [...SETTINGS_SECTIONS, "sync", "library", "downloads", "data-management"];
+const EVERY_TAB: readonly SettingsTab[] = [
+  "connections",
+  "save-sync",
+  "controller",
+  "steam-library",
+  "updates",
+  "advanced",
+  "sync",
+  "library",
+  "downloads",
+  "data-management",
+];
 
 describe("the settings window's tabs", () => {
   it("lists every tab exactly once, in the three groups the window shows", () => {

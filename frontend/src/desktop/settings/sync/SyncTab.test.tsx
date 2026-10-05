@@ -30,6 +30,8 @@ vi.mock("../../../utils/steamRestart", () => ({ restartSteam: vi.fn() }));
 
 const stats = (over: Partial<SyncStats> = {}): SyncStats => ({
   last_sync: "2026-07-11T17:48:00",
+  has_completion_stamp: true,
+  resumable_games: 0,
   platforms: 3,
   collections: 1,
   roms: 120,
@@ -291,15 +293,15 @@ describe("the options", () => {
     await flush();
 
     expect(backend.clearSyncCache).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Cleared. Pressing again would clear nothing.")).toBeVisible();
+    expect(screen.getByText("Cleared.")).toBeVisible();
   });
 
   it("keeps Force Full Sync dead with nothing recorded to forget, and says so", async () => {
-    vi.mocked(backend.getSyncStats).mockResolvedValue(stats({ last_sync: null }));
+    vi.mocked(backend.getSyncStats).mockResolvedValue(stats({ has_completion_stamp: false, resumable_games: 0 }));
     await renderTab();
 
     expect(button("Force Full Sync")).toBeDisabled();
-    expect(screen.getByText("Nothing has been synced yet, so there is nothing to forget.")).toBeVisible();
+    expect(screen.getByText("No sync progress is recorded, so there is nothing to forget.")).toBeVisible();
   });
 });
 

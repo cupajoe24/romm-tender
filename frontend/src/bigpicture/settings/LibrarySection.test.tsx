@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { createElement } from "react";
-import { LibrarySection, buildRegionOptions, DEFAULT_REGION_LABEL, AUTO_REGION } from "./LibrarySection";
+import { LibrarySection } from "./LibrarySection";
+import { AUTO_REGION, DEFAULT_REGION_LABEL } from "../../utils/preferredRegion";
 
 // DropdownItem isn't in the global @decky/ui stub. Capture rgOptions +
 // selectedOption + onChange so we can drive the onChange callback and assert
@@ -50,41 +51,6 @@ vi.mock("@decky/ui", () => {
         }),
       ),
   };
-});
-
-describe("buildRegionOptions", () => {
-  it("lists the Default sentinel + fixed anchors first, in build-time order", () => {
-    const opts = buildRegionOptions([], AUTO_REGION);
-    expect(opts.map((o) => o.data)).toEqual([AUTO_REGION, "World", "USA", "Europe", "Japan"]);
-    expect(opts[0]?.label).toBe(DEFAULT_REGION_LABEL);
-    expect(opts[0]?.label).not.toMatch(/auto/i);
-  });
-
-  it("appends distinct library regions after the anchors, sorted, de-duped against anchors", () => {
-    const opts = buildRegionOptions(["Korea", "Brazil", "USA", "Korea"], AUTO_REGION);
-    // "USA" is an anchor → not duplicated; "Korea"/"Brazil" appended sorted.
-    expect(opts.map((o) => o.data)).toEqual([AUTO_REGION, "World", "USA", "Europe", "Japan", "Brazil", "Korea"]);
-  });
-
-  it("empty library → anchors only", () => {
-    expect(buildRegionOptions([], AUTO_REGION).map((o) => o.data)).toEqual([
-      AUTO_REGION,
-      "World",
-      "USA",
-      "Europe",
-      "Japan",
-    ]);
-  });
-
-  it("always includes the current selection even if absent from anchors + library", () => {
-    const opts = buildRegionOptions([], "Germany");
-    expect(opts.map((o) => o.data)).toContain("Germany");
-  });
-
-  it("ignores empty/blank library region strings", () => {
-    const opts = buildRegionOptions(["", "Brazil"], AUTO_REGION);
-    expect(opts.map((o) => o.data)).toEqual([AUTO_REGION, "World", "USA", "Europe", "Japan", "Brazil"]);
-  });
 });
 
 describe("LibrarySection", () => {

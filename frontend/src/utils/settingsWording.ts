@@ -44,6 +44,23 @@ export const INSECURE_SSL_DESCRIPTION =
   "Tender sends — your RomM token, your password when you sign in with it, and any custom headers — and use your " +
   "account. Only on a network you trust.";
 
+// --- Save Sync ---
+
+export const ENABLE_SAVE_SYNC_CONFIRM = {
+  title: "Enable Save Sync?",
+  description:
+    "Tender keeps a game's saves in step with your RomM server: before a game starts it fetches a newer " +
+    "save from the server, after you quit it uploads yours, and if both sides changed you choose which one " +
+    "wins. Which files make up a game's save is asked of the emulator that launches it, game by game; a game " +
+    "whose save it cannot tell apart from others, such as a shared memory card or a save inside the game " +
+    "file, is left alone.\n\n" +
+    "Before a save on this device is overwritten, Tender keeps a copy of the old file.\n\n" +
+    "Use this with your own RomM account, not a shared one such as admin or guest: saves on the server " +
+    "belong to the user who uploaded them.",
+  confirm: "I am sure",
+  cancel: "Cancel",
+} as const;
+
 // --- Connections: SteamGridDB ---
 
 export const SGDB_HEADING = "SteamGridDB";

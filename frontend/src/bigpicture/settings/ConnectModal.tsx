@@ -290,15 +290,7 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
       />
       {mode === "token" && (
         <>
-<<<<<<< HEAD
-          <div style={helperTextStyle}>
-            Create a token in RomM&apos;s web UI (Settings › API Tokens) and paste it here. Make sure it has the scopes
-            listed in Tender&apos;s configuration guide so downloads, saves, and device sync work. Tender never deletes
-            a pasted token; you manage it in RomM.
-          </div>
-=======
           <div style={helperTextStyle}>{renderPhrase(SIGN_IN_HELP.token)}</div>
->>>>>>> e895cf04 (refactor(frontend): Connections' sign-in, custom headers and SteamGridDB key move into utils/)
           {/* The token field is the only input in this mode and, unwrapped, is a
                 direct child of the modal body. On the Deck, R2/OSK-Enter on the
                 empty field closes the ModalRoot even though handleCompletingKeyDown
@@ -320,16 +312,8 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
       )}
       {mode === "pairing" && (
         <>
-<<<<<<< HEAD
-          <div style={helperTextStyle}>
-            In RomM&apos;s web UI open your API token and click <strong>Pair</strong>, then enter the 8-character code
-            here within 60 seconds. Tender fetches the token itself — nothing to copy or paste.
-          </div>
-          <div style={codeLabelStyle}>Pairing code</div>
-=======
           <div style={helperTextStyle}>{renderPhrase(SIGN_IN_HELP.pairing)}</div>
           <div style={codeLabelStyle}>{PAIRING_CODE_LABEL}</div>
->>>>>>> e895cf04 (refactor(frontend): Connections' sign-in, custom headers and SteamGridDB key move into utils/)
           {/* Focusable + flow-children="horizontal" tells Steam's gamepad nav to
                 step between the boxes left/right (the analog stick/d-pad), not
                 up/down — a plain div defaults to vertical traversal. */}
@@ -353,14 +337,7 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
       )}
       {mode === "credentials" && (
         <>
-<<<<<<< HEAD
-          <div style={helperTextStyle}>
-            Enter your RomM username and password once. Tender exchanges them for an API token and never stores your
-            password.
-          </div>
-=======
           <div style={helperTextStyle}>{renderPhrase(SIGN_IN_HELP.credentials)}</div>
->>>>>>> e895cf04 (refactor(frontend): Connections' sign-in, custom headers and SteamGridDB key move into utils/)
           {/* A plain wrapping div carries the ref used to advance Enter from the
                 username field to the password field (querySelectorAll('input')[1]). */}
           <div ref={credentialsRowRef} data-testid="credentials-row">
