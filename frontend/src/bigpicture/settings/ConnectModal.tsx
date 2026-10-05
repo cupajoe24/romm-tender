@@ -1,39 +1,43 @@
 /**
- * One-time prompt for signing in to RomM — by minting a Client API Token from a
- * username + password, by pasting a token created in RomM's web UI, or by
- * entering a short-lived pairing code the plugin exchanges for a token (the two
- * token paths are for OIDC accounts, which have no password to mint from).
+ * The QAM's sign-in prompt for RomM, in one of the three ways
+ * `utils/rommSignIn.ts` offers; what each asks for and says, the deadline and
+ * the attempt are that module's.
  *
- * The credentials and the pasted token are write-only: never pre-filled, never
- * echoed back by the backend. The pairing code is short-lived (60 seconds) and
- * single-use, so it is entered in the clear across eight single-character boxes
- * (an OTP-style input grouped 4 – 4 around a hyphen, auto-advancing as you type)
- * — typability matters more than obscuring a value that expires almost
- * immediately. Sign in is gated until the selected mode's fields are complete,
- * and the sign-in attempt runs inside the modal until it answers or the deadline
- * elapses: on success the parent's matching handler resolved truthy and the modal
- * closes; on failure the modal stays open and shows the returned message so the
- * user can correct and retry. The parent's handlers — `connect_with_credentials` (exchanges the
- * credentials for a scoped token and discards the password), `connect_with_token`
- * (validates and stores the pasted token), or `connect_with_pairing_code`
- * (exchanges the code for a token) — own token minting/validation, status, and
- * persistence; this modal owns only the in-flight field values, the selected
- * mode, and the in-flight/error UI state.
+ * The pairing code is entered across eight single-character boxes (an
+ * OTP-style input grouped 4 – 4 around a hyphen, auto-advancing as you type) —
+ * typability matters more than obscuring a value that expires almost
+ * immediately. Sign in is gated until the selected mode's fields are complete;
+ * on success the parent's matching handler resolved truthy and the modal
+ * closes, on failure it stays open and shows the returned message so the user
+ * can correct and retry. The parent's handlers own token minting, validation,
+ * status and persistence; this modal owns only the in-flight field values, the
+ * selected mode, and the in-flight/error UI state.
  */
 
 import { FC, Fragment, useState, useRef, ChangeEvent, KeyboardEvent } from "react";
 import { TextField, DropdownItem, Focusable } from "@decky/ui";
-import { withTimeout, TimeoutError } from "../../utils/withTimeout";
+import {
+  API_TOKEN_LABEL,
+  DEFAULT_SIGN_IN_MODE,
+  PAIRING_CODE_GROUP,
+  PAIRING_CODE_LABEL,
+  PAIRING_CODE_LENGTH,
+  PASSWORD_LABEL,
+  SIGN_IN_HELP,
+  SIGN_IN_MODE_LABEL,
+  SIGN_IN_MODE_OPTIONS,
+  SIGN_IN_SUBMITTING_LABEL,
+  SIGN_IN_SUBMIT_LABEL,
+  SIGN_IN_TITLE,
+  USERNAME_LABEL,
+  submitSignIn,
+  normalizePairingCode,
+  signInComplete,
+  type SignInMode,
+  type SignInResult,
+} from "../../utils/rommSignIn";
+import type { Phrase } from "../../utils/settingsWording";
 import { ValidatingModalShell } from "./ValidatingModalShell";
-
-type SignInMode = "credentials" | "token" | "pairing";
-
-/** The subset of the backend connect result the modal needs to decide whether
- * to close (success) or surface an error and stay open (failure). */
-export interface SignInResult {
-  success: boolean;
-  message: string;
-}
 
 interface ConnectModalProps {
   closeModal?: () => void;
@@ -42,30 +46,7 @@ interface ConnectModalProps {
   onConnectPairing: (code: string) => Promise<SignInResult>;
 }
 
-// The pairing code is eight characters, shown as eight single-character boxes
-// split into two groups of four around a hyphen.
-const CODE_LENGTH = 8;
-const CODE_GROUP = 4;
-const CODE_INDICES = Array.from({ length: CODE_LENGTH }, (_unused, i) => i);
-
-const GENERIC_SIGN_IN_ERROR = "Sign-in failed. Check your connection and try again.";
-
-// endpoint() never times out on its own (api/hostSocket.ts), so a backend that
-// is down or not answering leaves the sign-in promise pending and the modal
-// stuck on "Signing in…" with no way out but Cancel. The deadline is
-// the only thing that turns that into a message.
-//
-// The deadline is set above the backend's own per-request windows rather than at
-// a snappy UI value. A sign-in is a heartbeat (RommHttpClient.with_retry: 3
-// attempts x 30s) + the credential step (30s, never retried) + /api/users/me
-// (3 x 30s), and each of those failures returns a specific message this one
-// cannot match ("Server unreachable", "Sign-in rejected", the version gate). A
-// deadline under the single 30s request window would pre-empt all of them —
-// and, because losing the race abandons the call instead of cancelling it,
-// would report failure for a sign-in that then succeeds and persists its token,
-// with the single-use pairing code already burned.
-const SIGN_IN_TIMEOUT_MS = 60_000;
-const SIGN_IN_TIMEOUT_ERROR = "Tender's backend never answered. Restart it, or restart Steam, then try again.";
+const CODE_INDICES = Array.from({ length: PAIRING_CODE_LENGTH }, (_unused, i) => i);
 
 const helperTextStyle = { fontSize: "12px", marginBottom: "12px", color: "rgba(255,255,255,0.6)" } as const;
 const codeLabelStyle = {
@@ -119,21 +100,15 @@ const codeSeparatorStyle = {
   color: "rgba(255,255,255,0.6)",
 } as const;
 
-/**
- * Reduce a pairing-code fragment to uppercased alphanumerics — strips any
- * whitespace, hyphen, or stray punctuation a paste or keystroke introduced. The
- * backend normalizes identically, so this is the canonical form each keystroke
- * or paste reduces to before it is placed into or distributed across the
- * single-character boxes.
- */
-const normalizePairingCode = (value: string): string => value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+const renderPhrase = (phrase: Phrase) =>
+  phrase.map((run) => (run.strong ? <strong key={run.text}>{run.text}</strong> : run.text));
 
 export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onConnectToken, onConnectPairing }) => {
-  const [mode, setMode] = useState<SignInMode>("pairing");
+  const [mode, setMode] = useState<SignInMode>(DEFAULT_SIGN_IN_MODE);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
-  const [code, setCode] = useState<string[]>(() => new Array<string>(CODE_LENGTH).fill(""));
+  const [code, setCode] = useState<string[]>(() => new Array<string>(PAIRING_CODE_LENGTH).fill(""));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -170,30 +145,22 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
   const distributeChars = (start: number, chars: string) => {
     setCode((prev) => {
       const next = [...prev];
-      for (let offset = 0; offset < chars.length && start + offset < CODE_LENGTH; offset += 1) {
+      for (let offset = 0; offset < chars.length && start + offset < PAIRING_CODE_LENGTH; offset += 1) {
         next[start + offset] = chars.charAt(offset);
       }
       return next;
     });
     const filledThrough = start + chars.length;
-    if (filledThrough >= CODE_LENGTH) {
+    if (filledThrough >= PAIRING_CODE_LENGTH) {
       (document.activeElement as HTMLElement | null)?.blur();
     } else {
       focusBox(filledThrough);
     }
   };
 
-  // Whether the selected mode's required fields are complete enough to submit.
-  // The password is checked untrimmed (a leading/trailing space can be a real
-  // character); everything else is trimmed so whitespace-only never enables it.
-  const computeCanSubmit = (): boolean => {
-    if (mode === "credentials") return username.trim() !== "" && password !== "";
-    if (mode === "token") return token.trim() !== "";
-    return code.every((c) => c !== "");
-  };
-  const canSubmit = computeCanSubmit();
+  const canSubmit = signInComplete(mode, { username, password, token, code: code.join("") });
 
-  const attemptSignIn = (): Promise<SignInResult> => {
+  const attempt = (): Promise<SignInResult> => {
     if (mode === "token") return onConnectToken(token);
     // Backend normalizes, so the bare eight characters in order are enough.
     if (mode === "pairing") return onConnectPairing(code.join(""));
@@ -208,14 +175,12 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
     setSubmitting(true);
     setError(null);
     try {
-      const result = await withTimeout(attemptSignIn(), SIGN_IN_TIMEOUT_MS);
-      if (result.success) {
+      const failure = await submitSignIn(attempt);
+      if (failure === null) {
         closeModal?.();
       } else {
-        setError(result.message);
+        setError(failure);
       }
-    } catch (e) {
-      setError(e instanceof TimeoutError ? SIGN_IN_TIMEOUT_ERROR : GENERIC_SIGN_IN_ERROR);
     } finally {
       setSubmitting(false);
     }
@@ -308,32 +273,24 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
   return (
     <ValidatingModalShell
       {...(closeModal === undefined ? {} : { closeModal })}
-      title="Sign in to RomM"
+      title={SIGN_IN_TITLE}
       error={error}
       errorTestId="signin-error"
-      submitLabel={submitting ? "Signing in…" : "Sign in"}
+      submitLabel={submitting ? SIGN_IN_SUBMITTING_LABEL : SIGN_IN_SUBMIT_LABEL}
       submitDisabled={!canSubmit || submitting}
       onSubmit={() => {
         void submit();
       }}
     >
       <DropdownItem
-        label="Sign-in method"
-        rgOptions={[
-          { data: "pairing", label: "Pairing code" },
-          { data: "token", label: "API token" },
-          { data: "credentials", label: "Username & password" },
-        ]}
+        label={SIGN_IN_MODE_LABEL}
+        rgOptions={SIGN_IN_MODE_OPTIONS.map(({ mode: data, label }) => ({ data, label }))}
         selectedOption={mode}
         onChange={handleModeChange}
       />
       {mode === "token" && (
         <>
-          <div style={helperTextStyle}>
-            Create a token in RomM&apos;s web UI (Settings → API Tokens) and paste it here. Make sure it has the scopes
-            listed in the plugin docs so downloads, saves, and device sync work. The plugin never deletes a pasted
-            token; you manage it in RomM.
-          </div>
+          <div style={helperTextStyle}>{renderPhrase(SIGN_IN_HELP.token)}</div>
           {/* The token field is the only input in this mode and, unwrapped, is a
                 direct child of the modal body. On the Deck, R2/OSK-Enter on the
                 empty field closes the ModalRoot even though handleCompletingKeyDown
@@ -344,7 +301,7 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
           <Focusable>
             <TextField
               focusOnMount={true}
-              label="API Token"
+              label={API_TOKEN_LABEL}
               value={token}
               bIsPassword
               onChange={handleTokenChange}
@@ -355,18 +312,15 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
       )}
       {mode === "pairing" && (
         <>
-          <div style={helperTextStyle}>
-            In RomM&apos;s web UI open your API token and click <strong>Pair</strong>, then enter the 8-character code
-            here within 60 seconds. The plugin fetches the token itself — nothing to copy or paste.
-          </div>
-          <div style={codeLabelStyle}>Pairing code</div>
+          <div style={helperTextStyle}>{renderPhrase(SIGN_IN_HELP.pairing)}</div>
+          <div style={codeLabelStyle}>{PAIRING_CODE_LABEL}</div>
           {/* Focusable + flow-children="horizontal" tells Steam's gamepad nav to
                 step between the boxes left/right (the analog stick/d-pad), not
                 up/down — a plain div defaults to vertical traversal. */}
           <Focusable flow-children="horizontal" ref={codeRowRef} style={codeRowStyle} data-testid="pairing-code-row">
             {CODE_INDICES.map((i) => (
               <Fragment key={i}>
-                {i === CODE_GROUP && <span style={codeSeparatorStyle}>-</span>}
+                {i === PAIRING_CODE_GROUP && <span style={codeSeparatorStyle}>-</span>}
                 <div style={codeBoxWrapperStyle}>
                   <TextField
                     focusOnMount={i === 0}
@@ -383,22 +337,19 @@ export const ConnectModal: FC<ConnectModalProps> = ({ closeModal, onConnect, onC
       )}
       {mode === "credentials" && (
         <>
-          <div style={helperTextStyle}>
-            Enter your RomM username and password once. The plugin exchanges them for an API token and never stores your
-            password.
-          </div>
+          <div style={helperTextStyle}>{renderPhrase(SIGN_IN_HELP.credentials)}</div>
           {/* A plain wrapping div carries the ref used to advance Enter from the
                 username field to the password field (querySelectorAll('input')[1]). */}
           <div ref={credentialsRowRef} data-testid="credentials-row">
             <TextField
               focusOnMount={true}
-              label="Username"
+              label={USERNAME_LABEL}
               value={username}
               onChange={handleUsernameChange}
               onKeyDown={handleUsernameKeyDown}
             />
             <TextField
-              label="Password"
+              label={PASSWORD_LABEL}
               value={password}
               bIsPassword
               onChange={handlePasswordChange}

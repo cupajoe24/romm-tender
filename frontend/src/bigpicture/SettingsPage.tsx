@@ -17,9 +17,6 @@ import {
   getSettings,
   saveServerUrl,
   saveCustomHeaders,
-  connectWithCredentials,
-  connectWithToken,
-  connectWithPairingCode,
   signOut,
   saveSgdbApiKey,
   verifySgdbApiKey,
@@ -57,6 +54,7 @@ import {
 import { useUpdateOutcomeState } from "../utils/updateOutcomeStore";
 import { useSeenAfterDwell } from "../utils/updateDot";
 import { trimServerUrl, isValidServerUrl } from "../utils/serverUrl";
+import { INVALID_URL_MESSAGE, signInToRomm, type SignInRequest, type SignInResult } from "../utils/rommSignIn";
 import { WidePage } from "./layout/WidePage";
 import { ListDetail, type ListDetailItem } from "./layout/ListDetail";
 import { ROW_MARKER_GAP, ROW_MARKER_WIDTH, SELECTION_ACCENT } from "./layout/pane";
@@ -82,12 +80,6 @@ interface SettingsPageProps {
    */
   section?: SettingsSection;
 }
-
-// Messages the connect handlers return to the ConnectModal (which surfaces them
-// inline) when the sign-in can't even be attempted or the endpoint call throws. The
-// URL guard message mirrors the one the URL editor already shows.
-const INVALID_URL_MESSAGE = "Enter a valid http:// or https:// server URL";
-const GENERIC_SIGN_IN_ERROR = "Sign-in failed. Check your connection and try again.";
 
 // What the list calls each section. The ids and their order are the navigation
 // module's, so a section reachable by a jump is a section the list shows.
@@ -368,53 +360,13 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
   // closing (on success) and error display (on failure). The bottom status line
   // is only touched on success — a post-close confirmation — so a failed sign-in
   // shows its message inside the still-open modal, never at the bottom.
-  const handleConnect = async (username: string, password: string): Promise<{ success: boolean; message: string }> => {
-    const trimmed = trimServerUrl(url);
-    if (!isValidServerUrl(trimmed)) {
-      return { success: false, message: INVALID_URL_MESSAGE };
+  const handleSignIn = async (request: SignInRequest): Promise<SignInResult> => {
+    const result = await signInToRomm(url, allowInsecureSsl, request);
+    if (result.success) {
+      setHasToken(true);
+      setStatus(result.message);
     }
-    try {
-      const result = await connectWithCredentials(trimmed, username, password, allowInsecureSsl);
-      if (result.success) {
-        setHasToken(true);
-        setStatus(result.message);
-      }
-      return result;
-    } catch {
-      return { success: false, message: GENERIC_SIGN_IN_ERROR };
-    }
-  };
-  const handleConnectToken = async (token: string): Promise<{ success: boolean; message: string }> => {
-    const trimmed = trimServerUrl(url);
-    if (!isValidServerUrl(trimmed)) {
-      return { success: false, message: INVALID_URL_MESSAGE };
-    }
-    try {
-      const result = await connectWithToken(trimmed, token, allowInsecureSsl);
-      if (result.success) {
-        setHasToken(true);
-        setStatus(result.message);
-      }
-      return result;
-    } catch {
-      return { success: false, message: GENERIC_SIGN_IN_ERROR };
-    }
-  };
-  const handleConnectPairing = async (code: string): Promise<{ success: boolean; message: string }> => {
-    const trimmed = trimServerUrl(url);
-    if (!isValidServerUrl(trimmed)) {
-      return { success: false, message: INVALID_URL_MESSAGE };
-    }
-    try {
-      const result = await connectWithPairingCode(trimmed, code, allowInsecureSsl);
-      if (result.success) {
-        setHasToken(true);
-        setStatus(result.message);
-      }
-      return result;
-    } catch {
-      return { success: false, message: GENERIC_SIGN_IN_ERROR };
-    }
+    return result;
   };
   const handleSignOut = async () => {
     setStatus("");
@@ -430,10 +382,9 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
   };
 
   // --- SteamGridDB handlers ---
-  // SgdbApiKeyModal orchestrates verify-then-save: it tests the entered key
-  // (verifySgdbApiKey) and only persists a valid one (handleSaveSgdbKey). The
-  // modal always submits a non-empty key, so a successful save means a
-  // configured key — reflect it as the masked "••••" display.
+  // The prompt saves only a key that verified (utils/sgdbApiKey.ts), and never
+  // an empty one, so a successful save means a configured key — reflect it as
+  // the masked display.
   const handleSaveSgdbKey = async (value: string) => {
     await saveSgdbApiKey(value);
     setSgdbApiKey("set");
@@ -586,9 +537,9 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
                 detach(handleUrlChange(value));
               }}
               onSaveCustomHeaders={handleSaveCustomHeaders}
-              onConnect={handleConnect}
-              onConnectToken={handleConnectToken}
-              onConnectPairing={handleConnectPairing}
+              onConnect={(username, password) => handleSignIn({ mode: "credentials", username, password })}
+              onConnectToken={(token) => handleSignIn({ mode: "token", token })}
+              onConnectPairing={(code) => handleSignIn({ mode: "pairing", code })}
               onAllowInsecureSslChange={handleAllowInsecureSslChange}
               onSignOut={() => {
                 detach(handleSignOut());

@@ -8,7 +8,8 @@
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, DialogButton, Field, showModal } from "@decky/ui";
 import { SgdbApiKeyModal } from "./SgdbApiKeyModal";
-import type { VerifyKeyResult } from "./SgdbApiKeyModal";
+import type { VerifyKeyResult } from "../../utils/sgdbApiKey";
+import { EDIT_LABEL, SGDB_HEADING, SGDB_KEY_LABEL, sgdbKeyState } from "../../utils/settingsWording";
 
 interface SteamGridDBSectionProps {
   sgdbApiKey: string;
@@ -18,14 +19,14 @@ interface SteamGridDBSectionProps {
 
 export const SteamGridDBSection: FC<SteamGridDBSectionProps> = ({ sgdbApiKey, onVerifyKey, onSaveKey }) => {
   return (
-    <PanelSection title="SteamGridDB">
+    <PanelSection title={SGDB_HEADING}>
       <PanelSectionRow>
-        <Field label="API Key" description={sgdbApiKey ? "••••" : "Not configured"}>
+        <Field label={SGDB_KEY_LABEL} description={sgdbKeyState(sgdbApiKey)}>
           <DialogButton
             style={{ minWidth: "auto", width: "auto" }}
             onClick={() => showModal(<SgdbApiKeyModal onVerify={onVerifyKey} onSave={onSaveKey} />)}
           >
-            Edit
+            {EDIT_LABEL}
           </DialogButton>
         </Field>
       </PanelSectionRow>

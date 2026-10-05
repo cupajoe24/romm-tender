@@ -22,16 +22,27 @@ import {
 } from "@decky/ui";
 import { TextInputModal } from "./TextInputModal";
 import { ConnectModal } from "./ConnectModal";
-import type { SignInResult } from "./ConnectModal";
 import { CustomHeadersModal } from "./CustomHeadersModal";
-import type { SaveHeadersResult } from "./CustomHeadersModal";
 import { isHttpsUrl } from "../../utils/serverUrl";
+import type { SignInResult } from "../../utils/rommSignIn";
+import type { SaveHeadersResult } from "../../utils/customHeaders";
+import {
+  CUSTOM_HEADERS_LABEL,
+  EDIT_LABEL,
+  INSECURE_SSL_DESCRIPTION,
+  INSECURE_SSL_LABEL,
+  ROMM_ACCOUNT_LABEL,
+  ROMM_HEADING,
+  ROMM_URL_LABEL,
+  ROMM_URL_UNSET,
+  SIGN_OUT_CONFIRM,
+  SIGN_OUT_DESCRIPTION,
+  SIGN_OUT_LABEL,
+  accountState,
+  customHeadersSummary,
+  signInButtonLabel,
+} from "../../utils/settingsWording";
 import type { CustomHeaderEntry } from "../../types";
-
-// Sign-out only forgets the token on this device; it never revokes it in RomM.
-const SIGN_OUT_CONFIRM_DESCRIPTION =
-  "This only forgets the RomM token on this device. The token itself stays valid in RomM — " +
-  "revoke it there (Settings → API Tokens) if you no longer want it.";
 
 interface ConnectionSectionProps {
   url: string;
@@ -64,36 +75,33 @@ export const ConnectionSection: FC<ConnectionSectionProps> = ({
   onSignOut,
 }) => {
   return (
-    <PanelSection title="RomM">
+    <PanelSection title={ROMM_HEADING}>
       <PanelSectionRow>
-        <Field label="RomM URL" description={url || "(not set)"}>
+        <Field label={ROMM_URL_LABEL} description={url || ROMM_URL_UNSET}>
           <DialogButton
             style={{ minWidth: "auto", width: "auto" }}
             onClick={() =>
-              showModal(<TextInputModal label="RomM URL" value={url} field="url" onSubmit={onUrlChange} />)
+              showModal(<TextInputModal label={ROMM_URL_LABEL} value={url} field="url" onSubmit={onUrlChange} />)
             }
           >
-            Edit
+            {EDIT_LABEL}
           </DialogButton>
         </Field>
       </PanelSectionRow>
       <PanelSectionRow>
-        <Field
-          label="Custom headers"
-          description={customHeaderNames.length > 0 ? `${customHeaderNames.length} set` : "(none)"}
-        >
+        <Field label={CUSTOM_HEADERS_LABEL} description={customHeadersSummary(customHeaderNames.length)}>
           <DialogButton
             style={{ minWidth: "auto", width: "auto" }}
             onClick={() =>
               showModal(<CustomHeadersModal storedNames={customHeaderNames} onSave={onSaveCustomHeaders} />)
             }
           >
-            Edit
+            {EDIT_LABEL}
           </DialogButton>
         </Field>
       </PanelSectionRow>
       <PanelSectionRow>
-        <Field label="RomM Account" description={hasToken ? "Signed in" : "Not signed in"}>
+        <Field label={ROMM_ACCOUNT_LABEL} description={accountState(hasToken)}>
           <DialogButton
             style={{ minWidth: "auto", width: "auto" }}
             onClick={() =>
@@ -106,7 +114,7 @@ export const ConnectionSection: FC<ConnectionSectionProps> = ({
               )
             }
           >
-            {hasToken ? "Sign in again" : "Sign in"}
+            {signInButtonLabel(hasToken)}
           </DialogButton>
         </Field>
       </PanelSectionRow>
@@ -114,28 +122,28 @@ export const ConnectionSection: FC<ConnectionSectionProps> = ({
         <PanelSectionRow>
           <ButtonItem
             layout="below"
-            description="Forgets the RomM token on this device. The token stays valid in RomM."
+            description={SIGN_OUT_DESCRIPTION}
             onClick={() =>
               showModal(
                 <ConfirmModal
-                  strTitle="Sign out of RomM?"
-                  strDescription={SIGN_OUT_CONFIRM_DESCRIPTION}
-                  strOKButtonText="Sign out"
-                  strCancelButtonText="Cancel"
+                  strTitle={SIGN_OUT_CONFIRM.title}
+                  strDescription={SIGN_OUT_CONFIRM.description}
+                  strOKButtonText={SIGN_OUT_CONFIRM.confirm}
+                  strCancelButtonText={SIGN_OUT_CONFIRM.cancel}
                   onOK={onSignOut}
                 />,
               )
             }
           >
-            Sign out
+            {SIGN_OUT_LABEL}
           </ButtonItem>
         </PanelSectionRow>
       )}
       {isHttpsUrl(url) && (
         <PanelSectionRow>
           <ToggleField
-            label="Allow Insecure SSL"
-            description="Skip certificate checks for a self-signed server. Anyone who can intercept the connection can read what the plugin sends — your RomM token, your password when you sign in with it, and any custom headers — and use your account. Only on a network you trust."
+            label={INSECURE_SSL_LABEL}
+            description={INSECURE_SSL_DESCRIPTION}
             checked={allowInsecureSsl}
             onChange={onAllowInsecureSslChange}
           />
