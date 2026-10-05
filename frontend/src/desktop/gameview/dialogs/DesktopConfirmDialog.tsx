@@ -4,14 +4,15 @@
  * backdrop and the second button all answer no.
  */
 
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import { DIALOG_ACTIONS_STYLE, DIALOG_TEXT_STYLE, DesktopDialog, dialogButtonStyle } from "./DesktopDialog";
 
 export interface DesktopConfirmDialogProps {
   /** Unique per question; ties the box's accessible name to its heading. */
   titleId: string;
   title: string;
-  description: string;
+  /** Plain text keeps its line breaks. */
+  description: ReactNode;
   confirmLabel: string;
   cancelLabel: string;
   /** `danger` for a yes that cannot be taken back. */
@@ -29,7 +30,7 @@ export const DesktopConfirmDialog: FC<DesktopConfirmDialogProps> = ({
   onChoice,
 }) => (
   <DesktopDialog titleId={titleId} title={title} onDismiss={() => onChoice(false)}>
-    <div style={DIALOG_TEXT_STYLE}>{description}</div>
+    <div style={{ ...DIALOG_TEXT_STYLE, whiteSpace: "pre-line" }}>{description}</div>
     <div style={DIALOG_ACTIONS_STYLE}>
       <button type="button" style={dialogButtonStyle(tone)} onClick={() => onChoice(true)}>
         {confirmLabel}

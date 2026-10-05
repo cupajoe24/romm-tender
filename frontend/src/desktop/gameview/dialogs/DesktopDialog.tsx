@@ -55,6 +55,30 @@ export const DIALOG_VALUE_STYLE: CSSProperties = { fontSize: "13px", color: "#ff
 
 export const DIALOG_ACTIONS_STYLE: CSSProperties = { display: "flex", flexDirection: "column", gap: "8px" };
 
+/** A text field in a dialog, as wide as the box. */
+export const DIALOG_INPUT_STYLE: CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "8px 10px",
+  fontSize: "13px",
+  backgroundColor: "rgba(0, 0, 0, 0.4)",
+  border: "1px solid rgba(255, 255, 255, 0.2)",
+  borderRadius: "3px",
+  color: "#ffffff",
+  outline: "none",
+};
+
+/** What a dialog's field is called, above it. */
+export const DIALOG_LABEL_STYLE: CSSProperties = {
+  display: "block",
+  fontSize: "12px",
+  color: "#8f98a0",
+  margin: "10px 0 4px",
+};
+
+/** The answer a dialog stays open on, above its buttons. */
+export const DIALOG_ERROR_STYLE: CSSProperties = { color: "#d94126", fontSize: "12px", margin: "12px 0" };
+
 const DIALOG_BUTTON_BASE: CSSProperties = {
   ...BUTTON_STYLE,
   padding: "8px 14px",

@@ -19,6 +19,7 @@ import {
   FaSync,
 } from "react-icons/fa";
 import type { SettingsTab } from "../../types/navigation";
+import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { SyncTab } from "./sync/SyncTab";
 
 interface TabEntry {
@@ -32,7 +33,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   sync: { title: "Sync", Icon: FaSync, Content: SyncTab },
   library: { title: "Library", Icon: FaLayerGroup, Content: null },
   downloads: { title: "Downloads", Icon: FaDownload, Content: null },
-  connections: { title: "Connections", Icon: FaPlug, Content: null },
+  connections: { title: "Connections", Icon: FaPlug, Content: ConnectionsTab },
   "save-sync": { title: "Save Sync", Icon: FaSave, Content: null },
   controller: { title: "Controller", Icon: FaGamepad, Content: null },
   "steam-library": { title: "Steam Library", Icon: FaSteam, Content: null },
