@@ -1,9 +1,11 @@
 import asyncio
 import functools
+import inspect
 import logging
 import os
 import sys
 from dataclasses import asdict
+from typing import Any
 
 backend_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, backend_dir)
@@ -18,6 +20,7 @@ from bootstrap import Application, build_application
 
 from domain.app_directories import AppDirectories, resolve_directories
 from domain.identity import VERSION
+from domain.refusal import DomainRefused
 from domain.update_install import installer_environment
 from domain.update_release import UpdateSource, resolve_update_source
 from host import (
@@ -34,8 +37,88 @@ from host import (
     route,
     run_backend,
 )
+from lib.errors import Refused, RommApiError, classify_error
+from lib.partial_failure import PartialFailure
+
+# No catch-all: it would show a programming error as a sentence about the
+# user's game (``.claude/rules/host.md``, rule 1), which is also why
+# ``classify_error``'s socket-error and catch-all branches are never reached
+# from here. A further type joins this tuple only by decision.
+_TRANSLATED = (Refused, DomainRefused, RommApiError)
+
+# A module logger rather than one handed in: the root logger's handlers, the
+# file handler's redaction among them, apply to it as to every other line.
+_logger = logging.getLogger(__name__)
 
 
+def _failure_answer(endpoint: str, exc: Refused | DomainRefused | RommApiError) -> dict[str, Any]:
+    """The wire's failure shape for an exception in :data:`_TRANSLATED`; a refusal is a decision, not an error."""
+    if isinstance(exc, RommApiError):
+        _logger.warning(f"{endpoint}: answered {type(exc).__name__}: {exc}")
+        reason, message = classify_error(exc)
+        return {"success": False, "reason": reason, "message": message}
+    return {**exc.details, "success": False, "reason": exc.reason, "message": exc.message}
+
+
+def _wire_answer(result: Any) -> Any:
+    """*result* as the wire carries it: a partial failure serialized, anything else as it is."""
+    if isinstance(result, PartialFailure):
+        return {**asdict(result), "success": False}
+    return result
+
+
+def _translated(method: Any) -> Any:
+    """*method* answering its refusals; a ``def`` stays a ``def`` and an ``async def`` a coroutine function.
+
+    ``functools.wraps`` carries the ``@route`` marker over, so the wrapper is
+    as reachable as the method it wraps.
+    """
+    name = method.__name__
+
+    async def awaited(answer: Any) -> Any:
+        try:
+            return _wire_answer(await answer)
+        except _TRANSLATED as exc:
+            return _failure_answer(name, exc)
+
+    if inspect.iscoroutinefunction(method):
+
+        @functools.wraps(method)
+        async def answer_later(*args: Any, **kwargs: Any) -> Any:
+            return await awaited(method(*args, **kwargs))
+
+        return answer_later
+
+    @functools.wraps(method)
+    def answer_now(*args: Any, **kwargs: Any) -> Any:
+        try:
+            answer = method(*args, **kwargs)
+        except _TRANSLATED as exc:
+            return _failure_answer(name, exc)
+        # The dispatcher awaits whatever is awaitable, so a ``def`` may hand back
+        # an awaitable; it is translated when it is awaited, not here.
+        return awaited(answer) if inspect.isawaitable(answer) else _wire_answer(answer)
+
+    return answer_now
+
+
+def _translating_refusals[C: type](cls: C) -> C:
+    """Wrap every public method of *cls* in :func:`_translated`.
+
+    Every ``@route`` is a public method (``route_names`` reads no other), so
+    wrapping every public function of *cls* covers each one without asking the
+    host for its marker; a public method without the marker is wrapped too, and
+    stays unreachable.
+    """
+    public = {
+        name: value for name, value in vars(cls).items() if not name.startswith("_") and inspect.isfunction(value)
+    }
+    for name, value in public.items():
+        setattr(cls, name, _translated(value))
+    return cls
+
+
+@_translating_refusals
 class Endpoints:
     """What the panel can call: one public method marked ``@route`` per endpoint.
 
@@ -43,6 +126,14 @@ class Endpoints:
     hands its answer back; the few that do more translate an argument or an
     answer for the wire and nothing else. ``get_host_status`` answers from the
     host's own record of this run, which no service holds.
+
+    A use case that raises its refusal leaves the wire's failure shape to this
+    class: every endpoint answers a raised ``Refused`` or ``DomainRefused`` with
+    ``{"success": False, "reason", "message"}`` and the refusal's details beside
+    them, a returned ``PartialFailure`` with that shape and what was done, and a
+    raised ``RommApiError`` with ``classify_error``'s reason and message. Any
+    other exception is not answered here; the host reports it as a transport
+    error.
     """
 
     def __init__(self, app: Application, host_status: HostStatus) -> None:

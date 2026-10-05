@@ -1,4 +1,8 @@
-"""RomM API error types for structured error handling."""
+"""Exception types raised across layers, and the reason a RomM error answers with.
+
+The RomM and SteamGridDB API errors, a cooperative abort, and ``Refused`` —
+and ``classify_error``, which turns a RomM error into a wire reason.
+"""
 
 import socket
 from typing import Any
@@ -226,6 +230,38 @@ def classify_error(exc):
         # the same class of lie as reporting a 404 that way.
         return ErrorCode.SERVER_UNREACHABLE.value, f"Server unreachable — {exc}"
     return ErrorCode.UNKNOWN.value, str(exc)
+
+
+class Refused(Exception):
+    """An operation the service layer will not carry out, raised rather than answered.
+
+    ``main.Endpoints`` builds the wire answer from it; a service raising it
+    never builds that dict itself. ``reason`` is a literal at the raise site:
+    the first argument, or the class attribute of a :class:`NamedRefused`.
+    ``details`` travel beside ``reason`` and ``message``.
+
+    A refusal is a decision, never a bug: a broken invariant raises
+    ``ValueError`` and its kind.
+    """
+
+    reason: str
+
+    def __init__(self, reason: str, message: str, **details: Any) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+        self.details = details
+
+
+class NamedRefused(Refused):
+    """A refusal named for its reason: a subclass declares ``reason = "…"`` and nothing else.
+
+    It is raised with a message and details alone, so it always carries its
+    class's reason and can never be raised under another.
+    """
+
+    def __init__(self, message: str, **details: Any) -> None:
+        super().__init__(type(self).reason, message, **details)
 
 
 class OperationAbortedError(Exception):

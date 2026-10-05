@@ -282,8 +282,21 @@ Two objects the backend is made of, built in this order:
   shutdown. It runs none of them by itself; the entry point calls each at its moment.
 - **Endpoints** — the class in `main.py` that holds every Tender endpoint, over the Application and the host's status
   record: each endpoint calls a use case on a service, except `get_host_status`, which answers from that record.
+  Endpoints answers a refusal the use case raises in the wire's failure shape.
 
 _Avoid_: **Plugin** for either — "the plugin" is Tender itself ([What Tender is](#what-tender-is)).
+
+### Refusal / partial failure
+
+- **Refusal** — an operation a use case will not carry out, for a reason the panel is told:
+  `{success: False, reason, message}` on the wire. A converted service raises it (`Refused`, `lib/errors.py`; from a
+  domain rule `DomainRefused`, `domain/refusal.py`) and **Endpoints** builds the answer; a module not yet converted
+  still returns that dict. Not a **transport error** (`error.reason`, such as `backend_exception`), which is what a bug
+  arrives as.
+- **Partial failure** — an operation that stopped after doing part of its work: a returned result (`PartialFailure`,
+  `lib/partial_failure.py`) that carries a reason, a message and what was done; never raised. Not a **partial-success**
+  response, which is a full payload beside an additive failure flag (`server_query_failed`), and not a firmware
+  **partial**.
 
 ### Persistence boundary (settings.json / SQLite)
 
