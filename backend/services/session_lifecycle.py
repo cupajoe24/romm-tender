@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from domain.save_answer import BENIGN_SYNC_SKIP_REASONS
+from lib.errors import Refused
 
 if TYPE_CHECKING:
     import logging
@@ -170,6 +171,26 @@ def _render_failure_toast(
     return message or _TOAST_BODY_FAILED
 
 
+def _benign_skip() -> SessionFinalizeSyncResult:
+    """The verdict of a post-exit sync that correctly did nothing, with no failure toast.
+
+    Either the saves are written beside the game file (#239), or this game's
+    emulator keeps no per-game save set the plugin can carry (#1858). Nothing
+    went wrong, and toasting on every exit of a PS2 or MAME game would be pure
+    noise.
+    """
+    return SessionFinalizeSyncResult(
+        offline=False,
+        success=False,
+        synced=0,
+        uploaded=0,
+        downloaded=0,
+        conflicts=[],
+        failure_toast=None,
+        conflicts_toast=None,
+    )
+
+
 def _render_conflicts_toast(conflicts: list[dict[str, Any]]) -> str | None:
     """Render the additive "N save conflict(s) need resolution" body.
 
@@ -212,12 +233,12 @@ class SessionLifecycleService:
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
 
-    async def finalize(self, rom_id: int) -> SessionFinalizeResult | dict[str, Any]:
+    async def finalize(self, rom_id: int) -> SessionFinalizeResult:
         """Run the four end-of-session steps and return the combined verdict.
 
         Checks the ``finalize_game_session`` endpoint's conflict rules at its
-        entry and answers the canonical refusal dict when one holds, in place of
-        a verdict (GLOSSARY.md → Conflict rules).
+        entry and raises the rule's refusal when one holds, in place of a
+        verdict (GLOSSARY.md → Conflict rules).
 
         Parameters
         ----------
@@ -236,9 +257,7 @@ class SessionLifecycleService:
             ``romm_data_changed`` event dispatch. ``migration`` carries
             the RetroDECK home migration's status payload.
         """
-        async with self._rules.hold("finalize_game_session", prune=True) as refusal:
-            if refusal is not None:
-                return refusal
+        async with self._rules.hold("finalize_game_session", prune=True):
             total_seconds = await self._record_playtime(rom_id)
             self._schedule_achievement_sync(rom_id)
             sync_result = await self._build_sync_result(rom_id)
@@ -315,7 +334,9 @@ class SessionLifecycleService:
         the post-exit sync does not run, the log says which held it off, and
         the verdict is the failed-sync one; for an update its toast says so.
         The ``finalize_game_session`` use case checks neither rule, so this is
-        the first check either meets on the way to that sync.
+        the first check either meets on the way to that sync. A refusal the
+        sync raises is answered as a returned failure is: toasted from its
+        reason and message, or not shown at all for a benign skip.
         """
         if self._update_in_progress():
             return self._skipped_sync(rom_id, "an update is being installed", _TOAST_BODY_UPDATING)
@@ -324,11 +345,27 @@ class SessionLifecycleService:
 
         try:
             result = await self._post_exit_sync.post_exit_sync(rom_id)
+        except Refused as refusal:
+            if refusal.reason in BENIGN_SYNC_SKIP_REASONS:
+                return _benign_skip()
+            raw_synced = refusal.details.get("synced")
+            return SessionFinalizeSyncResult(
+                offline=False,
+                success=False,
+                synced=raw_synced if isinstance(raw_synced, int) else None,
+                uploaded=0,
+                downloaded=0,
+                conflicts=[],
+                failure_toast=_render_failure_toast(
+                    offline=False, success=False, message=refusal.message, reason=refusal.reason
+                ),
+                conflicts_toast=None,
+            )
         except Exception as e:
             self._logger.warning(f"SessionLifecycle post-exit sync failed for rom_id={rom_id}: {e}")
-            # No classified message on this path: the sync raised rather than
-            # returning a structured result, so there is no result["message"]
-            # to surface — fall back to the generic failure body.
+            # No classified message on this path: the sync raised something
+            # other than a refusal, so there is no message to surface — fall
+            # back to the generic failure body.
             return SessionFinalizeSyncResult(
                 offline=False,
                 success=False,
@@ -341,21 +378,7 @@ class SessionLifecycleService:
             )
 
         if result.get("reason") in BENIGN_SYNC_SKIP_REASONS:
-            # A benign skip: post-exit sync correctly did nothing. Either the saves
-            # are written beside the game file (#239), or this game's emulator keeps
-            # no per-game save set the plugin can carry (#1858). Suppress the failure
-            # toast — nothing went wrong, and toasting on every exit of a PS2 or MAME
-            # game would be pure noise.
-            return SessionFinalizeSyncResult(
-                offline=False,
-                success=False,
-                synced=0,
-                uploaded=0,
-                downloaded=0,
-                conflicts=[],
-                failure_toast=None,
-                conflicts_toast=None,
-            )
+            return _benign_skip()
 
         offline = bool(result.get("offline"))
         success = bool(result.get("success"))

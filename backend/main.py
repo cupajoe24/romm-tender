@@ -483,7 +483,7 @@ class Endpoints:
 
     @route
     async def get_rom_relaunch_options(self, rom_id):
-        """Return one lease-bearing relaunch item, a refusal, or ``None``.
+        """Return one lease-bearing relaunch item, or ``None``.
 
         Both launch funnels — the game-detail Play button and Steam's
         direct-launch watcher — re-confirm the shortcut's launch command from
@@ -515,8 +515,7 @@ class Endpoints:
 
     @route
     async def finalize_game_session(self, rom_id):
-        result = await self._services.session_lifecycle_service.finalize(rom_id)
-        return result if isinstance(result, dict) else asdict(result)
+        return asdict(await self._services.session_lifecycle_service.finalize(rom_id))
 
     # ── Download delegation to DownloadService ──────────────
 

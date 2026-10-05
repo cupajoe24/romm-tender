@@ -10,7 +10,12 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from _factories import _make_conflict_rules, _make_prune_conflicts
+from _factories import (
+    _CONFLICT_REFUSAL_MESSAGES,
+    _make_conflict_rules,
+    _make_prune_conflicts,
+    _refused_by_conflict_rule,
+)
 from fakes.fake_active_core_resolver import FakeActiveCoreResolver
 from fakes.fake_hostname_reader import FakeHostnameReader
 from fakes.fake_retrodeck_paths import FakeRetroDeckPaths
@@ -20,7 +25,7 @@ from fakes.fake_save_location_reader import FakeSaveLocationReader
 from domain.identity import VERSION
 from domain.iso_time import epoch_to_iso
 from domain.rom_save_sync_state import FileSyncState, RomSaveSyncState
-from lib.errors import RommConnectionError, RommNotFoundError
+from lib.errors import Refused, RommConnectionError, RommNotFoundError
 from services.saves import SaveService
 from services.saves._settings import resolve_default_slot, sanitize_setting
 from tests.services.saves._helpers import (
@@ -452,37 +457,37 @@ class TestListDevices:
 
 class TestRetroDeckMigrationBlocksSaveSync:
     @pytest.mark.asyncio
-    async def test_pre_launch_sync_skips_when_retrodeck_migration_pending(self, tmp_path):
+    async def test_pre_launch_sync_is_refused_when_retrodeck_migration_pending(self, tmp_path):
         svc, _ = make_service(tmp_path, is_retrodeck_migration_pending=lambda: True)
         svc._config.settings["save_sync_enabled"] = True
         _set_device_id(svc, "test-device")
         _install_rom(svc, tmp_path)
 
-        result = await svc.pre_launch_sync(42)
+        with pytest.raises(Refused) as refused:
+            await svc.pre_launch_sync(42)
 
-        assert result == {
-            "success": False,
-            "reason": "blocked_by_migration",
-            "message": "Pending RetroDECK migration. Open the Tender menu (QAM) to migrate or dismiss.",
-            "synced": 0,
-        }
+        assert (refused.value.reason, refused.value.message) == (
+            "blocked_by_migration",
+            _CONFLICT_REFUSAL_MESSAGES["blocked_by_migration"],
+        )
+        assert refused.value.details == {"synced": 0}
 
     @pytest.mark.asyncio
-    async def test_post_exit_sync_skips_when_retrodeck_migration_pending(self, tmp_path):
+    async def test_post_exit_sync_is_refused_when_retrodeck_migration_pending(self, tmp_path):
         svc, _ = make_service(tmp_path, is_retrodeck_migration_pending=lambda: True)
         svc._config.settings["save_sync_enabled"] = True
         _set_device_id(svc, "test-device")
         _install_rom(svc, tmp_path)
         _create_save(tmp_path, content=b"data")
 
-        result = await svc.post_exit_sync(42)
+        with pytest.raises(Refused) as refused:
+            await svc.post_exit_sync(42)
 
-        assert result == {
-            "success": False,
-            "reason": "blocked_by_migration",
-            "message": "Pending RetroDECK migration. Open the Tender menu (QAM) to migrate or dismiss.",
-            "synced": 0,
-        }
+        assert (refused.value.reason, refused.value.message) == (
+            "blocked_by_migration",
+            _CONFLICT_REFUSAL_MESSAGES["blocked_by_migration"],
+        )
+        assert refused.value.details == {"synced": 0}
 
     @pytest.mark.asyncio
     async def test_sync_all_saves_respects_migration_block_via_its_conflict_rules(self, tmp_path):
@@ -498,13 +503,9 @@ class TestRetroDeckMigrationBlocksSaveSync:
         spy = MagicMock(name="do_sync_rom_saves_spy")
         svc._sync_engine.do_sync_rom_saves = spy  # type: ignore[method-assign]
 
-        result = await svc.sync_all_saves()
+        with _refused_by_conflict_rule("blocked_by_migration"):
+            await svc.sync_all_saves()
 
-        assert result == {
-            "success": False,
-            "reason": "blocked_by_migration",
-            "message": "Pending RetroDECK migration. Open the Tender menu (QAM) to migrate or dismiss.",
-        }
         spy.assert_not_called()
 
 
@@ -516,9 +517,9 @@ class TestConflictRulesAtTheUseCase:
         conflicts.register_run("held-run")
         svc, _ = make_service(tmp_path, conflict_rules=_make_conflict_rules(prune_conflicts=conflicts))
 
-        result = await svc.get_save_status(42)
+        with _refused_by_conflict_rule("prune_active"):
+            await svc.get_save_status(42)
 
-        assert result["reason"] == "prune_active"
         assert conflicts.conflicting_operations == 0
 
     async def test_refresh_save_status_refused_while_a_cleanup_runs_starts_no_check(self, tmp_path, monkeypatch):
@@ -532,10 +533,10 @@ class TestConflictRulesAtTheUseCase:
 
         monkeypatch.setattr(svc, "check_save_status_background", check)
 
-        result = await svc.refresh_save_status(42)
+        with _refused_by_conflict_rule("prune_active"):
+            await svc.refresh_save_status(42)
         await asyncio.sleep(0)
 
-        assert result["reason"] == "prune_active"
         assert started == []
         assert conflicts.conflicting_operations == 0
 
@@ -564,9 +565,9 @@ class TestConflictRulesAtTheUseCase:
     async def test_update_save_sync_settings_refused_while_a_migration_is_pending_changes_nothing(self, tmp_path):
         svc, _ = make_service(tmp_path, conflict_rules=_make_conflict_rules(migration_pending=True))
 
-        result = await svc.update_save_sync_settings({"save_sync_enabled": True})
+        with _refused_by_conflict_rule("blocked_by_migration"):
+            await svc.update_save_sync_settings({"save_sync_enabled": True})
 
-        assert result["reason"] == "blocked_by_migration"
         assert "save_sync_enabled" not in svc._config.settings
 
 
