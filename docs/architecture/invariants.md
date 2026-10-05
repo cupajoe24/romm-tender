@@ -200,6 +200,28 @@ Format: **invariant** — tier — enforced by.
   same class, parses `bootstrap/adapters.py` and fails unless `DB_FILENAME` is a string literal, so
   `f"{PACKAGE_NAME}.db"`, which reproduces today's value exactly, fails too. The rule is also stated at `APP_DIR_NAME`
   and at `DB_FILENAME` themselves, because a diff that folds either opens neither the docstring nor this file
+- **No name in the code calls Tender a plugin; a third-party name that must keep the word is excepted by name, whole,
+  with its reason** — check — Tender stopped being a Decky Loader plugin when the backend began hosting itself, and a
+  name that still says "plugin" teaches its reader the old model: that something loads Tender and owns its life cycle,
+  and that Decky's shapes (`definePlugin`, a plugin folder) are the ones to reach for (GLOSSARY.md → What Tender is,
+  which names the words to use instead). The frontend half is a `no-restricted-syntax` entry in
+  `frontend/eslint.config.js` over every `Identifier`, `JSXIdentifier` and `PrivateIdentifier` whose name contains the
+  word in any case — variables, functions, types, parameters, object keys, JSX attribute names — in every file ESLint
+  lints, tests and config files included. `frontend/src/eslintNoPluginNames.test.ts` lints known-bad fixtures through
+  the real config and fails if the rule stops reporting any of them. The backend half is
+  `tests/domain/test_identity.py::TestNoNameMisnamesTender`, which walks the syntax tree of every Python module under
+  `backend/` (less the vendored `_vendor/` and `native/`), `tests/` and `scripts/` and fails on any name a module binds
+  or reads that carries the word: a name, an attribute, a parameter, a keyword argument, a function or class, an import,
+  its alias or the module a `from` import names, a type parameter, an exception or pattern capture, a class pattern's
+  keyword, a `global` or `nonlocal`. Each half has its own list of exceptions — `NAMES_NOT_ABOUT_TENDER` beside the rule
+  and `_NAMES_NOT_ABOUT_TENDER` beside the test — for names that carry the word because they name someone else's plugin
+  (`DeckyPluginLoader`, `plugins` in the rollup and ESLint configs, `extraPlugins` in `rollup.config.js`, the two
+  install tests about a Decky plugin), each with its reason; an exception is matched as a whole name, and either list
+  fails on an entry nothing carries any more. **Neither half reads prose**: a string literal is not a name, so the
+  `"plugin_version"` key a recovery bundle's manifest carries stays, and a vitest title, a comment or a docstring that
+  calls Tender a plugin passes both, as does a shell script, a file name, a name built at run time (`getattr`, a
+  computed key), and an excepted name put to a new use for Tender; a Python string annotation (`x: "Settings"`) passes
+  the backend half
 - **Sync run-lifecycle (`sync_state` / `current_sync_id`) written only via `LibrarySyncStateBox` verbs** — check —
   `scripts/check_sync_lifecycle_owner.py`
 - **A library-sync seam is held only by the module owning the job it belongs to: `active_core` / `disc_resolver` by
@@ -773,7 +795,7 @@ Format: **invariant** — tier — enforced by.
   loaded beside a running Decky), asking `in DFL` about a name `@decky/ui` never exported (`SP_*`, `ControllerGlyph` — a
   package disagreement reported on every miss, which is what `SteamLookup.deckyUiExport` and its sweep-derived lock
   exist to prevent), reading an unreadable `DFL` as an absence rather than as nothing established, and letting the
-  reading THROW at all — `definePlugin`'s factory reads it before it returns anything, so an unguarded `window.DFL` or
+  reading THROW at all — `definePanel`'s factory reads it before it returns anything, so an unguarded `window.DFL` or
   `name in DFL` costs the page AND the log line and leaves the blank panel the check exists to tell apart from a dead
   backend. The version beside the name is an enrichment only — `_versionInfo.current` is internal, guarded, and every
   sentence is complete without it; `remote` beside it is the PUBLISHED version and is never consulted
