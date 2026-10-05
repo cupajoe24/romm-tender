@@ -20,6 +20,7 @@ import {
 } from "react-icons/fa";
 import type { SettingsTab } from "../../types/navigation";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
+import { LibraryTab } from "./library/LibraryTab";
 import { SyncTab } from "./sync/SyncTab";
 
 interface TabEntry {
@@ -31,7 +32,7 @@ interface TabEntry {
 
 const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   sync: { title: "Sync", Icon: FaSync, Content: SyncTab },
-  library: { title: "Library", Icon: FaLayerGroup, Content: null },
+  library: { title: "Library", Icon: FaLayerGroup, Content: LibraryTab },
   downloads: { title: "Downloads", Icon: FaDownload, Content: null },
   connections: { title: "Connections", Icon: FaPlug, Content: ConnectionsTab },
   "save-sync": { title: "Save Sync", Icon: FaSave, Content: null },

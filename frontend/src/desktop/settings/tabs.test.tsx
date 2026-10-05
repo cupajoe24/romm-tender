@@ -9,6 +9,7 @@ import {
   settingsTabRoute,
 } from "./tabs";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
+import { LibraryTab } from "./library/LibraryTab";
 import { SyncTab } from "./sync/SyncTab";
 
 const EVERY_TAB: readonly SettingsTab[] = [
@@ -70,12 +71,17 @@ describe("the settings window's tabs", () => {
       expect(page.icon).toBeTruthy();
       if (page.content !== null) drawn.push(String(page.title));
     }
-    expect(drawn).toEqual(["Sync", "Connections"]);
+    expect(drawn).toEqual(["Sync", "Library", "Connections"]);
   });
 
   it("draws the Sync tab as SyncTab", () => {
     const sync = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Sync");
     expect(sync !== "separator" && isValidElement(sync?.content) && sync.content.type).toBe(SyncTab);
+  });
+
+  it("draws the Library tab as LibraryTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Library");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(LibraryTab);
   });
 
   it("draws the Connections tab as ConnectionsTab", () => {

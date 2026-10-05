@@ -13,6 +13,50 @@ export const GREEN = "#59bf40";
 export const AMBER = "#d4a72c";
 export const RED = "#d4343c";
 export const BLUE = "#1a9fff";
+/** A file here that nothing requires — paler than a requirement met. */
+export const PALE_GREEN = "#8fc46b";
+/** The BIOS table's second mark: a file the RomM library does not hold. */
+export const VIOLET = "#a48fd4";
+
+/** A list row: what opens its detail, then the row's own switch where it has one. */
+export const LIST_ROW_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "12px",
+  padding: "0 6px",
+  borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
+  color: TEXT,
+  fontSize: "14px",
+};
+
+/** The part of a list row a click opens: plain text, the row's whole free width. */
+export const SELECT_BUTTON_STYLE: CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: "6px",
+  padding: "8px 0",
+  background: "none",
+  border: "none",
+  color: "inherit",
+  font: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+};
+
+/** A heading over a group of list rows. */
+export const LIST_HEADING_STYLE: CSSProperties = {
+  padding: "10px 6px 4px",
+  fontSize: "11px",
+  fontWeight: 600,
+  letterSpacing: "0.5px",
+  color: MUTED,
+  textTransform: "uppercase",
+};
+
+/** A detail's title line: the name, then a quiet clause after it. */
+export const DETAIL_TITLE_STYLE: CSSProperties = { fontSize: "16px", fontWeight: 600, color: TEXT };
 
 const RULE = "1px solid rgba(255, 255, 255, 0.1)";
 

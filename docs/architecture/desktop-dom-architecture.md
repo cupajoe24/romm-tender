@@ -517,6 +517,27 @@ as opening Big Picture's Settings page does — including the device registratio
 two questions are drawn by `desktop/settings/settingsPrompts.tsx` as desktop confirm dialogs, ready for the tabs that
 ask them.
 
+### The Library tab
+
+`desktop/settings/library/` draws the QAM's [Library](qam-panel.md#library) page for the desktop client, over the same
+state (`utils/usePlatformsPage.ts`, `utils/useCollectionsPage.ts`), the same words and the same decisions
+(`utils/platformsPageView.ts`, `utils/platformsPageWording.ts`, `utils/collectionKinds.ts`,
+`utils/collectionsPageView.ts`); only the drawing is its own. A BIOS mark answers a tone and the core clause a
+`CoreTone`, which the tab paints from `desktop/settings/settingsStyles.ts` as Big Picture paints them from its pane.
+
+Two buttons switch between Platforms and Collections, and switching ENTERS the half shown, as the QAM page's tab change
+does: the collections read waits for its half. The content column is too narrow for a list and a detail side by side, so
+each half drills down (`desktop/settings/DrillDown.tsx`): the list fills the tab with nothing open, a row's name slides
+the list out to the left and that entry's detail in, and a Back button at the detail's top slides the list back and
+returns focus to the row. A row's toggle is its switch and works without opening anything. The panel out of view is
+`inert`, and once its slide is over it takes no height, so the window's content scrolls over the panel in view alone.
+Every confirm — removing shortcuts, deleting save or BIOS files, switching more than twenty collections at once — is a
+`DesktopConfirmDialog` drawn in the window's own document by `useDialogHost`.
+
+The tab holds its prune leases under the owner `tender-settings-library`, not the QAM page's `library-platforms`: a
+page's unmount releases every lease its owner holds, so closing the window must not release leases an open QAM page
+still holds. Whether the core picker's emulator menu opens inside the settings window is device check 8.
+
 ### Moving the logic down first
 
 `desktop/` may import `api/`, `utils/`, `types/` and `shared/`, never `bigpicture/` (CLAUDE.md's invariant register, the

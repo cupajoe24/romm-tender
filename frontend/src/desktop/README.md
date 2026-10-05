@@ -51,6 +51,9 @@ are sorted into dedicated lowercase subdirectories:
   - `desktop/settings/connections/` — the Connections tab and its sign-in, custom-headers and SteamGridDB-key dialogs,
     over `utils/useSettingsPage.ts` and the Connections section's words and flows in `utils/`. The settings hook's two
     questions are drawn by `desktop/settings/settingsPrompts.tsx`.
+  - `desktop/settings/library/` — the Library tab: Platforms (list, detail with the core picker, BIOS files and removal)
+    and Collections, over `utils/usePlatformsPage.ts`, `utils/useCollectionsPage.ts` and the Library page's words and
+    views in `utils/`.
 
 ## What reaches a bundle
 
