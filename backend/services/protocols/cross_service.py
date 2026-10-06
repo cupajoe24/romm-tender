@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
 
-    from models.prune import SourceClaim
+    from models.prune import InstalledContentRemoval, SourceClaim
     from models.state import ShortcutRegistryEntry
     from models.sync import ClientSaveState
 
@@ -75,9 +75,9 @@ class SiblingSupersedeFn(Protocol):
 
     One downloaded version per shortcut binding, whichever route produced it —
     an adopted install is an install (ADR-0028), so adoption is held to the rule
-    the download path already enforces. Returns ``None`` when the group is clean
-    or every removal succeeded, and a canonical failure dict otherwise, which the
-    caller must treat as an abort: a half-applied supersede leaves two installed
+    the download path already enforces. Returns once the group is clean or every
+    removal succeeded, and raises the removal's refusal otherwise, which the
+    caller must let abort it: a half-applied supersede leaves two installed
     versions, the state the rule exists to prevent.
 
     Which siblings qualify is deliberately **not** part of this contract — the
@@ -85,7 +85,7 @@ class SiblingSupersedeFn(Protocol):
     shortcut" rule (ADR-0021 §5) has one implementation behind this seam.
     """
 
-    async def __call__(self, rom_id: int) -> dict[str, Any] | None: ...
+    async def __call__(self, rom_id: int) -> None: ...
 
 
 class SiblingSupersedeProvider(Protocol):
@@ -366,17 +366,21 @@ class InstalledRomRemoverFn(Protocol):
     Before downloading a version whose sibling group already has another version
     on disk, DownloadService strips that install through this seam — reusing the
     canonical file-deletion + ``rom_installs`` cleanup rather than duplicating it.
-    Returns the removal's ``{success, ...}`` shape; ``reason: "not_installed"`` is
-    an already-clean no-op, any other failure aborts the download.
+    Returns the removal's success answer and raises its refusal.
     """
 
     async def __call__(self, rom_id: int) -> dict[str, Any]: ...
 
 
 class InstalledRomFilesRemoverFn(Protocol):
-    """Filesystem-only installed-ROM removal consumed by explicit prune."""
+    """Filesystem-only installed-ROM removal consumed by explicit prune.
 
-    def __call__(self, rom_id: int, claims: dict[str, SourceClaim] | None = None) -> dict[str, Any]: ...
+    Answers what the removal came to and never raises a refusal: a ROM with
+    nothing installed is a removal that changed nothing, and one that raised is
+    ambiguous, because it may have deleted files before it stopped.
+    """
+
+    def __call__(self, rom_id: int, claims: dict[str, SourceClaim] | None = None) -> InstalledContentRemoval: ...
 
 
 class VersionSwitcherFn(Protocol):

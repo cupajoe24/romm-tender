@@ -31,13 +31,13 @@ from domain.rom import Rom
 from domain.rom_files import TMP_EXT, ZIP_TMP_EXT
 from domain.rom_install import RomInstall
 from domain.version_metadata import VersionMetadata
-from lib.list_result import ErrorCode
+from lib.errors import NotInstalled, Refused, RommNotFoundError
 from lib.prune_conflicts import PruneConflicts
 from services.active_core_resolver import ActiveCoreResolver, ActiveCoreResolverConfig
 from services.downloads import DownloadService, DownloadServiceConfig, _DownloadControl
 from services.rom_adoption import RomAdoptionService, RomAdoptionServiceConfig
 from services.rom_install_recorder import RomInstallRecorder, RomInstallRecorderConfig
-from services.rom_removal import RomRemovalService, RomRemovalServiceConfig
+from services.rom_removal import RomRemovalService, RomRemovalServiceConfig, UninstallIncomplete
 
 
 def _seed_rom(uow: FakeUnitOfWork, rom_id: int, *, platform_slug: str = "n64") -> None:
@@ -316,20 +316,22 @@ class TestStartDownload:
     @pytest.mark.asyncio
     async def test_rejects_already_downloading(self, downloads):
         downloads.service._download_in_progress.add(42)
-        result = await downloads.service.start_download(42)
-        assert result["success"] is False
-        assert "Already downloading" in result["message"]
+        coro = downloads.service.start_download(42)
+        with pytest.raises(Refused) as refused:
+            await coro
+        assert (refused.value.reason, refused.value.message) == ("already_downloading", "Already downloading")
 
     @pytest.mark.asyncio
-    async def test_rejects_if_rom_not_found(self, downloads):
+    async def test_a_romm_error_fetching_the_rom_passes_on_and_frees_the_rom(self, downloads):
         from unittest.mock import AsyncMock
 
         downloads.service._loop = MagicMock()
-        downloads.service._loop.run_in_executor = AsyncMock(side_effect=Exception("HTTP Error 404: Not Found"))
+        downloads.service._loop.run_in_executor = AsyncMock(side_effect=RommNotFoundError("HTTP Error 404: Not Found"))
 
-        result = await downloads.service.start_download(9999)
-        assert result["success"] is False
-        assert "reason" in result
+        coro = downloads.service.start_download(9999)
+        with pytest.raises(RommNotFoundError):
+            await coro
+        assert 9999 not in downloads.service._download_in_progress
 
     @pytest.mark.asyncio
     async def test_checks_disk_space(self, downloads, tmp_path):
@@ -356,10 +358,12 @@ class TestStartDownload:
         downloads.service._loop.run_in_executor = AsyncMock(return_value=rom_detail)
 
         downloads.service._download_file_store.disk_free = lambda _path: 50 * 1024 * 1024
-        result = await downloads.service.start_download(42)
+        coro = downloads.service.start_download(42)
+        with pytest.raises(Refused) as refused:
+            await coro
 
-        assert result["success"] is False
-        assert "disk space" in result["message"].lower()
+        assert refused.value.reason == "insufficient_space"
+        assert "disk space" in refused.value.message.lower()
 
 
 class TestCancelDownload:
@@ -377,10 +381,10 @@ class TestCancelDownload:
         assert result["success"] is True
 
     @pytest.mark.asyncio
-    async def test_cancel_nonexistent_returns_error(self, downloads):
-        result = downloads.service.cancel_download(999)
-        assert result["success"] is False
-        assert "No active download" in result["message"]
+    async def test_cancel_nonexistent_is_refused(self, downloads):
+        with pytest.raises(Refused) as refused:
+            downloads.service.cancel_download(999)
+        assert refused.value.reason == "no_active_download"
 
     @pytest.mark.asyncio
     async def test_cancels_paused_download_deletes_tmp_evicts_and_emits(self, downloads, tmp_path, emit):
@@ -444,16 +448,16 @@ class TestCancelDownload:
         assert 42 not in downloads.service._download_queue
 
     @pytest.mark.asyncio
-    async def test_cancel_no_task_and_not_paused_returns_failure(self, downloads):
-        """No live task AND the entry isn't paused → canonical failure shape, and
+    async def test_cancel_no_task_and_not_paused_is_refused(self, downloads):
+        """No live task AND the entry isn't paused → ``no_active_download``, and
         the non-paused entry is left untouched (not evicted)."""
         downloads.service._download_queue[42] = {"rom_id": 42, "status": "downloading"}
-        result = downloads.service.cancel_download(42)
-        assert result == {
-            "success": False,
-            "reason": "no_active_download",
-            "message": "No active download for this ROM",
-        }
+        with pytest.raises(Refused) as refused:
+            downloads.service.cancel_download(42)
+        assert (refused.value.reason, refused.value.message) == (
+            "no_active_download",
+            "No active download for this ROM",
+        )
         assert 42 in downloads.service._download_queue
 
 
@@ -916,10 +920,11 @@ class TestRemoveRom:
         assert 42 not in downloads.service._download_queue
 
     @pytest.mark.asyncio
-    async def test_returns_error_not_installed(self, downloads):
-        result = await downloads.removal.remove_rom(999)
-        assert result["success"] is False
-        assert "not installed" in result["message"].lower()
+    async def test_refuses_not_installed(self, downloads):
+        coro = downloads.removal.remove_rom(999)
+        with pytest.raises(NotInstalled) as refused:
+            await coro
+        assert refused.value.message == "ROM not installed"
 
 
 class TestUninstallAllRoms:
@@ -1135,10 +1140,11 @@ class TestDiskSpaceMultiFile:
 
         # 700MB free: enough for single-file (600MB) but not multi-file (1100MB)
         downloads.service._download_file_store.disk_free = lambda _path: 700 * 1024 * 1024
-        result = await downloads.service.start_download(42)
+        coro = downloads.service.start_download(42)
+        with pytest.raises(Refused) as refused:
+            await coro
 
-        assert result["success"] is False
-        assert "disk space" in result["message"].lower()
+        assert refused.value.reason == "insufficient_space"
 
     @pytest.mark.asyncio
     async def test_single_file_rom_uses_normal_space_check(self, downloads, tmp_path):
@@ -1217,10 +1223,11 @@ class TestDiskSpaceMultiFile:
         # If the gate only read has_multiple_files (False), this would pass —
         # the 2x reservation is what makes it fail.
         downloads.service._download_file_store.disk_free = lambda _path: 700 * 1024 * 1024
-        result = await downloads.service.start_download(44)
+        coro = downloads.service.start_download(44)
+        with pytest.raises(Refused) as refused:
+            await coro
 
-        assert result["success"] is False
-        assert "disk space" in result["message"].lower()
+        assert refused.value.reason == "insufficient_space"
 
 
 class TestMultiFileRomDeletion:
@@ -2909,11 +2916,13 @@ class TestPathTraversalDeleteRomFiles:
             rom_dir=str(evil_dir),
         )
 
-        result = await downloads.removal.remove_rom(99)
+        coro = downloads.removal.remove_rom(99)
+        with pytest.raises(Refused) as refused:
+            await coro
         # The evil dir/file should NOT be deleted
         assert evil_dir.exists()
         assert evil_file.exists()
-        assert result["success"] is False
+        assert refused.value.reason == "uninstall_failed"
         # Unsafe paths are failures: retain the record so the user can repair it.
         assert downloads.uow.rom_installs.get(99) is not None
 
@@ -2938,9 +2947,11 @@ class TestPathTraversalDeleteRomFiles:
             rom_dir=None,
         )
 
-        result = await downloads.removal.remove_rom(99)
+        coro = downloads.removal.remove_rom(99)
+        with pytest.raises(Refused) as refused:
+            await coro
         assert evil_file.exists()
-        assert result["success"] is False
+        assert refused.value.reason == "uninstall_failed"
         assert downloads.uow.rom_installs.get(99) is not None
 
 
@@ -3057,13 +3068,11 @@ class TestPathTraversalPlatformSlug:
 
         from unittest.mock import patch
 
-        with patch.object(downloads.romm_api, "get_rom", return_value=rom_detail):
-            result = await downloads.service.start_download(77)
+        coro = downloads.service.start_download(77)
+        with patch.object(downloads.romm_api, "get_rom", return_value=rom_detail), pytest.raises(Refused) as refused:
+            await coro
 
-        # Canonical path_traversal failure shape.
-        assert result["success"] is False
-        assert result["reason"] == "path_traversal"
-        assert "message" in result
+        assert refused.value.reason == "path_traversal"
         # Rejected before any make_dirs.
         assert made_dirs == []
         # No directory created outside the roms root.
@@ -3664,14 +3673,14 @@ class TestUninstallAllRomsMixedResults:
         _seed_install(downloads.uow, 2, file_path=str(bad_file), rom_dir=None, system="snes")
 
         result = await downloads.removal.uninstall_all_roms()
-        assert result["success"] is False
+        assert isinstance(result, UninstallIncomplete)
         # good_file should be deleted
         assert not good_file.exists()
         # bad_file should still exist (outside roms dir)
         assert bad_file.exists()
-        assert result["removed_count"] == 1
-        assert len(result["errors"]) == 1
-        assert result["errors"][0]["rom_id"] == "2"
+        assert result.removed_count == 1
+        assert len(result.errors) == 1
+        assert result.errors[0]["rom_id"] == "2"
         assert downloads.uow.rom_installs.get(1) is None
         assert downloads.uow.rom_installs.get(2) is not None
 
@@ -3888,7 +3897,7 @@ class TestStartDownloadCreateTaskFailure:
     """Tests for start_download when create_task raises."""
 
     @pytest.mark.asyncio
-    async def test_create_task_failure_returns_error(self, downloads, tmp_path):
+    async def test_create_task_failure_propagates_and_releases_the_flag(self, downloads, tmp_path):
         from unittest.mock import AsyncMock
 
         downloads.service._retrodeck_paths = FakeRetroDeckPaths(
@@ -3921,10 +3930,10 @@ class TestStartDownloadCreateTaskFailure:
         downloads.service._loop.create_task = _raise_after_closing
 
         downloads.service._download_file_store.disk_free = lambda _path: 500 * 1024 * 1024
-        result = await downloads.service.start_download(42)
+        coro = downloads.service.start_download(42)
+        with pytest.raises(RuntimeError, match="loop closed"):
+            await coro
 
-        assert result["success"] is False
-        assert "Failed to start download" in result["message"]
         # Should not remain in download_in_progress
         assert 42 not in downloads.service._download_in_progress
 
@@ -4265,11 +4274,12 @@ class TestCleanupPartialDownloadFailureInjection:
 class TestStartDownloadInProgressLeak:
     """An early exception in start_download must release the in-progress flag.
 
-    A raise between ``_download_in_progress.add`` and the create_task block —
-    an OSError from make_dirs or disk_free (SD card unmounted), a TypeError from
-    the path join when roms_path() returns None — fails the call and leaves the
-    ROM free to be downloaded again, not stuck "Already downloading" until the
-    backend restarts.
+    A raise between ``_download_in_progress.add`` and the task's creation — an
+    OSError from make_dirs or disk_free (SD card unmounted), refused with
+    ``download_start_failed``; a TypeError from the path join when roms_path()
+    returns None; a cancelled call — fails the call and leaves the ROM free to
+    be downloaded again, not stuck "Already downloading" until the backend
+    restarts.
     """
 
     def _wire(self, downloads, tmp_path):
@@ -4299,19 +4309,19 @@ class TestStartDownloadInProgressLeak:
 
         downloads.service._download_file_store.make_dirs = _boom
 
-        result = await downloads.service.start_download(42)
+        first = downloads.service.start_download(42)
+        with pytest.raises(Refused) as refused:
+            await first
 
-        # Canonical failure shape.
-        assert result["success"] is False
-        assert result["reason"] == ErrorCode.UNKNOWN.value
-        assert "Failed to start download" in result["message"]
+        assert (refused.value.reason, refused.value.message) == ("download_start_failed", "Failed to start download")
         # The flag is released — the ROM is not stuck "Already downloading".
         assert 42 not in downloads.service._download_in_progress
         # A second attempt is not rejected as already-downloading; it fails the
         # same way (make_dirs still boom) — proving the flag was discarded.
-        result2 = await downloads.service.start_download(42)
-        assert result2["success"] is False
-        assert "Already downloading" not in result2["message"]
+        second = downloads.service.start_download(42)
+        with pytest.raises(Refused) as refused:
+            await second
+        assert refused.value.reason == "download_start_failed"
 
     @pytest.mark.asyncio
     async def test_disk_free_oserror_releases_flag(self, downloads, tmp_path):
@@ -4334,17 +4344,62 @@ class TestStartDownloadInProgressLeak:
 
         downloads.service._download_file_store.disk_free = _boom
 
-        result = await downloads.service.start_download(43)
-        assert result["success"] is False
-        assert result["reason"] == ErrorCode.UNKNOWN.value
+        coro = downloads.service.start_download(43)
+        with pytest.raises(Refused) as refused:
+            await coro
+        assert refused.value.reason == "download_start_failed"
         assert 43 not in downloads.service._download_in_progress
+
+    @pytest.mark.asyncio
+    async def test_an_oserror_reading_the_target_refuses_and_releases_flag(self, downloads, tmp_path):
+        """The occupancy gate reads the disk too, and an unreadable card there is the same refusal."""
+        from unittest.mock import AsyncMock
+
+        self._wire(downloads, tmp_path)
+        rom_detail = {
+            "id": 45,
+            "name": "Kirby",
+            "fs_name": "kirby.z64",
+            "fs_size_bytes": 1024,
+            "platform_slug": "n64",
+            "platform_name": "Nintendo 64",
+        }
+        downloads.service._loop = MagicMock()
+        downloads.service._loop.run_in_executor = AsyncMock(return_value=rom_detail)
+        downloads.service._target_gate = AsyncMock(side_effect=OSError("lstat failed: SD card gone"))
+
+        coro = downloads.service.start_download(45)
+        with pytest.raises(Refused) as refused:
+            await coro
+        assert (refused.value.reason, refused.value.message) == ("download_start_failed", "Failed to start download")
+        assert 45 not in downloads.service._download_in_progress
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_start_releases_flag(self, downloads):
+        """A start the host cancels mid-await, when the panel's connection drops, frees the ROM too."""
+        fetching = asyncio.Event()
+
+        async def _fetch_forever(*_args):
+            fetching.set()
+            await asyncio.Event().wait()
+
+        downloads.service._loop = MagicMock()
+        downloads.service._loop.run_in_executor = _fetch_forever
+        start = asyncio.ensure_future(downloads.service.start_download(46))
+        await fetching.wait()
+
+        start.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await start
+
+        assert 46 not in downloads.service._download_in_progress
 
     @pytest.mark.asyncio
     async def test_roms_path_none_releases_flag(self, downloads, tmp_path):
         from unittest.mock import AsyncMock
 
         # roms_path() returns None → the os.path.realpath inside safe_join raises
-        # a TypeError that must be caught and the flag released.
+        # a TypeError, a bug that stays one and still releases the flag.
         paths = FakeRetroDeckPaths(roms="", bios="")
         paths.roms_path = lambda: None  # type: ignore[method-assign,return-value]
         downloads.service._retrodeck_paths = paths
@@ -4359,10 +4414,9 @@ class TestStartDownloadInProgressLeak:
         downloads.service._loop = MagicMock()
         downloads.service._loop.run_in_executor = AsyncMock(return_value=rom_detail)
 
-        result = await downloads.service.start_download(44)
-        assert result["success"] is False
-        assert result["reason"] == ErrorCode.UNKNOWN.value
-        assert "Failed to start download" in result["message"]
+        coro = downloads.service.start_download(44)
+        with pytest.raises(TypeError):
+            await coro
         assert 44 not in downloads.service._download_in_progress
 
 
@@ -4934,10 +4988,11 @@ class TestConcurrencyReservation:
 
         # Second download: 900 free - 500 reserved = 400 < 500 needed → rejected.
         downloads.service._loop.run_in_executor = AsyncMock(return_value=_detail(2))
-        r2 = await downloads.service.start_download(2)
-        assert r2["success"] is False
-        assert r2["reason"] == "insufficient_space"
-        assert "disk space" in r2["message"].lower()
+        r2 = downloads.service.start_download(2)
+        with pytest.raises(Refused) as refused:
+            await r2
+        assert refused.value.reason == "insufficient_space"
+        assert "disk space" in refused.value.message.lower()
         # The rejected ROM holds no reservation and no in-progress flag.
         assert 2 not in downloads.service._reserved_bytes
         assert 2 not in downloads.service._download_in_progress
@@ -5517,29 +5572,28 @@ class TestPauseResume:
         assert downloads.service._download_queue[42]["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_resume_non_paused_returns_not_paused(self, downloads):
-        """resume on a missing or non-paused entry returns the not_paused shape."""
-        result = await downloads.service.resume_download(999)
-        assert result == {
-            "success": False,
-            "reason": "not_paused",
-            "message": "No paused download for this ROM",
-        }
+    async def test_resume_non_paused_is_refused_with_not_paused(self, downloads):
+        """resume on a missing or non-paused entry is refused with ``not_paused``."""
+        missing = downloads.service.resume_download(999)
+        with pytest.raises(Refused) as refused:
+            await missing
+        assert (refused.value.reason, refused.value.message) == ("not_paused", "No paused download for this ROM")
 
         # A downloading (not paused) entry is also rejected.
         downloads.service._download_queue[7] = {"rom_id": 7, "status": "downloading"}
-        result = await downloads.service.resume_download(7)
-        assert result["success"] is False
-        assert result["reason"] == "not_paused"
+        downloading = downloads.service.resume_download(7)
+        with pytest.raises(Refused) as refused:
+            await downloading
+        assert refused.value.reason == "not_paused"
 
     @pytest.mark.asyncio
-    async def test_pause_no_active_returns_no_active_download(self, downloads):
-        result = downloads.service.pause_download(999)
-        assert result == {
-            "success": False,
-            "reason": "no_active_download",
-            "message": "No active download for this ROM",
-        }
+    async def test_pause_no_active_is_refused_with_no_active_download(self, downloads):
+        with pytest.raises(Refused) as refused:
+            downloads.service.pause_download(999)
+        assert (refused.value.reason, refused.value.message) == (
+            "no_active_download",
+            "No active download for this ROM",
+        )
 
     @pytest.mark.asyncio
     async def test_pause_download_sets_paused_flag_and_cancels_task(self, downloads):
@@ -5666,38 +5720,38 @@ class TestSiblingSupersedeRemoval:
         remover = AsyncMock(return_value={"success": True, "message": "ROM removed"})
         downloads.service._rom_remover = lambda: remover
 
-        result = await downloads.service.supersede_sibling_installs(1)
+        await downloads.service.supersede_sibling_installs(1)
 
-        assert result is None
         remover.assert_awaited_once_with(2)
 
     @pytest.mark.asyncio
-    async def test_not_installed_result_is_clean_not_abort(self, downloads):
+    async def test_a_sibling_already_uninstalled_is_skipped_not_an_abort(self, downloads):
         from unittest.mock import AsyncMock
 
         _seed_group_member(downloads.uow, 1, group_key=_SUPERSEDE_GROUP, app_id=42, installed=False)
         _seed_group_member(downloads.uow, 2, group_key=_SUPERSEDE_GROUP, app_id=None, installed=True)
         # A concurrent removal already cleaned it — not_installed is a no-op, not an abort.
-        remover = AsyncMock(return_value={"success": False, "reason": "not_installed", "message": "ROM not installed"})
+        remover = AsyncMock(side_effect=NotInstalled("ROM not installed"))
         downloads.service._rom_remover = lambda: remover
 
-        result = await downloads.service.supersede_sibling_installs(1)
+        await downloads.service.supersede_sibling_installs(1)
 
-        assert result is None
         remover.assert_awaited_once_with(2)
 
     @pytest.mark.asyncio
-    async def test_removal_failure_returns_failure_shape(self, downloads):
+    async def test_a_removal_refusal_propagates(self, downloads):
         from unittest.mock import AsyncMock
 
         _seed_group_member(downloads.uow, 1, group_key=_SUPERSEDE_GROUP, app_id=42, installed=False)
         _seed_group_member(downloads.uow, 2, group_key=_SUPERSEDE_GROUP, app_id=None, installed=True)
-        failing = AsyncMock(return_value={"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"})
-        downloads.service._rom_remover = lambda: failing
+        boom = Refused("uninstall_failed", "boom")
+        downloads.service._rom_remover = lambda: AsyncMock(side_effect=boom)
 
-        result = await downloads.service.supersede_sibling_installs(1)
+        coro = downloads.service.supersede_sibling_installs(1)
+        with pytest.raises(Refused) as refused:
+            await coro
 
-        assert result == {"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"}
+        assert refused.value is boom
 
     @pytest.mark.asyncio
     async def test_clean_group_no_remover_call(self, downloads):
@@ -5707,7 +5761,7 @@ class TestSiblingSupersedeRemoval:
         provider = MagicMock(side_effect=AssertionError("remover must not be resolved when nothing is superseded"))
         downloads.service._rom_remover = provider
 
-        assert await downloads.service.supersede_sibling_installs(1) is None
+        await downloads.service.supersede_sibling_installs(1)
         provider.assert_not_called()
 
     @pytest.mark.asyncio
@@ -5732,13 +5786,15 @@ class TestSiblingSupersedeRemoval:
 
         _seed_group_member(downloads.uow, 1, group_key=_SUPERSEDE_GROUP, app_id=42, installed=False)
         _seed_group_member(downloads.uow, 2, group_key=_SUPERSEDE_GROUP, app_id=None, installed=True)
-        failing = AsyncMock(return_value={"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"})
-        downloads.service._rom_remover = lambda: failing
+        boom = Refused("uninstall_failed", "boom")
+        downloads.service._rom_remover = lambda: AsyncMock(side_effect=boom)
         started = _stage_download_prologue(downloads)
 
-        result = await downloads.service.start_download(1)
+        coro = downloads.service.start_download(1)
+        with pytest.raises(Refused) as refused:
+            await coro
 
-        assert result == {"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"}
+        assert refused.value is boom
         assert started == []
 
     @pytest.mark.asyncio
@@ -5763,8 +5819,10 @@ class TestSiblingSupersedeRemoval:
         first = asyncio.create_task(downloads.service.start_download(1))
         await entered.wait()  # first call is now suspended inside the removal await
 
-        second = await downloads.service.start_download(1)
-        assert second == {"success": False, "reason": "already_downloading", "message": "Already downloading"}
+        second = downloads.service.start_download(1)
+        with pytest.raises(Refused) as refused:
+            await second
+        assert (refused.value.reason, refused.value.message) == ("already_downloading", "Already downloading")
 
         release.set()
         assert await first == {"success": True, "message": "Download started"}
@@ -5790,12 +5848,12 @@ class TestSiblingSupersedeRemoval:
 
         _seed_group_member(downloads.uow, 1, group_key=_SUPERSEDE_GROUP, app_id=42, installed=False)
         _seed_group_member(downloads.uow, 2, group_key=_SUPERSEDE_GROUP, app_id=None, installed=True)
-        failing = AsyncMock(return_value={"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"})
-        downloads.service._rom_remover = lambda: failing
+        downloads.service._rom_remover = lambda: AsyncMock(side_effect=Refused("uninstall_failed", "boom"))
         _stage_download_prologue(downloads)
 
-        result = await downloads.service.start_download(1)
-        assert result["reason"] == ErrorCode.UNKNOWN.value
+        coro = downloads.service.start_download(1)
+        with pytest.raises(Refused):
+            await coro
         assert 1 not in downloads.service._download_in_progress
 
     @pytest.mark.asyncio
@@ -5809,8 +5867,7 @@ class TestSiblingSupersedeRemoval:
         downloads.service._download_queue[2] = {"rom_id": 2, "status": "paused"}
         downloads.service._rom_remover = lambda: AsyncMock(return_value={"success": True, "message": "removed"})
 
-        result = await downloads.service.supersede_sibling_installs(1)
-        assert result is None
+        await downloads.service.supersede_sibling_installs(1)
         assert 2 not in downloads.service._download_queue
 
     @pytest.mark.asyncio
@@ -5846,13 +5903,11 @@ class TestSiblingSupersedeRemoval:
 
         _seed_group_member(downloads.uow, 1, group_key=_SUPERSEDE_GROUP, app_id=42, installed=False)
         _seed_group_member(downloads.uow, 2, group_key=_SUPERSEDE_GROUP, app_id=None, installed=True)
-        failing = AsyncMock(
-            return_value={"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "delete blew up"}
-        )
-        downloads.service._rom_remover = lambda: failing
+        downloads.service._rom_remover = lambda: AsyncMock(side_effect=Refused("uninstall_failed", "delete blew up"))
 
-        with caplog.at_level(logging.INFO):
-            await downloads.service.supersede_sibling_installs(1)
+        coro = downloads.service.supersede_sibling_installs(1)
+        with caplog.at_level(logging.INFO), pytest.raises(Refused):
+            await coro
         assert any(
             "rom 2" in r.message
             and "rom 1" in r.message
@@ -5876,11 +5931,12 @@ class TestResumeSupersede:
         downloads.service._download_queue[3] = {"rom_id": 3, "status": "paused"}
         downloads.service._begin_download = AsyncMock()
 
-        result = await downloads.service.resume_download(3)
-        assert result["success"] is False
-        assert result["reason"] == "superseded"
-        assert isinstance(result["message"], str) and len(result["message"]) <= 45
-        assert "error" not in result and "error_code" not in result
+        coro = downloads.service.resume_download(3)
+        with pytest.raises(Refused) as refused:
+            await coro
+        assert refused.value.reason == "superseded"
+        assert len(refused.value.message) <= 45
+        assert refused.value.details == {}
         assert 3 not in downloads.service._download_queue
         assert 3 not in downloads.service._download_in_progress
         downloads.service._begin_download.assert_not_awaited()
@@ -5926,12 +5982,14 @@ class TestResumeSupersede:
         _seed_group_member(downloads.uow, 1, group_key=_SUPERSEDE_GROUP, app_id=None, installed=False)
         _seed_group_member(downloads.uow, 2, group_key=_SUPERSEDE_GROUP, app_id=None, installed=True)
         downloads.service._download_queue[1] = {"rom_id": 1, "status": "paused"}
-        failing = AsyncMock(return_value={"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"})
-        downloads.service._rom_remover = lambda: failing
+        boom = Refused("uninstall_failed", "boom")
+        downloads.service._rom_remover = lambda: AsyncMock(side_effect=boom)
         started = _stage_download_prologue(downloads)
 
-        result = await downloads.service.resume_download(1)
-        assert result == {"success": False, "reason": ErrorCode.UNKNOWN.value, "message": "boom"}
+        coro = downloads.service.resume_download(1)
+        with pytest.raises(Refused) as refused:
+            await coro
+        assert refused.value is boom
         assert started == []
         assert 1 not in downloads.service._download_in_progress
 
@@ -5986,8 +6044,10 @@ class TestResumeSupersede:
         downloads.service._rom_remover = provider
         downloads.service._download_queue[7] = {"rom_id": 7, "status": "downloading"}
 
-        result = await downloads.service.resume_download(7)
-        assert result["reason"] == "not_paused"
+        coro = downloads.service.resume_download(7)
+        with pytest.raises(Refused) as refused:
+            await coro
+        assert refused.value.reason == "not_paused"
         provider.assert_not_called()
 
 
@@ -6051,9 +6111,11 @@ class TestAStartedDownloadHoldsAnOperation:
         service = downloads.service
         service._download_in_progress.add(42)
 
-        result = await service.start_download(42)
+        coro = service.start_download(42)
+        with pytest.raises(Refused) as refused:
+            await coro
 
-        assert result["reason"] == "already_downloading"
+        assert refused.value.reason == "already_downloading"
         assert downloads.prune_conflicts.conflicting_operations == 0
 
     @pytest.mark.parametrize("call", ["start_download", "resume_download"])
