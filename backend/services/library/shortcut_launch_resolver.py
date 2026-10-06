@@ -42,9 +42,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from domain.emulator_sources import SourcesReading
     from domain.rom_install import RomInstall
     from domain.shortcut_data import EmulatorInvocation
-    from services.protocols import ActiveCoreReader, DiscResolver, UnitOfWorkFactory
+    from services.protocols import ActiveCoreReader, DiscResolver, EmulatorSourcesReader, UnitOfWorkFactory
 
 
 @dataclass(frozen=True)
@@ -56,12 +57,14 @@ class ShortcutLaunchResolverConfig:
     folds the per-game ``emulator_override`` and the per-platform
     ``settings.json`` core over the standalone-aware es_systems default, and
     ``disc_resolver`` resolves a multi-disc ROM's persisted ``selected_disc``
-    pin against its install directory.
+    pin against its install directory. ``emulator_sources`` gives the one
+    reading of the emulator sources a run resolves every ROM through.
     """
 
     uow_factory: UnitOfWorkFactory
     active_core: ActiveCoreReader
     disc_resolver: DiscResolver
+    emulator_sources: EmulatorSourcesReader
 
 
 class ShortcutLaunchResolver:
@@ -71,8 +74,20 @@ class ShortcutLaunchResolver:
         self._uow_factory = config.uow_factory
         self._active_core = config.active_core
         self._disc_resolver = config.disc_resolver
+        self._emulator_sources = config.emulator_sources
 
-    def do_build_core_overrides(self, roms: list[dict[str, Any]]) -> dict[int, EmulatorInvocation]:
+    def do_read_sources(self) -> SourcesReading:
+        """Take the one reading of the emulator sources a run resolves its ROMs through.
+
+        Detects the sources, so it is I/O and runs off the loop. The caller keeps
+        the reading for the whole run and hands it to every
+        :meth:`do_build_core_overrides` of that run.
+        """
+        return self._emulator_sources.read()
+
+    def do_build_core_overrides(
+        self, roms: list[dict[str, Any]], reading: SourcesReading
+    ) -> dict[int, EmulatorInvocation]:
         """Resolve each ROM's FULL active emulator for the bake.
 
         Runs every ROM in *roms* through the shared per-ROM ``active_core``
@@ -84,15 +99,19 @@ class ShortcutLaunchResolver:
         resolves to nothing (a genuinely unresolvable platform) is absent and
         falls back to the plain launch. The resolver already warns + degrades on
         a stale label, so no bogus invocation ever reaches the bake.
+
+        *reading* is the run's one reading of the emulator sources, so every ROM
+        of a system is resolved from one catalogue answer and a change to the
+        sources during the run takes effect from the next run.
         """
         resolved: dict[int, EmulatorInvocation] = {}
         for rom in roms:
-            emulator = self._active_core.active_emulator_for_rom(rom["id"])
+            emulator = self._active_core.active_emulator_for_rom(rom["id"], reading=reading)
             if emulator is not None:
                 resolved[rom["id"]] = emulator
         return resolved
 
-    def do_scan_installed_paths(self) -> dict[int, str]:
+    def do_scan_installed_paths(self, reading: SourcesReading) -> dict[int, str]:
         """Read ``{rom_id: bake_path}`` for the whole installed library in one scan.
 
         Used by the preview path, which already operates over every ROM in the
@@ -103,6 +122,8 @@ class ShortcutLaunchResolver:
         when the install has no launch target. Only ROMs with a current install
         record appear in the map; a ROM not downloaded is absent, and both cases
         reach :func:`build_shortcuts_data` as the same empty launch command.
+        *reading* is the run's one reading of the emulator sources, which every
+        folder-backed install's accept-list is asked through.
         """
         pending: list[tuple[RomInstall, str | None]] = []
         with self._uow_factory() as uow:
@@ -110,11 +131,11 @@ class ShortcutLaunchResolver:
                 rom = uow.roms.get(install.rom_id)
                 pending.append((install, rom.selected_disc if rom is not None else None))
         return {
-            install.rom_id: self._disc_resolver.resolve_for_install(install, selected_disc)
+            install.rom_id: self._disc_resolver.resolve_for_install(install, selected_disc, reading=reading)
             for install, selected_disc in pending
         }
 
-    def do_read_installed_paths(self, rom_ids: set[int]) -> dict[int, str]:
+    def do_read_installed_paths(self, rom_ids: set[int], reading: SourcesReading) -> dict[int, str]:
         """Read ``{rom_id: bake_path}`` for *rom_ids* via targeted point-lookups.
 
         Used by the per-unit apply path: scanning the whole ``rom_installs``
@@ -124,7 +145,8 @@ class ShortcutLaunchResolver:
         pin against its install directory (a single-disc ROM resolves to its own
         ``file_path``, unchanged), or ``""`` when the install has no launch
         target. A ROM with no install record is absent; both cases reach
-        :func:`build_shortcuts_data` as the same empty launch command.
+        :func:`build_shortcuts_data` as the same empty launch command. *reading*
+        is the run's one reading of the emulator sources, as above.
         """
         pending: list[tuple[RomInstall, str | None]] = []
         with self._uow_factory() as uow:
@@ -135,6 +157,6 @@ class ShortcutLaunchResolver:
                 rom = uow.roms.get(rom_id)
                 pending.append((install, rom.selected_disc if rom is not None else None))
         return {
-            install.rom_id: self._disc_resolver.resolve_for_install(install, selected_disc)
+            install.rom_id: self._disc_resolver.resolve_for_install(install, selected_disc, reading=reading)
             for install, selected_disc in pending
         }

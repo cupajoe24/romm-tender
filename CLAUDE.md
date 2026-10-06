@@ -465,13 +465,25 @@ entry — why the rule exists, what breaks without it, and where it lives — is
 - **Sync run-lifecycle (`sync_state` / `current_sync_id`) written only via `LibrarySyncStateBox` verbs** — check —
   `scripts/check_sync_lifecycle_owner.py`
 - **A library-sync seam is held only by the module owning the job it belongs to — in `services/library/`, `active_core`
-  / `disc_resolver` by `shortcut_launch_resolver.py`, `renderer_rss` / `renderer_gc` by `session_budget.py`, and
-  `artwork` by `cover_preparer.py` **and** `reporter.py`, the one confinement with two owners, never a third. The
-  `service.py` façade may **pass** a seam on (as a call's keyword-argument value, or as a seam-annotated field declared
-  on `LibraryServiceConfig`) and may not **use** one; reading that field in the façade is a finding** — check —
-  `scripts/check_seam_owner.py` (an aliased seam, a `getattr`, or a seam passed positionally into a helper slips past
-  it); unchecked: `shortcut_launch_resolver`'s install-path read UoW is never held across the `active_core` seam's calls
-  (`check_uow_seam_nesting.py` catches only the inline form)
+  / `disc_resolver` / `emulator_sources` by `shortcut_launch_resolver.py`, `renderer_rss` / `renderer_gc` by
+  `session_budget.py`, and `artwork` by `cover_preparer.py` **and** `reporter.py`, the one confinement with two owners,
+  never a third. The `service.py` façade may **pass** a seam on (as a call's keyword-argument value, or as a
+  seam-annotated field declared on `LibraryServiceConfig`) and may not **use** one; reading that field in the façade is
+  a finding** — check — `scripts/check_seam_owner.py` (an aliased seam, a `getattr`, or a seam passed positionally into
+  a helper slips past it); unchecked: `shortcut_launch_resolver`'s install-path read UoW is never held across the
+  `active_core` seam's calls (`check_uow_seam_nesting.py` catches only the inline form)
+- **The resolver's installations are detected in one place, `adapters/emulator_sources.py`, through the one
+  `RealMachine` the process keeps; every other adapter asks it, and a game's questions go to the source
+  `domain/emulator_sources.py::answering_source` names** — test + prompt-only —
+  `tests/adapters/test_emulator_sources.py::TestOnlyTheHolderDetects` (no other backend module imports `detect`,
+  `every_installation`, `RealMachine` or an installation class from the resolver, star-imports it, imports the
+  resolver's package as a module, or reads one of those names off it) and, for the last clause,
+  `tests/domain/test_emulator_sources.py::TestAnsweringSource::test_retrodeck_answers_even_when_another_source_is_first_in_the_order`
+  and `test_retrodeck_answers_with_emudeck_first_in_the_order` in each of the three adapters' tests —
+  `tests/adapters/test_atlas_catalogue.py::TestWhichSourceAnswers`,
+  `tests/adapters/test_atlas_firmware.py::TestDegradation` and
+  `tests/adapters/test_atlas_saves.py::TestWhichSourceAnswers`. Unseen by the scan: a name reached through `getattr` or
+  `importlib`. Prompt-only: no adapter keeps a handle or an answer past the reading it came through
 - **A module declared read-only calls no repository write — `services/library/local_library_reader.py` to start** —
   check — `scripts/check_read_only_module.py` (the file's own calls only: a write behind a helper, a write passed as a
   bound method (`run_in_executor(None, uow.roms.save, …)`), an aliased handle, a `getattr`-reached repository, and a
@@ -866,12 +878,13 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   covered** — test + prompt-only — the panel's bound sites each carry a version-switch test
   (`frontend/src/bigpicture/RomMGameInfoPanel.test.tsx`); the store side and every new write site are prompt-only
 - **Every row a reader must be able to reach on a QAM page is a row Steam can focus — a toggle, a button, or a
-  `Focusable` declaring a stop of its own, including a table row with no action of its own** — check + prompt-only —
-  `tender/qam-focusable-row` for the syntactic slice — it passes a row with an unknown spread, any opaque child, or a
-  browser-focusable descendant (`tabIndex`, `button`), so those rows are prompt-only too; prompt-only: focus order,
-  runtime reachability, edge revelation (`ScrollRegion`'s `revealEdge`, whose decision
-  `frontend/src/bigpicture/layout/ScrollRegion.test.tsx` pins), scrolling geometry and controller behaviour, and that a
-  page's controls sit above its long focusable lists, not below
+  `Focusable` declaring a stop of its own, including a table row with no action of its own; text between two stops of
+  the same card is reached through them and is no stop of its own (an emulator source card's folder and health lines,
+  between its arrows and its switch)** — check + prompt-only — `tender/qam-focusable-row` for the syntactic slice — it
+  passes a row with an unknown spread, any opaque child, or a browser-focusable descendant (`tabIndex`, `button`), so
+  those rows are prompt-only too; prompt-only: focus order, runtime reachability, edge revelation (`ScrollRegion`'s
+  `revealEdge`, whose decision `frontend/src/bigpicture/layout/ScrollRegion.test.tsx` pins), scrolling geometry and
+  controller behaviour, and that a page's controls sit above its long focusable lists, not below
 - **A list-and-detail page opens on the row it was opened WITH, not on its first row** — test + prompt-only —
   `ListDetail.test.tsx` and `WidePage.test.tsx`, each over a non-first row, as any test of it must be; the press itself
   is device-only. Prompt-only: `bigpicture/layout/WidePage.tsx` places entry focus through `pageEntryStop`

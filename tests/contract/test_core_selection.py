@@ -164,6 +164,8 @@ async def test_get_platform_core_info_payload_shape(harness):
     assert set(result) == {
         "emulators",
         "emulator_data_available",
+        "emulator_data_reason",
+        "emulator_source",
         "active_core",
         "active_core_label",
         "platform_core_label",
@@ -199,7 +201,13 @@ async def test_get_system_core_info_payload_shape(harness):
 
     # No `success`: the endpoint has no in-band failure branch, so a key that
     # could only ever read True would be an offer of an answer it never gives.
-    assert set(result) == {"emulators", "emulator_data_available", "active_core_label"}
+    assert set(result) == {
+        "emulators",
+        "emulator_data_available",
+        "emulator_data_reason",
+        "emulator_source",
+        "active_core_label",
+    }
     assert result["emulator_data_available"] is True
     assert result["emulators"] == [_MGBA_ENTRY, _VBA_NEXT_ENTRY]
     assert result["active_core_label"] == "mGBA"
@@ -298,8 +306,9 @@ async def test_a_named_platforms_answer_carries_its_classified_emulators(harness
 async def test_a_named_platform_flags_unavailable_emulator_data(harness):
     """No es_systems → the named platform's answer flags emulator data unavailable.
 
-    Unavailable is not empty: the page says "RetroDECK was not found" off this
-    flag, and an empty list alone would read as a platform with no emulator.
+    Unavailable is not empty: the page says why the list is missing off this
+    flag and its reason, and an empty list alone would read as a platform with
+    no emulator.
     """
     seed_rom(harness, 8, platform_slug="gba")
     harness.romm.firmware_files = list(_GBA_FIRMWARE)

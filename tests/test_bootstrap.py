@@ -26,6 +26,7 @@ from bootstrap import (
 from fakes.fake_core_info_provider import FakeCoreInfoProvider
 from fakes.fake_cover_art_file_store import FakeCoverArtFileStore
 from fakes.fake_download_file_store import FakeDownloadFileStore
+from fakes.fake_emulator_sources import FakeEmulatorSources
 from fakes.fake_firmware_file_store import FakeFirmwareFileStore
 from fakes.fake_firmware_resolver import FakeFirmwareResolver
 from fakes.fake_game_process_control import FakeGameProcessControlAdapter
@@ -69,6 +70,7 @@ from services.cores import CoreService
 from services.data_inventory import DataInventoryService
 from services.disc import DiscService
 from services.downloads import DownloadService
+from services.emulator_sources import EmulatorSourcesService
 from services.firmware import FirmwareService
 from services.game_process import GameProcessService
 from services.leftover_tmp_cleanup import LeftoverTmpCleanupService
@@ -640,6 +642,7 @@ class TestWireServices:
                 resolve_path=deps["resolve_path"],
                 core_info_provider=deps["core_info_provider"],
                 save_locations=FakeSaveLocationReader(),
+                emulator_sources=FakeEmulatorSources(),
                 renderer_rss=deps["renderer_rss"],
                 renderer_gc=deps["renderer_gc"],
                 game_process=deps["game_process"],
@@ -741,10 +744,11 @@ class TestWireServices:
     def test_returns_expected_services(self, tmp_path):
         deps = self._make_deps(tmp_path)
         result = wire_services(self._make_config(deps))
-        assert len(fields(result)) == 34
+        assert len(fields(result)) == 35
         assert all(getattr(result, field.name) is not None for field in fields(result))
         assert isinstance(result.prune_conflicts, PruneConflicts)
         assert isinstance(result.core_service, CoreService)
+        assert isinstance(result.emulator_sources_service, EmulatorSourcesService)
         assert isinstance(result.disc_service, DiscService)
         assert isinstance(result.version_switch_service, VersionSwitchService)
         assert isinstance(result.prune_service, PruneService)

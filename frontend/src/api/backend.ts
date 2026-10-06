@@ -45,7 +45,8 @@ import type {
   DeleteSlotResult,
   MigrationStatus,
   MigrationResult,
-  RetroDeckStatus,
+  EmulatorSourcesListing,
+  EmulatorSourceDirection,
   RollbackStatus,
   ListFileVersionsResult,
   CopySaveToSlotStatus,
@@ -648,6 +649,25 @@ export const getPlatformCoreInfo = endpoint<[number], CoreInfo>("get_platform_co
 // platforms that payload has something to say about.
 export const getSystemCoreInfo = endpoint<[string], SystemCoreInfo>("get_system_core_info");
 
+/** Every detected emulator source, in the user's order, with its health and its switch. */
+export const getEmulatorSources = endpoint<[], EmulatorSourcesListing>("get_emulator_sources");
+
+/** Why a switch or a move of an emulator source was refused. */
+export type EmulatorSourceRefusal = EndpointFailure & {
+  reason: "unknown_source" | "cannot_move" | "invalid_direction" | "invalid_value";
+};
+
+/** Switch a detected source on or off; answers the listing as it now stands. */
+export const setEmulatorSourceEnabled = endpoint<[string, boolean], EmulatorSourcesListing | EmulatorSourceRefusal>(
+  "set_emulator_source_enabled",
+);
+
+/** Move a detected source one place up or down; answers the listing as it now stands. */
+export const moveEmulatorSource = endpoint<
+  [string, EmulatorSourceDirection],
+  EmulatorSourcesListing | EmulatorSourceRefusal
+>("move_emulator_source");
+
 /** One launchable disc image within a multi-disc ROM's install directory. */
 export interface Disc {
   filename: string;
@@ -1112,11 +1132,6 @@ export const reconcilePlaytime = endpoint<
   | { total_seconds: number; session_count: number; last_played: string | null; server_query_failed: boolean }
   | { success: false; reason: string; message: string }
 >("reconcile_playtime");
-
-// RetroDECK path-resolution health for the QAM banner — discriminated status
-// ("ok" | "absent" | "unreadable" | "root_missing") plus the probed paths. The
-// frontend owns the human-readable copy; the backend returns the discriminant.
-export const getRetroDeckStatus = endpoint<[], RetroDeckStatus>("get_retrodeck_status");
 
 // RetroDECK path migration
 export const getMigrationStatus = endpoint<[], MigrationStatus>("get_migration_status");

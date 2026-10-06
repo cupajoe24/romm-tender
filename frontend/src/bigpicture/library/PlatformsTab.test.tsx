@@ -71,6 +71,8 @@ const VBA = {
 const GBA_CORE_INFO: CoreInfo = {
   emulators: [MGBA],
   emulator_data_available: true,
+  emulator_data_reason: null,
+  emulator_source: { kind: "retrodeck", starts_games: true },
   active_core: MGBA.emulator,
   active_core_label: MGBA.label,
   platform_core_label: null,
@@ -81,6 +83,8 @@ function coreInfo(overrides: Partial<SystemCoreInfo> = {}): SystemCoreInfo {
   return {
     emulators: [MGBA, VBA],
     emulator_data_available: true,
+    emulator_data_reason: null,
+    emulator_source: { kind: "retrodeck", starts_games: true },
     active_core_label: "mGBA",
     ...overrides,
   };
@@ -121,6 +125,8 @@ function firmwarePlatform(overrides: Partial<FirmwarePlatformExt> = {}): Firmwar
     server_count: 1,
     local_count: 0,
     deletable_count: 0,
+    emulator_data_reason: null,
+    emulator_source: { kind: "retrodeck", starts_games: true },
     ...overrides,
   };
 }
@@ -1216,20 +1222,28 @@ describe("Library › Platforms", () => {
       expect(container.textContent).not.toContain("offers one emulator");
     });
 
-    it("says RetroDECK was not found rather than showing an empty picker", async () => {
+    it("says why there is no emulator list rather than showing an empty picker", async () => {
       vi.mocked(backend.getSystemCoreInfo).mockResolvedValue(
-        coreInfo({ emulators: [], emulator_data_available: false, active_core_label: null }),
+        coreInfo({
+          emulators: [],
+          emulator_data_available: false,
+          emulator_data_reason: "no_source",
+          emulator_source: null,
+          active_core_label: null,
+        }),
       );
       const { container } = render(<LibraryPage onBack={vi.fn()} />);
       await flushAsync();
 
-      expect(container.textContent).toContain("RetroDECK was not found");
+      expect(container.textContent).toContain(
+        "No emulator source was found, so Tender cannot tell which emulators this platform offers.",
+      );
       // And the header states no core at all. An unreadable es_systems.xml
       // arrives as `available: false` with an EMPTY list, so a clause keyed on
       // the list's length alone printed a red "no emulator" over a state where
       // nothing was established — beside a sentence saying the opposite. The
-      // sentence keeps its own words ("no emulator list to choose from"), so
-      // the assertion is on the clause span rather than on the pane's text.
+      // assertion is on the clause span rather than on the pane's text, so a
+      // sentence that names emulators in its own words does not trip it.
       const clauses = [...container.querySelectorAll<HTMLElement>("span")].filter((el) =>
         el.textContent.startsWith(" · "),
       );

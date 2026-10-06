@@ -221,7 +221,7 @@ placeholder:
 
 ```python
 retroarch_core_info = RetroArchCoreInfoAdapter(user_home=user_home, logger=logger)
-emulator_catalogue = AtlasCatalogueAdapter(choose_installation=..., ...)
+emulator_catalogue = AtlasCatalogueAdapter(sources=emulator_sources, ...)
 
 some_service = SomeService(
     config=SomeServiceConfig(
@@ -294,33 +294,29 @@ whatever spelling the home had when it ran — and a match that misses reports a
 missing. Resolving the recorded path is safe there in a way it is not in the deletion guards: the report decides what a
 log line says and authorizes nothing.
 
-Three user-visible spellings change with this: the `root_missing` banner's "Expected at:" line reports `resolved_home`,
-and the migration-blocked page renders `old_path` and `new_path`, both of which are now the resolved markers.
+Two user-visible spellings change with this: the migration-blocked page renders `old_path` and `new_path`, both of which
+are now the resolved markers.
 
 Silently operating on the wrong root is the failure mode [#948](https://github.com/danielcopper/romm-tender/issues/948)
-addresses. The fix keeps the getters silent-and-best-effort but pairs them with a loud health signal that the frontend
-surfaces as a QAM banner. `RetroDeckPathsAdapter.config_health()` returns a `RetroDeckConfigHealth` enum
-(`backend/lib/retrodeck_health.py` — placed in `lib/` because the adapter and the `RetroDeckPaths` Protocol both import
-it, and import-linter forbids the adapter↔service directions). The four states:
+addresses. The fix keeps the getters silent-and-best-effort but pairs them with a health signal.
+`RetroDeckPathsAdapter.config_health()` returns a `RetroDeckConfigHealth` enum (`backend/lib/retrodeck_health.py` —
+placed in `lib/` because the adapter and the `RetroDeckPaths` Protocol both import it, and import-linter forbids the
+adapter↔service directions). The four states:
 
-| State          | When                                                                                         | Loud? | Rationale                                                                                                                                                                     |
-| -------------- | -------------------------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ok`           | `retrodeck.json` read successfully **and** the resolved home exists on disk                  | no    | Healthy — roots are trustworthy.                                                                                                                                              |
-| `absent`       | `retrodeck.json` not found (`FileNotFoundError`)                                             | no    | The legitimate fresh-install case — `~/retrodeck` is RetroDECK's own default root. `absent` wins over `root_missing` even when the `~/retrodeck` fallback does not exist yet. |
-| `unreadable`   | file exists but cannot be read or parsed (`OSError` / `PermissionError` / `JSONDecodeError`) | yes   | We know RetroDECK is configured but cannot read where its roots point — derived paths are likely wrong.                                                                       |
-| `root_missing` | `retrodeck.json` read OK, but the resolved home directory does not exist on disk             | yes   | The library volume is gone (e.g. SD card ejected) — syncs and downloads would target a missing/wrong location.                                                                |
+| State          | When                                                                                         | Meaning                                                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`           | `retrodeck.json` read successfully **and** the resolved home exists on disk                  | Healthy — roots are trustworthy.                                                                                                                                              |
+| `absent`       | `retrodeck.json` not found (`FileNotFoundError`)                                             | The legitimate fresh-install case — `~/retrodeck` is RetroDECK's own default root. `absent` wins over `root_missing` even when the `~/retrodeck` fallback does not exist yet. |
+| `unreadable`   | file exists but cannot be read or parsed (`OSError` / `PermissionError` / `JSONDecodeError`) | We know RetroDECK is configured but cannot read where its roots point — derived paths are likely wrong.                                                                       |
+| `root_missing` | `retrodeck.json` read OK, but the resolved home directory does not exist on disk             | The library volume is gone (e.g. SD card ejected) — syncs and downloads would target a missing/wrong location.                                                                |
 
 `config_health()` reuses the same 30-second TTL cache as the path getters (`_load_config()`) — no second independent
 file read — and tracks the last load outcome so it can distinguish `absent` from `unreadable` (a bare `None` would
 conflate them). The `root_missing` disk probe (`os.path.isdir`) only runs when the config read OK; it never runs for
-`absent`, so a fresh install stays quiet.
+`absent`.
 
-`MigrationService.get_retrodeck_status()` answers it to the `get_retrodeck_status` endpoint, a discriminated-status
-union (`{status, config_path, resolved_home}`) — one of the
-[failure-shape gate](backend-architecture.md#4-failure-shape-dialect-gate)'s carve-outs, for more than two outcomes. The
-backend returns only the discriminant plus the probed paths; the frontend owns the human-readable copy
-(`frontend/src/utils/retrodeckHealth.ts`) and renders the shared `WarningCard` in the QAM Status panel for the two loud
-states. `ok` and `absent` render no banner.
+Nothing reads it. The panel's health notices come from the resolver's own health findings, per emulator source and
+worded per finding code (`get_emulator_sources`; [qam-panel.md](qam-panel.md#notices-and-homes)).
 
 ## Known consumer gaps
 

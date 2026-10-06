@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from domain.emulator_sources import SourceReport, SourcesReading
     from domain.firmware_wants import FirmwareCatalogue
     from domain.save_answer import SaveAnswer
     from domain.savestate_location import NoSavestates, SavestateLocation
@@ -77,10 +78,9 @@ class RetroDeckPaths(Protocol):
     ``def __call__(self) -> str`` shape would make a saves-for-bios
     mix-up silently type-check at the call site. Separate names give
     the type checker enough information to flag it. The path getters are
-    best-effort and never raise; ``config_health`` is the loud signal
-    ``main.py`` surfaces to the frontend when the resolved roots are
-    likely wrong (``retrodeck.json`` unreadable, or its resolved home
-    missing on disk).
+    best-effort and never raise; ``config_health`` says when the resolved
+    roots are likely wrong (``retrodeck.json`` unreadable, or its resolved
+    home missing on disk).
     """
 
     def saves_path(self) -> str: ...
@@ -110,9 +110,12 @@ class CoreInfoProvider(Protocol):
     this system, and what else could it launch with?" without depending on the
     concrete adapter. Resolution is system-layer only; Tender's own
     per-platform and per-game selections are layered on top by
-    ``active_emulator_for_rom``, not here. Implementations own the underlying
-    reads and may cache answers; ``reset_cache`` lets writers invalidate the
-    cache after a per-platform core write.
+    ``active_emulator_for_rom``, not here.
+
+    Every answer is asked live, through the answering emulator source
+    (:class:`EmulatorSourcesReader`). *reading* is a run's one reading, handed
+    down so a run that asks the same question for many games asks it once;
+    without one, the call takes a fresh reading of its own.
 
     ``get_active_core`` stays libretro-only — the first libretro command a
     system declares, bakeable or not. It is carried and currently read by nothing
@@ -129,13 +132,30 @@ class CoreInfoProvider(Protocol):
     given call.
     """
 
-    def get_active_core(self, system_name: str) -> tuple[str | None, str | None]: ...
+    def get_active_core(
+        self, system_name: str, *, reading: SourcesReading | None = None
+    ) -> tuple[str | None, str | None]: ...
 
-    def get_default_emulator(self, system_name: str) -> EmulatorInvocation | None: ...
+    def get_default_emulator(
+        self, system_name: str, *, reading: SourcesReading | None = None
+    ) -> EmulatorInvocation | None: ...
 
-    def get_emulator_options(self, system_name: str) -> dict[str, Any]: ...
+    def get_emulator_options(self, system_name: str, *, reading: SourcesReading | None = None) -> dict[str, Any]: ...
 
-    def reset_cache(self) -> None: ...
+
+class EmulatorSourcesReader(Protocol):
+    """The emulator sources the resolver detects, arranged by the user's order and switches.
+
+    ``read`` detects afresh and answers one :class:`domain.emulator_sources.SourcesReading`;
+    a run that asks the same questions for many games takes one and hands it
+    down. ``describe`` is what the settings list shows of every detected source:
+    over the sources a given reading detected, arranged as the settings stand
+    now, or from a fresh reading.
+    """
+
+    def read(self) -> SourcesReading: ...
+
+    def describe(self, reading: SourcesReading | None = None) -> tuple[SourceReport, ...]: ...
 
 
 class SaveLocationReader(Protocol):
@@ -149,11 +169,12 @@ class SaveLocationReader(Protocol):
     core.
 
     Implementations never raise and never guess. Every way the question cannot
-    be put — no emulator resolved, no installation, the catalogue not offering
-    the label, the entry declining, the reader failing — comes back as a
-    :class:`domain.save_answer.SaveAnswer` in the ``unestablished`` state, which
-    refuses the sync. The one thing an implementation may never do is answer
-    "nothing to sync", which a caller reads as a green light.
+    be put — no emulator resolved, no emulator source answering, a refused
+    catalogue, the catalogue not offering the label, the entry declining, the
+    reader failing — comes back as a :class:`domain.save_answer.SaveAnswer` in
+    the ``unestablished`` state, which refuses the sync. The one thing an
+    implementation may never do is answer "nothing to sync", which a caller
+    reads as a green light.
 
     Every call is a live reading. A remembered granularity is the failure this
     seam exists to avoid: the user changes a core's options in the emulator's
@@ -167,9 +188,9 @@ class SaveLocationReader(Protocol):
     apart from :class:`domain.savestate_location.NoSavestates`, which is the
     resolver stating that the emulator has none.
 
-    ``installation_detected`` says whether any emulator installation was found
-    to ask at all, so a caller can tell "every answer refused" apart from "there
-    was nothing to ask yet".
+    ``installation_detected`` says whether an emulator source answers at all,
+    so a caller can tell "every answer refused" apart from "there was nothing
+    to ask yet".
 
     The named methods are load-bearing: `scripts/check_uow_seam_nesting.py`
     matches this seam by them, where a call-shaped seam is matchable only by
@@ -228,9 +249,11 @@ class SystemSupportedExtensionsFn(Protocol):
     Default-safe: an empty frozenset for an unknown system or when
     ``es_systems.xml`` cannot be found (every caller treats the empty answer as
     "cannot tell" and falls back to its permissive branch, never to a refusal).
+    *reading* is a run's one reading of the emulator sources, as on
+    :class:`CoreInfoProvider`; without one the call takes a fresh reading.
     """
 
-    def __call__(self, system_name: str) -> frozenset[str]: ...
+    def __call__(self, system_name: str, *, reading: SourcesReading | None = None) -> frozenset[str]: ...
 
 
 class SystemKnownFn(Protocol):

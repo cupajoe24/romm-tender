@@ -196,6 +196,8 @@ class TestGetPlatformCoreInfo:
         assert result == {
             "emulators": options_to_payload(core_info.options),
             "emulator_data_available": True,
+            "emulator_data_reason": None,
+            "emulator_source": {"kind": "retrodeck", "starts_games": True},
             "active_core": "snes9x_libretro.so",
             "active_core_label": "Snes9x",
             "platform_core_label": None,
@@ -209,6 +211,8 @@ class TestGetPlatformCoreInfo:
         assert result == {
             "emulators": [],
             "emulator_data_available": True,
+            "emulator_data_reason": None,
+            "emulator_source": None,
             "active_core": None,
             "active_core_label": None,
             "platform_core_label": None,
@@ -337,6 +341,8 @@ class TestGetSystemCoreInfo:
         assert result == {
             "emulators": options_to_payload(core_info.options),
             "emulator_data_available": True,
+            "emulator_data_reason": None,
+            "emulator_source": {"kind": "retrodeck", "starts_games": True},
             "active_core_label": "Snes9x",
         }
 
@@ -547,10 +553,6 @@ class TestSetSystemCore:
         result = event_loop.run_until_complete(service.set_system_core("psx", ""))
         assert result["success"] is True
         assert settings["platform_cores"] == {}
-
-    def test_invalidates_core_cache(self, event_loop, service, core_info):
-        event_loop.run_until_complete(service.set_system_core("snes", "Snes9x"))
-        assert core_info.reset_cache_count == 1
 
     def test_a_stored_switch_answers_success_with_exactly_the_rebake_list(self, event_loop, service, uow, active_core):
         _seed_rom(uow, rom_id=1, platform_slug="snes", shortcut_app_id=101)
@@ -792,10 +794,10 @@ def _retire_rom_between_transactions(uow: FakeUnitOfWork, core_info: FakeCoreInf
     """
     get_emulator_options = core_info.get_emulator_options
 
-    def retiring(system_name):
+    def retiring(system_name, *, reading=None):
         with uow:
             uow.roms.delete(rom_id)
-        return get_emulator_options(system_name)
+        return get_emulator_options(system_name, reading=reading)
 
     core_info.get_emulator_options = retiring
 
@@ -811,10 +813,10 @@ def _move_platform_between_transactions(
     """
     get_emulator_options = core_info.get_emulator_options
 
-    def resyncing(system_name):
+    def resyncing(system_name, *, reading=None):
         with uow:
             _seed_rom(uow, rom_id=rom_id, platform_slug=platform_slug, shortcut_app_id=99)
-        return get_emulator_options(system_name)
+        return get_emulator_options(system_name, reading=reading)
 
     core_info.get_emulator_options = resyncing
 

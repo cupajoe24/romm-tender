@@ -604,9 +604,10 @@ installation, arrangement, frontend (a RetroArch without a frontend is a source 
 
 ### Emulator source order
 
-The order in which emulator sources supply a platform's default emulator — RetroDECK → EmuDeck → RetroArch → standalone
-unless the user changes it. The first enabled source that offers an emulator for the system gives the default, and
-within it the source's own default. A missing BIOS does not change it.
+The order in which the emulator sources are used — RetroDECK → EmuDeck → RetroArch (Flatpak) → RetroArch (native) →
+standalone unless the user changes it under Settings › Emulator sources. Every game starts through RetroDECK, so while
+RetroDECK is detected and switched on a game's answers come from it, wherever it stands in the order; only without it
+does the order decide, and then the first switched-on source answers, one Tender cannot start games through yet.
 
 ### Not supported vs not established
 

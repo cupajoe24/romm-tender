@@ -16,7 +16,8 @@ shared memory cards where a libretro core would keep a file per game, and asking
 resolved for this ROM — the label
 :class:`services.active_core_resolver.ActiveCoreResolver` already produced,
 which is the label the launch bakes — and this adapter puts the question to that
-entry. Where Tender resolved no emulator, or the catalogue no longer offers
+entry. Where Tender resolved no emulator, the catalogue answer is a refusal
+(:func:`adapters.atlas_catalogue.catalogue_refused`), or it no longer offers
 one under that label, there is nobody to ask and the answer says so.
 
 The catalogue is asked WITH the content path, unlike
@@ -26,13 +27,12 @@ entry is chosen by Tender's own resolved label, so a per-game
 content path buys is that the per-game configuration layers are read for the
 game actually being asked about, which is what decides a granularity.
 
-**Nothing is cached but the installation handle.** Every call is a live reading,
-because the user changes a core's options in the emulator's own quick menu
-between one launch and the next sync and a remembered granularity would have
-Tender sync a shared card per game. Holding the handle is what keeps that
-affordable: on the reference machine a repeat reading costs 167 ms through a held
-installation and 489 ms through a fresh one, and no write Tender performs
-can invalidate the handle.
+**Nothing is cached here.** Every call is a live reading of the sources
+(:mod:`adapters.emulator_sources`), because the user changes a core's options in
+the emulator's own quick menu between one launch and the next sync and a
+remembered granularity would have Tender sync a shared card per game. What keeps
+that affordable is the one resolver machine the sources hold for the process,
+which runs a core's probe once for as long as the core file is unchanged.
 
 The resolver never logs and raises on its own invariant violations rather than
 degrading, so every call is wrapped and a failure becomes the honest "nothing
@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any
 
 from _vendor.atlas import SavestateAbsence, SavestatePlacement, Unresolved, core_probe_interpreter
 
+from adapters.atlas_catalogue import catalogue_refused
 from domain.save_answer import (
     UNESTABLISHED_NOT_ASKED,
     SaveAnswer,
@@ -59,6 +60,8 @@ from domain.savestate_location import NoSavestates, SavestateLocation
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from adapters.emulator_sources import EmulatorSourcesAdapter
+
 
 class AtlasSaveLocationAdapter:
     """Resolves one ROM's save and savestate locations, live, through the vendored resolver.
@@ -69,24 +72,24 @@ class AtlasSaveLocationAdapter:
     def __init__(
         self,
         *,
-        choose_installation: Callable[[], Any],
+        sources: EmulatorSourcesAdapter,
         log_debug: Callable[[str], None],
     ) -> None:
-        self._choose_installation = choose_installation
+        self._sources = sources
         self._log_debug = log_debug
-        self._installation: Any = None
 
     def resolve_save_answer(
         self, *, system: str, content_path: str, emulator_label: str | None, content_installed: bool
     ) -> SaveAnswer:
         """What *emulator_label* saves for the game at *content_path*, and whether it may be synced.
 
-        *emulator_label* is the emulator Tender resolved for this ROM;
-        ``None`` means it resolved none, so there is no entry to ask. That, no
-        installation, and a catalogue no longer offering the label are all
-        ``not_asked`` — the question never reached the resolver, so none of them
-        is a statement about the emulator. An entry that declines and a resolver
-        that raises WERE asked, so both are ``nothing_established``.
+        *emulator_label* is the emulator Tender resolved for this ROM; ``None``
+        means it resolved none, so there is no entry to ask. That, no answering
+        source, a refused catalogue, and a catalogue no longer offering the
+        label are all ``not_asked`` — the question never reached the resolver,
+        so none of them is a statement about the emulator. An entry that
+        declines and a resolver that raises WERE asked, so both are
+        ``nothing_established``.
 
         *content_installed* is the caller's own statement about *content_path*:
         ``False`` where it is the path a ROM WOULD occupy rather than a file on
@@ -100,7 +103,7 @@ class AtlasSaveLocationAdapter:
 
         entry = self._entry(system, content_path, emulator_label)
         if entry is None:
-            # No installation, an unreadable catalogue, or no entry under that
+            # No answering source, a refused catalogue, or no entry under that
             # label: the question never reached the resolver, so this says
             # nothing about the emulator itself.
             return unestablished_answer(
@@ -130,7 +133,7 @@ class AtlasSaveLocationAdapter:
         *content_path* need not exist: the resolver places a game's states by
         the path's own coordinates, so a rename can ask about the name the ROM
         is about to take. ``None`` wherever nothing could be established — no
-        emulator, no installation, no entry under that label, a refusal, a
+        emulator, no answering source, no entry under that label, a refusal, a
         raise — because each leaves the states' whereabouts unknown, and a
         caller must not read that as "there are none". :class:`NoSavestates` is
         that statement, made by the resolver with its evidence.
@@ -156,8 +159,10 @@ class AtlasSaveLocationAdapter:
 
     def _entry(self, system: str, content_path: str, emulator_label: str) -> Any:
         """The catalogue entry carrying *emulator_label*, or ``None`` with nothing to ask."""
-        installation = self._installation_handle()
+        reading = self._sources.read()
+        installation = reading.answering_installation()
         if installation is None:
+            self._log_debug(f"[saves] no emulator source answers ({reading.no_answer_reason()})")
             return None
         answer = self._ask(
             lambda: installation.emulators_for(system, content_path=content_path),
@@ -165,28 +170,20 @@ class AtlasSaveLocationAdapter:
         )
         if answer is None:
             return None
+        if catalogue_refused(answer):
+            self._log_debug(
+                f"[saves] {system}: the catalogue was refused "
+                f"(caveats={sorted({caveat.code for caveat in answer.caveats})}); nothing to ask"
+            )
+            return None
         entry = next((candidate for candidate in answer.entries if candidate.label == emulator_label), None)
         if entry is None:
             self._log_debug(f"[saves] {system}: the catalogue offers no entry labelled {emulator_label!r}")
         return entry
 
     def installation_detected(self) -> bool:
-        """Whether an emulator installation was found to put questions to."""
-        return self._installation_handle() is not None
-
-    def _installation_handle(self) -> Any:
-        """The chosen installation, memoised, or ``None`` when nothing was detected.
-
-        A detection that found nothing is deliberately NOT memoised, so a
-        RetroDECK installed while the backend runs is picked up on the next call —
-        the same policy :mod:`adapters.atlas_catalogue` follows, for the same
-        reason.
-        """
-        if self._installation is None:
-            self._installation = self._ask(self._choose_installation, "detection")
-            if self._installation is None:
-                self._log_debug("[saves] no emulator installation detected")
-        return self._installation
+        """Whether an emulator source answers, so there is an installation to put questions to."""
+        return self._sources.read().answering_installation() is not None
 
     def _ask(self, question: Callable[[], Any], subject: str) -> Any:
         """Put one question to the resolver, or answer ``None`` where it could not be asked.

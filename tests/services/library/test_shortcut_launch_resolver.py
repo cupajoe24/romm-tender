@@ -12,6 +12,7 @@ that belongs to this module rather than to the disc pin: neither of them may
 hold a Unit of Work open across the resolver's directory listing.
 """
 
+from fakes.fake_emulator_sources import FakeEmulatorSources
 from fakes.uow_open_probe import record_uow_open
 
 from domain.shortcut_data import EmulatorInvocation
@@ -37,7 +38,7 @@ class TestBuildCoreOverrides:
             library.uow.roms.set_emulator_override(10, "PCSX ReARMed")
 
         roms = [{"id": 10, "platform_slug": "psx"}, {"id": 11, "platform_slug": "psx"}]
-        result = library.sync._shortcut_launch_resolver.do_build_core_overrides(roms)
+        result = library.sync._shortcut_launch_resolver.do_build_core_overrides(roms, library.emulator_sources.read())
 
         assert result == {
             10: EmulatorInvocation.libretro("pcsx_rearmed_libretro", "PCSX ReARMed", "pcsx_rearmed_libretro.so")
@@ -57,7 +58,9 @@ class TestBuildCoreOverrides:
 
         roms = [{"id": 10, "platform_slug": "psx"}]
         with caplog.at_level(logging.WARNING):
-            result = library.sync._shortcut_launch_resolver.do_build_core_overrides(roms)
+            result = library.sync._shortcut_launch_resolver.do_build_core_overrides(
+                roms, library.emulator_sources.read()
+            )
 
         assert result == {}
         assert "Removed Core" in caplog.text
@@ -66,7 +69,9 @@ class TestBuildCoreOverrides:
     def test_no_overrides_returns_empty(self, library):
         """No pins anywhere → empty map (no available-cores lookups needed)."""
         _seed_install(library, 10, file_path="/roms/n64/a.z64", platform_slug="n64")
-        result = library.sync._shortcut_launch_resolver.do_build_core_overrides([{"id": 10, "platform_slug": "n64"}])
+        result = library.sync._shortcut_launch_resolver.do_build_core_overrides(
+            [{"id": 10, "platform_slug": "n64"}], library.emulator_sources.read()
+        )
         assert result == {}
 
 
@@ -87,7 +92,7 @@ class TestInstallPathReadsCloseTheUnitOfWorkFirst:
         resolver = library.sync._shortcut_launch_resolver
         open_at_resolve = record_uow_open(library.uow, resolver._disc_resolver, "resolve_for_install")
 
-        paths = resolver.do_scan_installed_paths()
+        paths = resolver.do_scan_installed_paths(FakeEmulatorSources().read())
 
         assert set(paths) == {10, 11}
         assert open_at_resolve == [False, False]
@@ -98,7 +103,7 @@ class TestInstallPathReadsCloseTheUnitOfWorkFirst:
         resolver = library.sync._shortcut_launch_resolver
         open_at_resolve = record_uow_open(library.uow, resolver._disc_resolver, "resolve_for_install")
 
-        paths = resolver.do_read_installed_paths({10, 11})
+        paths = resolver.do_read_installed_paths({10, 11}, FakeEmulatorSources().read())
 
         assert set(paths) == {10, 11}
         assert open_at_resolve == [False, False]

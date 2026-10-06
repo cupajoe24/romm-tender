@@ -64,6 +64,7 @@ from services.library.session_budget import SYNC_PAUSED_BUDGET, SessionBudgetMon
 if TYPE_CHECKING:
     import logging
 
+    from domain.emulator_sources import SourcesReading
     from domain.work_unit import WorkUnit
     from lib.late_binding import LateBinding
     from services.library._state import LibrarySyncStateBox
@@ -293,11 +294,12 @@ class SyncOrchestrator:
                     progress_total_steps=total_units,
                 )
 
+            sources = await self._loop.run_in_executor(None, self._shortcut_launch_resolver.do_read_sources)
             installed_paths = await self._loop.run_in_executor(
-                None, self._shortcut_launch_resolver.do_scan_installed_paths
+                None, self._shortcut_launch_resolver.do_scan_installed_paths, sources
             )
             core_overrides = await self._loop.run_in_executor(
-                None, self._shortcut_launch_resolver.do_build_core_overrides, all_roms
+                None, self._shortcut_launch_resolver.do_build_core_overrides, all_roms, sources
             )
             # Stamp each fresh ROM's component sibling-group key before the build so
             # the collapse below groups games, not dumps. The preview union is a
@@ -768,6 +770,10 @@ class SyncOrchestrator:
                 None, self._sync_run_recorder.do_open_run, run_id, platforms_planned, total_roms_planned
             )
 
+            # One reading of the emulator sources for the whole run: every unit
+            # resolves its ROMs' emulators through it, and a change to the
+            # sources during the run takes effect from the next one.
+            sources = await self._loop.run_in_executor(None, self._shortcut_launch_resolver.do_read_sources)
             try:
                 for unit_index, unit in enumerate(work_queue):
                     if box.is_cancelling():
@@ -776,6 +782,7 @@ class SyncOrchestrator:
 
                     applied = await self._sync_one_unit(
                         unit,
+                        sources=sources,
                         unit_index=unit_index,
                         total_units=total_units,
                         synced_rom_ids=synced_rom_ids,
@@ -923,6 +930,7 @@ class SyncOrchestrator:
         self,
         unit: WorkUnit,
         *,
+        sources: SourcesReading,
         unit_index: int,
         total_units: int,
         synced_rom_ids: set[int],
@@ -1004,10 +1012,10 @@ class SyncOrchestrator:
         # full launch command; uninstalled ROMs get an empty placeholder until
         # they are downloaded.
         installed_paths = await self._loop.run_in_executor(
-            None, self._shortcut_launch_resolver.do_read_installed_paths, {rom["id"] for rom in unit_roms}
+            None, self._shortcut_launch_resolver.do_read_installed_paths, {rom["id"] for rom in unit_roms}, sources
         )
         core_overrides = await self._loop.run_in_executor(
-            None, self._shortcut_launch_resolver.do_build_core_overrides, unit_roms
+            None, self._shortcut_launch_resolver.do_build_core_overrides, unit_roms, sources
         )
 
         # Read the bound-row registry once, before the build: its persisted keys

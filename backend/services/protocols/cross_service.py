@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from domain.disc_selection import Disc
     from domain.emulator_commands import LaunchingEmulator
+    from domain.emulator_sources import SourcesReading
     from domain.rom_install import RomInstall
     from domain.save_answer import SaveAnswer
     from domain.shortcut_data import EmulatorInvocation
@@ -244,12 +245,16 @@ class ActiveCoreReader(Protocol):
     libretro core (core-change detection and the upload's emulator tag):
     ``(None, None)`` / ``(None, label)`` means no libretro core (unconfigured, or a
     standalone emulator) and they degrade. Both draw from the same resolution, so
-    no read diverges from the launch.
+    no read diverges from the launch. ``reading`` is a run's one reading of the
+    emulator sources, handed down by a run that resolves many ROMs; a caller
+    without one leaves it out and the call asks fresh.
     """
 
     def active_core_for_rom(self, rom_id: int) -> tuple[str | None, str | None]: ...
 
-    def active_emulator_for_rom(self, rom_id: int) -> EmulatorInvocation | None: ...
+    def active_emulator_for_rom(
+        self, rom_id: int, *, reading: SourcesReading | None = None
+    ) -> EmulatorInvocation | None: ...
 
 
 class DiscResolver(Protocol):
@@ -265,14 +270,18 @@ class DiscResolver(Protocol):
     non-multi-disc ROM resolves to its own ``file_path`` unchanged; a stale pin
     degrades to the default with a WARNING rather than raising; an install the
     system cannot launch (``launchable is False``) resolves to ``""``, which
-    every bake site renders as the empty launch command.
+    every bake site renders as the empty launch command. ``reading`` is a run's
+    one reading of the emulator sources, handed down so the accept-list a
+    folder-backed ROM is enumerated against is asked once per system per run.
     """
 
-    def enumerate_discs(self, install: RomInstall) -> list[Disc]: ...
+    def enumerate_discs(self, install: RomInstall, *, reading: SourcesReading | None = None) -> list[Disc]: ...
 
     def resolve_bake_path(self, install: RomInstall, discs: list[Disc], selected_disc: str | None) -> str: ...
 
-    def resolve_for_install(self, install: RomInstall, selected_disc: str | None) -> str: ...
+    def resolve_for_install(
+        self, install: RomInstall, selected_disc: str | None, *, reading: SourcesReading | None = None
+    ) -> str: ...
 
 
 class RelaunchOptionsReader(Protocol):

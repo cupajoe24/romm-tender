@@ -224,7 +224,8 @@ Format: **invariant** — tier — enforced by.
   the backend half
 - **Sync run-lifecycle (`sync_state` / `current_sync_id`) written only via `LibrarySyncStateBox` verbs** — check —
   `scripts/check_sync_lifecycle_owner.py`
-- **A library-sync seam is held only by the module owning the job it belongs to: `active_core` / `disc_resolver` by
+- **A library-sync seam is held only by the module owning the job it belongs to: `active_core` / `disc_resolver` /
+  `emulator_sources` (where a run takes its one reading of the sources) by
   `services/library/shortcut_launch_resolver.py`, `renderer_rss` / `renderer_gc` by
   `services/library/session_budget.py`, and `artwork` by `services/library/cover_preparer.py` (the apply path's covers)
   **and** `services/library/reporter.py` (commit-time cover-path finalisation) — the one confinement with two owners,
@@ -246,6 +247,20 @@ Format: **invariant** — tier — enforced by.
   own UoW, which is what putting the three methods on one class makes cheapest — is that gate's documented blind spot
   and passes green. On the budget side the confinement holds `session_budget`'s stated promise that no renderer-RSS
   reading is taken anywhere else in the package
+- **The resolver's installations are detected in one place, `adapters/emulator_sources.py`, through the one
+  `RealMachine` the process keeps; every other adapter asks it, and a game's questions go to the source
+  `domain/emulator_sources.py::answering_source` names** — test + prompt-only —
+  `tests/adapters/test_emulator_sources.py::TestOnlyTheHolderDetects` (no other backend module imports `detect`,
+  `every_installation`, `RealMachine` or an installation class from the resolver, star-imports it, imports the
+  resolver's package as a module, or reads one of those names off it) and, for the last clause,
+  `tests/domain/test_emulator_sources.py::TestAnsweringSource::test_retrodeck_answers_even_when_another_source_is_first_in_the_order`
+  and `test_retrodeck_answers_with_emudeck_first_in_the_order` in each of the three adapters' tests —
+  `tests/adapters/test_atlas_catalogue.py::TestWhichSourceAnswers`,
+  `tests/adapters/test_atlas_firmware.py::TestDegradation` and
+  `tests/adapters/test_atlas_saves.py::TestWhichSourceAnswers`. An adapter that detected on its own would pick its own
+  source — the old "first detected" — and would build a fresh machine, so every save question would run its core's probe
+  again. Unseen by the scan: a name reached through `getattr` or `importlib`. Prompt-only: no adapter keeps a handle or
+  an answer past the reading it came through (a panel call's per question, a run's for the run)
 - **A module declared read-only calls no repository write — `services/library/local_library_reader.py` to start** —
   check — `scripts/check_read_only_module.py` (AST over the declared file's own calls, matching the two-attribute
   `<...>.<repo>.<method>` shape against the twelve repositories the UoW exposes). Read or write is decided **by the
@@ -580,45 +595,47 @@ Format: **invariant** — tier — enforced by.
   (`IO_SEAM_METHODS`). The list is **the seams this checker can see and has been told about, never an inventory of the
   I/O seams that exist**: `DiscResolver.enumerate_discs` / `.resolve_for_install` (a recursive walk of the ROM's install
   directory), the three `CoreInfoProvider` reads — `get_active_core`, `get_default_emulator`, `get_emulator_options` —
-  which are answered by the vendored resolver's live read of ES-DE's catalogue (a system's first read opens it and the
-  adapter's per-system cache is what a second one hits; `get_emulator_options` additionally globs each **bakeable
-  standalone** option's emulator install through the find rules on **every** call, uncached so a component installed
-  mid-session is seen), `SandboxLauncherFn` (re-probes the flatpak roots for `es_find_rules.xml` and re-stats it before
-  it may use the parse cache), `SystemResolver` (parses Tender's **own** bundled `config.json`, not RetroDECK's
-  `retrodeck.json`, and does no network work despite living on the RomM HTTP adapter), `SystemSupportedExtensionsFn` /
-  `SystemKnownFn` (two more questions to the same catalogue, through the same adapter cache),
-  `SteamConfigStore.read_shortcut_exes` (parses Steam's whole `shortcuts.vdf` — 315 KB and 828 entries on the reference
-  machine — for the one-time shortcut relocation. **Listing it changes nothing at its only call site**: the service
-  reaches it through `run_in_executor` as a bound method, which is this checker's documented blind spot, so the entry is
-  a statement of the rule rather than an enforcement of it. It is also not the store's only real I/O — `grid_dir()` is
-  called from `services/artwork.py` (six sites), `services/shortcut_removal.py` and `services/library/reporter.py`, and
-  `check_retroarch_input_driver()` from `services/settings.py` — those are unlisted, and their being unlisted is a gap,
-  not a judgement), `FirmwarePlatformResolver` (reads what one system's emulators want WITH content verification: it
-  opens each candidate in a declared folder and reads it the way the emulator does — 64-318 ms per system on the
-  reference machine) and its whole-machine sibling `FirmwareResolver`, the save answer — `resolve_save_answer` and the
-  saves package's own `save_answer` wrapper, 170 ms warm and 490 ms cold per ROM, which makes it the most expensive
-  entry in the list — the savestate question put to the same catalogue entry (`resolve_savestate_location`) and the
-  seam's detection question (`installation_detected`), the two path resolvers — `MigrationFileStore.realpath` (one walk
-  per stored RetroDECK-home marker, a directory that may sit on the SD card the marker is pending a migration away from)
-  and `ResolvedPathFn` (the same walk, but on **both** sides of a comparison, so a call site costs what the rows it
-  checks cost, not what it checks them against) — and the `RetroDeckPaths` getters that answer with a root: `bios_path`,
-  `roms_path`, `saves_path` and `retrodeck_home`, four of the Protocol's five path getters, each resolving on every
-  call. The fifth, `config_path`, stays out because it resolves nothing — it is `os.path.join` over the user home, so
-  calling it costs no I/O. Those two timings are the only entries a cost was measured for; every other one is listed
-  from reading its implementation. One other real I/O seam was weighed and kept out — the reason is in the script's
-  docstring, and it is not an exemption; nor is it an inventory of what else touches the disk. **"It's only a read" is
-  the reasoning this rule exists to refuse**: `SqliteUnitOfWork.__enter__` issues `BEGIN IMMEDIATE`, so even a read-only
-  UoW takes the write lock. The database is in WAL, so readers are unaffected — but every other **writer** waits on the
-  lock for up to `busy_timeout=5000` and fails with `SQLITE_BUSY` if it is still held then, and `FakeUnitOfWork` shares
-  no connection, so no unit test notices. Six call sites had drifted across the rule before anything looked (#1779), for
-  the reason the check exists: nothing at a call site reveals that an injected seam touches the disk. **The rule and the
-  gate come from reading code — no measurement of how long any of those transactions actually held the lock exists, and
-  nothing here should be read as one.** What the check sees is the deadlock rule's matcher unchanged — an **attribute**
-  call naming a listed seam, lexically inside a `with <...>uow_factory()` block in the same function scope — so it
-  inherits every blind spot of that half: a seam behind a helper one level down, an alias to a local, a factory
-  attribute whose name does not end in `uow_factory`, a nested `def`/`lambda` (which resets the scope by design), a seam
-  **passed as a bound method** (`run_in_executor(None, self._disc_resolver.enumerate_discs, install)` — an attribute,
-  not a call, and `run_in_executor` is exactly how `disc.py` and `cores.py` reach their `_io` bodies; the same shape
+  which are answered by the vendored resolver's live read of ES-DE's catalogue (every call from the panel opens it
+  again; only a run's one reading of the sources keeps a system's answer for the run; `get_emulator_options`
+  additionally globs each **bakeable standalone** option's emulator install through the find rules on **every** call,
+  uncached so a component installed mid-session is seen), `SandboxLauncherFn` (re-probes the flatpak roots for
+  `es_find_rules.xml` and re-stats it before it may use the parse cache), `SystemResolver` (parses Tender's **own**
+  bundled `config.json`, not RetroDECK's `retrodeck.json`, and does no network work despite living on the RomM HTTP
+  adapter), `SystemSupportedExtensionsFn` / `SystemKnownFn` (two more questions to the same catalogue, asked afresh from
+  the panel and once per reading within a run), `SteamConfigStore.read_shortcut_exes` (parses Steam's whole
+  `shortcuts.vdf` — 315 KB and 828 entries on the reference machine — for the one-time shortcut relocation. **Listing it
+  changes nothing at its only call site**: the service reaches it through `run_in_executor` as a bound method, which is
+  this checker's documented blind spot, so the entry is a statement of the rule rather than an enforcement of it. It is
+  also not the store's only real I/O — `grid_dir()` is called from `services/artwork.py` (six sites),
+  `services/shortcut_removal.py` and `services/library/reporter.py`, and `check_retroarch_input_driver()` from
+  `services/settings.py` — those are unlisted, and their being unlisted is a gap, not a judgement),
+  `FirmwarePlatformResolver` (reads what one system's emulators want WITH content verification: it opens each candidate
+  in a declared folder and reads it the way the emulator does — 64-318 ms per system on the reference machine) and its
+  whole-machine sibling `FirmwareResolver`, the save answer — `resolve_save_answer` and the saves package's own
+  `save_answer` wrapper, a full read of the machine per ROM (the first ask about a core also runs that core's probe) —
+  the savestate question put to the same catalogue entry (`resolve_savestate_location`) and the seam's detection
+  question (`installation_detected`, which detects the emulator sources afresh), the two path resolvers —
+  `MigrationFileStore.realpath` (one walk per stored RetroDECK-home marker, a directory that may sit on the SD card the
+  marker is pending a migration away from) and `ResolvedPathFn` (the same walk, but on **both** sides of a comparison,
+  so a call site costs what the rows it checks cost, not what it checks them against) — and the `RetroDeckPaths` getters
+  that answer with a root: `bios_path`, `roms_path`, `saves_path` and `retrodeck_home`, four of the Protocol's five path
+  getters, each resolving on every call. The fifth, `config_path`, stays out because it resolves nothing — it is
+  `os.path.join` over the user home, so calling it costs no I/O. That timing is the only entry a cost was measured for;
+  every other one is listed from reading its implementation. One other real I/O seam was weighed and kept out — the
+  reason is in the script's docstring, and it is not an exemption; nor is it an inventory of what else touches the disk.
+  **"It's only a read" is the reasoning this rule exists to refuse**: `SqliteUnitOfWork.__enter__` issues
+  `BEGIN IMMEDIATE`, so even a read-only UoW takes the write lock. The database is in WAL, so readers are unaffected —
+  but every other **writer** waits on the lock for up to `busy_timeout=5000` and fails with `SQLITE_BUSY` if it is still
+  held then, and `FakeUnitOfWork` shares no connection, so no unit test notices. Six call sites had drifted across the
+  rule before anything looked (#1779), for the reason the check exists: nothing at a call site reveals that an injected
+  seam touches the disk. **The rule and the gate come from reading code — no measurement of how long any of those
+  transactions actually held the lock exists, and nothing here should be read as one.** What the check sees is the
+  deadlock rule's matcher unchanged — an **attribute** call naming a listed seam, lexically inside a
+  `with <...>uow_factory()` block in the same function scope — so it inherits every blind spot of that half: a seam
+  behind a helper one level down, an alias to a local, a factory attribute whose name does not end in `uow_factory`, a
+  nested `def`/`lambda` (which resets the scope by design), a seam **passed as a bound method**
+  (`run_in_executor(None, self._disc_resolver.enumerate_discs, install)` — an attribute, not a call, and
+  `run_in_executor` is exactly how `disc.py` and `cores.py` reach their `_io` bodies; the same shape
   `check_read_only_module.py` records for its own gate), and the hand-maintained list itself, which cannot notice a seam
   whose implementation _grows_ a file read later. Matching only attribute calls is deliberate: the pure
   `domain.disc_selection.enumerate_discs` shares a name with the seam and does no I/O — it is safe because its call site
@@ -1238,9 +1255,10 @@ Format: **invariant** — tier — enforced by.
   would say so. It is also why every per-system pin in `tests/adapters/test_atlas_saves.py` is keyed by
   `(system, extension)`: a pin that does not name the extension it asked with is pinning nothing, which is how two
   independent measurements of the same systems produced contradictory fact lists. **Every path asks live and nothing
-  caches an answer** — only the installation handle is memoised — because the user changes a core's options in the
-  emulator's own quick menu between a launch and the next sync; a display cache added without invalidating it on every
-  sync entry is the one change that makes this rule fail silently and expensively. Detail:
+  caches an answer** — every call detects the emulator sources afresh, and only the resolver's machine, which remembers
+  a core's probe by the core file's path, modification time and size, outlives it — because the user changes a core's
+  options in the emulator's own quick menu between a launch and the next sync; a display cache added without
+  invalidating it on every sync entry is the one change that makes this rule fail silently and expensively. Detail:
   `docs/architecture/save-sync-coverage.md`, GLOSSARY.md → Save state / Save scope
 - **Per-slot server reads/deletes go through `domain/save_slot.py` (legacy omits `&slot=`, client-filters)** —
   prompt-only — `get_slot_saves` / `get_slot_delete_info` / `delete_slot` / `list_file_versions` / `rollback_to_version`
@@ -1365,28 +1383,30 @@ Format: **invariant** — tier — enforced by.
   `RomBinding` — do not restate them here
 - **Every row a reader must be able to reach on a QAM page is a row Steam can focus — a toggle, a button, or a
   `Focusable` declaring a stop of its own, including a table row with no action of its own, so the reader can walk the
-  table** — check + prompt-only — `tender/qam-focusable-row` checks the narrow syntactic slice where an `@decky/ui`
-  `Focusable` in the QAM module map has no nav-stop prop, static focusable descendant, opaque child, or unknown spread;
-  focus order, runtime reachability, edge revelation, scrolling geometry, and controller behaviour remain prompt-only.
-  The frontend suite cannot see those runtime properties: happy-dom has no nav tree, so a page whose rows are
-  unreachable renders exactly like one whose rows are not, and a mouse-driven dev loop never meets the problem either. A
-  region scrolls only by moving focus — Steam's plain `ScrollPanel` binds no gamepad direction — so an unreachable row
-  is also an unscrollable one, and everything below the fold is simply out of reach with a controller. The trap is that
-  a bare `Focusable` is a container rather than a focus stop: Steam's navigation asks the nav node the panel renders
-  (`GetFocusable()`), which finds no stop on a row declaring none of the four options it reads — nor on one whose
-  `onActivate`/`onOKButton` would have promoted it, since that promotion is skipped where an option was supplied — all
-  stated in full at `docs/architecture/qam-panel.md`, which owns that mechanism. **What the check cannot see it says
-  nothing about**, and three shapes matter. One opaque child anywhere among a row's children passes the whole row, which
-  is how the removed-games cleanup's details region stood unreachable in the one release that has shipped with this gate
-  green — a `Focusable` of plain text, fixed by declaring a nav option on it and not by the rule. A descendant the
-  BROWSER can focus — a `tabIndex`, a `button` — is taken as an escape, so a row reachable with a mouse and not with a
-  stick passes. And a row whose own `tabIndex` is its only affordance is reported rather than accepted, because that
-  attribute reaches the rendered element and not the node. The rule spans every page the wide frame will host, and the
-  frame cannot carry it: it holds a page's content as opaque nodes, never as rows it could check. **What the frame DOES
-  carry is the content outside a region's focusable rows, at both ends** — a heading, a counts line or a column header
-  above the first, a legend or a total below the last, each unreachable for the same reason and with no neighbour to
-  ride along with — so `ScrollRegion` scrolls itself to the top when focus reaches the first stop in it and to its end
-  when focus reaches the last (`revealEdge`, over `revealTop` and `revealBottom`). Both halves are pinned by
+  table; text between two stops of the same card is reached through them and is no stop of its own (an emulator source
+  card's folder and health lines, between its arrows and its switch)** — check + prompt-only —
+  `tender/qam-focusable-row` checks the narrow syntactic slice where an `@decky/ui` `Focusable` in the QAM module map
+  has no nav-stop prop, static focusable descendant, opaque child, or unknown spread; focus order, runtime reachability,
+  edge revelation, scrolling geometry, and controller behaviour remain prompt-only. The frontend suite cannot see those
+  runtime properties: happy-dom has no nav tree, so a page whose rows are unreachable renders exactly like one whose
+  rows are not, and a mouse-driven dev loop never meets the problem either. A region scrolls only by moving focus —
+  Steam's plain `ScrollPanel` binds no gamepad direction — so an unreachable row is also an unscrollable one, and
+  everything below the fold is simply out of reach with a controller. The trap is that a bare `Focusable` is a container
+  rather than a focus stop: Steam's navigation asks the nav node the panel renders (`GetFocusable()`), which finds no
+  stop on a row declaring none of the four options it reads — nor on one whose `onActivate`/`onOKButton` would have
+  promoted it, since that promotion is skipped where an option was supplied — all stated in full at
+  `docs/architecture/qam-panel.md`, which owns that mechanism. **What the check cannot see it says nothing about**, and
+  three shapes matter. One opaque child anywhere among a row's children passes the whole row, which is how the
+  removed-games cleanup's details region stood unreachable in the one release that has shipped with this gate green — a
+  `Focusable` of plain text, fixed by declaring a nav option on it and not by the rule. A descendant the BROWSER can
+  focus — a `tabIndex`, a `button` — is taken as an escape, so a row reachable with a mouse and not with a stick passes.
+  And a row whose own `tabIndex` is its only affordance is reported rather than accepted, because that attribute reaches
+  the rendered element and not the node. The rule spans every page the wide frame will host, and the frame cannot carry
+  it: it holds a page's content as opaque nodes, never as rows it could check. **What the frame DOES carry is the
+  content outside a region's focusable rows, at both ends** — a heading, a counts line or a column header above the
+  first, a legend or a total below the last, each unreachable for the same reason and with no neighbour to ride along
+  with — so `ScrollRegion` scrolls itself to the top when focus reaches the first stop in it and to its end when focus
+  reaches the last (`revealEdge`, over `revealTop` and `revealBottom`). Both halves are pinned by
   `frontend/src/bigpicture/layout/ScrollRegion.test.tsx` over mocked geometry, so what is tested is the DECISION and not
   the scroll: whether the panel and the reader agree about which element is topmost or last stays device-only, like the
   rest of this entry. **Reachable is not near, and the same mechanism decides where a page puts its controls**: focus

@@ -77,10 +77,11 @@ its files are followed per game the next time Tender touches them — a sync, a 
 that counts them; when, and how, is
 [Following a moved save directory](save-file-sync-architecture.md#following-a-moved-save-directory).
 
-**Cost.** A live reading is roughly 170 ms warm and 490 ms cold per ROM on the reference device. A single-ROM sync and a
-status read each take one, whether or not the ROM's slot is confirmed: the sync's entry gate reads the answer to decide
-whether to refuse at all, and hands that same reading both to the matrix and to the negotiate session's inventory rather
-than letting either take a second. "Ask live" is a rule about operations, not about layers.
+**Cost.** A live reading is a full read of the machine per ROM, and the first ask about a core also runs that core's
+probe. A single-ROM sync and a status read each take one, whether or not the ROM's slot is confirmed: the sync's entry
+gate reads the answer to decide whether to refuse at all, and hands that same reading both to the matrix and to the
+negotiate session's inventory rather than letting either take a second. "Ask live" is a rule about operations, not about
+layers.
 
 The whole-library sweep is the exception, at **two per ROM**. It posts one device-wide inventory before its per-ROM loop
 begins, and that inventory walks each confirmed ROM's save files — so it reads every answer once before any ROM's run
@@ -89,9 +90,8 @@ map of them across the loop, which is a cache in everything but name on the one 
 afterwards; the sweep is a background operation and pays the second reading instead.
 
 The two per-platform loops — `count_platform_saves` and `delete_platform_saves` — take one per **installed** ROM on that
-platform, so four installed games is well under a second and fifty is several. Nothing is cached: the correctness rule
-is that every sync path asks live, and the count exists so the number the button offers equals the number the delete
-removes.
+platform, so their cost grows with the platform's installed games. Nothing is cached: the correctness rule is that every
+sync path asks live, and the count exists so the number the button offers equals the number the delete removes.
 
 ## The five save states
 
@@ -117,9 +117,10 @@ which is what the state is about.
 **The last state has three shapes and they are kept apart**, because they are three different sentences to a reader.
 `nothing_established` — nobody has established what this emulator writes. `directory_known` — the directory is known and
 the file names in it are not, and telling a user "nothing is known" about a folder we can point at would be wrong.
-`not_asked` — no question reached the resolver: no emulator resolved for this ROM, no installation or catalogue entry to
-ask, or no content name to ask with. The status read reports a save Tender could otherwise sync, sitting beside the
-content, the same way, since no sync runs there. The emulator is not implicated, and saying it is would be wrong too.
+`not_asked` — no question reached the resolver: no emulator resolved for this ROM, no emulator source answering, a
+catalogue the resolver refused (EmuDeck's sealed one among them), no catalogue entry under the label, or no content name
+to ask with. The status read reports a save Tender could otherwise sync, sitting beside the content, the same way, since
+no sync runs there. The emulator is not implicated, and saying it is would be wrong too.
 
 **Scope is the emulator, never the platform.** PS2 is not unsupported — standalone PCSX2 is, and a libretro core for the
 same platform can answer differently. Every state the payload carries names the emulator it is about.
