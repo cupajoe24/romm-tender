@@ -28,7 +28,7 @@ from lib.errors import OperationAbortedError, Refused, RommConnectionError, Romm
 from lib.prune_conflicts import PruneConflicts
 from services.prune import PruneService, PruneServiceConfig
 from services.prune._models import cancellation_state
-from services.prune.results import GroupOutcome
+from services.prune.results import _COMPLETION_BUDGET_BYTES, GroupOutcome
 
 if TYPE_CHECKING:
     from models.prune import MutationOutcome, RecoveryArtifact, SourceClaim, SteamRecoverySnapshot
@@ -254,11 +254,12 @@ def _rom(
     app_id: int | None = None,
     fs_name: str | None = None,
     platform: str = "dc",
+    name: str | None = None,
 ) -> Rom:
     rom = Rom.synced(
         rom_id=rom_id,
         platform_slug=platform,
-        name=f"Game {rom_id}",
+        name=name or f"Game {rom_id}",
         fs_name=fs_name or f"Game {rom_id}.gdi",
         shortcut_app_id=app_id,
         synced_at="now",
@@ -1205,7 +1206,6 @@ async def test_group_result_leads_with_the_bound_row_s_game_name(harness):
 
     result = complete["results"][0]
     assert result["name"] == "Game 2"
-    assert result["name_truncated"] is False
     # The metadata key stays on the wire for correlation, but it is no longer
     # what a human-facing line has to lead with.
     assert result["group_id"] == "g"
@@ -1817,8 +1817,12 @@ async def test_shutdown_during_final_removed_progress_preserves_committed_ids(ha
 
 
 @pytest.mark.asyncio
-async def test_completion_results_are_emitted_in_bounded_chunks(harness):
-    rows = [_rom(rom_id, fetch="old") for rom_id in range(1, 27)]
+async def test_a_large_run_s_results_are_split_across_completion_chunks(harness):
+    # 26 results of a sixteenth of the budget each: together over it, each well under it.
+    rows = [
+        _rom(rom_id, fetch="old", name=f"Game {rom_id} " + "x" * (_COMPLETION_BUDGET_BYTES // 16))
+        for rom_id in range(1, 27)
+    ]
     _seed(harness.uow, *rows, stamp_count=26)
     for row in rows:
         harness.romm.outcomes[row.rom_id] = [RommNotFoundError("gone")] * 3
@@ -1827,28 +1831,28 @@ async def test_completion_results_are_emitted_in_bounded_chunks(harness):
     await _finish(harness)
 
     completions = [payload for name, payload in harness.events.events if name == "prune_complete"]
+    assert len(completions) > 1
     assert sum(len(payload["results"]) for payload in completions) == 26
     assert completions[-1]["final"] is True
-    assert all(len(json.dumps(payload, ensure_ascii=True).encode("utf-8")) <= 48 * 1024 for payload in completions)
+    assert all(
+        len(json.dumps(payload, ensure_ascii=True).encode("utf-8")) <= _COMPLETION_BUDGET_BYTES
+        for payload in completions
+    )
 
 
-def test_one_large_group_result_is_explicitly_bounded(harness):
+def test_one_large_group_result_carries_at_most_50_ids_beside_the_full_counts(harness):
     rows = [_rom(rom_id, fetch="old", group="g") for rom_id in range(1, 61)]
     result = harness.service._executor._results.group_result(
         rows,
         "removed",
         None,
-        "x" * 2000,
+        "removed",
         GroupOutcome(removed_rom_ids=list(range(1, 61))),
     )
     assert len(result["rom_ids"]) == 50
     assert result["rom_count"] == 60
-    assert result["rom_ids_truncated"] is True
     assert len(result["removed_rom_ids"]) == 50
     assert result["removed_count"] == 60
-    assert result["removed_rom_ids_truncated"] is True
-    assert len(result["message"]) == 512
-    assert result["message_truncated"] is True
 
 
 @pytest.mark.asyncio
@@ -2378,27 +2382,8 @@ async def test_recovery_warnings_are_bounded_and_visible_without_a_bundle(harnes
 
     result = complete["results"][0]
     assert result["warning_count"] == 7
-    assert len(result["warnings"]) == 5
-    assert all(len(value) <= 256 for value in result["warnings"])
-    assert result["warnings_truncated"] is True
+    assert result["warnings"] == harness.saves.warnings[:5]
     assert result["warnings_omitted"] is True
-
-
-@pytest.mark.asyncio
-async def test_omitted_short_warnings_are_not_marked_as_display_truncated(harness):
-    _seed(harness.uow, _rom(1, fetch="old"))
-    harness.romm.outcomes[1] = [RommNotFoundError("gone")] * 3
-    harness.saves.warnings = [f"warning {index}" for index in range(6)]
-    preview = await _preview(harness)
-    await _start(harness, preview["preview_id"], remove_fully_vanished=True)
-
-    complete = await _finish(harness)
-
-    result = complete["results"][0]
-    assert result["warning_count"] == 6
-    assert len(result["warnings"]) == 5
-    assert result["warnings_omitted"] is True
-    assert result["warnings_truncated"] is False
 
 
 @pytest.mark.asyncio

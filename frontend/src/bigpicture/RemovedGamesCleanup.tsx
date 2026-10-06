@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, FC, Fragment, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, FC, Fragment, type CSSProperties } from "react";
 import { showToast } from "../utils/toast";
 import {
   ButtonItem,
@@ -33,6 +33,7 @@ import {
   isPruneResultLost,
   onPruneStateChange,
   type PruneComplete,
+  type PruneGroupResult,
   type PruneProgress,
 } from "../utils/pruneStore";
 import { scrollNearestToBottom, scrollNearestToTop } from "../utils/scrollHelpers";
@@ -189,6 +190,26 @@ function removedInGroup(item: { removed_count?: number; removed_rom_ids?: number
   return item.removed_count ?? item.removed_rom_ids?.length ?? 0;
 }
 
+/** How many of a group's warnings the backend left out at its per-group cap. */
+function omittedWarnings(item: PruneGroupResult): number {
+  return item.warnings_omitted ? Math.max(0, (item.warning_count ?? 0) - (item.warnings?.length ?? 0)) : 0;
+}
+
+/** The finished run's line on Data Management: what went wrong or warned, and how many warnings were left out. */
+function completionDescription(complete: PruneComplete): string {
+  const shown = complete.results.filter((item) => item.status !== "removed" || (item.warnings?.length ?? 0) > 0);
+  return [
+    complete.message,
+    ...shown.flatMap((item) => [
+      item.message,
+      ...(item.warnings ?? []).map((warning) => `Warning: ${warning}`),
+      omittedWarnings(item) > 0 ? `${omittedWarnings(item)} additional warning(s) omitted.` : "",
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function requestFor(
   scope: PruneScope,
   romId: number | null,
@@ -196,6 +217,58 @@ function requestFor(
   offset: number,
 ): PrunePreviewRequest {
   return { scope, rom_id: romId, preview_id: previewId, offset, limit: PAGE_SIZE };
+}
+
+/** Where {@link loadRemainingPages} puts what it fetched, and whether it still may. */
+interface PageLoadSink {
+  isCurrent: () => boolean;
+  addRows: (rows: PrunePreviewItem[], freeBytes: number | undefined) => void;
+  fail: (message: string, loaded: number) => void;
+  allArrived: () => void;
+}
+
+/**
+ * Fetch a preview's pages after its first `from` rows, one after another, until
+ * the whole list is here. A page that fails stops the loop and stays stopped —
+ * Confirm keeps refusing and Retry resumes from the rows already loaded — rather
+ * than retrying by itself against a backend that may keep failing.
+ */
+async function loadRemainingPages(
+  preview: { scope: PruneScope; romId: number | null; previewId: string; total: number },
+  from: number,
+  sink: PageLoadSink,
+): Promise<void> {
+  let loaded = from;
+  const fail = (message: string): void => {
+    if (sink.isCurrent()) sink.fail(message, loaded);
+  };
+  while (loaded < preview.total) {
+    let page: PrunePreviewResult;
+    try {
+      page = await withTimeout(
+        getPrunePreview(requestFor(preview.scope, preview.romId, preview.previewId, loaded)),
+        PRUNE_ENDPOINT_TIMEOUT_MS,
+      );
+    } catch (e) {
+      fail(`Could not load the rest of the list: ${e}`);
+      return;
+    }
+    if (!sink.isCurrent()) return;
+    if (!page.success) {
+      fail(page.message ?? "Could not load the rest of the list.");
+      return;
+    }
+    const rows = page.items ?? [];
+    // The list cannot shrink under a preview, so an empty page short of the
+    // total would otherwise ask for the same offset forever.
+    if (rows.length === 0) {
+      fail("The list ended before every entry arrived.");
+      return;
+    }
+    loaded += rows.length;
+    sink.addRows(rows, typeof page.free_bytes === "number" ? page.free_bytes : undefined);
+  }
+  if (sink.isCurrent()) sink.allArrived();
 }
 
 /**
@@ -208,22 +281,34 @@ function confirmBlockedReason(state: {
   completed: boolean;
   runInFlight: boolean;
   allEntriesLoaded: boolean;
+  loaded: number;
   total: number;
+  pageLoadFailed: boolean;
   destructiveConfirmed: boolean;
   insufficientSpace: boolean;
   unknownSelectedSize: boolean;
   anyOptionChosen: boolean;
-}): string | null {
+}): { text: string; aboutList: boolean } | null {
+  const other = (text: string) => ({ text, aboutList: false });
   if (state.completed) return null;
-  if (state.runInFlight) return "A cleanup is already running.";
-  if (!state.allEntriesLoaded) return `Load all ${state.total} entries before confirming.`;
-  if (!state.destructiveConfirmed) return "Confirm you understand there will be no recovery bundle.";
-  if (state.insufficientSpace) {
-    return state.unknownSelectedSize
-      ? "A selected ROM's size can't be measured, so the recovery bundle can't be guaranteed to fit."
-      : "The selected ROM content doesn't fit in the free space at the recovery target.";
+  if (state.runInFlight) return other("A cleanup is already running.");
+  if (!state.allEntriesLoaded) {
+    return {
+      text: state.pageLoadFailed
+        ? `The list stopped loading at ${state.loaded} of ${state.total} entries. Retry loading before confirming.`
+        : `The list is still loading (${state.loaded} of ${state.total} entries). A cleanup can start once every entry has arrived.`,
+      aboutList: true,
+    };
   }
-  if (!state.anyOptionChosen) return "Choose at least one cleanup option above.";
+  if (!state.destructiveConfirmed) return other("Confirm you understand there will be no recovery bundle.");
+  if (state.insufficientSpace) {
+    return other(
+      state.unknownSelectedSize
+        ? "A selected ROM's size can't be measured, so the recovery bundle can't be guaranteed to fit."
+        : "The selected ROM content doesn't fit in the free space at the recovery target.",
+    );
+  }
+  if (!state.anyOptionChosen) return other("Choose at least one cleanup option above.");
   return null;
 }
 
@@ -331,7 +416,6 @@ const CandidateRow: FC<{
 }> = ({ item, included, recovery, runInFlight, onInclude }) => {
   const name = item.name || item.fs_name || `ROM ${item.rom_id}`;
   const verdict = verdictFor(item);
-  const truncated = item.name_truncated || item.fs_name_truncated || item.group_id_truncated || item.warning_truncated;
   const keepCopy: TableCell = item.installed
     ? {
         content: (
@@ -374,9 +458,6 @@ const CandidateRow: FC<{
       <div style={{ ...SECONDARY_CELL, ...CELL_CLIP }} title={versionLine(item, name)}>
         {versionLine(item, name)}
       </div>
-      {truncated && (
-        <div style={ROW_WARNING}>One or more display fields were shortened to keep this preview page small.</div>
-      )}
       {item.warning && <div style={ROW_WARNING}>{item.warning}</div>}
       {item.installed && (!recovery || !included) && (
         <div style={ROW_WARNING}>Without a backup, the downloaded ROM file is deleted along with this version.</div>
@@ -490,7 +571,6 @@ const CleanupResult: FC<{ complete: PruneComplete }> = ({ complete }) => (
             ["partial", "failed", "skipped"].includes(item.status) ||
             (item.warnings?.length ?? 0) > 0 ||
             item.warnings_omitted ||
-            item.warnings_truncated ||
             // A sealed bundle that removed nothing leaves a folder on
             // disk; saying so is what stops it being a mystery later.
             (item.bundle_path !== undefined && removedInGroup(item) === 0),
@@ -501,14 +581,10 @@ const CleanupResult: FC<{ complete: PruneComplete }> = ({ complete }) => (
             {item.bundle_path !== undefined && removedInGroup(item) === 0 && (
               <div>Backup created, nothing removed. The folder stays at {item.bundle_path}.</div>
             )}
-            {item.message_truncated && <div>Detail was shortened to keep this result small.</div>}
             {item.warnings?.map((warning) => (
               <div key={warning}>Warning: {warning}</div>
             ))}
-            {item.warnings_omitted && (item.warning_count ?? 0) > (item.warnings?.length ?? 0) && (
-              <div>{(item.warning_count ?? 0) - (item.warnings?.length ?? 0)} additional warning(s) omitted.</div>
-            )}
-            {item.warnings_truncated && <div>One or more displayed warnings were shortened.</div>}
+            {omittedWarnings(item) > 0 && <div>{omittedWarnings(item)} additional warning(s) omitted.</div>}
           </div>
         ))}
     </Focusable>
@@ -524,11 +600,22 @@ interface CleanupModalProps {
 
 const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal }) => {
   const [items, setItems] = useState<PrunePreviewItem[]>(initial.items ?? []);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageLoadError, setPageLoadError] = useState<string | null>(null);
+  // Moved on by every page loop that starts and by the loading effect's cleanup,
+  // so a page that answers for a loop no longer current writes nothing.
+  const pageLoadGeneration = useRef(0);
+  // The refusal a Confirm press got because the list was still loading or had
+  // stopped, which stops being true once a page fails, Retry is pressed or the
+  // list has all arrived.
+  const listRefusal = useRef<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [cancelRequestedFor, setCancelRequestedFor] = useState<string | null>(null);
   const [runStarted, setRunStarted] = useState(false);
   const [status, setStatus] = useState("");
+  const clearListRefusal = useCallback(
+    () => setStatus((current) => (current === listRefusal.current ? "" : current)),
+    [],
+  );
   const [repoint, setRepoint] = useState(true);
   const [removeRows, setRemoveRows] = useState(true);
   const [removeDeadGames, setRemoveDeadGames] = useState(true);
@@ -584,7 +671,9 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
     completed: complete !== null,
     runInFlight,
     allEntriesLoaded,
+    loaded: items.length,
     total,
+    pageLoadFailed: pageLoadError !== null,
     destructiveConfirmed,
     insufficientSpace,
     unknownSelectedSize,
@@ -605,25 +694,41 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
     });
   };
 
-  const loadMore = async (): Promise<void> => {
-    if (!initial.preview_id || items.length >= total) return;
-    setLoadingMore(true);
-    try {
-      const next = await withTimeout(
-        getPrunePreview(requestFor(scope, romId, initial.preview_id, items.length)),
-        PRUNE_ENDPOINT_TIMEOUT_MS,
+  const startPageLoad = useCallback(
+    (from: number): void => {
+      if (!initial.preview_id) return;
+      const generation = ++pageLoadGeneration.current;
+      detach(
+        loadRemainingPages({ scope, romId, previewId: initial.preview_id, total: initial.total ?? 0 }, from, {
+          isCurrent: () => generation === pageLoadGeneration.current,
+          addRows: (rows, pageFreeBytes) => {
+            setItems((current) => [...current, ...rows]);
+            if (pageFreeBytes !== undefined) setFreeBytes(pageFreeBytes);
+          },
+          fail: (message, loaded) => {
+            setPageLoadError(message);
+            clearListRefusal();
+            logWarn(`[prune] Preview page at offset ${loaded} of ${initial.total ?? 0} failed: ${message}`);
+          },
+          allArrived: clearListRefusal,
+        }),
       );
-      if (!next.success) {
-        setStatus(next.message ?? "Could not load more candidates.");
-        return;
-      }
-      setItems((current) => [...current, ...(next.items ?? [])]);
-      if (typeof next.free_bytes === "number") setFreeBytes(next.free_bytes);
-    } catch (e) {
-      setStatus(`Could not load more candidates: ${e}`);
-    } finally {
-      setLoadingMore(false);
-    }
+    },
+    [initial.preview_id, initial.total, scope, romId, clearListRefusal],
+  );
+
+  useEffect(() => {
+    const generations = pageLoadGeneration;
+    startPageLoad(initial.items?.length ?? 0);
+    return () => {
+      generations.current++;
+    };
+  }, [startPageLoad, initial.items]);
+
+  const retryPageLoad = (): void => {
+    setPageLoadError(null);
+    clearListRefusal();
+    startPageLoad(items.length);
   };
 
   const refreshFreeSpace = async (): Promise<void> => {
@@ -649,6 +754,13 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
     }
   };
 
+  const refuseLocally = (reason: { text: string; aboutList: boolean }): void => {
+    const refusal = `Cleanup did not start: ${reason.text}`;
+    listRefusal.current = reason.aboutList ? refusal : null;
+    setStatus(refusal);
+    logWarn(`[prune] Confirm refused locally: ${reason.text}`);
+  };
+
   const start = async (): Promise<void> => {
     // Confirm is the destructive commit point, so every press is logged and
     // every outcome is visible in the dialog. A press that returns silently is
@@ -660,8 +772,7 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
       return;
     }
     if (blockedReason !== null) {
-      setStatus(`Cleanup did not start: ${blockedReason}`);
-      logWarn(`[prune] Confirm refused locally: ${blockedReason}`);
+      refuseLocally(blockedReason);
       return;
     }
     setStarting(true);
@@ -851,9 +962,9 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
             <DialogButton style={FLAT_BUTTON} disabled={runInFlight} onClick={() => detach(refreshFreeSpace())}>
               Refresh free space
             </DialogButton>
-            {items.length < total && (
-              <DialogButton style={FLAT_BUTTON} disabled={loadingMore} onClick={() => detach(loadMore())}>
-                {loadingMore ? "Loading..." : `Load more (${items.length} of ${total})`}
+            {pageLoadError !== null && (
+              <DialogButton style={FLAT_BUTTON} onClick={retryPageLoad}>
+                Retry loading
               </DialogButton>
             )}
             <DialogButton style={FLAT_BUTTON} disabled={starting && complete === null} onClick={() => closeModal?.()}>
@@ -863,10 +974,9 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
               {confirmButtonLabel(starting, progress)}
             </DialogButton>
           </ButtonRow>
-          {!allEntriesLoaded && (
-            <div style={{ color: "#ff8c6a", fontSize: "12px", marginTop: "8px" }}>
-              Load every page before confirming so all potentially removed group members and installed content are
-              disclosed.
+          {pageLoadError !== null && (
+            <div role="status" aria-live="polite" style={{ color: "#ff8c6a", fontSize: "12px", marginTop: "8px" }}>
+              {pageLoadError}
             </div>
           )}
           {progress && (
@@ -888,7 +998,7 @@ const CleanupModal: FC<CleanupModalProps> = ({ initial, scope, romId, closeModal
             </div>
           )}
           {blockedReason !== null && !runInFlight && (
-            <div style={{ marginTop: "10px", color: "#ff8c6a", fontSize: "12px" }}>{blockedReason}</div>
+            <div style={{ marginTop: "10px", color: "#ff8c6a", fontSize: "12px" }}>{blockedReason.text}</div>
           )}
         </div>
 
@@ -987,7 +1097,7 @@ export const RemovedGamesCleanupSection: FC<{ onScanRead?: (read: PageRead<numbe
       }
     } catch (e) {
       logError(`Removed-game cleanup scan failed: ${e}`);
-      showToast("Could not scan removed RomM games.");
+      showToast("Could not scan removed RomM games.", { subtext: `${e}` });
     } finally {
       setScanning(false);
     }
@@ -1062,14 +1172,7 @@ export const RemovedGamesCleanupSection: FC<{ onScanRead?: (read: PageRead<numbe
           <PanelSectionRow>
             <Field
               label={`${complete.removed_count ?? complete.removed_rom_ids.length} removed; ${complete.problem_count ?? complete.results.filter((item) => ["partial", "failed", "skipped"].includes(item.status)).length} skipped, partial, or failed`}
-              description={[
-                complete.message,
-                ...complete.results
-                  .filter((item) => item.status !== "removed" || (item.warnings?.length ?? 0) > 0)
-                  .flatMap((item) => [item.message, ...(item.warnings ?? []).map((warning) => `Warning: ${warning}`)]),
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              description={completionDescription(complete)}
             />
           </PanelSectionRow>
         </>

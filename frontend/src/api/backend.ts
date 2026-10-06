@@ -827,19 +827,15 @@ export interface PrunePreviewRequest {
 export interface PrunePreviewItem {
   rom_id: number;
   name: string;
-  name_truncated: boolean;
   fs_name: string;
-  fs_name_truncated: boolean;
   platform_slug: string;
   group_id: string;
-  group_id_truncated: boolean;
   group_size: number;
   bound_count: number;
   candidate: boolean;
   installed: boolean;
   installed_bytes: number | null;
   warning: string | null;
-  warning_truncated: boolean;
 }
 
 export interface PrunePreviewResult {

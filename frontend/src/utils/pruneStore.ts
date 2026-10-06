@@ -6,27 +6,21 @@ export interface PruneProgress {
   stage: string;
   rom_ids: number[];
   rom_count?: number;
-  rom_ids_truncated?: boolean;
   name: string;
   bundle_path?: string;
 }
 
 export interface PruneGroupResult {
   group_id: string;
-  group_id_truncated?: boolean;
   /** The game's display name — what a result line leads with. */
   name?: string;
-  name_truncated?: boolean;
   rom_ids: number[];
   rom_count?: number;
-  rom_ids_truncated?: boolean;
   status: "removed" | "repointed" | "partial" | "failed" | "skipped";
   reason?: string;
   message: string;
-  message_truncated?: boolean;
   removed_rom_ids?: number[];
   removed_count?: number;
-  removed_rom_ids_truncated?: boolean;
   app_id?: number;
   removed_app_id?: number;
   bundle_path?: string;
@@ -37,7 +31,6 @@ export interface PruneGroupResult {
   warnings?: string[];
   warning_count?: number;
   warnings_omitted?: boolean;
-  warnings_truncated?: boolean;
   target_rom_id?: number;
 }
 

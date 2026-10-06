@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
 from typing import Any, cast
 
 from fakes.fake_unit_of_work import FakeUnitOfWork, FakeUnitOfWorkFactory
 
 from domain.platform_sync_state import PlatformSyncState
 from domain.rom import Rom
+from domain.rom_install import RomInstall
 from domain.version_metadata import VersionMetadata
-from services.prune._models import PrunePreview
 from services.prune.preview import PreviewBuilder, PreviewBuilderConfig
 
 
@@ -126,45 +125,55 @@ def test_empty_page_still_carries_both_counts() -> None:
     assert (refreshed["total"], refreshed["candidate_total"]) == (4, 2)
 
 
-def test_preview_pages_stay_within_wire_budget_for_non_ascii_rows() -> None:
+def test_a_row_carries_its_text_whole_and_no_truncation_flag() -> None:
+    long = 10_000
+    uow = FakeUnitOfWork()
+    with uow:
+        row = Rom.synced(
+            rom_id=1,
+            platform_slug="dc",
+            name="n" * long,
+            fs_name="f" * long,
+            shortcut_app_id=None,
+            synced_at="now",
+            version=VersionMetadata(sibling_group_key="g" * long),
+        )
+        row.record_fetch_generation("old")
+        uow.roms.save(row)
+        uow.rom_installs.save(
+            RomInstall.mark_installed(
+                rom_id=1,
+                file_path="/roms/dc/1.chd",
+                rom_dir=None,
+                platform_slug="dc",
+                system="dc",
+                installed_at="now",
+            )
+        )
+        uow.platform_sync_state.save(
+            PlatformSyncState.stamp(platform_slug="dc", at="now", rom_count=1, fetch_id="current")
+        )
+
+    class _UnmeasurableRecovery(_Recovery):
+        def measure_path(self, path: str, roms_root: str) -> int:
+            raise OSError("w" * long)
+
     builder = PreviewBuilder(
         config=PreviewBuilderConfig(
-            uow_factory=cast("Any", None),
-            recovery_store=cast("Any", _Recovery()),
-            retrodeck_paths=cast("Any", None),
+            uow_factory=FakeUnitOfWorkFactory(uow),
+            recovery_store=cast("Any", _UnmeasurableRecovery()),
+            retrodeck_paths=cast("Any", _Paths()),
             settings={},
         )
     )
-    entries = tuple(
-        {
-            "rom_id": index,
-            "name": "é" * 512,
-            "name_truncated": True,
-            "fs_name": "遊" * 512,
-            "fs_name_truncated": True,
-            "platform_slug": "platform",
-            "group_id": "é" * 512,
-            "group_id_truncated": True,
-            "group_size": 1,
-            "bound_count": 0,
-            "candidate": True,
-            "installed": True,
-            "installed_bytes": 1,
-            "warning": "遊" * 1024,
-            "warning_truncated": True,
-        }
-        for index in range(1, 51)
+
+    page = builder.page(builder.build("preview", "bulk", None), 0, 50)
+
+    [item] = page["items"]
+    assert (item["name"], item["fs_name"], item["group_id"], item["warning"]) == (
+        "n" * long,
+        "f" * long,
+        "g" * long,
+        "w" * long,
     )
-    preview = PrunePreview("preview", "bulk", None, frozenset(range(1, 51)), (), entries, 1000, "server|user")
-    offset = 0
-    seen: list[int] = []
-
-    while offset < len(entries):
-        page = builder.page(preview, offset, 50)
-        assert len(json.dumps(page, ensure_ascii=True).encode("utf-8")) <= 48 * 1024
-        ids = [item["rom_id"] for item in page["items"]]
-        assert ids
-        seen.extend(ids)
-        offset += len(ids)
-
-    assert seen == list(range(1, 51))
+    assert [key for key in item if key.endswith("_truncated")] == []
