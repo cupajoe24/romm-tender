@@ -117,6 +117,11 @@ your home directory, wherever the folders above have gone.
 Nothing copies your data forward. If you used a version that stored its library inside Decky's plugin folders, that
 library stays there and Tender starts with an empty one — set it up as if it were new.
 
+Settings in `~/.config/romm-tender/` that 0.30 or later wrote are used as they are. A settings file there from an older
+release — copied in by hand from `~/homebrew/settings/<folder>` — is not: Tender starts on its default settings, notes
+in `backend.log` what it found, and writes the defaults over that file. Sign in and choose your platforms and
+collections again.
+
 The old folders are yours to keep or delete:
 
 - `~/homebrew/settings/<folder>` — the settings that install used
