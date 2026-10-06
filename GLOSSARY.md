@@ -463,6 +463,15 @@ Unlaunchable is always a **proven** verdict, never the absence of one: an unread
 a pre-migration row all read as launchable. The foil is a **folder-boot** install, whose `file_path` extension is
 irrelevant because the baked target is the game directory.
 
+### Missing download / forget a download
+
+A **missing download** is a `rom_installs` row whose recorded file and folder are both absent; the row stays until the
+user decides ([why](docs/architecture/database-design.md#a-download-whose-file-is-missing)). To **forget** it
+(`Forget this download`) is the uninstall without the deletion: the row goes, no file is touched.
+
+_Avoid_: **stale install** — the record is not stale, its file is missing. **prune** — nothing removes the row on its
+own.
+
 ### Adopt
 
 To take something already present into Tender's records without having produced it. The object varies — a local save

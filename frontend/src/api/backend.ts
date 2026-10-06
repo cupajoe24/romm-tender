@@ -241,6 +241,13 @@ export interface CachedGameDetail extends BiosAnswer {
    * of yet — which is why this value is sent back on the press.
    */
   adoption_candidate_present?: boolean;
+  /**
+   * For an installed ROM whose recorded file and folder are both gone, the path
+   * the install record names (the folder for a folder-backed download); `null`
+   * otherwise. The page then offers "Download again" and "Forget this download"
+   * instead of Play.
+   */
+  file_missing_at?: string | null;
 }
 
 // get_cached_game_detail wiring lives in utils/cachedGameDetailStore.ts so the
@@ -380,6 +387,21 @@ export const stopRunningGame = endpoint<[number], StopGameResult>("stop_running_
 export const probeReachability = endpoint<[], { online: boolean }>("probe_reachability");
 export const refreshSaveStatus = endpoint<[number], { success: boolean }>("refresh_save_status");
 export const removeRom = endpoint<[number], BackendResult>("remove_rom");
+/**
+ * Forget a download whose files are gone: the uninstall without the deletion.
+ * Refused with `file_present`, naming the `path` found, while the recorded file
+ * or folder exists. A success carries the same `rom_uninstall` lease as
+ * `removeRom`.
+ */
+export interface ForgetDownloadResult {
+  success: boolean;
+  message: string;
+  reason?: string;
+  /** With `file_present`: the recorded file or folder found on disk. */
+  path?: string;
+  prune_lease_token?: string;
+}
+export const forgetDownload = endpoint<[number], ForgetDownloadResult>("forget_download");
 export const getPlatforms = endpoint<[], { success: boolean; platforms: PlatformSyncSetting[] }>("get_platforms");
 // `reason` and `message` only come with a failure: both answer a bare
 // `{success: true}`, so a caller reading either on the success shape reads

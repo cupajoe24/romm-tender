@@ -1,7 +1,11 @@
 /**
  * Custom Play button that replaces the native Steam Play button on RomM game
  * detail pages. Primary states (the full set is `PlayButtonState`):
- * - Download: ROM not installed, click to download
+ * - Download: ROM not installed, click to download. The same state, while
+ *   the recorded file of an installed ROM is gone, is a split button the size
+ *   of Play — Download again, and an arrow whose "File missing" menu names the
+ *   path and offers Download again and Forget this download — over a one-line
+ *   "File missing" note, and no Play
  * - Play: ROM installed, launches the game (with pre-launch save sync)
  * - Checking: the launch check is running, before any sync
  * - Syncing: Save sync in progress before launch
@@ -10,21 +14,23 @@
  * with action: Uninstall.
  */
 
-import { useState, useEffect, useRef, FC, ReactElement } from "react";
+import { useState, useEffect, useRef, useCallback, FC, ReactElement } from "react";
 import { addEventListener, removeEventListener } from "../api/host";
 import { showToast } from "../utils/toast";
-import { Focusable, DialogButton, Menu, MenuItem, Navigation, showContextMenu } from "@decky/ui";
+import { Focusable, DialogButton, Menu, MenuItem, MenuSeparator, Navigation, showContextMenu } from "@decky/ui";
 import { appActionButtonClasses, basicAppDetailsSectionStylerClasses } from "../utils/deckyUiInternals";
 import { hideNativePlaySection, showNativePlaySection } from "../utils/styleInjector";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import {
   getCachedGameDetail,
+  invalidateCachedGameDetail,
   isTargetOccupied,
   cancelDownload,
   pauseDownload,
   resumeDownload,
   getDownloadQueue,
   removeRom,
+  forgetDownload,
   debugLog,
   preLaunchSync,
   getSaveStatus,
@@ -46,6 +52,15 @@ import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "../utils/s
 import { handleButtonDownloadFailure } from "../utils/downloadFailure";
 import { runDownloadWithAdoption } from "../utils/adoptFlow";
 import { RESUME_TARGET_OCCUPIED_TOAST } from "../utils/adoptWording";
+import {
+  DOWNLOAD_AGAIN_LABEL,
+  FILE_MISSING_LABEL,
+  FORGET_DOWNLOAD_LABEL,
+  FORGETTING_LABEL,
+  FORGET_FAILED_TOAST,
+  downloadForgottenToast,
+  forgetRefusedToast,
+} from "../utils/missingDownloadWording";
 import { showAdoptExistingModal } from "./AdoptExistingModal";
 import { showAdoptCandidateModal } from "./AdoptCandidateModal";
 import { showAdoptCollisionModal } from "./AdoptCollisionModal";
@@ -56,7 +71,9 @@ import { handleConflicts } from "../shared/SyncConflictModal";
 import { showOfflineDriftModal } from "../shared/OfflineDriftModal";
 import { showFallbackLaunchModal } from "../shared/FallbackLaunchModal";
 import { showStopGameModal } from "./StopGameModal";
+import { showForgetDownloadModal } from "./ForgetDownloadModal";
 import { getMigrationState } from "../utils/migrationStore";
+import { reloadGameDetail } from "../utils/gameDetailStore";
 import { runLaunchGate, markLaunchSkipped, LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "../utils/launchGate";
 import { NO_LAUNCH_TARGET_TOAST_BODY, romHasLaunchTarget } from "../utils/launchTarget";
 import type { GateVerdict, LaunchGateOps, PreLaunchSyncOutcome } from "../utils/launchGate";
@@ -168,6 +185,11 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
   // an undifferentiated Download; the comparison itself arrives at click time.
   const [targetOccupied, setTargetOccupied] = useState(false);
   const [candidatePresent, setCandidatePresent] = useState(false);
+  const [missingPath, setMissingPath] = useState<string | null>(null);
+  const [forgetPending, setForgetPending] = useState(false);
+  // Set synchronously before the forget's first await, for the same reason as
+  // `uninstallPendingRef`.
+  const forgetPendingRef = useRef(false);
   // Per-file progress of an in-flight uninstall (multi-file ROMs only).
   const [uninstallProgress, setUninstallProgress] = useState<{ removed: number; total: number } | null>(null);
   // Set synchronously before the uninstall's first await, so a second press
@@ -200,6 +222,44 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     setCandidatePresent(candidate);
     setState("download");
   };
+
+  /**
+   * Re-read this appId's cached detail, adopt its rom_id, and re-derive the
+   * button from its install status — after a change the button did not make
+   * itself: a version switch, or a forget refused because the file is back. The
+   * caller drops the cached entry first. `trigger` names the change in the log
+   * line a detail that does not resolve leaves behind.
+   */
+  const rederiveFromDetail = useCallback(
+    async (trigger: string): Promise<void> => {
+      const cached = await getCachedGameDetail(appId);
+      if (!cached.found || cached.rom_id == null) {
+        // Surfaced at warn level: debugLog is dropped at the default level.
+        logError(`CustomPlayButton: ${trigger} for appId ${appId} but cached detail not found — button may be stale`);
+        return;
+      }
+      const rid = cached.rom_id;
+      setRomId(rid);
+      romIdRef.current = rid;
+      if (cached.rom_name) setRomName(cached.rom_name);
+      setMissingPath(cached.installed && cached.file_missing_at ? cached.file_missing_at : null);
+      if (cached.installed && cached.file_missing_at) {
+        setDlProgress(null);
+        setActionPending(false);
+        enterDownloadState();
+      } else if (cached.installed) {
+        setState(hasAnySaveConflict(cached.save_status) ? "conflict" : "play");
+      } else {
+        // Not installed — clear any download progress and drop to the Download
+        // button. The occupancy answer comes from the ROM the detail is about; a
+        // previous ROM's answer says nothing about this one's location.
+        setDlProgress(null);
+        setActionPending(false);
+        enterDownloadState(cached.target_path_occupied === true, cached.adoption_candidate_present === true);
+      }
+    },
+    [appId],
+  );
 
   useEffect(() => {
     mountPruneLeaseOwner(leaseOwner);
@@ -282,7 +342,12 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
         // immediately, without waiting for a session event (#1313).
         setIsRunning(readGameRunning(appId, rid).running);
 
-        if (cached.installed) {
+        if (cached.installed && cached.file_missing_at) {
+          detach(debugLog(`CustomPlayButton: -> file missing`));
+          setMissingPath(cached.file_missing_at);
+          enterDownloadState();
+          await rehydrateInflightDownload(rid);
+        } else if (cached.installed) {
           // Check for conflicts from cached save status
           const hasConflict = hasAnySaveConflict(cached.save_status);
           if (hasConflict) {
@@ -365,6 +430,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
         if (evt.rom_id !== romIdRef.current) return;
         setDlProgress(null);
         setActionPending(false);
+        setMissingPath(null);
         lastAnnouncedState = null;
         setState("dl_complete");
         transitionTimerRef.current = setTimeout(() => {
@@ -405,45 +471,23 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
       // is already showing. Not this component's own dispatch: `handleUninstall`
       // dispatches before it sets `uninstalling`, so both land in one React
       // batch and the pulse wins on ordering, guard or no guard. Clearing the
-      // flags is unconditional either way — the uninstall deleted exactly the
-      // content the stat found, and the candidate answer was read at page-open
-      // against a folder this removal has just changed.
+      // flags is unconditional either way — the install record is gone, so
+      // the content the stat found is either deleted (an uninstall) or was
+      // missing already (a forget), and the candidate answer was read at
+      // page-open against a folder that has changed since.
       setState((prev) => (prev === "uninstalling" ? prev : "download"));
       setActionPending(false);
       setTargetOccupied(false);
       setCandidatePresent(false);
+      setMissingPath(null);
     };
     globalThis.addEventListener("romm_rom_uninstalled", onUninstall);
 
     // A version switch re-bound this appId's shortcut to a new rom_id (#1298).
-    // The picker already invalidated the cached detail; re-read it, adopt the new
-    // rom_id, and re-derive the button state so Play↔Download flips with the new
-    // version's install status. appId is stable per mount (the component is keyed
-    // by it), so the `[appId]`-deps closure captures the right one.
-    const handleVersionSwitched = async (): Promise<void> => {
-      const cached = await getCachedGameDetail(appId);
-      if (!cached.found || cached.rom_id == null) {
-        // A switch fired but the rebound detail didn't resolve — the button is now
-        // stale. Surface it at warn level (debugLog is dropped at the default level).
-        logError(`CustomPlayButton: version_switched for appId ${appId} but cached detail not found — button may be stale`);
-        return;
-      }
-      const rid = cached.rom_id;
-      setRomId(rid);
-      romIdRef.current = rid;
-      if (cached.rom_name) setRomName(cached.rom_name);
-      if (cached.installed) {
-        setState(hasAnySaveConflict(cached.save_status) ? "conflict" : "play");
-      } else {
-        // Switched to a not-installed version — clear any download progress and
-        // drop to the Download button. The occupancy answer comes from the ROM
-        // being switched TO, which the detail just above already carries; the
-        // outgoing version's answer says nothing about this one's location.
-        setDlProgress(null);
-        setActionPending(false);
-        enterDownloadState(cached.target_path_occupied === true, cached.adoption_candidate_present === true);
-      }
-    };
+    // The picker already invalidated the cached detail. appId is stable per
+    // mount (the component is keyed by it), so the `[appId]`-deps closure
+    // captures the right one.
+    const handleVersionSwitched = (): Promise<void> => rederiveFromDetail("version_switched");
 
     // Listen for save sync updates (e.g. background check found a conflict) and
     // version switches (Play↔Download flip).
@@ -517,7 +561,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
       unsubscribeVanished();
       globalThis.removeEventListener("romm_session_changed", onSessionChanged);
     };
-  }, [appId]);
+  }, [appId, rederiveFromDetail]);
 
   // Programmatically focus our Play/Download button after mount.
   // This beats HLTB and other plugins that also compete for initial focus.
@@ -1132,6 +1176,38 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     );
   };
 
+  /**
+   * Run a removal of this ROM's install record — an uninstall or a forget — and,
+   * once the backend has answered success, reset the shortcut's now-stale launch
+   * command to the uninstalled "" placeholder under the removal's lease and
+   * announce the ROM as not installed. The reset keeps a raced-past
+   * not_installed launch from exec'ing a stale `flatpak run … "<path>"`
+   * (#1051); it is best-effort, so a launch-options hiccup never turns a
+   * removal that happened into an error.
+   */
+  const removeInstallRecord = async <R extends { success: boolean; prune_lease_token?: string }>(
+    rid: number,
+    remove: () => Promise<R>,
+    context: string,
+  ): Promise<R> => {
+    const admission = capturePruneLeaseAdmission(leaseOwner);
+    const result = await remove();
+    if (result.success) {
+      await withPruneLease(
+        result.prune_lease_token,
+        context,
+        async (signal) => {
+          if (signal.aborted) return;
+          await setLaunchOptionsConfirmed(appId, "").catch(() => false);
+        },
+        leaseOwner,
+        admission,
+      );
+      globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: rid } }));
+    }
+    return result;
+  };
+
   const handleUninstall = async () => {
     if (!romId || uninstallPendingRef.current) return;
     // Removing a large multi-file ROM takes long enough that a button which only
@@ -1143,24 +1219,8 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     setState("uninstall_pending");
     detach(debugLog(`CustomPlayButton: uninstalling romId=${romId}`));
     try {
-      const admission = capturePruneLeaseAdmission(leaseOwner);
-      const result = await removeRom(romId);
+      const result = await removeInstallRecord(romId, () => removeRom(romId), "ROM uninstall");
       if (result.success) {
-        // Reset the now-stale launch command to the uninstalled "" placeholder so a
-        // raced-past not_installed launch execs `bin/tender-rom-launcher` with no args (clean
-        // exit 1) instead of a stale `flatpak run … "<deleted path>"` (#1051). Best-effort:
-        // a launch-options hiccup must not turn a successful uninstall into an error.
-        await withPruneLease(
-          result.prune_lease_token,
-          "ROM uninstall",
-          async (signal) => {
-            if (signal.aborted) return;
-            await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-          },
-          leaseOwner,
-          admission,
-        );
-        globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
         showToast(`${romName || "ROM"} uninstalled`);
         // Dark pulse transition before showing Download button
         setState("uninstalling");
@@ -1179,6 +1239,39 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
     }
   };
 
+  const handleForget = async () => {
+    if (!romId || missingPath === null) return;
+    const rid = romId;
+    // The play row's note names no path, so the question does: what is
+    // forgotten is the record of a file at that place.
+    if (!(await showForgetDownloadModal(romName, missingPath))) return;
+    // Claimed only once confirmed, so an abandoned confirmation leaves nothing
+    // pending, and checked here because a second confirmation can land while
+    // the first forget runs.
+    if (forgetPendingRef.current) return;
+    forgetPendingRef.current = true;
+    setForgetPending(true);
+    try {
+      const result = await removeInstallRecord(rid, () => forgetDownload(rid), "Forget download");
+      showToast(result.success ? downloadForgottenToast(romName) : forgetRefusedToast(result));
+      if (!result.success && result.reason === "file_present") {
+        // The file is back, so the page leaves the missing state now rather
+        // than at its next opening: the button and the page's shared detail
+        // both read the detail again.
+        invalidateCachedGameDetail(appId);
+        detach(reloadGameDetail(appId));
+        await rederiveFromDetail("forget refused with file_present").catch((err) =>
+          logError(`CustomPlayButton: re-reading appId ${appId} after the file came back failed: ${err}`),
+        );
+      }
+    } catch {
+      showToast(FORGET_FAILED_TOAST);
+    } finally {
+      forgetPendingRef.current = false;
+      setForgetPending(false);
+    }
+  };
+
   const showDropdownMenu = (e: MouseEvent) => {
     showContextMenu(
       <Menu label="RomM Actions">
@@ -1190,6 +1283,53 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
           }}
         >
           Uninstall
+        </MenuItem>
+      </Menu>,
+      getEventTarget(e),
+    );
+  };
+
+  // The missing-file arrow's menu, where there is room for the full path the
+  // play row's note leaves out. The path is a plain element rather than a
+  // disabled item: Steam's menu renders a child that is not an item as it is,
+  // while a disabled item still takes focus and answers a press with the
+  // failed-navigation sound.
+  const showMissingDownloadMenu = (e: MouseEvent, path: string, downloadDisabled: boolean) => {
+    showContextMenu(
+      <Menu label={FILE_MISSING_LABEL}>
+        <div
+          key="path"
+          className="romm-file-missing-path"
+          style={{
+            maxWidth: "420px",
+            padding: "8px 16px",
+            fontSize: "13px",
+            lineHeight: "18px",
+            color: "#8f98a0",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {path}
+        </div>
+        <MenuSeparator key="path-sep" />
+        <MenuItem
+          key="download-again"
+          disabled={downloadDisabled}
+          onClick={() => {
+            detach(handleDownload());
+          }}
+        >
+          {DOWNLOAD_AGAIN_LABEL}
+        </MenuItem>
+        <MenuItem
+          key="forget"
+          tone="destructive"
+          disabled={forgetPending}
+          onClick={() => {
+            detach(handleForget());
+          }}
+        >
+          {FORGET_DOWNLOAD_LABEL}
         </MenuItem>
       </Menu>,
       getEventTarget(e),
@@ -1501,6 +1641,73 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
         <span className="romm-dl-label">{dlLabel}</span>
       </DialogButton>
     );
+
+    if (missingPath !== null && !downloading && !actionPending) {
+      // The Play button's shape — a split of main action and chevron — so the
+      // play row keeps its height and its stats their width. The note sits out
+      // of the flow, under the button, so it adds no height either.
+      const dropdownBg = isOffline
+        ? "linear-gradient(to right, #5a6a7a, #4d5d6d)"
+        : "linear-gradient(to right, #1580cc, #0062ad)";
+      return (
+        <div style={{ position: "relative" }}>
+          <Focusable ref={containerRef} className={appActionButtonClasses?.PlayButtonContainer} style={btnContainerStyle}>
+            <DialogButton
+              className={[appActionButtonClasses?.PlayButton, "romm-btn-download", "romm-btn-download-idle"]
+                .filter(Boolean)
+                .join(" ")}
+              style={{ ...mainBtnStyle, borderRadius: "2px 0 0 2px", background: baseBg }}
+              onClick={() => {
+                detach(handleDownload());
+              }}
+              onFocus={scrollToTop}
+              disabled={forgetPending || isOffline || downloadBlockedByVanished}
+            >
+              <span className="romm-dl-label">{forgetPending ? FORGETTING_LABEL : DOWNLOAD_AGAIN_LABEL}</span>
+            </DialogButton>
+            <DialogButton
+              className="romm-btn-dropdown"
+              aria-label={FILE_MISSING_LABEL}
+              title={FILE_MISSING_LABEL}
+              style={{ ...dropdownArrowStyle, background: dropdownBg, color: "#fff" }}
+              onClick={(e: MouseEvent) =>
+                showMissingDownloadMenu(e, missingPath, forgetPending || isOffline || downloadBlockedByVanished)
+              }
+              onFocus={scrollToTop}
+              disabled={forgetPending}
+            >
+              <svg width="12" height="8" viewBox="0 0 12 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M1 1.5L6 6.5L11 1.5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </DialogButton>
+          </Focusable>
+          <div
+            className="romm-file-missing-note"
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              width: "100%",
+              marginTop: "2px",
+              fontSize: "12px",
+              lineHeight: "14px",
+              color: "#d4a72c",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {FILE_MISSING_LABEL}
+          </div>
+        </div>
+      );
+    }
 
     if (!downloading) {
       // Idle ("Download") or "Starting..." — single full-width button, no action.

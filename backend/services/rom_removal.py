@@ -4,11 +4,14 @@ Physically deletes a ROM's files from disk and drops its ``rom_installs``
 record. Per [ADR-0007](docs/adr/0007-rom-retention-identity-anchor.md) an
 uninstall is *not* a purge: the ``roms`` identity row, playtime, saves, and
 metadata all survive — only the on-disk files and the install record go.
+Forgetting a download whose files are already gone is the same uninstall
+without the deletion.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -21,7 +24,7 @@ from lib.path_safety import is_safe_rom_path
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from models.prune import MutationOutcome, SourceClaim
 
@@ -228,29 +231,49 @@ class RomRemovalService:
             failure=None if outcome["success"] else outcome["message"],
         )
 
-    def _remove_rom_io(self, rom_id: int, install: RomInstall) -> None:
-        """Sync helper for remove_rom — file deletion (outside UoW) then row delete in a short write UoW.
-
-        Files are deleted outside any transaction (ADR-0006); only the
-        ``rom_installs`` row delete is wrapped. Per ADR-0007 the ``roms`` row,
-        playtime, saves, and metadata are left untouched — an uninstall drops
-        only the files and the install record.
+    def _drop_install_record(self, rom_id: int) -> None:
+        """Delete the ``rom_installs`` row in a short write UoW, recording the uninstalled launch command.
 
         A bound ROM has its recorded ``applied_launch_options`` reset to the
         uninstalled placeholder (``""``) in the same UoW: the frontend resets the
-        kept shortcut's launch command to ``""`` on uninstall (#1146), so recording
-        ``""`` keeps the next sync from re-touching an already-correct shortcut
-        (delta apply, #1383). Fourth of the six recorded-state writer sites.
+        kept shortcut's launch command to ``""`` after an uninstall or a forget
+        (#1146), so recording ``""`` keeps the next sync from re-touching an
+        already-correct shortcut (delta apply, #1383). Fourth of the six
+        recorded-state writer sites, shared by both.
         """
-        outcome = self._delete_rom_files(install, on_progress=self._make_progress_callback(rom_id))
-        if not outcome["success"]:
-            raise RuntimeError(outcome["message"])
         with self._uow_factory() as uow:
             uow.rom_installs.delete(rom_id)
             rom = uow.roms.get(rom_id)
             if rom is not None and rom.shortcut_app_id is not None:
                 rom.record_applied_launch_options("")
                 uow.roms.set_applied_launch_options(rom_id, rom.applied_launch_options)
+
+    def _remove_rom_io(self, rom_id: int, install: RomInstall) -> None:
+        """Sync helper for remove_rom — file deletion (outside UoW), then the install record dropped.
+
+        Files are deleted outside any transaction (ADR-0006); only the
+        ``rom_installs`` row delete is wrapped. Per ADR-0007 the ``roms`` row,
+        playtime, saves, and metadata are left untouched — an uninstall drops
+        only the files and the install record.
+        """
+        outcome = self._delete_rom_files(install, on_progress=self._make_progress_callback(rom_id))
+        if not outcome["success"]:
+            raise RuntimeError(outcome["message"])
+        self._drop_install_record(rom_id)
+
+    def _forget_download_io(self, rom_id: int, install: RomInstall) -> str | None:
+        """Sync helper for forget_download — the uninstall's record drop without its file deletion.
+
+        Answers the recorded folder or file it finds on disk instead, dropping
+        nothing: forgetting it would leave content on disk that no record
+        accounts for, which only an uninstall may remove. ``None`` once the
+        record is dropped.
+        """
+        for path in (install.rom_dir, install.file_path):
+            if path and self._rom_file_store.exists(path):
+                return path
+        self._drop_install_record(rom_id)
+        return None
 
     async def remove_rom(self, rom_id: int | str) -> dict[str, Any]:
         """Remove a single installed ROM for the ``remove_rom`` endpoint.
@@ -270,16 +293,8 @@ class RomRemovalService:
         :meth:`remove_rom` without its conflict rules or its lease, for the
         download service's sibling supersede, which a download or an adoption
         runs from inside its own call once that call has answered for its own
-        rules.
-
-        Refused while any removal that owns this ROM's tree is running — its own
-        earlier press, or a bulk uninstall, which claims every ROM it is about
-        to remove. The running one has renamed its source to a staging name, so
-        a second attempt against it would report the source as vanished while
-        the removal it duplicates is still working. A call cancelled while its
-        files are being deleted keeps that claim, and an operation on the prune
-        conflicts, until the deletion ends; every caller calls it inside a
-        ``hold(..., prune=True)`` block, which that operation outlives.
+        rules. Every caller calls it inside a ``hold(..., prune=True)`` block,
+        which a cancelled call's operation outlives (:meth:`_removal_claim`).
 
         Raises :class:`NotInstalled` for a ROM with nothing installed, and
         ``uninstall_failed`` for a removal that failed the ways a removal can —
@@ -288,35 +303,99 @@ class RomRemovalService:
         (``RuntimeError``); anything else it raises is a bug.
         """
         rom_id_int = int(rom_id)
+        install = self._admit_removal(rom_id_int, "This ROM is already being uninstalled")
+        removal = self._loop.run_in_executor(None, self._remove_rom_io, rom_id_int, install)
+        async with self._removal_claim(rom_id_int, "Uninstall", "remove_rom", removal) as started:
+            try:
+                await asyncio.shield(removal)
+            except (OSError, ValueError, RuntimeError) as e:
+                self._logger.error(f"Failed to delete ROM files after {self._elapsed(started)}: {e}")
+                raise Refused("uninstall_failed", "Failed to delete ROM files") from e
+        self._complete_removal(rom_id_int, "Uninstall", started)
+        return {"success": True, "message": "ROM removed"}
+
+    async def forget_download(self, rom_id: int | str) -> dict[str, Any]:
+        """Forget a download whose files are gone, for the ``forget_download`` endpoint.
+
+        An uninstall without the file deletion: the same conflict rules as
+        ``remove_rom``, the same claim on the ROM, the install record dropped
+        through the same writer, and the same ``rom_uninstall`` lease in
+        ``prune_lease_token`` for the frontend's reset of the shortcut's launch
+        command.
+
+        Raises :class:`NotInstalled` for a ROM with no install record,
+        ``in_progress`` while another removal holds the ROM, and
+        ``file_present`` -- the ``path`` found among its details -- while the
+        recorded folder or file exists. It removes no file, so it has no
+        failure of its own to refuse: anything the record drop raises, a
+        database error included, propagates.
+        """
+        async with self._rules.hold("forget_download", update=True, migration=True, prune=True):
+            result = await self._forget_download(int(rom_id))
+            result["prune_lease_token"] = await self._rules.acquire_lease("rom_uninstall")
+            return result
+
+    async def _forget_download(self, rom_id: int) -> dict[str, Any]:
+        install = self._admit_removal(rom_id, "This ROM is already being uninstalled or forgotten")
+        forget = self._loop.run_in_executor(None, self._forget_download_io, rom_id, install)
+        async with self._removal_claim(rom_id, "Forget download", "forget_download", forget) as started:
+            present = await asyncio.shield(forget)
+        if present is not None:
+            self._logger.info(f"Forget download refused: rom_id={rom_id}: {present} exists")
+            raise Refused("file_present", f"The recorded download exists: {present}", path=present)
+        self._complete_removal(rom_id, "Forget download", started)
+        return {"success": True, "message": "Download forgotten"}
+
+    def _admit_removal(self, rom_id: int, in_progress_message: str) -> RomInstall:
+        """Read the ROM's install record, or refuse to start a removal on it.
+
+        Raises :class:`NotInstalled` for a ROM with nothing installed. Refused
+        with ``in_progress`` while any removal holds this ROM's claim — an
+        uninstall, a forget, or a bulk uninstall, which claims every ROM it is
+        about to remove. A running uninstall has renamed its source to a staging
+        name, so a second uninstall would report the source as vanished, and a
+        forget would find the file gone and drop the record the uninstall is
+        still working under. A forget renames nothing; it takes the same claim
+        so that one removal of a ROM at a time holds without an exception.
+        """
         with self._uow_factory() as uow:
-            install = uow.rom_installs.get(rom_id_int)
+            install = uow.rom_installs.get(rom_id)
         if install is None:
             raise NotInstalled("ROM not installed")
-        if rom_id_int in self._removals_in_flight:
-            raise Refused("in_progress", "This ROM is already being uninstalled")
+        if rom_id in self._removals_in_flight:
+            raise Refused("in_progress", in_progress_message)
+        return install
 
-        removal = self._loop.run_in_executor(None, self._remove_rom_io, rom_id_int, install)
-        self._removals_in_flight.add(rom_id_int)
-        started = self._clock.monotonic()
-        self._logger.info(f"Uninstall started: rom_id={rom_id_int}")
+    @contextlib.asynccontextmanager
+    async def _removal_claim(
+        self, rom_id: int, label: str, operation: str, work: asyncio.Future[Any]
+    ) -> AsyncIterator[float]:
+        """Hold *rom_id*'s removal claim while *work* runs, logging its start; yields the start time.
+
+        The block awaits *work* through ``asyncio.shield``. The claim is given
+        back once *work* has ended — a success, a refusal or a failure — so the
+        next removal of this ROM is admitted. A call cancelled before *work*
+        ended keeps the claim, and an operation named *operation* on the prune
+        conflicts, until it does: the worker thread may still be deleting files
+        or dropping the record.
+        """
+        self._removals_in_flight.add(rom_id)
+        self._logger.info(f"{label} started: rom_id={rom_id}")
         try:
-            await asyncio.shield(removal)
+            yield self._clock.monotonic()
         except asyncio.CancelledError:
-            if not removal.done():
-                await self._outlive_the_call(removal, "remove_rom", partial(self._end_cancelled_removal, rom_id_int))
+            if not work.done():
+                await self._outlive_the_call(work, operation, partial(self._end_cancelled_removal, rom_id, label))
             raise
-        except (OSError, ValueError, RuntimeError) as e:
-            self._logger.error(f"Failed to delete ROM files after {self._elapsed(started)}: {e}")
-            raise Refused("uninstall_failed", "Failed to delete ROM files") from e
         finally:
-            if removal.done():
-                self._removals_in_flight.discard(rom_id_int)
-        self._logger.info(f"Uninstall completed: rom_id={rom_id_int} in {self._elapsed(started)}")
+            if work.done():
+                self._removals_in_flight.discard(rom_id)
 
+    def _complete_removal(self, rom_id: int, label: str, started: float) -> None:
+        """Log a finished removal and drop the ROM's download-queue entry."""
+        self._logger.info(f"{label} completed: rom_id={rom_id} in {self._elapsed(started)}")
         if self._download_queue_cleanup is not None:
-            self._download_queue_cleanup.evict(rom_id_int)
-
-        return {"success": True, "message": "ROM removed"}
+            self._download_queue_cleanup.evict(rom_id)
 
     async def _outlive_the_call(
         self, work: asyncio.Future[Any], label: str, on_end: Callable[[asyncio.Future[Any]], None]
@@ -330,14 +409,14 @@ class RomRemovalService:
         work.add_done_callback(on_end)
         await self._rules.retain(self._loop.create_task(asyncio.wait([work])), label)
 
-    def _end_cancelled_removal(self, rom_id: int, removal: asyncio.Future[None]) -> None:
+    def _end_cancelled_removal(self, rom_id: int, label: str, removal: asyncio.Future[Any]) -> None:
         """Give back the claim of a removal whose call was cancelled, and log how its thread ended."""
         self._removals_in_flight.discard(rom_id)
         failure = None if removal.cancelled() else removal.exception()
         if failure is not None:
-            self._logger.error(f"Uninstall of rom_id={rom_id} ended after its call was cancelled: {failure}")
+            self._logger.error(f"{label} of rom_id={rom_id} ended after its call was cancelled: {failure}")
         else:
-            self._logger.info(f"Uninstall of rom_id={rom_id} ended after its call was cancelled")
+            self._logger.info(f"{label} of rom_id={rom_id} ended after its call was cancelled")
 
     def _end_cancelled_bulk_run(
         self, claimed: set[int], run: asyncio.Future[tuple[int, list[dict[str, str]], list[int]]]
@@ -392,7 +471,8 @@ class RomRemovalService:
                     app_ids.append(rom.shortcut_app_id)
                     # The frontend resets each kept shortcut's launch command to ""
                     # (#1146); record that so the next sync skips it (delta apply,
-                    # #1383). Same recorded-state writer site as remove_rom, bulk.
+                    # #1383). The uninstall writer site, bulk: what
+                    # ``_drop_install_record`` does for one ROM, in one UoW for all.
                     rom.record_applied_launch_options("")
                     uow.roms.set_applied_launch_options(rom_id, rom.applied_launch_options)
         return count, errors, app_ids

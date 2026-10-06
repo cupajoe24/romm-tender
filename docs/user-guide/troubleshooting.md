@@ -259,6 +259,17 @@ details.
 **Fix**: Open the game's detail page and tap **Download** in the Tender panel. The game will be playable once the
 download completes.
 
+### File missing
+
+**Symptom**: The game's detail page shows **Download again** with **File missing** under it, and no Play.
+
+**What happened**: The file Tender downloaded is not where it was put any more — it was deleted, its folder moved, or
+the drive holding it is unmounted. The arrow beside **Download again** opens a menu titled **File missing** that names
+that path.
+
+**Fix**: Put the drive or folder back if that is what happened; otherwise choose one of the two actions, described in
+[Managing Games → When a Downloaded Game's File Is Missing](managing-games.md#when-a-downloaded-games-file-is-missing).
+
 ### The download has no launchable file
 
 **Symptom**: The download finished, but pressing Play shows a toast saying the download has no file the emulator can

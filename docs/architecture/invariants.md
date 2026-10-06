@@ -1135,7 +1135,16 @@ Format: **invariant** — tier — enforced by.
   do, in order: [Running an installed one](../contributing/development.md#running-an-installed-one). A settings file
   Tender does not read — older than version 13, without a whole-number version, or not a JSON object — is written over
   with the defaults by the start's own save and takes neither leg: 1.0.0 is a breaking release, and everything such a
-  file held can be entered again ([PersistenceAdapter notes](backend-architecture.md#persistenceadapter-notes))
+  file held can be entered again ([PersistenceAdapter notes](backend-architecture.md#persistenceadapter-notes)). An
+  install record whose file is missing stays ([why](database-design.md#a-download-whose-file-is-missing)); an install
+  record goes only by something the user does: **Uninstall** and **Uninstall all ROM files** (`RomRemovalService`),
+  **Forget this download** (`RomRemovalService.forget_download`, which deletes no file and refuses with `file_present`
+  while the recorded file or folder exists), a download or adoption of another version of the game (the sibling
+  supersede through `remove_rom_unchecked`), and **Clean Up Removed RomM Games** (the `roms` row's delete cascades);
+  never by the start-up step, which only reports it (`StartupHealingService.report_missing_installs`). Pinned by
+  `tests/services/test_startup_healing.py::TestReportMissingInstalls` and `tests/contract/test_missing_download.py` for
+  the start-up step and the forget; that the list of paths is complete is prompt-only — nothing fails when a new path
+  that deletes `rom_installs` rows is not one the user starts
 - **A BIOS file is deleted only where a `downloaded_bios` record names it under one of the platform's firmware slugs,
   and only at the path that record holds** — test + prompt-only —
   `tests/services/test_firmware.py::TestDeletePlatformBios` and `::TestDeleteOneBiosFile` pin every direction
@@ -1255,7 +1264,11 @@ Format: **invariant** — tier — enforced by.
   launch-options write paths are prompt-only — mechanize via a `set_applied_launch_options` /
   `record_applied_launch_options` call-site audit. Download-complete and adopt-complete are one site in the code
   (`RomInstallRecorder.do_record_applied_launch_options`) and two in the flow, because an adopted install is an install
-  in every respect (ADR-0028)
+  in every respect (ADR-0028). The uninstall site — `RomRemovalService._drop_install_record` for one ROM,
+  `_uninstall_all_roms_io` for the bulk run, both recording `""` — serves "Forget this download" as well:
+  `forget_download` is the uninstall without the file deletion, so it records the same `""` through
+  `_drop_install_record` rather than adding a seventh writer site, and
+  `tests/services/test_rom_removal.py::TestForgetDownload` and `tests/contract/test_missing_download.py` pin the value
 - **An abandoned-chunk stash's whole-unit apply staging (`pending_sync` / `pending_all_roms` / `pending_cover_sources`)
   is never mutated while the stash is pending (box IDLE) — every run-entry path passes `try_begin_run`, which clears the
   stash before any staging write** — prompt-only — the invariant holds today rather than being aspirational; mechanize
