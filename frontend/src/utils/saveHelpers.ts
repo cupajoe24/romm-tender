@@ -276,7 +276,10 @@ export function formatRollbackFeedback(result: RollbackStatus, versionUpdatedAt:
   }
 }
 
-/** Error message for a switchSlot failure, preserving specific backend explanations. */
+/**
+ * Error message for a switchSlot failure: a known reason's own wording, the
+ * backend's explanation for `save_shape_unsupported`, and `fallback` otherwise.
+ */
 export function switchSlotFailureMessage(
   reason: string | undefined,
   message?: string,
@@ -297,7 +300,7 @@ export function switchSlotFailureMessage(
   if (reason === "save_shape_unsupported" && message) {
     return message;
   }
-  return message || fallback;
+  return fallback;
 }
 
 /** Build confirmation text lines for deleting a slot. */

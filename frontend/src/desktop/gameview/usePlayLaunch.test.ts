@@ -36,7 +36,7 @@ vi.mock("../../utils/pruneLease", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../utils/pruneLease")>();
   return {
     ...actual,
-    capturePruneLeaseAdmission: vi.fn(() => ({ pluginGeneration: 1 })),
+    capturePruneLeaseAdmission: vi.fn((owner: string) => ({ owner, ownerGeneration: 1 })),
     isPruneLeaseAdmissionCurrent: vi.fn(() => true),
     withPruneLease: vi.fn(async (_tok: string, _ctx: string, fn: (signal: { aborted: boolean }) => Promise<void>) =>
       fn({ aborted: false }),

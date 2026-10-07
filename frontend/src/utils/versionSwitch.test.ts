@@ -162,7 +162,6 @@ describe("executeVersionSwitch", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    pruneLease.mountPruneLeasePlugin();
     pruneLease.mountPruneLeaseOwner(leaseOwner);
   });
 

@@ -265,7 +265,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     if (!trimmed || !romId) return;
     try {
       const result = await switchSlot(romId, trimmed);
-      if (result.success && result.save_status) {
+      if (result.success) {
         reportServerReachable(true);
         showToast(`Switched to slot '${trimmed}'`);
         setLocalActiveSlot(trimmed);
@@ -298,7 +298,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     setSlotSwitchErrors((prev) => ({ ...prev, [slotName]: null }));
     try {
       const result = await switchSlot(romId, slotName);
-      if (result.success && result.save_status) {
+      if (result.success) {
         reportServerReachable(true);
         showToast(`Switched to slot '${slotName}'`);
         setLocalActiveSlot(slotName);
@@ -327,7 +327,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   const handlePromptDeleteSlot = async (slotName: string) => {
     if (!romId) return;
     try {
-      const info: SlotDeleteInfo = await getSlotDeleteInfo(romId, slotName);
+      const info = await getSlotDeleteInfo(romId, slotName);
       if (!info.success) {
         showToast(slotDeleteFailureToast(info));
         return;
@@ -354,7 +354,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
         await refreshSaveStatus(appId);
         await loadSlots();
       } else {
-        showToast(result.message ?? "Failed to delete slot");
+        showToast(result.message);
       }
     } catch (e) {
       detach(debugLog(`SaveManagementCard: deleteSlot error: ${e}`));

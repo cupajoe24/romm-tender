@@ -10,7 +10,10 @@ describe("DesktopDeleteSlotDialog", () => {
     slot: "speedrun",
     source: "server",
     local_file_count: 0,
+    local_filenames: [],
     server_save_count: 2,
+    server_save_ids: [1, 2],
+    is_active: false,
   };
 
   it("renders title, warning lines, irreversible note, and action buttons", () => {
