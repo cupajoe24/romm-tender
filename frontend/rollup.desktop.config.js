@@ -3,7 +3,7 @@ import { configure } from "./rollup.config.js";
 // Dev config with source maps enabled for CEF debugging
 // Build-time injection of the desktop surface
 // This starts the desktop UI surface without modifying frontend/src/index.tsx on disk
-const START_ANCHOR = "mountPruneLeasePlugin();";
+const START_ANCHOR = "disownStrandedPruneLeases();";
 
 const desktopSurfacePlugin = {
   name: "inject-desktop-surface",
