@@ -175,7 +175,9 @@ class TestShortcutDataFormat:
             {42: "/roms/n64/game.z64"},
             {},
         )
-        assert result[0]["launch_options"] == 'flatpak run net.retrodeck.retrodeck "/roms/n64/game.z64"'
+        assert (
+            result[0]["launch_options"] == 'flatpak run --nosocket=wayland net.retrodeck.retrodeck "/roms/n64/game.z64"'
+        )
 
     def test_start_dir_is_parent_of_exe(self, library):
         """Start dir must be the directory containing the launcher."""
@@ -753,6 +755,184 @@ class TestPreviewRestampPlatformCount:
         assert summary["restamp_platform_count"] == 1
         assert summary["new_count"] == 0
         assert summary["changed_count"] == 0
+
+
+class TestPreviewOverASkippedUnit:
+    """The preview counts what the apply will do, and the apply leaves a skipped unit alone.
+
+    An installed game whose built launch command differs from the one recorded on
+    its row — here, the command before RetroDECK started without its Wayland
+    socket — is a change only where the apply rewrites shortcuts. On a unit the
+    fetcher skips it never does, so counting it there showed the same "updated"
+    games on every preview.
+    """
+
+    OLD_CMD = 'flatpak run net.retrodeck.retrodeck "/roms/n64/a.z64"'
+
+    @staticmethod
+    def _installed_game(library, *, applied_launch_options):
+        _seed_install(library, 10, file_path="/roms/n64/a.z64", platform_slug="n64")
+        _seed_rom_row(
+            library,
+            10,
+            app_id=1010,
+            platform_slug="n64",
+            name="A",
+            fs_name="a.z64",
+            applied_launch_options=applied_launch_options,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_launch_command_only_difference_on_a_skipped_platform_is_unchanged(self, library, fake_romm_api):
+        _use_fake_romm(library, fake_romm_api)
+        # The platform lists no ROMs, so a full fetch would read the game as
+        # removed: only the skip keeps it in the preview.
+        fake_romm_api.platforms = [{"id": 1, "name": "N64", "slug": "n64", "rom_count": 1}]
+        library.settings["enabled_platforms"] = {"1": True}
+        self._installed_game(library, applied_launch_options=self.OLD_CMD)
+        _seed_platform_stamp(library, "n64", at="2025-01-01T00:00:00Z", rom_count=1)
+
+        result = await library.sync.sync_preview()
+
+        assert result["success"] is True
+        summary = result["summary"]
+        assert summary["new_count"] == 0
+        assert summary["changed_count"] == 0
+        assert summary["unchanged_count"] == 1
+        assert summary["remove_count"] == 0
+        assert result["changed_names"] == []
+        assert summary["platform_breakdown"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_launch_command_only_difference_on_a_skipped_collection_is_unchanged(self, library, fake_romm_api):
+        from domain.collection_sync_state import CollectionSyncState
+
+        _use_fake_romm(library, fake_romm_api)
+        # The game's platform is off, so only the collection brings it in.
+        _seed_platform(fake_romm_api, platform_id=1, name="N64", slug="n64", roms=[{"id": 10, "name": "A"}])
+        _seed_collection(fake_romm_api, collection_id=7, name="Faves", rom_ids=[10])
+        fake_romm_api.collections[0]["updated_at"] = "2025-01-01T00:00:00+00:00"
+        library.settings["enabled_platforms"] = {"1": False}
+        library.settings["enabled_collections"] = {"standard": {"7": True}}
+        self._installed_game(library, applied_launch_options=self.OLD_CMD)
+        with library.uow as uow:
+            uow.collection_sync_state.save(
+                CollectionSyncState.stamp(
+                    collection_id="7",
+                    collection_kind="standard",
+                    updated_at="2025-01-01T00:00:00+00:00",
+                    completed_at="2025-06-01T00:00:00",
+                    rom_count=1,
+                    member_rom_ids=(10,),
+                )
+            )
+
+        result = await library.sync.sync_preview()
+
+        assert result["success"] is True
+        summary = result["summary"]
+        assert summary["changed_count"] == 0
+        assert summary["unchanged_count"] == 1
+        assert summary["remove_count"] == 0
+        assert result["changed_names"] == []
+        assert summary["platform_breakdown"] == []
+
+    @pytest.mark.asyncio
+    async def test_a_name_difference_on_a_skipped_platform_is_still_changed(self, library, fake_romm_api, monkeypatch):
+        # A skip rebuilds its rows from the database, so their identity cannot
+        # drift there today; the fetch is stubbed to show that one which did would
+        # still be counted.
+        _use_fake_romm(library, fake_romm_api)
+        fake_romm_api.platforms = [{"id": 1, "name": "N64", "slug": "n64", "rom_count": 1}]
+        library.settings["enabled_platforms"] = {"1": True}
+        self._installed_game(library, applied_launch_options=self.OLD_CMD)
+        rebuilt = {
+            "id": 10,
+            "name": "A (Renamed)",
+            "fs_name": "a.z64",
+            "platform_name": "N64",
+            "platform_slug": "n64",
+            "sibling_group_key": "romm:seed:1",
+        }
+        monkeypatch.setattr(library.sync._fetcher, "fetch_platform_unit", AsyncMock(return_value=([rebuilt], True)))
+
+        result = await library.sync.sync_preview()
+
+        assert result["success"] is True
+        summary = result["summary"]
+        assert summary["changed_count"] == 1
+        assert summary["unchanged_count"] == 0
+        assert result["changed_names"] == ["A (Renamed)"]
+        assert [row["changed_count"] for row in summary["platform_breakdown"]] == [1]
+
+    @pytest.mark.asyncio
+    async def test_a_launch_command_only_difference_on_a_fetched_platform_is_changed(self, library, fake_romm_api):
+        # No stamp, so the platform is fetched and the apply rewrites the command.
+        _use_fake_romm(library, fake_romm_api)
+        _seed_platform(
+            fake_romm_api, platform_id=1, name="N64", slug="n64", roms=[{"id": 10, "name": "A", "fs_name": "a.z64"}]
+        )
+        library.settings["enabled_platforms"] = {"1": True}
+        self._installed_game(library, applied_launch_options=self.OLD_CMD)
+
+        result = await library.sync.sync_preview()
+
+        assert result["success"] is True
+        summary = result["summary"]
+        assert summary["changed_count"] == 1
+        assert summary["unchanged_count"] == 0
+        assert result["changed_names"] == ["A"]
+        assert [row["changed_count"] for row in summary["platform_breakdown"]] == [1]
+
+    @pytest.mark.asyncio
+    async def test_a_skipped_collection_member_on_a_fetched_platform_is_changed(
+        self, library, fake_romm_api, monkeypatch
+    ):
+        from domain.collection_sync_state import CollectionSyncState
+
+        # The platform has no stamp and is fetched; the collection holding the
+        # same game is stamped and skipped. The game belongs to the platform unit,
+        # whose apply rewrites the command.
+        _use_fake_romm(library, fake_romm_api)
+        _seed_platform(
+            fake_romm_api, platform_id=1, name="N64", slug="n64", roms=[{"id": 10, "name": "A", "fs_name": "a.z64"}]
+        )
+        _seed_collection(fake_romm_api, collection_id=7, name="Faves", rom_ids=[10])
+        fake_romm_api.collections[0]["updated_at"] = "2025-01-01T00:00:00+00:00"
+        library.settings["enabled_platforms"] = {"1": True}
+        library.settings["enabled_collections"] = {"standard": {"7": True}}
+        self._installed_game(library, applied_launch_options=self.OLD_CMD)
+        with library.uow as uow:
+            uow.collection_sync_state.save(
+                CollectionSyncState.stamp(
+                    collection_id="7",
+                    collection_kind="standard",
+                    updated_at="2025-01-01T00:00:00+00:00",
+                    completed_at="2025-06-01T00:00:00",
+                    rom_count=1,
+                    member_rom_ids=(10,),
+                )
+            )
+        fetcher = library.sync._fetcher
+        fetch_collection_unit = fetcher.fetch_collection_unit
+        collection_skips: list[bool] = []
+
+        async def recording_fetch_collection_unit(*args, **kwargs):
+            answer = await fetch_collection_unit(*args, **kwargs)
+            collection_skips.append(answer[2])
+            return answer
+
+        monkeypatch.setattr(fetcher, "fetch_collection_unit", recording_fetch_collection_unit)
+
+        result = await library.sync.sync_preview()
+
+        assert collection_skips == [True]
+        assert result["success"] is True
+        summary = result["summary"]
+        assert summary["changed_count"] == 1
+        assert summary["unchanged_count"] == 0
+        assert result["changed_names"] == ["A"]
+        assert [row["changed_count"] for row in summary["platform_breakdown"]] == [1]
 
 
 class TestSyncApplyDelta:
@@ -1900,7 +2080,10 @@ class TestDoSyncPerUnit:
         unit_events = [c[0][1] for c in emit.call_args_list if c[0][0] == "sync_apply_unit"]
         assert len(unit_events) == 1
         by_rom = {s["rom_id"]: s for s in unit_events[0]["shortcuts"]}
-        assert by_rom[10]["launch_options"] == 'flatpak run net.retrodeck.retrodeck "/roms/n64/installed.z64"'
+        assert (
+            by_rom[10]["launch_options"]
+            == 'flatpak run --nosocket=wayland net.retrodeck.retrodeck "/roms/n64/installed.z64"'
+        )
         assert by_rom[11]["launch_options"] == ""
 
     @pytest.mark.asyncio
@@ -1940,11 +2123,14 @@ class TestDoSyncPerUnit:
         unit_events = [c[0][1] for c in emit.call_args_list if c[0][0] == "sync_apply_unit"]
         by_rom = {s["rom_id"]: s for s in unit_events[0]["shortcuts"]}
         assert by_rom[10]["launch_options"] == (
-            "flatpak run net.retrodeck.retrodeck "
+            "flatpak run --nosocket=wayland net.retrodeck.retrodeck "
             '-e "%EMULATOR_RETROARCH% -L /var/config/retroarch/cores/pcsx_rearmed_libretro.so %ROM%" '
             '"/roms/psx/pinned.chd"'
         )
-        assert by_rom[11]["launch_options"] == 'flatpak run net.retrodeck.retrodeck "/roms/psx/plain.chd"'
+        assert (
+            by_rom[11]["launch_options"]
+            == 'flatpak run --nosocket=wayland net.retrodeck.retrodeck "/roms/psx/plain.chd"'
+        )
         assert "-e" not in by_rom[11]["launch_options"]
 
     @pytest.mark.asyncio
@@ -1982,7 +2168,10 @@ class TestDoSyncPerUnit:
         unit_events = [c[0][1] for c in emit.call_args_list if c[0][0] == "sync_apply_unit"]
         by_rom = {s["rom_id"]: s for s in unit_events[0]["shortcuts"]}
         # Stale → PLAIN launch, never -e with a bogus core.
-        assert by_rom[10]["launch_options"] == 'flatpak run net.retrodeck.retrodeck "/roms/psx/stale.chd"'
+        assert (
+            by_rom[10]["launch_options"]
+            == 'flatpak run --nosocket=wayland net.retrodeck.retrodeck "/roms/psx/stale.chd"'
+        )
         assert "-e" not in by_rom[10]["launch_options"]
         assert "Removed Core" in caplog.text
         assert "no longer resolves" in caplog.text
