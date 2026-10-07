@@ -4,7 +4,8 @@
  * belongs here; rendering helpers live alongside their components.
  */
 
-import type { DeviceSyncInfo, RollbackStatus, SaveStatus, SyncConflict, SlotDeleteInfo } from "../../types";
+import type { EndpointFailure } from "../../api/backend";
+import type { DeviceSyncInfo, RollbackStatus, SaveStatus, SyncConflict } from "../../types";
 
 export const MUTED_COLOR = "#8f98a0";
 
@@ -87,20 +88,12 @@ export function formatAttributionSegment(
   return null;
 }
 
-/**
- * Pick the toast body to surface when `get_slot_delete_info` returned
- * success=false. The frontend uses this to refuse the destructive confirm
- * modal and explain why — most importantly the `server_unreachable` branch,
- * which guards against confirming a wipe of a slot we never inspected.
- */
-export function slotDeleteFailureToast(info: SlotDeleteInfo): string {
-  if (info.reason === "active_slot" || info.is_active) {
+/** The toast for a failed `get_slot_delete_info`. */
+export function slotDeleteFailureToast(info: EndpointFailure): string {
+  if (info.reason === "active_slot") {
     return "Cannot delete the active slot. Switch to a different slot first.";
   }
-  if (info.reason === "server_unreachable") {
-    return info.message ?? "Cannot inspect slot — RomM server is not reachable";
-  }
-  return info.message ?? "Cannot delete this slot";
+  return info.message;
 }
 
 /** The toast for a restore refused as unsupported — the backend's own explanation where it gave one. */
