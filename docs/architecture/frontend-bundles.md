@@ -37,7 +37,7 @@ build silently ships the original.
 
 `pnpm -C frontend build:desktop` (`frontend/rollup.desktop.config.js`) runs the same three builds with sourcemaps and
 one more transform: it rewrites `src/index.tsx` as it is bundled to import `./desktop` and call `startDesktopSurface()`
-right after the panel's own `mountPruneLeasePlugin();`. That is the **only** way the desktop client surface
+right after the panel's own `disownStrandedPruneLeases();`. That is the **only** way the desktop client surface
 (`frontend/src/desktop/`) reaches a bundle — `pnpm build`, `build:dev`, CI, `mise run dev` and the release tarball all
 ship without it. The transform anchors on that one literal statement, and the build fails when `index.tsx` no longer
 contains it. Nothing stops the surface: a JS-context rebuild, not a teardown call, is what ends the panel, so the
