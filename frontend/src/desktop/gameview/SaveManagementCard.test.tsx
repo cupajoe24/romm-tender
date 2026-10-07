@@ -109,6 +109,9 @@ describe("SaveManagementCard", () => {
     emulatorDataAvailable: true,
     platformCoreLabel: "mgba",
     hasGameOverride: false,
+    fileMissingAt: null,
+    emulatorDataReason: null,
+    emulatorSource: null,
   };
 
   beforeEach(() => {
@@ -277,10 +280,14 @@ describe("SaveManagementCard", () => {
       source: "server",
       is_active: false,
       server_save_count: 2,
+      server_save_ids: [1, 2],
       local_file_count: 1,
+      local_filenames: ["speedrun.srm"],
     });
     vi.mocked(backend.deleteSlot).mockResolvedValue({
       success: true,
+      deleted_server_saves: 2,
+      cleaned_files: 1,
     });
 
     render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
@@ -484,6 +491,7 @@ describe("SaveManagementCard", () => {
     vi.mocked(backend.switchSlot).mockResolvedValue({
       success: false,
       reason: "savefiles_in_content_dir",
+      message: "",
     });
 
     render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);

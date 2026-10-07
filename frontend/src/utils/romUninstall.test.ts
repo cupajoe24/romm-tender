@@ -27,7 +27,6 @@ vi.mock("./toast", () => ({
 describe("executeRomUninstall", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    pruneLease.mountPruneLeasePlugin();
     pruneLease.mountPruneLeaseOwner("test-owner");
   });
 

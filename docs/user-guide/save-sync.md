@@ -14,9 +14,9 @@ checks if the server has a newer save and downloads it. When you stop playing, i
 > If Tender answers that first time but a later step of the check before the start gets no answer in time — or, with
 > Tender's Play button, any step does — a **Save Sync Unavailable** dialog asks "Couldn't check your saves in time —
 > launch with local saves?". **Launch Anyway** starts the game on the save already on the device, and **Cancel** starts
-> nothing. Tender runs in **Desktop Mode** too, so a game's save is uploaded when it exits, whichever mode it was started
-> from. Tender's own game page in the desktop client, with its own Play button, is **coming soon** — until then, the
-> desktop client shows Steam's own page for these games.
+> nothing. Tender runs in **Desktop Mode** too, so a game's save is uploaded when it exits, whichever mode it was
+> started from. Tender's own game page in the desktop client, with its own Play button, is **coming soon** — until then,
+> the desktop client shows Steam's own page for these games.
 
 Sync uses a **newest-wins** model with a hash-divergence guard:
 

@@ -98,6 +98,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
@@ -140,6 +143,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
@@ -178,6 +184,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<GameView appId={99999} />);
@@ -211,6 +220,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<GameView appId={77777} />);
@@ -241,6 +253,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockRejectedValue(new Error("Network failure"));
@@ -276,6 +291,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     const { unmount } = render(<GameView appId={55555} />);
@@ -323,6 +341,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: "Mupen64Plus-Next",
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
@@ -377,6 +398,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
@@ -422,6 +446,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
@@ -469,6 +496,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
@@ -504,6 +534,9 @@ describe("GameView", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
     rerender(<GameView appId={12345} />);
     expect(container.querySelector(".tender-desktop-achievements-card")).not.toBeInTheDocument();
@@ -538,6 +571,9 @@ describe("GameView", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       const { container } = render(<GameView appId={12345} />);
@@ -570,6 +606,9 @@ describe("GameView", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       setMigrationStatus({ pending: true });
@@ -620,6 +659,9 @@ describe("GameView", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       clearMigration();
@@ -666,6 +708,9 @@ describe("GameView", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       render(<GameView appId={12345} />);
@@ -702,6 +747,9 @@ describe("GameView", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       vi.spyOn(sessionManager, "isSessionActive").mockReturnValue(true);

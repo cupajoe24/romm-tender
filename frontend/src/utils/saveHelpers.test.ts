@@ -694,9 +694,9 @@ describe("switchSlotFailureMessage", () => {
     expect(switchSlotFailureMessage("save_shape_unsupported", "custom shape msg")).toBe("custom shape msg");
   });
 
-  it("falls back to message or fallback argument", () => {
-    expect(switchSlotFailureMessage("unknown", "Specific backend error")).toBe("Specific backend error");
-    expect(switchSlotFailureMessage("unknown", undefined, "Failed custom")).toBe("Failed custom");
+  it("answers an unknown reason with the fallback, even when the backend sent a message", () => {
+    expect(switchSlotFailureMessage("unknown", "Specific backend error")).toBe("Failed to switch slot");
+    expect(switchSlotFailureMessage("unknown", "Specific backend error", "Failed custom")).toBe("Failed custom");
     expect(switchSlotFailureMessage(undefined)).toBe("Failed to switch slot");
   });
 });
@@ -708,7 +708,10 @@ describe("formatSlotDeleteLines and formatSlotDeleteDescription", () => {
       slot: "speedrun",
       source: "server",
       server_save_count: 3,
+      server_save_ids: [1, 2, 3],
       local_file_count: 1,
+      local_filenames: ["speedrun.srm"],
+      is_active: false,
     };
     const lines = formatSlotDeleteLines(info);
     expect(lines).toEqual([
@@ -726,7 +729,10 @@ describe("formatSlotDeleteLines and formatSlotDeleteDescription", () => {
       slot: "single",
       source: "server",
       server_save_count: 1,
+      server_save_ids: [1],
       local_file_count: 2,
+      local_filenames: ["a.srm", "b.srm"],
+      is_active: false,
     };
     expect(formatSlotDeleteLines(info)).toEqual([
       "This will permanently delete 1 save from slot 'single' on the RomM server.",
@@ -739,7 +745,11 @@ describe("formatSlotDeleteLines and formatSlotDeleteDescription", () => {
       success: true,
       slot: "localonly",
       source: "local",
+      server_save_count: 0,
+      server_save_ids: [],
       local_file_count: 0,
+      local_filenames: [],
+      is_active: false,
     };
     expect(formatSlotDeleteLines(info)).toEqual(["This will remove slot 'localonly' from your local configuration."]);
   });

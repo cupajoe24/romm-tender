@@ -207,6 +207,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -255,6 +258,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -287,6 +293,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     const mockItem: DownloadItem = {
@@ -368,6 +377,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     const mockItem: DownloadItem = {
@@ -412,6 +424,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -456,6 +471,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -496,6 +514,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -543,6 +564,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
     const sessionChanged = (running: boolean, romId: number) =>
       act(() => {
@@ -609,6 +633,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -668,6 +695,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -721,6 +751,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -769,6 +802,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -815,6 +851,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     const { unmount } = render(<PlayButton appId={123} />);
@@ -882,6 +921,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -912,6 +954,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -959,6 +1004,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -992,6 +1040,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -1036,6 +1087,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -1104,6 +1158,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     };
 
     it("displays 'disabled' in grey when saveSyncEnabled is false", () => {
@@ -1369,6 +1426,9 @@ describe("PlayButton", () => {
       emulatorDataAvailable: true,
       platformCoreLabel: null,
       hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
     };
 
     it("does not render BIOS badge when firmware is not needed", () => {
@@ -1539,6 +1599,9 @@ describe("PlayButton", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       render(<PlayButton appId={123} />);
@@ -1579,6 +1642,9 @@ describe("PlayButton", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: "Beetle PSX",
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
       });
 
       vi.mocked(backend.getCachedGameDetail).mockResolvedValue({
@@ -1665,6 +1731,9 @@ describe("PlayButton", () => {
         emulatorDataAvailable: true,
         platformCoreLabel: null,
         hasGameOverride: false,
+        fileMissingAt: null,
+        emulatorDataReason: null,
+        emulatorSource: null,
         ...overrides,
       };
     }

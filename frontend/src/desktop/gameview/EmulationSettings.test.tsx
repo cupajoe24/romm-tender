@@ -73,6 +73,9 @@ const baseDetail: GameDetailState = {
   emulatorDataAvailable: true,
   platformCoreLabel: "ParaLLEl N64",
   hasGameOverride: true,
+  fileMissingAt: null,
+  emulatorDataReason: null,
+  emulatorSource: null,
 };
 
 /** BiosAnswer with two files — one present required, one missing required. */
