@@ -11,6 +11,7 @@ import zipfile
 import zlib
 
 import pytest
+from _zip_poison import corrupt_central_dir_zip_bytes
 
 from adapters.save_file import SaveFileAdapter
 
@@ -227,17 +228,8 @@ def _write_zip(path, entries: list[tuple[str, bytes]]) -> None:
 
 
 def _write_corrupt_central_dir_zip(path) -> None:
-    """Write a real zip, then clobber its central-directory signature.
-
-    The End-Of-Central-Directory record stays intact, so ``is_zipfile`` still
-    sniffs it as a zip — but ``ZipFile(path)`` raises ``BadZipFile`` on open. The
-    dominant real-world poison: a corrupt / truncated archive.
-    """
-    _write_zip(path, [("battery.srm", b"battery-bytes"), ("rtc.bin", b"rtc-bytes")])
-    data = bytearray(path.read_bytes())
-    cd_offset = struct.unpack("<I", data[-22:][16:20])[0]  # EOCD → central-dir offset
-    data[cd_offset : cd_offset + 4] = b"\x00\x00\x00\x00"  # kill the PK\x01\x02 magic
-    path.write_bytes(bytes(data))
+    """Write the shared ``corrupt_central_dir_zip_bytes`` poison at *path*."""
+    path.write_bytes(corrupt_central_dir_zip_bytes())
 
 
 def _write_unknown_compression_zip(path) -> None:

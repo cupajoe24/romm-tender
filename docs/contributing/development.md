@@ -80,11 +80,11 @@ python -m pytest tests/ -q           # the whole suite in one process, for debug
 ```
 
 `mise run test`, and with it `mise run gate`, runs the suite across every logical CPU with
-[pytest-xdist](https://pytest-xdist.readthedocs.io/), and so does CI's `test` job. `-n auto` is passed there rather than
-set in `pytest.ini`, so a run of one file or one test stays in a single process. Leave `-n` off when you debug a failure
-— `pdb`, `-s` and print output only behave in a single process — and when a failure shows up only under `-n auto`,
-suspect a test that shares state with another one running beside it, or one that depends on timing: every CPU is busy,
-so a thread or a callback can land later than it does in a single process.
+[pytest-xdist](https://pytest-xdist.readthedocs.io/), and so do CI's `test` and `test-3.14` jobs. `-n auto` is passed
+there rather than set in `pytest.ini`, so a run of one file or one test stays in a single process. Leave `-n` off when
+you debug a failure — `pdb`, `-s` and print output only behave in a single process — and when a failure shows up only
+under `-n auto`, suspect a test that shares state with another one running beside it, or one that depends on timing:
+every CPU is busy, so a thread or a callback can land later than it does in a single process.
 
 To run with coverage:
 
@@ -513,7 +513,7 @@ See [Backend Architecture](../architecture/backend-architecture.md) for details.
 ## Full CI gate
 
 ```bash
-mise run gate         # run every PR check from .github/workflows/ci.yml, locally
+mise run gate         # run the PR checks from .github/workflows/ci.yml locally (all but three, below)
 ```
 
 `mise run gate` is the single local battery that mirrors CI. It runs the backend tests (`mise run test`), the
@@ -523,14 +523,20 @@ bundle-size budget, the frontend tests (`pnpm -C frontend test`), and `deno fmt 
 side, except that the frontend tests start only once the backend tests are done (`[tasks."gate:frontend-test"]` in
 `mise.toml` says why). The first step to fail stops the others: its output ends in `ERROR task failed` under the task's
 name, and the gate exits non-zero. It is slow — the two test suites one after the other, with a production frontend
-build beside them — so it is a pre-push check, not something to run on every save. The only CI jobs it can't reproduce
-are the two that feed Sonar — `pr-metadata`, which needs a pull request, and `sonarcloud`, which needs `SONAR_TOKEN` and
-the CI coverage artifacts.
+build beside them — so it is a pre-push check, not something to run on every save. The CI jobs it does not run are
+`test-3.14`, which runs the backend suite under Python 3.14 — an interpreter the toolchain does not install (why CI runs
+it: [Dependency management](dependency-management.md)) — and the two that feed Sonar: `pr-metadata`, which needs a pull
+request, and `sonarcloud`, which needs `SONAR_TOKEN` and the CI coverage artifacts.
 
-Outside `ci.yml`, every pull request also runs the `decisions` check (`.github/workflows/decisions.yml`), which the gate
-does not run because it reads the pull request and its linked issues on GitHub. It checks that the pull request links an
-issue whose decisions are settled; the rules, the exemptions and the opt-outs are in the
-[shared workflow's README](https://github.com/danielcopper/.github#the-decisions-check).
+Outside `ci.yml`, a pull request runs more checks, and the gate runs none of them, because each reads the pull request
+itself on GitHub: `decisions` (`.github/workflows/decisions.yml`), which checks that the pull request links an issue
+whose decisions are settled — the rules, the exemptions and the opt-outs are in the
+[shared workflow's README](https://github.com/danielcopper/.github#the-decisions-check); `Docs updated in same PR`
+(`docs-check.yml`), which fails a pull request that changes source without touching `docs/` unless it carries the
+`no-docs-change` label or a `docs: N/A` line; `commitlint` (`pr-title.yml`), which holds the pull request's title to
+Conventional Commits; and `label` (`labeler.yml`), which only sets labels. A pull request that touches `docs/**` or
+`mkdocs.yml` also builds the documentation site (`docs.yml`, `mkdocs build --strict`), which `mise run docs:build` runs
+locally.
 
 ## Code Quality
 
@@ -561,8 +567,8 @@ issue whose decisions are settled; the rules, the exemptions and the opt-outs ar
   the dev tooling. It is informational — the step has `continue-on-error: true`, so an advisory shows in the job log and
   never turns the build red — and `mise run gate` does not run it.
 - **pytest-cov** — Branch coverage reported to SonarCloud.
-- **pytest-xdist** — Runs the backend suite across every logical CPU in `mise run test`, the gate and CI's `test` job;
-  see [Testing](#testing).
+- **pytest-xdist** — Runs the backend suite across every logical CPU in `mise run test`, the gate and CI's `test` and
+  `test-3.14` jobs; see [Testing](#testing).
 - **pytest-timeout** — Bounds a single test at 120 s (`timeout` in `pytest.ini`), so a test that blocks fails by name
   instead of running the CI job out of its `timeout-minutes: 15` with nothing to say which test it was; on the main
   thread the default `signal` method raises inside the test, so the rest of the session still runs. Reading such a
