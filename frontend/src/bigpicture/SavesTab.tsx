@@ -16,7 +16,7 @@ import { switchSlot, getVersionList, checkLocalDrift, debugLog, logWarn } from "
 import { getRommConnectionState, onRommConnectionChange, reportServerReachable } from "../utils/connectionState";
 import type { SaveStatus, SyncConflict, SaveSlotSummary, LastKnownSlots } from "../types";
 import { scrollFocusedToCenter } from "../utils/scrollHelpers";
-import { MUTED_COLOR, sortSaveSlots, filterSaveSlotsForDisplay, switchSlotFailureMessage } from "../utils/saveHelpers";
+import { MUTED_COLOR, sortSaveSlots, filterSaveSlotsForDisplay } from "../utils/saveHelpers";
 import { renderLastKnownSlots } from "./saves/LastKnownSlotList";
 import { NewSlotModal } from "./saves/NewSlotModal";
 import { SlotPanel } from "./saves/SlotPanel";
@@ -204,10 +204,13 @@ export const SavesTab: FC<SavesTabProps> = ({
                   onSlotSwitched(name, result.save_status);
                 } else {
                   detach(debugLog(`SavesTab: new slot switch failed: ${result.reason}`));
-                  if (result.reason === "server_unreachable") {
+                  let msg = "Failed to create slot";
+                  if (result.reason === "pending_uploads") {
+                    msg = "Sync your saves first — local changes haven't been uploaded";
+                  } else if (result.reason === "server_unreachable") {
                     reportServerReachable(false);
+                    msg = "Can't switch — RomM server is not reachable";
                   }
-                  const msg = switchSlotFailureMessage(result.reason, result.message, "Failed to create slot");
                   setNewSlotError(msg);
                   if (newSlotErrorTimerRef.current) clearTimeout(newSlotErrorTimerRef.current);
                   newSlotErrorTimerRef.current = setTimeout(() => setNewSlotError(null), 5000);
