@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { toaster } from "../api/host";
 import * as backend from "../api/backend";
 import {
+  CONFLICT_EXPLANATION,
   STALE_CONFLICT_MESSAGE,
   announceSaveSync,
   conflictTitle,
@@ -86,6 +87,13 @@ describe("conflict wording", () => {
     const conflict = makeConflict({ local_size: 500, server_size: null });
     expect(localSaveDetail(conflict)).toMatch(/^500 B · modified \S/);
     expect(serverSaveDetail(conflict)).toMatch(/^unknown · uploaded \S/);
+  });
+
+  it("explains that the version not kept is overwritten", () => {
+    expect(CONFLICT_EXPLANATION).toBe(
+      "Both your local save and the server save have changed since the last sync. Pick which version to keep — the " +
+        "other will be overwritten.",
+    );
   });
 });
 
