@@ -14,20 +14,22 @@ import { copySaveToSlot, debugLog, isEndpointFailure } from "../../api/backend";
 import type { CopySaveToSlotStatus, EndpointFailure, SaveSlotSummary } from "../../types";
 import { showSyncConflictModal } from "../../shared/SyncConflictModal";
 import { detach } from "../../utils/detach";
-import { formatCopySaveToSlotFeedback } from "../../utils/saveHelpers";
+import { copyToSlotFeedback } from "../../utils/saveSlotWording";
 import { CopyToSlotModal } from "./CopyToSlotModal";
 import type { CopyToSlotHandler } from "./CopyToSlotButton";
 import { announceSaveSync } from "../../utils/saveSyncEvents";
 
 async function handleResult(result: CopySaveToSlotStatus, target: string, romId: number): Promise<void> {
-  const feedback = formatCopySaveToSlotFeedback(result, target);
+  const feedback = copyToSlotFeedback(result, target);
+  if (feedback === null) return;
   if (feedback.kind === "conflict") {
     await showSyncConflictModal(feedback.conflict);
     return;
   }
   showToast(feedback.message);
+  // Only a copy refreshes the slot views: `already_present` copied nothing.
   if (result.status === "ok") {
-    dispatchDataChanged(romId);
+    announceSaveSync(romId);
   }
 }
 

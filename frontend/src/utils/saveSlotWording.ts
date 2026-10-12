@@ -2,13 +2,22 @@
  * The save-slot surfaces' feedback, failure and confirmation sentences: what a
  * copy to a slot and a restore of a version answer, why a slot switch failed,
  * what deleting a slot will do, and the refusals' own sentences. One home for
- * the surfaces that use them. When and where to show them stays with each
+ * the surfaces that use them; `SavesTab`'s create-slot failure keeps its own
+ * shorter text, as `main` has it. When and where to show them stays with each
  * caller.
  */
 
-import { isEndpointFailure } from "../api/backend";
+import type { EndpointFailure } from "../api/backend";
 import { displaySlot, formatSaveTimeAgo } from "./saveHelpers";
 import type { CopySaveToSlotStatus, EndpointFailure, RollbackStatus, SlotDeleteInfo, SyncConflict } from "../types";
+
+/** The toast for a failed `get_slot_delete_info`. */
+export function slotDeleteFailureToast(info: EndpointFailure): string {
+  if (info.reason === "active_slot") {
+    return "Cannot delete the active slot. Switch to a different slot first.";
+  }
+  return info.message;
+}
 
 /** The toast for a restore refused as unsupported — the backend's own explanation where it gave one. */
 export function unsupportedRestoreMessage(result: Extract<RollbackStatus, { status: "unsupported" }>): string {

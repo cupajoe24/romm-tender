@@ -5,7 +5,7 @@
 
 import type { FC } from "react";
 import type { SlotDeleteInfo } from "../../../types";
-import { formatSlotDeleteLines } from "../../../utils/saveHelpers";
+import { formatSlotDeleteLines } from "../../../utils/saveSlotWording";
 import { BUTTON_STYLE } from "../styles";
 import { DesktopDialog } from "./DesktopDialog";
 

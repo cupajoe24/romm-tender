@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import { executeManualSaveSync } from "./manualSaveSync";
 import * as backend from "../api/backend";
 import * as toast from "./toast";
 import * as gameDetailStore from "./gameDetailStore";
+import { makeConflict } from "../test-utils/saveFixtures";
 
 vi.mock("../api/backend", () => ({
   syncRomSaves: vi.fn(),
@@ -16,9 +17,26 @@ vi.mock("./gameDetailStore", () => ({
   noteSaveSyncDisplay: vi.fn(),
 }));
 
+/** A failed sync refreshes nothing and never reads "Just now". */
+function expectNothingRefreshed(spy: MockInstance<typeof globalThis.dispatchEvent>): void {
+  expect(saveSyncAnnounced(spy)).toBe(false);
+  expect(gameDetailStore.noteSaveSyncDisplay).not.toHaveBeenCalled();
+}
+
+function saveSyncAnnounced(spy: MockInstance<typeof globalThis.dispatchEvent>): boolean {
+  return spy.mock.calls.some(([e]) => e.type === "romm_data_changed");
+}
+
 describe("executeManualSaveSync", () => {
+  let dispatchSpy: MockInstance<typeof globalThis.dispatchEvent>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
+  });
+
+  afterEach(() => {
+    dispatchSpy.mockRestore();
   });
 
   it("handles successful sync with uploaded and downloaded counts", async () => {
@@ -30,11 +48,8 @@ describe("executeManualSaveSync", () => {
       downloaded: 1,
       conflicts: [],
     });
-    const dispatchSpy = vi.spyOn(globalThis, "dispatchEvent");
 
-    const result = await executeManualSaveSync(100, 42);
-
-    expect(result).toBe(true);
+    await executeManualSaveSync(100, 42);
     expect(toast.showToast).toHaveBeenCalledWith("Saves synced with RomM (1 up, 1 down)");
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -59,9 +74,7 @@ describe("executeManualSaveSync", () => {
       conflicts: [],
     });
 
-    const result = await executeManualSaveSync(100, 42);
-
-    expect(result).toBe(true);
+    await executeManualSaveSync(100, 42);
     expect(toast.showToast).toHaveBeenCalledWith("Saves already up to date");
   });
 
@@ -72,14 +85,15 @@ describe("executeManualSaveSync", () => {
       synced: 0,
       uploaded: 0,
       downloaded: 0,
-      conflicts: [{ filename: "save1.srm" } as never],
+      conflicts: [makeConflict()],
     });
 
-    const result = await executeManualSaveSync(100, 42);
-
-    expect(result).toBe(true);
+    await executeManualSaveSync(100, 42);
     expect(toast.showToast).not.toHaveBeenCalledWith("Saves already up to date");
     expect(toast.showToast).toHaveBeenCalledWith("1 conflict(s) need resolution");
+    // The sync itself succeeded, so the surfaces still refresh and the row says so.
+    expect(saveSyncAnnounced(dispatchSpy)).toBe(true);
+    expect(gameDetailStore.noteSaveSyncDisplay).toHaveBeenCalledTimes(1);
   });
 
   it("handles sync failure response with backend message", async () => {
@@ -89,18 +103,16 @@ describe("executeManualSaveSync", () => {
       synced: 0,
     });
 
-    const result = await executeManualSaveSync(100, 42);
-
-    expect(result).toBe(false);
+    await executeManualSaveSync(100, 42);
     expect(toast.showToast).toHaveBeenCalledWith("Server returned 500");
+    expectNothingRefreshed(dispatchSpy);
   });
 
   it("handles exception thrown during sync", async () => {
     vi.mocked(backend.syncRomSaves).mockRejectedValueOnce(new Error("Network boom"));
 
-    const result = await executeManualSaveSync(100, 42);
-
-    expect(result).toBe(false);
+    await executeManualSaveSync(100, 42);
     expect(toast.showToast).toHaveBeenCalledWith("Save sync failed");
+    expectNothingRefreshed(dispatchSpy);
   });
 });

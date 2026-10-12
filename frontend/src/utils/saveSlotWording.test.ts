@@ -4,11 +4,13 @@ import {
   formatSlotDeleteDescription,
   formatSlotDeleteLines,
   rollbackFeedback,
+  slotDeleteFailureToast,
   switchSlotFailureMessage,
   unsupportedCopyMessage,
   unsupportedRestoreMessage,
 } from "./saveSlotWording";
-import type { EndpointFailure, SlotDeleteInfo, SyncConflict } from "../types";
+import type { EndpointFailure } from "../api/backend";
+import type { SlotDeleteInfo, SyncConflict } from "../types";
 
 describe("unsupportedRestoreMessage", () => {
   it("says the saves are written beside the game file for savefiles_in_content_dir", () => {
@@ -374,20 +376,24 @@ describe("the reviewer's edges", () => {
   });
 });
 
-describe("rollbackFeedback for a restore that RomM or this device refused", () => {
-  it("words a version this device could not write", () => {
-    const message = "it could not be written on this device (No space left on device)";
-    expect(rollbackFeedback({ status: "write_failed", message }, null)).toEqual({
-      kind: "toast",
-      message: `Couldn't restore the save: ${message}`,
-    });
+describe("slotDeleteFailureToast", () => {
+  it("explains the active-slot guard when reason='active_slot'", () => {
+    const info: EndpointFailure = { success: false, reason: "active_slot", message: "Slot is active" };
+    expect(slotDeleteFailureToast(info)).toBe("Cannot delete the active slot. Switch to a different slot first.");
   });
 
-  it("words what RomM answered the listing with", () => {
-    const message = "RomM is rate-limiting requests — try again in a moment";
-    expect(rollbackFeedback({ status: "romm_refused", message }, null)).toEqual({
-      kind: "toast",
-      message: `Couldn't restore the save: ${message}`,
-    });
+  it("surfaces the backend message when the server could not be reached", () => {
+    // The text only; that the modal stays shut is SlotPanel's (#626).
+    const info: EndpointFailure = {
+      success: false,
+      reason: "server_unreachable",
+      message: "Server unreachable — check your URL and ensure RomM is running",
+    };
+    expect(slotDeleteFailureToast(info)).toBe("Server unreachable — check your URL and ensure RomM is running");
+  });
+
+  it("surfaces the backend message for unrecognised failure reasons", () => {
+    const info: EndpointFailure = { success: false, reason: "weird", message: "Custom failure" };
+    expect(slotDeleteFailureToast(info)).toBe("Custom failure");
   });
 });

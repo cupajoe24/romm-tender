@@ -25,7 +25,6 @@ import { renderSaveFileRow } from "./saves/SaveFileRow";
 import { useCopyToSlot } from "./saves/useCopyToSlot";
 import { detach } from "../utils/detach";
 import { announceSaveSync } from "../utils/saveSyncEvents";
-import { switchSlotFailureMessage } from "../utils/saveSlotWording";
 
 interface SavesTabProps {
   /** The group's sticky Steam appId — drives the stranded-version drift check. */

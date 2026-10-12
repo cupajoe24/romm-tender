@@ -33,19 +33,22 @@ import { detach } from "../../utils/detach";
 import { formatBytes, formatTimestamp } from "../../utils/formatters";
 import {
   displaySlot,
-  formatRelativeTime,
+  formatSaveTimeAgo,
   pickLastSyncer,
   formatAttributionSegment,
-  slotDeleteFailureToast,
   statusLabel,
   computeSyncSummary,
   MUTED_COLOR,
   sortSaveSlots,
   filterSaveSlotsForDisplay,
-  switchSlotFailureMessage,
-  formatCopySaveToSlotFeedback,
-  formatRollbackFeedback,
 } from "../../utils/saveHelpers";
+import {
+  copyToSlotFeedback,
+  rollbackFeedback,
+  slotDeleteFailureToast,
+  switchSlotFailureMessage,
+} from "../../utils/saveSlotWording";
+import { announceSaveSync } from "../../utils/saveSyncEvents";
 import { executeManualSaveSync } from "../../utils/manualSaveSync";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
 import { DesktopNewSlotDialog } from "./dialogs/DesktopNewSlotDialog";
@@ -348,9 +351,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       if (result.success) {
         showToast(`Slot '${slotName}' deleted`);
         setDeleteModalSlot(null);
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
-        );
+        announceSaveSync(romId);
         await refreshSaveStatus(appId);
         await loadSlots();
       } else {
@@ -369,16 +370,15 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     setCopyModalData(null);
     try {
       const result: CopySaveToSlotStatus = await copySaveToSlot(romId, saveId, target);
-      const feedback = formatCopySaveToSlotFeedback(result, target);
+      const feedback = copyToSlotFeedback(result, target);
+      if (feedback === null) return;
       if (feedback.kind === "conflict") {
         await desktopSaveConflictDialog(effectiveAsk)(feedback.conflict);
       } else {
         showToast(feedback.message);
       }
       if (result.status === "ok") {
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
-        );
+        announceSaveSync(romId);
         await refreshSaveStatus(appId);
         await loadSlots();
       }
@@ -394,16 +394,15 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     setRestoringVersionId(version.id);
     try {
       const result: RollbackStatus = await savesRollbackToVersion(romId, slotName, version.id);
-      const feedback = formatRollbackFeedback(result, version.updated_at);
+      const feedback = rollbackFeedback(result, version.updated_at);
+      if (feedback === null) return;
       if (feedback.kind === "conflict") {
         await desktopSaveConflictDialog(effectiveAsk)(feedback.conflict);
       } else {
         showToast(feedback.message);
       }
       if (result.status === "ok" || result.status === "put_failed") {
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", { detail: { type: "save_sync", rom_id: romId } }),
-        );
+        announceSaveSync(romId);
         await refreshSaveStatus(appId);
         await loadSlots();
       }
@@ -661,7 +660,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
                           const lastSyncer = pickLastSyncer(file.device_syncs);
                           const attr = formatAttributionSegment(file.uploaded_by_us, lastSyncer?.device_name, isSynced);
                           const lastSyncedStr = [
-                            file.last_sync_at ? formatRelativeTime(file.last_sync_at) || "Never" : "Never",
+                            file.last_sync_at ? formatSaveTimeAgo(file.last_sync_at) || "Never" : "Never",
                             attr,
                             file.is_current === false ? "Newer version available on server" : null,
                           ]
@@ -889,7 +888,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
                                               false,
                                             );
                                             const vDateStr = [
-                                              formatRelativeTime(v.updated_at),
+                                              formatSaveTimeAgo(v.updated_at),
                                               vAttr ? vAttr.replace(" ✓", "") : null,
                                             ]
                                               .filter(Boolean)
@@ -971,7 +970,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
                                 <div style={{ color: "#dfe3e6", fontWeight: 500, fontSize: "13px" }}>{f.filename}</div>
                                 <div style={{ color: "#8f98a0", fontSize: "11px" }}>
                                   {`#${f.id}${f.size != null ? ` · ${formatBytes(f.size)}` : ""}${
-                                    f.updated_at ? ` · Updated ${formatRelativeTime(f.updated_at)}` : ""
+                                    f.updated_at ? ` · Updated ${formatSaveTimeAgo(f.updated_at)}` : ""
                                   }`}
                                 </div>
                               </div>
