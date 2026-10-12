@@ -4,7 +4,6 @@ import * as backend from "../api/backend";
 import {
   CONFLICT_EXPLANATION,
   STALE_CONFLICT_MESSAGE,
-  announceSaveSync,
   conflictTitle,
   formatConflictSize,
   localSaveDetail,
@@ -17,23 +16,7 @@ import {
 } from "./saveConflictFlow";
 import { getRommConnectionState, setRommConnectionState } from "./connectionState";
 import type { SaveStatus, SyncConflict } from "../types";
-
-function makeConflict(overrides: Partial<SyncConflict> = {}): SyncConflict {
-  return {
-    type: "sync_conflict",
-    rom_id: 42,
-    filename: "savefile.srm",
-    server_save_id: 9,
-    server_updated_at: "2026-05-01T10:00:00Z",
-    server_size: 2048,
-    local_path: "/saves/savefile.srm",
-    local_hash: "abc",
-    local_mtime: "2026-05-01T09:00:00Z",
-    local_size: 1024,
-    created_at: "2026-05-01T11:00:00Z",
-    ...overrides,
-  };
-}
+import { makeConflict } from "../test-utils/saveFixtures";
 
 function saveStatus(overrides: Partial<SaveStatus> = {}): SaveStatus {
   return {
@@ -214,19 +197,6 @@ describe("resolveConflictsSequentially", () => {
   });
 });
 
-describe("announceSaveSync", () => {
-  it("dispatches the save_sync change for the ROM", () => {
-    const listener = vi.fn();
-    globalThis.addEventListener("romm_data_changed", listener);
-    try {
-      announceSaveSync(42);
-    } finally {
-      globalThis.removeEventListener("romm_data_changed", listener);
-    }
-    expect((listener.mock.calls[0]![0] as CustomEvent).detail).toEqual({ type: "save_sync", rom_id: 42 });
-  });
-});
-
 describe("resolveKnownConflicts", () => {
   let dataChanged: ReturnType<typeof vi.fn<(e: Event) => void>>;
 
@@ -333,8 +303,14 @@ describe("resolveKnownConflicts", () => {
     try {
       vi.mocked(backend.getSaveStatus).mockReturnValue(new Promise<never>(() => {}));
       const pending = resolveKnownConflicts(42, vi.fn(), "test");
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
 
-      await vi.advanceTimersByTimeAsync(15000);
+      await vi.advanceTimersByTimeAsync(14999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
 
       await expect(pending).resolves.toBe("failed");
       expect(toastBodies()).toEqual(["Couldn't reach server to resolve conflict"]);

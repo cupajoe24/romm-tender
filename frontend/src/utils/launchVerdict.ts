@@ -7,7 +7,7 @@
 
 import { runLaunchGate, type GateVerdict, type LaunchGateOps } from "./launchGate";
 import { NO_LAUNCH_TARGET_TOAST_BODY } from "./launchTarget";
-import { announceSaveSync } from "./saveConflictFlow";
+import { announceSaveSync } from "./saveSyncEvents";
 import { showToast } from "./toast";
 import type { SyncConflict } from "../types";
 
