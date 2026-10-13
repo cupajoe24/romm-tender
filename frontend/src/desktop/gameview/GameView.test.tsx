@@ -101,6 +101,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
@@ -146,6 +147,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
@@ -187,6 +189,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<GameView appId={99999} />);
@@ -223,6 +226,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<GameView appId={77777} />);
@@ -256,6 +260,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockRejectedValue(new Error("Network failure"));
@@ -294,6 +299,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     const { unmount } = render(<GameView appId={55555} />);
@@ -344,6 +350,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
@@ -401,6 +408,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
@@ -449,6 +457,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
@@ -499,6 +508,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
     vi.mocked(sharedReads.getRomMetadataShared).mockResolvedValue(mockMetadata);
 
@@ -537,6 +547,7 @@ describe("GameView", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
     rerender(<GameView appId={12345} />);
     expect(container.querySelector(".tender-desktop-achievements-card")).not.toBeInTheDocument();
@@ -574,6 +585,7 @@ describe("GameView", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       const { container } = render(<GameView appId={12345} />);
@@ -609,6 +621,7 @@ describe("GameView", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       setMigrationStatus({ pending: true });
@@ -662,6 +675,7 @@ describe("GameView", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       clearMigration();
@@ -711,6 +725,7 @@ describe("GameView", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       render(<GameView appId={12345} />);
@@ -719,7 +734,9 @@ describe("GameView", () => {
         expect(screen.getByTestId("desktop-playtime-scope-banner")).toBeInTheDocument();
       });
       expect(screen.getByText("Cross-device playtime")).toBeInTheDocument();
-      expect(screen.getByText("Sign in again to enable cross-device playtime sync.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Your saved login cannot read cross-device playtime. A fresh sign-in enables it."),
+      ).toBeInTheDocument();
     });
 
     it("renders ActiveSessionBanner when an active session is detected for the game", async () => {
@@ -750,6 +767,7 @@ describe("GameView", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       vi.spyOn(sessionManager, "isSessionActive").mockReturnValue(true);

@@ -43,9 +43,10 @@ export const FALLBACK_LAUNCH_LABEL = "Launch Anyway";
 
 /** The failed sync's own message when it carries one, else a sentence of ours. */
 export function fallbackLaunchDescription(message?: string): string {
-  return message?.trim()
-    ? `${message} — launch with local saves?`
-    : "Couldn't sync saves with RomM server. Launch with local saves?";
+  const reason = message?.trim();
+  if (!reason) return "Couldn't sync saves with RomM server. Launch with local saves?";
+  if (/[.!?]$/.test(reason)) return `${reason} Launch with local saves?`;
+  return `${reason} — launch with local saves?`;
 }
 
 // ── Unsynced saves: switching away from a version whose saves were never uploaded ──

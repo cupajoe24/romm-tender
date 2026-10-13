@@ -31,9 +31,3 @@ export function showFallbackLaunchModal(message?: string): Promise<boolean> {
     );
   });
 }
-
-function describe(message: string | undefined): string {
-  if (!message) return "Couldn't sync saves with RomM server. Launch with local saves?";
-  if (/[.!?]$/.test(message)) return `${message} Launch with local saves?`;
-  return `${message} — launch with local saves?`;
-}

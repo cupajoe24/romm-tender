@@ -318,6 +318,7 @@ describe("Desktop DiscSelector — selecting a disc", () => {
     vi.mocked(backend.getDiscSelection).mockResolvedValue(m3uSelection);
     vi.mocked(backend.selectDisc).mockResolvedValue({
       success: false,
+      reason: "not_found",
       message: "Disc not found",
     });
 

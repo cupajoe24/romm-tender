@@ -299,6 +299,7 @@ describe("makeLaunchGateOps", () => {
     toastSyncResult: false,
     ensureTrackingConfigured: vi.fn(() => Promise.resolve("proceed" as const)),
     checkCoreChange: vi.fn(() => Promise.resolve(true)),
+    confirmUncheckedStartingSource: vi.fn(() => Promise.resolve(true)),
     ...overrides,
   });
 

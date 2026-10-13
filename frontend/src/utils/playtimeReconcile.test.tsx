@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import { useGamePlaytime } from "./playtimeReconcile";
 import * as backend from "../api/backend";
 import * as metadataPatches from "./metadataPatches";
-import * as steamOverview from "./steamOverview";
+import { stubAppStore } from "../test-utils/steamStubs";
 
 vi.mock("../api/backend", () => ({
   reconcilePlaytime: vi.fn(),
@@ -12,10 +12,6 @@ vi.mock("../api/backend", () => ({
 
 vi.mock("./metadataPatches", () => ({
   updatePlaytimeDisplay: vi.fn(),
-}));
-
-vi.mock("./steamOverview", () => ({
-  overviewFor: vi.fn(),
 }));
 
 const overview = (fields: Omit<SteamAppOverview, "display_name" | "strDisplayName">): SteamAppOverview => ({
@@ -30,7 +26,8 @@ describe("useGamePlaytime", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(steamOverview.overviewFor).mockReturnValue(
+    stubAppStore({});
+    vi.mocked(appStore.GetAppOverviewByAppID).mockReturnValue(
       overview({
         appid: mockAppId,
         rt_last_time_played: 0,
@@ -44,7 +41,7 @@ describe("useGamePlaytime", () => {
   });
 
   it("initializes with overview values and does not call reconcilePlaytime if romId is null", () => {
-    vi.mocked(steamOverview.overviewFor).mockReturnValue(
+    vi.mocked(appStore.GetAppOverviewByAppID).mockReturnValue(
       overview({
         appid: mockAppId,
         rt_last_time_played: 1600000000,
@@ -139,7 +136,7 @@ describe("useGamePlaytime", () => {
       rt_last_time_played: 0,
       minutes_playtime_forever: 0,
     });
-    vi.mocked(steamOverview.overviewFor).mockImplementation(() => mockOverview);
+    vi.mocked(appStore.GetAppOverviewByAppID).mockImplementation(() => mockOverview);
 
     const { result } = renderHook(() => useGamePlaytime(mockAppId, mockRomId));
 
@@ -169,7 +166,7 @@ describe("useGamePlaytime", () => {
       initialProps: { appId: 100, romId: null as number | null },
     });
 
-    vi.mocked(steamOverview.overviewFor).mockReturnValue(
+    vi.mocked(appStore.GetAppOverviewByAppID).mockReturnValue(
       overview({
         appid: 200,
         rt_last_time_played: 1650000000,

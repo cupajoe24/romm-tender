@@ -893,6 +893,7 @@ describe("launchInterceptor — full funnel watcher", () => {
       resolveConflicts: vi.fn<LaunchPrompts["resolveConflicts"]>(),
       askOfflineDrift: vi.fn<LaunchPrompts["askOfflineDrift"]>(),
       confirmFallbackLaunch: vi.fn<LaunchPrompts["confirmFallbackLaunch"]>(),
+      confirmUncheckedSource: vi.fn<LaunchPrompts["confirmUncheckedSource"]>(),
     };
 
     it("are resolved once per start, so a surface change mid-start does not move its questions", async () => {

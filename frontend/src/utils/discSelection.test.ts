@@ -189,6 +189,7 @@ describe("discSelection — executeDiscSelection", () => {
   it("toasts message when backend returns success: false", async () => {
     vi.mocked(backend.selectDisc).mockResolvedValue({
       success: false,
+      reason: "not_found",
       message: "Disc not found on disk",
     });
     const onSelected = vi.fn();

@@ -8,6 +8,8 @@ import {
   onPlaytimeScopeChange,
   fetchPlaytimeScopeState,
   usePlaytimeScopeState,
+  PLAYTIME_SCOPE_TITLE,
+  PLAYTIME_SCOPE_MESSAGE,
 } from "./playtimeScopeStore";
 
 // Fakes nothing — the real useSyncExternalStore runs. The wrapper only records
@@ -28,6 +30,13 @@ describe("playtimeScopeStore", () => {
 
   it("starts not-pending", () => {
     expect(getPlaytimeScopeState()).toEqual({ pending: false });
+  });
+
+  it("exports banner title and message constants", () => {
+    expect(PLAYTIME_SCOPE_TITLE).toBe("Cross-device playtime");
+    expect(PLAYTIME_SCOPE_MESSAGE).toBe(
+      "Your saved login cannot read cross-device playtime. A fresh sign-in enables it.",
+    );
   });
 
   it("setPlaytimeScopeState updates the state and notifies subscribers", () => {

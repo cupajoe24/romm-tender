@@ -116,8 +116,14 @@ export function fetchVersionCovers(
 }
 
 /**
+ * Whether a row can be switched to. A version RomM holds no file for can only
+ * be played from a local copy, so it is offered only where one is installed.
+ */
+export const isSelectable = (v: VersionInfo): boolean => !v.vanished && v.switchable && !(v.no_file && !v.installed);
+
+/**
  * Execute the complete version switch workflow:
- *   - Guards against active, vanished, or unswitchable versions
+ *   - Guards against the active version and any version `isSelectable` refuses
  *   - Calls backend switchVersion
  *   - Applies committed switch and shortcut launch options on success
  *   - Prompts for unsynced saves on soft-block and executes sync-then-switch or force switch
@@ -136,7 +142,11 @@ export async function executeVersionSwitch(options: VersionSwitchOptions): Promi
     logTag = "VersionPicker",
   } = options;
 
-  if (target.active || target.vanished || !target.switchable) {
+  // An unselectable row is rendered disabled, and this guard makes a click on
+  // one a no-op (defense-in-depth), so switch_version's rejection — of a
+  // sibling in another local group (#1359), or of one with no file — can never
+  // reach a toast.
+  if (target.active || !isSelectable(target)) {
     return { success: false };
   }
 

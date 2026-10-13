@@ -201,8 +201,8 @@ describe("AchievementsCard", () => {
     vi.mocked(connState.useRommConnectionState).mockReturnValue("offline");
     vi.mocked(backend.getAchievements).mockResolvedValue({
       success: false,
-      achievements: [],
-      total: 0,
+      reason: "not_found",
+      message: "Not found",
     });
 
     render(<AchievementsCard appId={12345} romId={42} raId={999} title="Mario Golf" />);

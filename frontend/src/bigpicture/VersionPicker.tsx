@@ -36,9 +36,10 @@ import { logError, logWarn } from "../api/backend";
 import type { VersionList, VersionInfo } from "../api/backend";
 import { showUnsyncedSavesModal } from "./UnsyncedSavesSwitchModal";
 import { getEventTarget } from "../utils/events";
+import { NO_FILE_ON_ROMM_LABEL } from "../utils/noFileOnRommWording";
 import { detach } from "../utils/detach";
 import { mountPruneLeaseOwner, releasePruneLeasesByOwner } from "../utils/pruneLease";
-import { loadVersionList, fetchVersionCovers, executeVersionSwitch } from "../utils/versionSwitch";
+import { loadVersionList, fetchVersionCovers, executeVersionSwitch, isSelectable } from "../utils/versionSwitch";
 import type { RommDataChangedDetail, RommRomUninstalledDetail } from "../types/events";
 import type { DownloadCompleteEvent, DownloadFailedEvent } from "../types";
 import { openRemovedGamesCleanupModal } from "./RemovedGamesCleanup";
@@ -60,12 +61,6 @@ const BADGE_COLORS: Record<"accent" | "muted" | "good", { bg: string; fg: string
 
 /** The label a row (or a singleton binding) carries once RomM 404s its exact id. */
 const VANISHED_HINT = "No longer available on RomM";
-
-/**
- * Whether a row can be switched to. A version RomM holds no file for can only
- * be played from a local copy, so it is offered only where one is installed.
- */
-const isSelectable = (v: VersionInfo): boolean => !v.vanished && v.switchable && !(v.no_file && !v.installed);
 
 /** Accessible name of the trash affordance that opens the cleanup confirmation. */
 const REMOVE_LOCAL_DATA_LABEL = "Remove local data";

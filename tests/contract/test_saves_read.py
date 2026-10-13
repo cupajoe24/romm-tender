@@ -64,6 +64,7 @@ async def test_get_save_status_full_shape_and_partial_flag(harness):
         "multi_file",
         "component_files",
         "rollback_supported",
+        "active_slot",
     }
     assert set(result.keys()) == expected_keys
     assert result["rom_id"] == 42

@@ -135,6 +135,7 @@ export function usePlayLaunch({
         onSyncStart: () => setStateOverride("syncing"),
         ensureTrackingConfigured: () => ensureTrackingConfiguredOnPage(romId),
         checkCoreChange: () => confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange),
+        confirmUncheckedStartingSource: prompts.confirmUncheckedSource,
       });
       await runGateLoop(appId, romId, ops, {
         prompts,

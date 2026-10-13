@@ -26,6 +26,7 @@ import { DesktopSaveConflictDialog } from "./DesktopSaveConflictDialog";
 import { DesktopOfflineDriftDialog } from "./DesktopOfflineDriftDialog";
 import { DesktopFallbackLaunchDialog } from "./DesktopFallbackLaunchDialog";
 import { DesktopCoreChangeDialog } from "./DesktopCoreChangeDialog";
+import { DesktopUncheckedSourceDialog } from "./DesktopUncheckedSourceDialog";
 import { DesktopUnsyncedSavesDialog, type UnsyncedSavesChoice } from "./DesktopUnsyncedSavesDialog";
 import { DesktopStopGameDialog } from "./DesktopStopGameDialog";
 
@@ -79,6 +80,10 @@ export function desktopCoreChangeDialog(ask: AskDialog): (oldLabel: string, newL
     ));
 }
 
+export function desktopUncheckedSourceDialog(ask: AskDialog): () => Promise<boolean> {
+  return () => ask<boolean>(false, (resolve) => <DesktopUncheckedSourceDialog onChoice={resolve} />);
+}
+
 export function desktopUnsyncedSavesDialog(
   ask: AskDialog,
 ): (args: { versionName: string; serverReachable: boolean }) => Promise<UnsyncedSavesChoice> {
@@ -98,5 +103,6 @@ export function desktopLaunchPrompts(ask: AskDialog): LaunchPrompts {
     resolveConflicts: (conflicts) => resolveConflictsSequentially(conflicts, desktopSaveConflictDialog(ask)),
     askOfflineDrift: desktopOfflineDriftDialog(ask),
     confirmFallbackLaunch: desktopFallbackLaunchDialog(ask),
+    confirmUncheckedSource: desktopUncheckedSourceDialog(ask),
   };
 }

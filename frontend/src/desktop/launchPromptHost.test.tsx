@@ -39,6 +39,7 @@ const gamepad: LaunchPrompts = {
   resolveConflicts: vi.fn(),
   askOfflineDrift: vi.fn(),
   confirmFallbackLaunch: vi.fn(),
+  confirmUncheckedSource: vi.fn(),
 };
 
 /** Ask a yes/no question whose dialog is a single "Yes" button. */

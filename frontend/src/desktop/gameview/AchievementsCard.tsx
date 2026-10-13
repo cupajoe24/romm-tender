@@ -281,7 +281,8 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
         settled = true;
 
         const unreachable =
-          listResult.reason === "server_unreachable" || progressResult.reason === "server_unreachable";
+          (!listResult.success && listResult.reason === "server_unreachable") ||
+          (!progressResult.success && progressResult.reason === "server_unreachable");
         if (unreachable) {
           reportServerReachable(false);
           loadedRef.current = false;

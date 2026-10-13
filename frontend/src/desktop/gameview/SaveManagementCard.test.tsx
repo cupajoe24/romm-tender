@@ -112,6 +112,7 @@ describe("SaveManagementCard", () => {
     fileMissingAt: null,
     emulatorDataReason: null,
     emulatorSource: null,
+    emulatorPlatformSystem: null,
   };
 
   beforeEach(() => {

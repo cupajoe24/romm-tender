@@ -6,19 +6,20 @@
  */
 
 import { runLaunchGate, type GateVerdict, type LaunchGateOps } from "./launchGate";
+import { startingSourceOffSentence } from "./emulatorSourceWording";
 import { NO_LAUNCH_TARGET_TOAST_BODY } from "./launchTarget";
 import { announceSaveSync } from "./saveSyncEvents";
 import { showToast } from "./toast";
 import type { SyncConflict } from "../types";
 
 /**
- * The four decisions a game start may have to put to the user, as questions
+ * The five decisions a game start may have to put to the user, as questions
  * rather than widgets. `utils/` owns no UI, so a launch path declares what it
  * needs to ask and its surface supplies the answering dialogs.
  *
  * Asking directly would mean reaching from here into the modal modules, which
  * puts the launch funnel's control flow and its presentation in one knot: every
- * test of a gate branch then has to stand up four modal modules to get at it.
+ * test of a gate branch then has to stand up five modal modules to get at it.
  */
 export interface LaunchPrompts {
   /** Core changed since the last session — proceed with the new core? */
@@ -29,6 +30,8 @@ export interface LaunchPrompts {
   askOfflineDrift(): Promise<"start_anyway" | "retry" | "cancel">;
   /** Pre-launch sync failed, or the check got no answer in time — launch on the local save regardless? */
   confirmFallbackLaunch(message?: string): Promise<boolean>;
+  /** Whether the source that would start the game is switched off could not be checked — start anyway? */
+  confirmUncheckedSource(): Promise<boolean>;
 }
 
 /**
@@ -36,7 +39,7 @@ export interface LaunchPrompts {
  * at most once per verdict and only on a branch that starts nothing.
  */
 export interface VerdictHooks {
-  /** The core-change question is asked inside the gate, not here. */
+  /** The core-change and unchecked-source questions are asked inside the gate, not here. */
   prompts: Pick<LaunchPrompts, "resolveConflicts" | "askOfflineDrift" | "confirmFallbackLaunch">;
   /**
    * Start the game. Every approving branch ends here. `skipReconfirm` is set
@@ -81,8 +84,10 @@ export async function actOnGateVerdict(
         return "done";
       }
       // No surface states a missing launch target at the moment of the press, so
-      // a silent bail would read as a dead button.
+      // a silent bail would read as a dead button; a switched-off source has no
+      // surface at all, so the start says why.
       if (verdict.reason === "no_launch_target") showToast(NO_LAUNCH_TARGET_TOAST_BODY);
+      if (verdict.reason === "source_switched_off") showToast(startingSourceOffSentence(verdict.source));
       hooks.onDeclined();
       return "done";
     case "conflict": {

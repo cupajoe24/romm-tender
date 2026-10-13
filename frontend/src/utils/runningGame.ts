@@ -6,8 +6,11 @@
 
 import { Navigation } from "@decky/ui";
 import { debugLog, stopRunningGame } from "../api/backend";
+import { isStrandedPanelFailure, strandedAnswer } from "../api/host";
 import { detach } from "./detach";
 import { readGameRunning } from "./sessionManager";
+import { tellStrandedPress } from "./strandedPanelStore";
+import { strandedPanelSentence } from "./strandedPanelWording";
 import { showToast } from "./toast";
 
 /**
@@ -41,6 +44,11 @@ export function activateRunningApp(appId: number, tag = "runningGame"): void {
   } catch (e) {
     detach(debugLog(`${tag}: Navigation.Navigate threw: ${e}`));
   }
+}
+
+/** Say that Stop cannot reach the backend of a stranded panel, *sentence* being the answer that backend gave it. */
+function tellStrandedStop(sentence: string): void {
+  tellStrandedPress("Couldn't stop the game", sentence);
 }
 
 export interface StopGameParams {
@@ -84,6 +92,16 @@ export async function executeStopRunningGame({
     return false;
   }
 
+  // A menu opened before the strand still offers Stop Game, and a panel the
+  // backend already refused cannot stop anything, so it says so before asking
+  // to confirm a stop that cannot happen.
+  const stranded = strandedAnswer();
+  if (stranded) {
+    detach(debugLog(`${tag}: Stop on appId=${appId} from a stranded panel — not stopping`));
+    tellStrandedStop(strandedPanelSentence(stranded));
+    return false;
+  }
+
   // Without the rom id the backend cannot tell this game's instance from any
   // other live one, and stopping "whichever" is exactly the bug this argument
   // exists to fix.
@@ -117,7 +135,12 @@ export async function executeStopRunningGame({
     return false;
   } catch (e) {
     detach(debugLog(`${tag}: stop_running_game threw for appId=${appId}: ${e}`));
-    showToast("Couldn't stop the game");
+    if (isStrandedPanelFailure(e)) {
+      // The failure's message is the answer the backend gave this panel.
+      tellStrandedStop(e.message);
+    } else {
+      showToast("Couldn't stop the game");
+    }
     return false;
   } finally {
     stopInFlightRef.current = false;

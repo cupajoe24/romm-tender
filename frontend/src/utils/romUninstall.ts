@@ -49,10 +49,8 @@ export async function executeRomUninstall(options: RomUninstallOptions): Promise
       return { success: false, message: result.message };
     }
 
-    // Reset the now-stale launch command to the uninstalled "" placeholder so a
-    // raced-past not_installed launch execs `bin/tender-rom-launcher` with no args (clean
-    // exit 1) instead of a stale `flatpak run … "<deleted path>"` (#1051). Best-effort:
-    // a launch-options hiccup must not turn a successful uninstall into an error.
+    // Why the launch command is reset, and why best-effort: `removeInstallRecord`'s
+    // docstring in `bigpicture/CustomPlayButton.tsx`.
     await withPruneLease(
       result.prune_lease_token,
       context,

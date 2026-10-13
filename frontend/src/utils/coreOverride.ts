@@ -62,7 +62,7 @@ export async function applyGameCoreChange({
   try {
     const result = isClear ? await clearGameCore(romId) : await setGameCore(romId, coreLabel);
     return await withPruneLease(
-      result.prune_lease_token,
+      result.success ? result.prune_lease_token : undefined,
       logTag,
       async (signal) => {
         if (!result.success) {
