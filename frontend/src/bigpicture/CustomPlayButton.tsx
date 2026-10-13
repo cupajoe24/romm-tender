@@ -21,6 +21,7 @@
 import { useState, useEffect, useRef, useCallback, FC, ReactElement } from "react";
 import { addEventListener, removeEventListener, strandedAnswer } from "../api/host";
 import { showToast } from "../utils/toast";
+import { useStrandedAnswer } from "../utils/strandedPanelStore";
 import { Focusable, DialogButton, Menu, MenuItem, MenuSeparator, showContextMenu } from "@decky/ui";
 import { appActionButtonClasses, basicAppDetailsSectionStylerClasses } from "../utils/deckyUiInternals";
 import { hideNativePlaySection, showNativePlaySection } from "../utils/styleInjector";
@@ -56,6 +57,7 @@ import {
   downloadForgottenToast,
   forgetRefusedToast,
 } from "../utils/missingDownloadWording";
+import { NO_FILE_ON_ROMM_LABEL } from "../utils/noFileOnRommWording";
 import { resolveKnownConflicts } from "../utils/saveConflictFlow";
 import { showAdoptExistingModal } from "./AdoptExistingModal";
 import { showAdoptCandidateModal } from "./AdoptCandidateModal";
@@ -643,6 +645,7 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
         onSyncStart: () => setState("syncing"),
         ensureTrackingConfigured: () => ensureTrackingConfiguredOnPage(romId),
         checkCoreChange: () => confirmCoreChangeIfNeeded(romId, gamepadLaunchPrompts.confirmCoreChange),
+        confirmUncheckedStartingSource: gamepadLaunchPrompts.confirmUncheckedSource,
       });
       // `dispatchLaunch` marks the skip-set, so no launch from here is gated
       // again by the watcher. A migration block needs no message: the page
@@ -704,8 +707,13 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
   // state value — the ref is updated synchronously.
   const stopInFlightRef = useRef(false);
 
-  // Stop the running game via shared utility with in-flight guard, modal confirmation,
-  // metrics logging, and error toasts.
+  // Stop the running game. Steam's overlay ends it in Gaming Mode, but in
+  // Desktop Mode that overlay does not open over a Flatpak game, so this is the
+  // way out there. The backend owns the kill — it resolves the flatpak
+  // instance's host processes and runs a single-stop-request → grace → force
+  // ladder (`services/game_process.py`). The `romId` is what tells it WHICH instance:
+  // RetroDECK can have several live at once (a second game, ES-DE opened on its
+  // own), and only the one running this ROM may be signalled.
   const handleStopGame = async () => {
     await executeStopRunningGame({
       appId,
@@ -805,12 +813,12 @@ export const CustomPlayButton: FC<CustomPlayButtonProps> = ({ appId }) => { // N
 
   /**
    * Run a forget of this ROM's install record (an uninstall goes through
-   * `executeRomUninstall`) and, once the backend has answered success, reset the shortcut's now-stale launch
-   * command to the uninstalled "" placeholder under the removal's lease and
-   * announce the ROM as not installed. The reset keeps a raced-past
-   * not_installed launch from exec'ing a stale `flatpak run … '<path>'`
-   * (#1051); it is best-effort, so a launch-options hiccup never turns a
-   * removal that happened into an error.
+   * `executeRomUninstall`) and, once the backend has answered success, reset
+   * the shortcut's now-stale launch command to the uninstalled "" placeholder
+   * under the removal's lease and announce the ROM as not installed. The reset
+   * keeps a raced-past not_installed launch from exec'ing a stale
+   * `flatpak run … '<path>'` (#1051); it is best-effort, so a launch-options
+   * hiccup never turns a removal that happened into an error.
    */
   const removeInstallRecord = async <R extends { success: boolean; prune_lease_token?: string }>(
     rid: number,

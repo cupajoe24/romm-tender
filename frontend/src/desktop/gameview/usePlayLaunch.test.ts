@@ -4,7 +4,6 @@ import { usePlayLaunch } from "./usePlayLaunch";
 import * as backend from "../../api/backend";
 import * as toast from "../../utils/toast";
 import * as sessionManager from "../../utils/sessionManager";
-import * as runningApps from "../../utils/runningApps";
 import * as runningGame from "../../utils/runningGame";
 import { getMigrationState } from "../../utils/migrationStore";
 
@@ -13,6 +12,7 @@ vi.mock("../../api/backend", async (importOriginal) => {
   return {
     ...actual,
     preLaunchSync: vi.fn().mockResolvedValue({ success: true }),
+    checkStartSource: vi.fn().mockResolvedValue({ switched_off: null }),
     stopRunningGame: vi.fn().mockResolvedValue({ success: true, stopped: 1, force_killed: 0 }),
     removeRom: vi.fn().mockResolvedValue({ success: true, prune_lease_token: "tok" }),
     debugLog: vi.fn(),
@@ -44,17 +44,15 @@ vi.mock("../../utils/pruneLease", async (importOriginal) => {
   };
 });
 
-vi.mock("../../utils/runningApps", () => ({
-  isAppRunning: vi.fn(() => false),
-}));
+/** Whether Steam lists the app as running, as the `readGameRunning` stand-in below reads it. */
+const steamListsApp = vi.hoisted(() => vi.fn((_appId: number) => false));
 
-vi.mock("../../utils/sessionManager", async () => {
-  const { isAppRunning } = await import("../../utils/runningApps");
+vi.mock("../../utils/sessionManager", () => {
   const isSessionActive = vi.fn((_romId: number) => false);
   return {
     isSessionActive,
     readGameRunning: vi.fn((appId: number, romId: number | null | undefined) => {
-      const running = (romId != null && isSessionActive(romId)) || isAppRunning(appId);
+      const running = (romId != null && isSessionActive(romId)) || steamListsApp(appId);
       return { running, decidedBy: running ? "store" : "none", diagnostics: "" };
     }),
   };
@@ -95,7 +93,7 @@ describe("usePlayLaunch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
-    vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
+    steamListsApp.mockReturnValue(false);
   });
 
   it("stops running game once the Stop confirm is accepted", async () => {
@@ -155,7 +153,7 @@ describe("usePlayLaunch", () => {
 
   it("self-heals stale overlay on handleStopClick when nothing is running", async () => {
     vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
-    vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
+    steamListsApp.mockReturnValue(false);
 
     const { result } = renderHook(() =>
       usePlayLaunch({

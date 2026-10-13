@@ -94,7 +94,7 @@ export async function executeDiscSelection({
   try {
     const result = await selectDisc(romId, data);
     return await withPruneLease(
-      result.prune_lease_token,
+      result.success ? result.prune_lease_token : undefined,
       logTag,
       async (signal) => {
         if (result.success) {

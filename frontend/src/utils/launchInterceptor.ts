@@ -44,7 +44,6 @@ import { detach } from "./detach";
 import { tellStrandedPress } from "./strandedPanelStore";
 import { strandedPanelSentence } from "./strandedPanelWording";
 import { TimeoutError, boundedOr, rethrowTimeout, withTimeout } from "./withTimeout";
-import { announceSaveSync } from "./saveSyncEvents";
 
 /**
  * A start the watcher cancelled: the appId it resolved, and the game ID Steam
@@ -161,6 +160,7 @@ async function runWatcherGate(start: CancelledStart, romId: number, prompts: Lau
       confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange, (e) => {
         logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
       }),
+    confirmUncheckedStartingSource: () => prompts.confirmUncheckedSource(),
   });
   await runGateLoop(start.appId, romId, ops, {
     prompts,
@@ -282,6 +282,16 @@ export function registerLaunchInterceptor(promptsForStart: () => LaunchPrompts):
       // against the un-pausable launch: from here the launch is stopped and we
       // relaunch only on approval.
       SteamClient.Apps.CancelGameAction(gameActionId);
+
+      // A stranded panel reaches no backend, so this start could only run
+      // without its pre-launch sync: it is refused before the launch gate asks
+      // anything.
+      const stranded = strandedAnswer();
+      if (stranded) {
+        tellStrandedPress("Couldn't start the game", strandedPanelSentence(stranded));
+        return;
+      }
+
       logInfo(
         `Launch interceptor: appId=${appId} not running — running the launch gate [${running.diagnostics}] launchSource=${launchSource}`,
       );

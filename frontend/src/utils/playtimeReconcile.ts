@@ -11,7 +11,6 @@ import { useState, useEffect, useRef } from "react";
 import { reconcilePlaytime, debugLog } from "../api/backend";
 import { formatPlaytime, formatLastPlayed, resolveLastPlayed } from "./formatters";
 import { updatePlaytimeDisplay } from "./metadataPatches";
-import { overviewFor } from "./steamOverview";
 import { detach } from "./detach";
 
 export interface PlaytimeState {
@@ -31,7 +30,7 @@ export interface PlaytimeState {
  * @param logContext Context tag for debugLog messages (e.g. "RomMPlaySection" or "DesktopPlayButton")
  */
 export function useGamePlaytime(appId: number, romId: number | null, logContext: string = "Playtime"): PlaytimeState {
-  const overview = overviewFor(appId);
+  const overview = appStore.GetAppOverviewByAppID(appId);
   const initialLastPlayed = formatLastPlayed(overview?.rt_last_time_played ?? 0);
   const initialPlaytime = formatPlaytime(overview?.minutes_playtime_forever ?? 0);
 
@@ -45,7 +44,7 @@ export function useGamePlaytime(appId: number, romId: number | null, logContext:
   useEffect(() => {
     if (prevAppIdRef.current !== appId) {
       prevAppIdRef.current = appId;
-      const ov = overviewFor(appId);
+      const ov = appStore.GetAppOverviewByAppID(appId);
       setPlaytimeInfo({
         lastPlayed: formatLastPlayed(ov?.rt_last_time_played ?? 0),
         restoredLastPlayed: null,
@@ -73,7 +72,7 @@ export function useGamePlaytime(appId: number, romId: number | null, logContext:
         }
         if (!result.server_query_failed) {
           // Connected: adopt restored cross-device last_played (#1294).
-          const ov = overviewFor(appId);
+          const ov = appStore.GetAppOverviewByAppID(appId);
           const steamSecs = ov?.rt_last_time_played ?? 0;
           setPlaytimeInfo((prev) => ({
             ...prev,
@@ -101,7 +100,7 @@ export function useGamePlaytime(appId: number, romId: number | null, logContext:
     const onPlaytimeChanged = (e: Event) => {
       const payload = (e as CustomEvent<{ appId?: number } | null>).detail;
       if (payload?.appId !== appId) return;
-      const ov = overviewFor(appId);
+      const ov = appStore.GetAppOverviewByAppID(appId);
       if (!ov) return;
       setPlaytimeInfo((prev) => ({
         ...prev,

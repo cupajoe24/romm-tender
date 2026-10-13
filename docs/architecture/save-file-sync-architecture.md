@@ -1458,14 +1458,17 @@ Runs before a RomM game starts (if `sync_before_launch` is enabled), through one
 from `CustomPlayButton.handlePlay()`, and on the desktop client (dev build only) from `usePlayLaunch`'s
 `handlePlayClick()`; the launch watcher (`frontend/src/utils/launchInterceptor.ts`) gates the starts that do not come
 through the Play button — Steam's own Play and a `steam://rungameid` link. Pre-launch sync is **not** triggered via
-`RegisterForAppLifetimeNotifications`.
+`RegisterForAppLifetimeNotifications`. A start the gate refuses before the save work — a ROM with no launch target, or
+the source that would start it switched off
+([Which emulator source answers](core-emulator-selection.md#which-emulator-source-answers)) — runs no sync at all.
 
 Every launch path builds the gate's inputs with `makeLaunchGateOps` (`frontend/src/utils/launchGateOps.ts`) and acts on
 its verdict with `runGateLoop` (`frontend/src/utils/launchVerdict.ts`), which runs the gate, hands the verdict to
 `actOnGateVerdict` and runs the gate again for as long as the user picks Retry on the offline-drift prompt. The shared
-parts are the migration check, the launch-target check, a fresh reachability probe, the drift check, the pre-launch sync
-itself (`runPreLaunchSync`) and what each verdict means: a missing launch target toasts, resolved conflicts announce the
-save change to the page and then launch. A path supplies only what is its own:
+parts are the migration check, the launch-target check, the starting-source check, a fresh reachability probe, the drift
+check, the pre-launch sync itself (`runPreLaunchSync`) and what each verdict means: a missing launch target or a
+switched-off source toasts, resolved conflicts announce the save change to the page and then launch. A path supplies
+only what is its own:
 
 | Supplied by the path               | Play button (gamepad and desktop)                                                                | Launch watcher                                |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------- |
@@ -1565,8 +1568,12 @@ The Play button's path:
    once all are resolved it notifies siblings and goes on; on the first Cancel the button switches to `conflict` and
    nothing launches. A sync that fails never launches unconditionally: the "Save Sync Unavailable" dialog asks first,
    and Cancel returns the button to Play. The benign skips (`savefiles_in_content_dir`, `save_shape_unsupported`)
-   proceed silently. When the sync moved something, the per-direction completion toast above reports it (uploaded /
-   downloaded / both); a failure's classified message appears in the dialog instead.
+   proceed silently; a missing saves folder (`saves_root_missing`) is a failure, so the dialog asks with the sentence
+   Main's notice shows for the folder — when it asks, and when the exit's toast says so, is
+   [The seven save states](save-sync-coverage.md#the-seven-save-states). With "Sync before launch" off the sync answers
+   that before it raises the save answer's refusal, so the dialog never asks about a sync that was switched off. When
+   the sync moved something, the per-direction completion toast above reports it (uploaded / downloaded / both); a
+   failure's classified message appears in the dialog instead.
 8. Offline: `check_local_drift`. A local save that changed since the last sync asks Start Anyway / Retry connection /
    Cancel; Retry runs the check again from the start.
 9. Re-confirm: `get_rom_relaunch_options`, bounded at 3 s, heals the shortcut's launch options. A timeout stops the
@@ -2115,8 +2122,8 @@ the quit line.
 Each launch guard logs one line per decision, whether it skips the gate or runs it. The launch watcher logs at `info`
 and the Play button at `debug`, so neither line is written at the default `warn` level. The line names the signal that
 decided (`session`, `store`, `stop` or `none`) beside the session state, whether a stop was observed, and the store's
-`diagnostics`. The launch watcher's line for a start it gates also names Steam's `launchSource` for it, which nothing
-acts on.
+`diagnostics` — every listed entry with its display status. The launch watcher's line for a start it gates also names
+Steam's `launchSource` for it, which nothing acts on.
 
 ### State-aware Resume button (#1313)
 

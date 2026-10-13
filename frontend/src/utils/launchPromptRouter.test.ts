@@ -13,6 +13,7 @@ const makePrompts = (): LaunchPrompts => ({
   resolveConflicts: vi.fn(),
   askOfflineDrift: vi.fn(),
   confirmFallbackLaunch: vi.fn(),
+  confirmUncheckedSource: vi.fn(),
 });
 
 const gamepad = makePrompts();

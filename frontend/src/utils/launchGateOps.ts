@@ -1,8 +1,9 @@
 /**
  * The gate's inputs ({@link LaunchGateOps}) for one ROM — the parts every launch
- * path asks the same way, built once here. A path supplies the two steps that put
- * something to the user, since only it knows where it may ask: the tracking setup
- * and the core-change question.
+ * path asks the same way, built once here. A path supplies the three steps that
+ * put something to the user, since only it knows where it may ask: the tracking
+ * setup, the core-change question and the question asked where the starting
+ * source could not be checked.
  */
 
 import {
@@ -15,13 +16,13 @@ import {
   preLaunchSync,
   probeReachability,
 } from "../api/backend";
-import { BENIGN_SYNC_SKIP_REASONS } from "../types";
 import { reportServerReachable } from "./connectionState";
 import { detach } from "./detach";
-import { LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
+import { BENIGN_SYNC_SKIP_REASONS, LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
 import type { LaunchGateOps, PreLaunchSyncOutcome } from "./launchGate";
 import { romHasLaunchTarget } from "./launchTarget";
 import { getMigrationState } from "./migrationStore";
+import { readStartingSource } from "./startingSource";
 import { saveSyncToastBody } from "./saveSyncToast";
 import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "./saveSetup";
 import { showToast } from "./toast";
@@ -121,6 +122,7 @@ export async function ensureTrackingConfiguredOnPage(romId: number): Promise<"pr
 export interface LaunchGateOpsOptions extends PreLaunchSyncOptions {
   ensureTrackingConfigured: () => Promise<"proceed" | "abort">;
   checkCoreChange: () => Promise<boolean>;
+  confirmUncheckedStartingSource: () => Promise<boolean>;
   /** Called as the pre-launch sync starts, for a trigger that shows it. */
   onSyncStart?: () => void;
 }
@@ -138,6 +140,8 @@ export function makeLaunchGateOps(romId: number, options: LaunchGateOpsOptions):
   return {
     migrationPending: () => getMigrationState().pending,
     hasLaunchTarget: () => romHasLaunchTarget(romId, tag),
+    readStartingSource: () => readStartingSource(tag),
+    confirmUncheckedStartingSource: options.confirmUncheckedStartingSource,
     ensureTrackingConfigured: options.ensureTrackingConfigured,
     checkCoreChange: options.checkCoreChange,
     checkReachability: async () => {

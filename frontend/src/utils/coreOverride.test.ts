@@ -117,6 +117,7 @@ describe("coreOverride — applyGameCoreChange", () => {
   it("toasts failure message on set failure", async () => {
     vi.mocked(backend.setGameCore).mockResolvedValue({
       success: false,
+      reason: "core_unavailable",
       message: "Core binary missing",
     });
     const onSuccess = vi.fn();
@@ -136,6 +137,8 @@ describe("coreOverride — applyGameCoreChange", () => {
   it("toasts fallback failure message on clear failure without message", async () => {
     vi.mocked(backend.clearGameCore).mockResolvedValue({
       success: false,
+      reason: "not_found",
+      message: "",
     });
     const onSuccess = vi.fn();
 

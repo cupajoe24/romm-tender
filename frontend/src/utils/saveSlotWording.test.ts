@@ -4,12 +4,10 @@ import {
   formatSlotDeleteDescription,
   formatSlotDeleteLines,
   rollbackFeedback,
-  slotDeleteFailureToast,
   switchSlotFailureMessage,
   unsupportedCopyMessage,
   unsupportedRestoreMessage,
 } from "./saveSlotWording";
-import type { EndpointFailure } from "../api/backend";
 import type { SlotDeleteInfo, SyncConflict } from "../types";
 
 describe("unsupportedRestoreMessage", () => {
@@ -373,27 +371,5 @@ describe("the reviewer's edges", () => {
       kind: "toast",
       message: "Save sync is off for this game: its saves are written beside the game file.",
     });
-  });
-});
-
-describe("slotDeleteFailureToast", () => {
-  it("explains the active-slot guard when reason='active_slot'", () => {
-    const info: EndpointFailure = { success: false, reason: "active_slot", message: "Slot is active" };
-    expect(slotDeleteFailureToast(info)).toBe("Cannot delete the active slot. Switch to a different slot first.");
-  });
-
-  it("surfaces the backend message when the server could not be reached", () => {
-    // The text only; that the modal stays shut is SlotPanel's (#626).
-    const info: EndpointFailure = {
-      success: false,
-      reason: "server_unreachable",
-      message: "Server unreachable — check your URL and ensure RomM is running",
-    };
-    expect(slotDeleteFailureToast(info)).toBe("Server unreachable — check your URL and ensure RomM is running");
-  });
-
-  it("surfaces the backend message for unrecognised failure reasons", () => {
-    const info: EndpointFailure = { success: false, reason: "weird", message: "Custom failure" };
-    expect(slotDeleteFailureToast(info)).toBe("Custom failure");
   });
 });

@@ -30,7 +30,7 @@ import { getPlaytimeScopeNotice } from "../api/backend";
 export const PLAYTIME_SCOPE_TITLE = "Cross-device playtime";
 
 /** Body text prompting the user to re-mint a scoped Client API Token. */
-export const PLAYTIME_SCOPE_MESSAGE = "Sign in again to enable cross-device playtime sync.";
+export const PLAYTIME_SCOPE_MESSAGE = "Your saved login cannot read cross-device playtime. A fresh sign-in enables it.";
 
 export interface PlaytimeScopeState {
   pending: boolean;

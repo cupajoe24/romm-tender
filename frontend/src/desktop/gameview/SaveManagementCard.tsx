@@ -42,12 +42,7 @@ import {
   sortSaveSlots,
   filterSaveSlotsForDisplay,
 } from "../../utils/saveHelpers";
-import {
-  copyToSlotFeedback,
-  rollbackFeedback,
-  slotDeleteFailureToast,
-  switchSlotFailureMessage,
-} from "../../utils/saveSlotWording";
+import { copyToSlotFeedback, rollbackFeedback, switchSlotFailureMessage } from "../../utils/saveSlotWording";
 import { announceSaveSync } from "../../utils/saveSyncEvents";
 import { executeManualSaveSync } from "../../utils/manualSaveSync";
 import { useDialogHost, type AskDialog } from "./dialogs/useDialogHost";
@@ -332,7 +327,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     try {
       const info = await getSlotDeleteInfo(romId, slotName);
       if (!info.success) {
-        showToast(slotDeleteFailureToast(info));
+        showToast(info.message);
         return;
       }
       setDeleteModalSlot(info);

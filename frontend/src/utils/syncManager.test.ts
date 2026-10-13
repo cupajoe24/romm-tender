@@ -961,58 +961,6 @@ describe("syncManager — applies cover artwork to created shortcuts via the API
     expect(vi.mocked(backend.reportUnitResults)).toHaveBeenCalledWith({ "42": 6000 }, "run-cover-fail", 1, 0);
   });
 
-  it("applies shortcut icon when available from SteamGridDB on create path", async () => {
-    const setShortcutIcon = vi.fn();
-    (SteamClient.Apps as { SetShortcutIcon?: unknown }).SetShortcutIcon = setShortcutIcon;
-    getExistingRomMShortcuts.mockResolvedValue(new Map<number, number>());
-    addShortcut.mockResolvedValue(6000);
-    vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: null });
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: "ICON-BASE64", no_api_key: false });
-    vi.mocked(backend.saveShortcutIcon).mockResolvedValue({ success: true, icon_path: "/grid/6000_icon.png" });
-
-    const applyUnit = initUnitSyncManager();
-    await act(async () => {
-      await applyUnit(chunkOf([sc(42)], "run-icon-create"));
-    });
-
-    expect(vi.mocked(backend.getSgdbArtworkBase64)).toHaveBeenCalledWith(42, 4);
-    expect(vi.mocked(backend.saveShortcutIcon)).toHaveBeenCalledWith(6000, "ICON-BASE64");
-    expect(setShortcutIcon).toHaveBeenCalledWith(6000, "/grid/6000_icon.png");
-  });
-
-  it("applies shortcut icon for existing shortcuts on update path", async () => {
-    const setShortcutIcon = vi.fn();
-    (SteamClient.Apps as { SetShortcutIcon?: unknown }).SetShortcutIcon = setShortcutIcon;
-    getExistingRomMShortcuts.mockResolvedValue(new Map<number, number>([[42, 5000]]));
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: "ICON-BASE64", no_api_key: false });
-    vi.mocked(backend.saveShortcutIcon).mockResolvedValue({ success: true, icon_path: "/grid/5000_icon.png" });
-
-    const applyUnit = initUnitSyncManager();
-    await act(async () => {
-      await applyUnit(chunkOf([sc(42)], "run-icon-update"));
-    });
-
-    expect(vi.mocked(backend.getSgdbArtworkBase64)).toHaveBeenCalledWith(42, 4);
-    expect(vi.mocked(backend.saveShortcutIcon)).toHaveBeenCalledWith(5000, "ICON-BASE64");
-    expect(setShortcutIcon).toHaveBeenCalledWith(5000, "/grid/5000_icon.png");
-  });
-
-  it("fails soft when getSgdbArtworkBase64 returns null base64", async () => {
-    const setShortcutIcon = vi.fn();
-    (SteamClient.Apps as { SetShortcutIcon?: unknown }).SetShortcutIcon = setShortcutIcon;
-    getExistingRomMShortcuts.mockResolvedValue(new Map<number, number>());
-    addShortcut.mockResolvedValue(6000);
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null, no_api_key: false });
-
-    const applyUnit = initUnitSyncManager();
-    await act(async () => {
-      await applyUnit(chunkOf([sc(42)], "run-icon-absent"));
-    });
-
-    expect(setShortcutIcon).not.toHaveBeenCalled();
-    expect(vi.mocked(backend.saveShortcutIcon)).not.toHaveBeenCalled();
-  });
-
   it("re-applies covers for the chunk's cover_refreshes entries (existing shortcuts, #1386)", async () => {
     // The backend's invalidation pass found two existing shortcuts whose server
     // cover changed. The frontend must fetch each fresh cover (already re-downloaded

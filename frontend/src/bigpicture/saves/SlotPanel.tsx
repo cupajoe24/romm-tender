@@ -12,11 +12,7 @@ import type { SaveStatus, SyncConflict, SaveSlotSummary, SlotSaveFile } from "..
 import { scrollFocusedToCenter } from "../../utils/scrollHelpers";
 import { reportServerReachable } from "../../utils/connectionState";
 import { MUTED_COLOR, computeSyncSummary, displaySlot } from "../../utils/saveHelpers";
-import {
-  formatSlotDeleteDescription,
-  slotDeleteFailureToast,
-  switchSlotFailureMessage,
-} from "../../utils/saveSlotWording";
+import { formatSlotDeleteDescription, switchSlotFailureMessage } from "../../utils/saveSlotWording";
 import { renderSaveFileRow } from "./SaveFileRow";
 import { InactiveSlotBody } from "./InactiveSlotBody";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";

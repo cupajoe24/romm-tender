@@ -76,6 +76,7 @@ const baseDetail: GameDetailState = {
   fileMissingAt: null,
   emulatorDataReason: null,
   emulatorSource: null,
+  emulatorPlatformSystem: null,
 };
 
 /** BiosAnswer with two files — one present required, one missing required. */
@@ -336,7 +337,11 @@ describe("EmulationSettings", () => {
   });
 
   it("shows an error message when setGameCore returns failure", async () => {
-    vi.mocked(setGameCore).mockResolvedValue({ success: false, message: "Core unavailable" });
+    vi.mocked(setGameCore).mockResolvedValue({
+      success: false,
+      reason: "core_unavailable",
+      message: "Core unavailable",
+    });
     await renderSettings({
       title: "Mario 64",
       detail: {

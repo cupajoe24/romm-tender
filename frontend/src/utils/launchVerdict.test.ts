@@ -3,6 +3,7 @@ import { toaster } from "../api/host";
 import * as launchGate from "./launchGate";
 import { actOnGateVerdict, runGateLoop, type GateLoopHooks, type LaunchPrompts } from "./launchVerdict";
 import { NO_LAUNCH_TARGET_TOAST_BODY } from "./launchTarget";
+import { startingSourceOffSentence } from "./emulatorSourceWording";
 import type { GateVerdict, LaunchGateOps } from "./launchGate";
 import type { SyncConflict } from "../types";
 
@@ -100,6 +101,15 @@ describe("actOnGateVerdict", () => {
     expect(await actOnGateVerdict(verdict, ROM_ID, hooks)).toBe("done");
     expectOnly(hooks, ["onDeclined"]);
     expect(toaster.toast).toHaveBeenCalledWith(expect.objectContaining({ body: NO_LAUNCH_TARGET_TOAST_BODY }));
+  });
+
+  it("a switched-off source is toasted by its kind, then declined", async () => {
+    const verdict: GateVerdict = { decision: "block", reason: "source_switched_off", source: "retrodeck" };
+    expect(await actOnGateVerdict(verdict, ROM_ID, hooks)).toBe("done");
+    expectOnly(hooks, ["onDeclined"]);
+    expect(toaster.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ body: startingSourceOffSentence("retrodeck") }),
+    );
   });
 
   it("a not-installed block is declined without a toast", async () => {

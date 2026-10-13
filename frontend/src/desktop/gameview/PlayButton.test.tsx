@@ -8,7 +8,6 @@ import * as downloadStore from "../../utils/downloadStore";
 import * as connectionState from "../../utils/connectionState";
 import * as connectionHeartbeat from "../../utils/connectionHeartbeat";
 import * as sessionManager from "../../utils/sessionManager";
-import * as runningApps from "../../utils/runningApps";
 import * as backend from "../../api/backend";
 import * as steamShortcuts from "../../utils/steamShortcuts";
 import * as metadataPatches from "../../utils/metadataPatches";
@@ -27,6 +26,7 @@ import type {
   TargetOccupiedResult,
 } from "../../types";
 
+import { stubAppStore } from "../../test-utils/steamStubs";
 vi.mock("../../utils/gameDetailStore", () => ({
   useGameDetail: vi.fn(),
   refreshSaveStatus: vi.fn(),
@@ -64,21 +64,19 @@ vi.mock("../../utils/connectionHeartbeat", () => ({
   CONNECTION_HEARTBEAT_INTERVAL_MS: 30_000,
 }));
 
-vi.mock("../../utils/sessionManager", async () => {
-  const { isAppRunning } = await import("../../utils/runningApps");
+/** Whether Steam lists the app as running, as the `readGameRunning` stand-in below reads it. */
+const steamListsApp = vi.hoisted(() => vi.fn((_appId: number) => false));
+
+vi.mock("../../utils/sessionManager", () => {
   const isSessionActive = vi.fn((_romId: number) => false);
   return {
     isSessionActive,
     readGameRunning: vi.fn((appId: number, romId: number | null | undefined) => {
-      const running = (romId != null && isSessionActive(romId)) || isAppRunning(appId);
+      const running = (romId != null && isSessionActive(romId)) || steamListsApp(appId);
       return { running, decidedBy: running ? "store" : "none", diagnostics: "" };
     }),
   };
 });
-
-vi.mock("../../utils/runningApps", () => ({
-  isAppRunning: vi.fn(() => false),
-}));
 
 vi.mock("../../utils/metadataPatches", () => ({
   updatePlaytimeDisplay: vi.fn(),
@@ -95,6 +93,7 @@ vi.mock("../../api/backend", async (importOriginal) => {
     isRenameCollisions: actual.isRenameCollisions,
     adoptExistingRom: vi.fn(),
     verifyExistingContent: vi.fn(),
+    checkStartSource: vi.fn(),
     getSaveStatus: vi.fn(),
     resolveSyncConflict: vi.fn(),
     ...BACKEND_STUBS,
@@ -157,19 +156,20 @@ describe("PlayButton", () => {
   beforeEach(() => {
     vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
     vi.mocked(sessionManager.isSessionActive).mockReturnValue(false);
-    vi.mocked(runningApps.isAppRunning).mockReturnValue(false);
+    steamListsApp.mockReturnValue(false);
     vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
     vi.mocked(backend.probeReachability).mockResolvedValue({ online: true });
+    vi.mocked(backend.checkStartSource).mockResolvedValue({ switched_off: null });
+    stubAppStore({});
     vi.mocked(backend.reconcilePlaytime).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getSaveSetupInfo).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getBiosStatus).mockImplementation(() => new Promise(() => {}));
     vi.mocked(backend.getAchievementProgress).mockResolvedValue({
       success: false,
-      earned: 0,
-      total: 0,
-      earned_achievements: [],
+      reason: "not_found",
+      message: "Not found",
     });
-    vi.mocked(backend.getAchievements).mockResolvedValue({ success: false, total: 0, achievements: [] });
+    vi.mocked(backend.getAchievements).mockResolvedValue({ success: false, reason: "not_found", message: "Not found" });
 
     (window as unknown as { SteamClient?: unknown }).SteamClient = {
       Apps: {
@@ -210,6 +210,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -261,6 +262,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -296,6 +298,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     const mockItem: DownloadItem = {
@@ -380,6 +383,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     const mockItem: DownloadItem = {
@@ -427,6 +431,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -474,6 +479,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -517,6 +523,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -567,6 +574,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
     const sessionChanged = (running: boolean, romId: number) =>
       act(() => {
@@ -636,6 +644,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -698,6 +707,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -754,6 +764,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -805,6 +816,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -854,6 +866,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     const { unmount } = render(<PlayButton appId={123} />);
@@ -924,6 +937,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -957,6 +971,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -1007,6 +1022,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -1043,6 +1059,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -1090,6 +1107,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     });
 
     render(<PlayButton appId={123} />);
@@ -1161,6 +1179,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     };
 
     it("displays 'disabled' in grey when saveSyncEnabled is false", () => {
@@ -1429,6 +1448,7 @@ describe("PlayButton", () => {
       fileMissingAt: null,
       emulatorDataReason: null,
       emulatorSource: null,
+      emulatorPlatformSystem: null,
     };
 
     it("does not render BIOS badge when firmware is not needed", () => {
@@ -1602,6 +1622,7 @@ describe("PlayButton", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       render(<PlayButton appId={123} />);
@@ -1645,6 +1666,7 @@ describe("PlayButton", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
       });
 
       vi.mocked(backend.getCachedGameDetail).mockResolvedValue({
@@ -1734,6 +1756,7 @@ describe("PlayButton", () => {
         fileMissingAt: null,
         emulatorDataReason: null,
         emulatorSource: null,
+        emulatorPlatformSystem: null,
         ...overrides,
       };
     }
