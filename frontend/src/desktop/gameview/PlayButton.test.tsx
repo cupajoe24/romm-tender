@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { formatLastPlayed } from "../../utils/formatters";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { PlayButton } from "./PlayButton";
@@ -1135,19 +1136,19 @@ describe("PlayButton", () => {
     });
     expect(screen.getByText("3 days ago")).toBeInTheDocument();
 
-    // 4. Same year, older than a week -> "10 Apr"
+    // 4. Same year, older than a week -> the formatter's date (formatters.test.ts pins its format)
     mockOverview.rt_last_time_played = Math.floor(new Date("2025-04-10T10:00:00Z").getTime() / 1000);
     act(() => {
       globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
     });
-    expect(screen.getByText("10 Apr")).toBeInTheDocument();
+    expect(screen.getByText(formatLastPlayed(mockOverview.rt_last_time_played))).toBeInTheDocument();
 
-    // 5. Prior year -> "20 Aug 2024"
+    // 5. Prior year -> the formatter's date with the year
     mockOverview.rt_last_time_played = Math.floor(new Date("2024-08-20T10:00:00Z").getTime() / 1000);
     act(() => {
       globalThis.dispatchEvent(new CustomEvent("romm_playtime_changed", { detail: { appId: 123 } }));
     });
-    expect(screen.getByText("20 Aug 2024")).toBeInTheDocument();
+    expect(screen.getByText(formatLastPlayed(mockOverview.rt_last_time_played))).toBeInTheDocument();
 
     vi.useRealTimers();
   });

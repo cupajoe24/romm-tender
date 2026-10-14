@@ -1,14 +1,3 @@
-/**
- * coreOverride.ts — Shared game emulator and core override management (#211, #945).
- *
- * Implements:
- * - Pinning a per-game emulator core override via `setGameCore`.
- * - Clearing an override / following the system core via `clearGameCore`.
- * - Prune lease protection with unmount cancellation suppression.
- * - Steam shortcut launch option confirmation and "restart Steam" alert when unconfirmed.
- * - Uniform toast notifications on success and failure matching Big Picture.
- */
-
 import { clearGameCore, debugLog, setGameCore } from "../api/backend";
 import { setLaunchOptionsConfirmed } from "./steamShortcuts";
 import { showToast } from "./toast";
@@ -20,7 +9,7 @@ import {
   withPruneLease,
 } from "./pruneLease";
 
-export interface ApplyGameCoreChangeParams {
+export interface GameCoreChangeParams {
   romId: number;
   coreLabel: string | null;
   leaseOwner: string;
@@ -28,47 +17,42 @@ export interface ApplyGameCoreChangeParams {
   logTag?: string;
 }
 
-export interface ApplyGameCoreChangeResult {
+/** What the desktop surface's core picker shows from a change: whether it took,
+ *  and the backend's message when it was refused. */
+export interface GameCoreChangeResult {
   success: boolean;
   message?: string;
-  unconfirmed?: boolean;
 }
 
-/**
- * Applies a per-game emulator core change:
- * - If `coreLabel` is a string: pins the specified core override via `setGameCore`.
- * - If `coreLabel` is null: clears the override via `clearGameCore` (reverting to system core).
- *
- * If backend RPC succeeds:
- * - When launch options are returned, confirms them with `setLaunchOptionsConfirmed`.
- * - If unconfirmed, toasts "Core saved — restart Steam to apply".
- * - If confirmed, toasts "Core set to {coreLabel}" or "Now following the system core", and calls `onSuccess`.
- *
- * If backend RPC fails or throws:
- * - Cancellations during unmount are logged and suppressed without toasting.
- * - Errors toast backend failure message or generic fallback.
- */
-export async function applyGameCoreChange({
+/** Pin *coreLabel* as the game's core, or follow the system core again when it is
+ *  `null`. The backend re-bakes the launch_options + returns the bound app_id for
+ *  an installed ROM; we confirm-set them on the Steam shortcut BEFORE toasting
+ *  success (R1). An unconfirmed bake gets a DISTINCT "restart Steam" toast and
+ *  the DB row is KEPT — migration/re-sync re-bake from the pin. Uninstalled/unbound
+ *  ROMs carry no launch_options/app_id: persist-only, no SetAppLaunchOptions. */
+export async function executeGameCoreChange({
   romId,
   coreLabel,
   leaseOwner,
   onSuccess,
   logTag = "Core selection",
-}: ApplyGameCoreChangeParams): Promise<ApplyGameCoreChangeResult> {
+}: GameCoreChangeParams): Promise<GameCoreChangeResult> {
   const isClear = coreLabel === null;
-  const defaultFailureMessage = isClear ? "Failed to reset core" : "Failed to set core";
+  const failureMessage = isClear ? "Failed to reset core" : "Failed to set core";
+  detach(debugLog(isClear ? `${logTag}: romId=${romId}` : `${logTag}: romId=${romId} coreLabel=${coreLabel}`));
   const admission = capturePruneLeaseAdmission(leaseOwner);
 
   try {
     const result = isClear ? await clearGameCore(romId) : await setGameCore(romId, coreLabel);
+    detach(debugLog(`${logTag}: result success=${result.success}`));
     return await withPruneLease(
       result.success ? result.prune_lease_token : undefined,
-      logTag,
+      "Core selection",
       async (signal) => {
         if (!result.success) {
-          const msg = result.message || defaultFailureMessage;
-          showToast(msg);
-          return { success: false, message: msg };
+          const message = result.message || "Failed to set core";
+          showToast(message);
+          return { success: false, message };
         }
 
         // Installed + bound: confirm the re-baked launch_options landed before
@@ -81,11 +65,11 @@ export async function applyGameCoreChange({
             // Never toast success on an unconfirmed bake. Keep the DB row — a Steam
             // restart (or the next migration/re-sync) re-bakes from the override.
             showToast("Core saved — restart Steam to apply");
-            return { success: true, unconfirmed: true };
+            return { success: true };
           }
         }
 
-        // Confirmed (or uninstalled/unbound: nothing to confirm) -> success.
+        // Confirmed (or uninstalled/unbound: nothing to confirm) → success.
         showToast(isClear ? "Now following the system core" : `Core set to ${coreLabel}`);
         await onSuccess?.();
         return { success: true };
@@ -94,11 +78,13 @@ export async function applyGameCoreChange({
       admission,
     );
   } catch (e) {
+    // The core pin is persisted before the Steam continuation runs, so a
+    // teardown cancellation is not a "failed to set core" the user must see.
     if (isPruneLeaseCancellation(e, admission)) {
       detach(debugLog(`${logTag}: continuation was cancelled: ${e}`));
       return { success: false };
     }
-    showToast(defaultFailureMessage);
-    return { success: false, message: defaultFailureMessage };
+    showToast(failureMessage);
+    return { success: false, message: failureMessage };
   }
 }

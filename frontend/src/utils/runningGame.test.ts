@@ -101,13 +101,12 @@ describe("runningGame", () => {
       );
     });
 
-    it("handles Navigation.Navigate throwing gracefully", () => {
+    it("lets a throwing Navigation.Navigate reach its caller", () => {
       vi.mocked(Navigation.Navigate).mockImplementationOnce(() => {
         throw new Error("Nav failure");
       });
 
-      expect(() => activateRunningApp(42, "testTag")).not.toThrow();
-      expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("testTag: Navigation.Navigate threw"));
+      expect(() => activateRunningApp(42, "testTag")).toThrow("Nav failure");
     });
   });
 
@@ -118,7 +117,7 @@ describe("runningGame", () => {
       const stopInFlightRef = { current: true };
       const onClearOverlay = vi.fn();
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -126,8 +125,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(false);
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(backend.debugLog).toHaveBeenCalledWith(
         expect.stringContaining("testTag: Stop ignored for appId=10 — a stop is already in flight"),
@@ -140,7 +137,7 @@ describe("runningGame", () => {
       const onClearOverlay = vi.fn();
       setRunning(false);
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -148,8 +145,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(false);
       expect(onClearOverlay).toHaveBeenCalledTimes(1);
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(backend.debugLog).toHaveBeenCalledWith(
@@ -163,7 +158,7 @@ describe("runningGame", () => {
       const onClearOverlay = vi.fn();
       setRunning(true);
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: null,
         tag: "testTag",
@@ -171,8 +166,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(false);
       expect(toast.showToast).toHaveBeenCalledWith("Couldn't stop the game — still loading its details");
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(stopInFlightRef.current).toBe(false);
@@ -184,7 +177,7 @@ describe("runningGame", () => {
       const confirmModal = vi.fn().mockResolvedValue(false);
       setRunning(true);
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -192,8 +185,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal,
       });
-
-      expect(stopped).toBe(false);
       expect(confirmModal).toHaveBeenCalledTimes(1);
       expect(backend.stopRunningGame).not.toHaveBeenCalled();
       expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("testTag: Stop cancelled for appId=10"));
@@ -211,7 +202,7 @@ describe("runningGame", () => {
         force_killed: 0,
       });
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -220,8 +211,6 @@ describe("runningGame", () => {
         onSetPending,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(true);
       expect(backend.stopRunningGame).toHaveBeenCalledWith(100);
       expect(onSetPending).toHaveBeenCalledWith(true);
       expect(onSetPending).toHaveBeenCalledWith(false);
@@ -241,7 +230,7 @@ describe("runningGame", () => {
         reason: "not_running",
       });
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -249,8 +238,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(true);
       expect(onClearOverlay).toHaveBeenCalledTimes(1);
       expect(stopInFlightRef.current).toBe(false);
     });
@@ -265,7 +252,7 @@ describe("runningGame", () => {
         message: "No matching process found",
       });
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -273,8 +260,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(false);
       expect(onClearOverlay).not.toHaveBeenCalled();
       expect(toast.showToast).toHaveBeenCalledWith("No matching process found");
       expect(backend.debugLog).toHaveBeenCalledWith(
@@ -289,7 +274,7 @@ describe("runningGame", () => {
       setRunning(true);
       vi.mocked(backend.stopRunningGame).mockRejectedValueOnce(new Error("Bridge died"));
 
-      const stopped = await executeStopRunningGame({
+      await executeStopRunningGame({
         appId: 10,
         romId: 100,
         tag: "testTag",
@@ -297,8 +282,6 @@ describe("runningGame", () => {
         onClearOverlay,
         confirmModal: confirmed,
       });
-
-      expect(stopped).toBe(false);
       expect(onClearOverlay).not.toHaveBeenCalled();
       expect(toast.showToast).toHaveBeenCalledWith("Couldn't stop the game");
       expect(backend.debugLog).toHaveBeenCalledWith(

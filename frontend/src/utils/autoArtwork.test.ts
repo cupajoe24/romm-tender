@@ -6,7 +6,6 @@ import * as backend from "../api/backend";
 
 vi.mock("./artwork", () => ({
   applyArtwork: vi.fn(),
-  cancelArtworkApply: vi.fn(),
 }));
 
 vi.mock("../api/backend", () => ({
@@ -15,7 +14,8 @@ vi.mock("../api/backend", () => ({
 
 describe("useAutoArtwork", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    vi.mocked(artwork.applyArtwork).mockResolvedValue(4);
     _resetArtworkAppliedForTests();
   });
 
@@ -23,14 +23,12 @@ describe("useAutoArtwork", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not call applyArtwork if romId is null", () => {
+  it("applies nothing if romId is null", () => {
     renderHook(() => useAutoArtwork(100, null));
     expect(artwork.applyArtwork).not.toHaveBeenCalled();
   });
 
-  it("calls applyArtwork once per (appId, romId) pair upon mount", async () => {
-    vi.mocked(artwork.applyArtwork).mockResolvedValue(4);
-
+  it("applies once per (appId, romId) pair", async () => {
     const { rerender } = renderHook(({ appId, romId }) => useAutoArtwork(appId, romId), {
       initialProps: { appId: 100, romId: 42 },
     });
@@ -40,14 +38,25 @@ describe("useAutoArtwork", () => {
       expect(artwork.applyArtwork).toHaveBeenCalledWith(42, 100);
     });
 
-    // Re-render with same (appId, romId) does not invoke applyArtwork again
+    // Re-render with same (appId, romId) does not apply again
     rerender({ appId: 100, romId: 42 });
     expect(artwork.applyArtwork).toHaveBeenCalledTimes(1);
   });
 
-  it("re-applies artwork when romId changes for the same appId (version switch)", async () => {
-    vi.mocked(artwork.applyArtwork).mockResolvedValue(4);
+  it("does not apply again when the page is opened again for a pair already applied", async () => {
+    const first = renderHook(() => useAutoArtwork(100, 42));
+    await waitFor(() => expect(artwork.applyArtwork).toHaveBeenCalledTimes(1));
+    first.unmount();
 
+    // A fresh mount runs the effect again; only the session's record of the
+    // applied pair stops a second apply.
+    renderHook(() => useAutoArtwork(100, 42));
+    await Promise.resolve();
+
+    expect(artwork.applyArtwork).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies again when romId changes for the same appId (version switch)", async () => {
     const { rerender } = renderHook(({ appId, romId }) => useAutoArtwork(appId, romId), {
       initialProps: { appId: 100, romId: 42 },
     });
@@ -65,7 +74,7 @@ describe("useAutoArtwork", () => {
     });
   });
 
-  it("logs with debugLog and does not mark as applied if applyArtwork fails, allowing retry on next visit", async () => {
+  it("logs with debugLog and does not mark as applied if the apply throws, so the next visit applies again", async () => {
     vi.mocked(artwork.applyArtwork).mockRejectedValue(new Error("network failure"));
 
     const { unmount } = renderHook(() => useAutoArtwork(100, 42, "CustomAutoArtwork"));
@@ -78,22 +87,12 @@ describe("useAutoArtwork", () => {
 
     unmount();
 
-    // Because it failed, it wasn't recorded as applied, so the next visit will retry
+    // Because it threw, it wasn't recorded as applied, so the next visit applies again
     vi.mocked(artwork.applyArtwork).mockResolvedValue(4);
     renderHook(() => useAutoArtwork(100, 42, "CustomAutoArtwork"));
 
     await waitFor(() => {
       expect(artwork.applyArtwork).toHaveBeenCalledTimes(2);
     });
-  });
-
-  it("cancels in-flight artwork application on unmount", () => {
-    const { unmount } = renderHook(() => useAutoArtwork(100, 42));
-
-    expect(artwork.cancelArtworkApply).not.toHaveBeenCalled();
-
-    unmount();
-
-    expect(artwork.cancelArtworkApply).toHaveBeenCalledWith(100);
   });
 });

@@ -12,13 +12,10 @@ import {
   UNSYNCED_SAVES_TITLE,
   unsyncedSavesDescription,
 } from "../../../utils/launchPromptWording";
+import type { UnsyncedSavesChoice, UnsyncedSavesPromptArgs } from "../../../utils/versionSwitch";
 import { DIALOG_ACTIONS_STYLE, DIALOG_TEXT_STYLE, DesktopDialog, dialogButtonStyle } from "./DesktopDialog";
 
-export type UnsyncedSavesChoice = "sync_and_switch" | "switch_anyway" | "cancel";
-
-export interface DesktopUnsyncedSavesDialogProps {
-  versionName: string;
-  serverReachable: boolean;
+export interface DesktopUnsyncedSavesDialogProps extends UnsyncedSavesPromptArgs {
   onChoice: (choice: UnsyncedSavesChoice) => void;
 }
 

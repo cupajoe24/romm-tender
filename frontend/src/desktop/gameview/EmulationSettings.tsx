@@ -23,7 +23,7 @@ import { biosSummary } from "../../utils/biosSummary";
 import type { BiosFileStatus, BiosLevel, EmulatorOption } from "../../types";
 import { detach } from "../../utils/detach";
 import { mountPruneLeaseOwner, releasePruneLeasesByOwner } from "../../utils/pruneLease";
-import { applyGameCoreChange } from "../../utils/coreOverride";
+import { executeGameCoreChange } from "../../utils/coreOverride";
 
 export interface EmulationSettingsProps {
   title: string;
@@ -388,7 +388,7 @@ export const EmulationSettings: FC<EmulationSettingsProps> = ({ title, detail, a
       setActionLoading(true);
       setActionError(null);
       try {
-        const result = await applyGameCoreChange({
+        const result = await executeGameCoreChange({
           romId,
           coreLabel: targetLabel,
           leaseOwner,

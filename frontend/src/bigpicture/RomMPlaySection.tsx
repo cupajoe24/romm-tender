@@ -31,7 +31,7 @@ import { VanishedVersionBanner } from "./VanishedVersionBanner";
 import { WarningCard } from "./WarningCard";
 import { useTriggerHandler } from "./emulatorStepping";
 import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
-import { applyArtwork } from "../utils/artwork";
+import { applyArtwork, cancelArtworkApply } from "../utils/artwork";
 import { useAutoArtwork } from "../utils/autoArtwork";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
@@ -56,7 +56,7 @@ import {
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
 } from "../utils/pruneLease";
-import { applyGameCoreChange } from "../utils/coreOverride";
+import { executeGameCoreChange } from "../utils/coreOverride";
 import { useGamePlaytime } from "../utils/playtimeReconcile";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
 import { formatBytes } from "../utils/formatters";
@@ -155,7 +155,6 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   // the reads and the romm_data_changed fold for all of them (#993).
   const detail = useGameDetail(appId);
   const fileMissing = detail.fileMissingAt !== null;
-  const playtimeInfo = useGamePlaytime(appId, detail.romId, "RomMPlaySection");
   // Badge derives from the shared store so it appears/disappears live on any
   // reachability signal (mount check, a failed/succeeded call, or the offline
   // recovery probe), not just at this mount's check (#1345).
@@ -172,6 +171,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   useEffect(() => {
     mountPruneLeaseOwner(`game-detail:${appId}`);
     return () => {
+      detach(cancelArtworkApply(appId));
       detach(releasePruneLeasesByOwner(`game-detail:${appId}`));
     };
   }, [appId]);
@@ -370,17 +370,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     };
   }, [appId]);
 
-  // Reconcile-on-view (#868) — pull-only: folds RomM's play-session history into
-  // the local total so a session played on another device shows up the moment the
-  // detail page opens. INTENTIONALLY NOT gated on connectivity (#1345): reconcile
-  // returns the LOCAL total even when the server is unreachable, so it re-injects
-  // real playtime into a rebuilt/rebound Steam overview instead of leaving it at
-  // "PLAYTIME None". Runs once romId is known (its own effect, so it fires after
-  // the store resolves romId rather than racing the connection check). Pushes
-  // the total through updatePlaytimeDisplay (the write-chokepoint), which emits
-  // romm_playtime_changed; the reactive PLAYTIME effect (#869) refreshes the
-  // display on the same mount. A 0 total no-ops in updatePlaytimeDisplay.
-
+  const playtimeInfo = useGamePlaytime(appId, detail.romId, "RomMPlaySection");
 
   // Helper: create an info item with header and value (Steam's two-line pattern)
   const infoItem = (key: string, header: string, value: string, extraClass?: string) => (
@@ -599,7 +589,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     const romId = detail.romId;
     if (!romId || !detail.platformSlug) return;
     const platformSlug = detail.platformSlug;
-    await applyGameCoreChange({
+    await executeGameCoreChange({
       romId,
       coreLabel,
       leaseOwner: `game-detail:${appId}`,
@@ -612,7 +602,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     const romId = detail.romId;
     if (!romId || !detail.platformSlug) return;
     const platformSlug = detail.platformSlug;
-    await applyGameCoreChange({
+    await executeGameCoreChange({
       romId,
       coreLabel: null,
       leaseOwner: `game-detail:${appId}`,

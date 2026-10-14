@@ -157,9 +157,13 @@ async function runWatcherGate(start: CancelledStart, romId: number, prompts: Lau
     toastSyncResult: false,
     ensureTrackingConfigured: () => ensureTrackingConfiguredWatcher(romId),
     checkCoreChange: () =>
-      confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange, (e) => {
-        logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
-      }),
+      confirmCoreChangeIfNeeded(
+        romId,
+        (oldLabel, newLabel) => prompts.confirmCoreChange(oldLabel, newLabel),
+        (e) => {
+          logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
+        },
+      ),
     confirmUncheckedStartingSource: () => prompts.confirmUncheckedSource(),
   });
   await runGateLoop(start.appId, romId, ops, {

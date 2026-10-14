@@ -27,7 +27,8 @@ import { DesktopOfflineDriftDialog } from "./DesktopOfflineDriftDialog";
 import { DesktopFallbackLaunchDialog } from "./DesktopFallbackLaunchDialog";
 import { DesktopCoreChangeDialog } from "./DesktopCoreChangeDialog";
 import { DesktopUncheckedSourceDialog } from "./DesktopUncheckedSourceDialog";
-import { DesktopUnsyncedSavesDialog, type UnsyncedSavesChoice } from "./DesktopUnsyncedSavesDialog";
+import { DesktopUnsyncedSavesDialog } from "./DesktopUnsyncedSavesDialog";
+import type { UnsyncedSavesChoice, UnsyncedSavesPromptArgs } from "../../../utils/versionSwitch";
 import { DesktopStopGameDialog } from "./DesktopStopGameDialog";
 
 export function desktopAdoptionDialogs(ask: AskDialog): AdoptionDialogs {
@@ -86,7 +87,7 @@ export function desktopUncheckedSourceDialog(ask: AskDialog): () => Promise<bool
 
 export function desktopUnsyncedSavesDialog(
   ask: AskDialog,
-): (args: { versionName: string; serverReachable: boolean }) => Promise<UnsyncedSavesChoice> {
+): (args: UnsyncedSavesPromptArgs) => Promise<UnsyncedSavesChoice> {
   return ({ versionName, serverReachable }) =>
     ask<UnsyncedSavesChoice>("cancel", (resolve) => (
       <DesktopUnsyncedSavesDialog versionName={versionName} serverReachable={serverReachable} onChoice={resolve} />

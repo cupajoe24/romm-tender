@@ -3,6 +3,8 @@ import { useGameDetail } from "../../utils/gameDetailStore";
 import { useRomMetadata } from "../../utils/useRomMetadata";
 import { coverCandidates } from "../desktopWindow";
 import { useAutoArtwork } from "../../utils/autoArtwork";
+import { cancelArtworkApply } from "../../utils/artwork";
+import { detach } from "../../utils/detach";
 import { registerConnectionHeartbeat } from "../../utils/connectionHeartbeat";
 import { resolveAppTitle } from "../../utils/steamOverview";
 import { useMigrationStatus } from "../../utils/migrationStore";
@@ -46,6 +48,12 @@ export const GameView: FC<GameViewProps> = ({ appId, showPlayButton }) => {
   const migration = useMigrationStatus();
 
   useEffect(() => registerConnectionHeartbeat(), []);
+  useEffect(
+    () => () => {
+      detach(cancelArtworkApply(appId));
+    },
+    [appId],
+  );
   useAutoArtwork(appId, detail.romId, "Desktop auto-artwork error");
 
   const metadata = useRomMetadata(detail.romId);

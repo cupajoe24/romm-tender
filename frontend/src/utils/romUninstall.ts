@@ -1,23 +1,15 @@
 /**
- * ROM uninstallation lifecycle utility.
- *
- * Encapsulates the complete removal workflow shared between Desktop and Big Picture:
- *   1. Capturing prune lease admission
- *   2. Invoking backend `remove_rom`
- *   3. Executing the prune lease continuation (clearing shortcut launch options and dispatching `romm_rom_uninstalled`)
- *   4. Invalidating cached game detail
- *   5. Surfacing toast feedback and handling unmount/cancellation without false error toasts
+ * Uninstalling a ROM: the backend removal, the launch-command reset that follows
+ * it, and saying how it went.
  */
 
 import { removeRom, debugLog } from "../api/backend";
-import { invalidateCachedGameDetail } from "./cachedGameDetailStore";
 import { setLaunchOptionsConfirmed } from "./steamShortcuts";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseCancelled,
   isPruneLeaseCancellation,
   withPruneLease,
-  type PruneLeaseAdmission,
 } from "./pruneLease";
 import { showToast } from "./toast";
 import { detach } from "./detach";
@@ -27,54 +19,53 @@ export interface RomUninstallOptions {
   appId: number;
   romName?: string | undefined;
   leaseOwner: string;
-  admission?: PruneLeaseAdmission | undefined;
   tag?: string | undefined;
   context?: string | undefined;
 }
 
-export interface RomUninstallResult {
-  success: boolean;
-  message?: string | undefined;
-  cancelled?: boolean | undefined;
-}
-
-export async function executeRomUninstall(options: RomUninstallOptions): Promise<RomUninstallResult> {
-  const { romId, appId, romName, leaseOwner, admission, tag = "handleUninstall", context = "ROM uninstall" } = options;
-  const currentAdmission = admission ?? capturePruneLeaseAdmission(leaseOwner);
+/** Remove the ROM's files and announce it; true once the removal is done and announced. */
+export async function executeRomUninstall(options: RomUninstallOptions): Promise<boolean> {
+  const { romId, appId, romName, leaseOwner, tag = "handleUninstall", context = "ROM uninstall" } = options;
+  const currentAdmission = capturePruneLeaseAdmission(leaseOwner);
 
   try {
     const result = await removeRom(romId);
     if (!result.success) {
       showToast(result.message || "Uninstall failed");
-      return { success: false, message: result.message };
+      return false;
     }
 
-    // Why the launch command is reset, and why best-effort: `removeInstallRecord`'s
-    // docstring in `bigpicture/CustomPlayButton.tsx`.
+    // Reset the shortcut's now-stale launch command to the uninstalled ""
+    // placeholder under the removal's lease. The reset keeps a raced-past
+    // not_installed launch from exec'ing a stale `flatpak run … '<path>'` (#1051);
+    // it is best-effort, so a launch-options hiccup never turns a removal that
+    // happened into an error.
     await withPruneLease(
       result.prune_lease_token,
       context,
       async (signal) => {
         if (isPruneLeaseCancelled(signal)) return;
         await setLaunchOptionsConfirmed(appId, "").catch(() => false);
-        if (isPruneLeaseCancelled(signal)) return;
-        globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
       },
       leaseOwner,
       currentAdmission,
     );
+    // The backend has removed the ROM whether the reset above ran to the end or
+    // its signal aborted it, so the game page and the pickers hear about it in
+    // both cases.
+    globalThis.dispatchEvent(new CustomEvent("romm_rom_uninstalled", { detail: { rom_id: romId } }));
 
-    invalidateCachedGameDetail(appId);
     showToast(`${romName || "ROM"} uninstalled`);
-    return { success: true };
+    return true;
   } catch (e) {
-    // The backend uninstall already committed before the continuation was torn
-    // down; reporting it as a failure would be a lie the user can't act on.
+    // A throw once the page's admission is stale is its teardown, not a failure the
+    // user can act on: the page is gone, and where the lease was refused the backend
+    // uninstall had already committed.
     if (isPruneLeaseCancellation(e, currentAdmission)) {
       detach(debugLog(`${tag}: continuation was cancelled: ${e}`));
-      return { success: false, cancelled: true };
+      return false;
     }
     showToast("Uninstall failed");
-    return { success: false, message: e instanceof Error ? e.message : "Uninstall failed" };
+    return false;
   }
 }

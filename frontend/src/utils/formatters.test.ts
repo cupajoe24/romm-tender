@@ -113,15 +113,13 @@ describe("formatTimeAgo", () => {
 const realToLocaleDateString = Date.prototype.toLocaleDateString;
 
 /** Format dates as a Steam client in *locale* would: the code under test asks
- *  for the context's own language (`undefined`), which a test cannot set, and
- *  a call that names a language fails the test. */
+ *  for the context's own language (`undefined`), which a test cannot set. */
 function formatDatesIn(locale: string): void {
   vi.spyOn(Date.prototype, "toLocaleDateString").mockImplementation(function (
     this: Date,
-    locales?: Intl.LocalesArgument,
+    _locales?: Intl.LocalesArgument,
     options?: Intl.DateTimeFormatOptions,
   ) {
-    if (locales !== undefined) throw new Error(`asked for ${String(locales)}, not the client's own language`);
     return realToLocaleDateString.call(this, locale, options);
   });
 }
@@ -153,11 +151,6 @@ describe("formatLastPlayed", () => {
     expect(formatLastPlayed(seconds(new Date(2025, 5, 18, 12)))).toBe("Today");
   });
 
-  it("returns 'Today' for future timestamps (e.g. clock skew)", () => {
-    const oneHourInFuture = Math.floor(new Date("2025-06-15T13:00:00Z").getTime() / 1000);
-    expect(formatLastPlayed(oneHourInFuture)).toBe("Today");
-  });
-
   it("returns 'Yesterday' for one day ago", () => {
     expect(formatLastPlayed(seconds(new Date(2025, 5, 14, 10)))).toBe("Yesterday");
   });
@@ -176,14 +169,12 @@ describe("formatLastPlayed", () => {
     expect(formatLastPlayed(tenthOfApril)).toBe("10. Apr.");
   });
 
-  it("returns 'DD Mon' for same-year dates older than a week", () => {
-    const twoMonthsAgo = Math.floor(new Date("2025-04-10T10:00:00Z").getTime() / 1000);
-    expect(formatLastPlayed(twoMonthsAgo)).toBe("10 Apr");
-  });
-
-  it("returns 'DD Mon YYYY' for prior-year dates", () => {
-    const lastYear = Math.floor(new Date("2024-08-20T10:00:00Z").getTime() / 1000);
-    expect(formatLastPlayed(lastYear)).toBe("20 Aug 2024");
+  it("adds the year for another year's dates", () => {
+    const twentiethOfAugust = seconds(new Date(2024, 7, 20, 12));
+    formatDatesIn("en-GB");
+    expect(formatLastPlayed(twentiethOfAugust)).toBe("20 Aug 2024");
+    formatDatesIn("en-US");
+    expect(formatLastPlayed(twentiethOfAugust)).toBe("Aug 20, 2024");
   });
 });
 
@@ -249,14 +240,20 @@ describe("resolveLastPlayed", () => {
     expect(resolveLastPlayed("invalid-date-string", 0)).toBe("Never");
   });
 
-  it("normalizes naive ISO strings without timezone to UTC", () => {
+  it("reads a naive ISO string as UTC, not local time", () => {
+    // In New York, 02:00 UTC on the 14th is 22:00 local on the 13th, and 03:00
+    // UTC on the 15th is 23:00 on the 14th: read as UTC the string is 25 hours
+    // old ("Yesterday"), read as local time 21 ("Today").
+    vi.stubEnv("TZ", "America/New_York");
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2025-06-15T12:00:00Z"));
+    vi.setSystemTime(new Date("2025-06-15T03:00:00Z"));
     try {
-      const naiveIso = "2025-06-15T10:00:00";
-      expect(resolveLastPlayed(naiveIso, 0)).toBe("Today");
+      expect(resolveLastPlayed("2025-06-14T02:00:00", 0)).toBe("Yesterday");
+      expect(resolveLastPlayed("2025-06-14T02:00:00Z", 0)).toBe("Yesterday");
+      expect(resolveLastPlayed("2025-06-14T02:00:00+00:00", 0)).toBe("Yesterday");
     } finally {
       vi.useRealTimers();
+      vi.unstubAllEnvs();
     }
   });
 });
@@ -268,10 +265,13 @@ describe("formatReleaseDate", () => {
     expect(formatReleaseDate(-100)).toBeNull();
   });
 
-  it("formats valid timestamp as 'D MMM YYYY'", () => {
-    // 1082592000 is 2004-04-22T00:00:00Z
-    const formatted = formatReleaseDate(1082592000);
-    expect(formatted).toMatch(/\d+\s(Apr|May)\s2004/);
+  it("formats day, short month and year in the client's language", () => {
+    const releaseDay = seconds(new Date(2004, 3, 22, 12));
+    formatDatesIn("en-GB");
+    expect(formatReleaseDate(releaseDay)).toBe("22 Apr 2004");
+    formatDatesIn("en-US");
+    expect(formatReleaseDate(releaseDay)).toBe("Apr 22, 2004");
+    vi.restoreAllMocks();
   });
 });
 

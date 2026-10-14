@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { executeRomUninstall } from "./romUninstall";
 import * as backend from "../api/backend";
-import { invalidateCachedGameDetail } from "./cachedGameDetailStore";
 import { setLaunchOptionsConfirmed } from "./steamShortcuts";
 import * as toast from "./toast";
 import * as pruneLease from "./pruneLease";
@@ -12,10 +11,6 @@ vi.mock("../api/backend", async (importOriginal) => ({
   debugLog: vi.fn(),
 }));
 
-vi.mock("./cachedGameDetailStore", () => ({
-  invalidateCachedGameDetail: vi.fn(),
-}));
-
 vi.mock("./steamShortcuts", () => ({
   setLaunchOptionsConfirmed: vi.fn().mockResolvedValue(true),
 }));
@@ -23,6 +18,14 @@ vi.mock("./steamShortcuts", () => ({
 vi.mock("./toast", () => ({
   showToast: vi.fn(),
 }));
+
+/** Record the rom ids every "romm_rom_uninstalled" announces until the returned stop is called. */
+function listenForUninstalls(): { romIds: number[]; stop: () => void } {
+  const romIds: number[] = [];
+  const listener = (event: WindowEventMap["romm_rom_uninstalled"]) => romIds.push(event.detail.rom_id);
+  globalThis.addEventListener("romm_rom_uninstalled", listener);
+  return { romIds, stop: () => globalThis.removeEventListener("romm_rom_uninstalled", listener) };
+}
 
 describe("executeRomUninstall", () => {
   beforeEach(() => {
@@ -37,9 +40,9 @@ describe("executeRomUninstall", () => {
       prune_lease_token: "test-token",
     });
 
-    const dispatchEventSpy = vi.spyOn(globalThis, "dispatchEvent");
+    const uninstalls = listenForUninstalls();
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId: 42,
       appId: 100,
       romName: "Super Mario 64",
@@ -48,17 +51,12 @@ describe("executeRomUninstall", () => {
       context: "testContext",
     });
 
-    expect(result).toEqual({ success: true });
+    expect(removed).toBe(true);
     expect(backend.removeRom).toHaveBeenCalledWith(42);
     expect(setLaunchOptionsConfirmed).toHaveBeenCalledWith(100, "");
-    expect(dispatchEventSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "romm_rom_uninstalled",
-        detail: { rom_id: 42 },
-      }),
-    );
-    expect(invalidateCachedGameDetail).toHaveBeenCalledWith(100);
+    expect(uninstalls.romIds).toEqual([42]);
     expect(toast.showToast).toHaveBeenCalledWith("Super Mario 64 uninstalled");
+    uninstalls.stop();
   });
 
   it("uses default 'ROM' in toast when romName is not provided", async () => {
@@ -68,13 +66,13 @@ describe("executeRomUninstall", () => {
       prune_lease_token: "test-token",
     });
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId: 42,
       appId: 100,
       leaseOwner: "test-owner",
     });
 
-    expect(result).toEqual({ success: true });
+    expect(removed).toBe(true);
     expect(toast.showToast).toHaveBeenCalledWith("ROM uninstalled");
   });
 
@@ -83,25 +81,27 @@ describe("executeRomUninstall", () => {
       success: false,
       message: "Server disk is read-only",
     });
+    const uninstalls = listenForUninstalls();
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId: 42,
       appId: 100,
       romName: "Super Mario 64",
       leaseOwner: "test-owner",
     });
 
-    expect(result).toEqual({ success: false, message: "Server disk is read-only" });
+    expect(removed).toBe(false);
     expect(setLaunchOptionsConfirmed).not.toHaveBeenCalled();
-    expect(invalidateCachedGameDetail).not.toHaveBeenCalled();
+    expect(uninstalls.romIds).toEqual([]);
     expect(toast.showToast).toHaveBeenCalledWith("Server disk is read-only");
+    uninstalls.stop();
   });
 
   it("handles teardown cancellation by logging to debugLog and suppressing toast", async () => {
     const error = new pruneLease.PruneLeaseAdmissionCancelled("unmounted");
     vi.mocked(backend.removeRom).mockRejectedValueOnce(error);
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId: 42,
       appId: 100,
       romName: "Super Mario 64",
@@ -109,7 +109,7 @@ describe("executeRomUninstall", () => {
       tag: "handleUninstall",
     });
 
-    expect(result).toEqual({ success: false, cancelled: true });
+    expect(removed).toBe(false);
     expect(backend.debugLog).toHaveBeenCalledWith(
       expect.stringContaining("handleUninstall: continuation was cancelled"),
     );
@@ -119,25 +119,25 @@ describe("executeRomUninstall", () => {
   it("handles unexpected exceptions by displaying a toast", async () => {
     vi.mocked(backend.removeRom).mockRejectedValueOnce(new Error("Network failure"));
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId: 42,
       appId: 100,
       romName: "Super Mario 64",
       leaseOwner: "test-owner",
     });
 
-    expect(result).toEqual({ success: false, message: "Network failure" });
+    expect(removed).toBe(false);
     expect(toast.showToast).toHaveBeenCalledWith("Uninstall failed");
   });
 
-  it("skips launch options reset and event dispatch if continuation signal is aborted", async () => {
+  it("skips the launch options reset but still announces the uninstall when the continuation signal is aborted", async () => {
     vi.mocked(backend.removeRom).mockResolvedValueOnce({
       success: true,
       message: "",
       prune_lease_token: "test-token",
     });
 
-    const dispatchEventSpy = vi.spyOn(globalThis, "dispatchEvent");
+    const uninstalls = listenForUninstalls();
 
     // Spy on withPruneLease and pass an aborted signal
     const withPruneLeaseSpy = vi
@@ -148,16 +148,16 @@ describe("executeRomUninstall", () => {
         return op(controller.signal);
       });
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId: 42,
       appId: 100,
       leaseOwner: "test-owner",
     });
 
-    expect(result).toEqual({ success: true });
+    expect(removed).toBe(true);
     expect(setLaunchOptionsConfirmed).not.toHaveBeenCalled();
-    expect(dispatchEventSpy).not.toHaveBeenCalled();
-    expect(invalidateCachedGameDetail).toHaveBeenCalledWith(100);
+    expect(uninstalls.romIds).toEqual([42]);
     withPruneLeaseSpy.mockRestore();
+    uninstalls.stop();
   });
 });

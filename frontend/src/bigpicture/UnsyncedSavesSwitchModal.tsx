@@ -1,4 +1,5 @@
 import { ConfirmModal, showModal } from "@decky/ui";
+import type { UnsyncedSavesChoice, UnsyncedSavesPromptArgs } from "../utils/versionSwitch";
 import {
   CANCEL_LABEL,
   SWITCH_ANYWAY_LABEL,
@@ -6,16 +7,6 @@ import {
   UNSYNCED_SAVES_TITLE,
   unsyncedSavesDescription,
 } from "../utils/launchPromptWording";
-
-/** What the user chose in the unsynced-saves switch confirm (#1298). */
-export type UnsyncedSavesChoice = "sync_and_switch" | "switch_anyway" | "cancel";
-
-interface UnsyncedSavesModalArgs {
-  /** Display name of the currently-bound version that would be stranded. */
-  versionName: string;
-  /** Whether RomM is reachable — decides if "Sync now & switch" is offered. */
-  serverReachable: boolean;
-}
 
 /**
  * Unsynced-saves confirm for switching away from a downloaded version (#1298).

@@ -134,7 +134,8 @@ export function usePlayLaunch({
         toastSyncResult: true,
         onSyncStart: () => setStateOverride("syncing"),
         ensureTrackingConfigured: () => ensureTrackingConfiguredOnPage(romId),
-        checkCoreChange: () => confirmCoreChangeIfNeeded(romId, prompts.confirmCoreChange),
+        checkCoreChange: () =>
+          confirmCoreChangeIfNeeded(romId, (oldLabel, newLabel) => prompts.confirmCoreChange(oldLabel, newLabel)),
         confirmUncheckedStartingSource: prompts.confirmUncheckedSource,
       });
       await runGateLoop(appId, romId, ops, {
@@ -182,7 +183,7 @@ export function usePlayLaunch({
     setShowMenu?.(false);
     setStateOverride("uninstalling");
 
-    const result = await executeRomUninstall({
+    const removed = await executeRomUninstall({
       romId,
       appId,
       romName,
@@ -190,7 +191,7 @@ export function usePlayLaunch({
       tag: "DesktopPlayButton",
     });
 
-    if (result.success) {
+    if (removed) {
       setStateOverride("download");
     } else {
       setStateOverride(null);
