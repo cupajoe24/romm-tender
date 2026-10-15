@@ -54,6 +54,10 @@ are sorted into dedicated lowercase subdirectories:
   - `desktop/settings/library/` — the Library tab: Platforms (list, detail with the core picker, BIOS files and removal)
     and Collections, over `utils/usePlatformsPage.ts`, `utils/useCollectionsPage.ts` and the Library page's words and
     views in `utils/`.
+  - `desktop/settings/save-sync/` — the Save Sync tab: the QAM's Save Sync section and registered devices list drawn for
+    the desktop over `utils/useSettingsPage.ts`, `utils/registeredDevices.ts`, `utils/settingsWording.ts` and
+    `utils/formatters.ts`. Default save slot is edited through `DefaultSlotDialog.tsx` (and reset to `"default"`),
+    history limit uses `Dropdown`, and the registered devices list renders as a Steam desktop table.
 
 ## What reaches a bundle
 

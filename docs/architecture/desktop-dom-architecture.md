@@ -275,12 +275,13 @@ Both are recomputed on every pinning update, because the cards change height, an
 
 ## The Tender Settings Window
 
-> **The frame is built and the Sync tab is drawn; the other nine tabs are blank.** `frontend/src/desktop/settings/` puts
-> a "Tender Settings" item in Steam's "Steam" menu and opens a window made from the parts of Steam's own settings
-> window, with the ten tabs below in its sidebar. What each tab will carry, and the ordered steps that remain, are on
-> the parity matrix ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The
-> section records what Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from
-> them, the decisions behind it, and the device checks still open.
+> **The frame is built and four tabs (Sync, Library, Connections, Save Sync) are drawn; the other six tabs are blank.**
+> `frontend/src/desktop/settings/` puts a "Tender Settings" item in Steam's "Steam" menu and opens a window made from
+> the parts of Steam's own settings window, with the ten tabs below in its sidebar. What each tab will carry, and the
+> ordered steps that remain, are on the parity matrix
+> ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records what
+> Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
+> behind it, and the device checks still open.
 
 ### What Steam's settings window is
 
@@ -546,6 +547,28 @@ Every confirm — removing shortcuts, deleting save or BIOS files, switching mor
 The tab holds its prune leases under the owner `tender-settings-library`, not the QAM page's `library-platforms`: a
 page's unmount releases every lease its owner holds, so closing the window must not release leases an open QAM page
 still holds. Whether the core picker's emulator menu opens inside the settings window is device check 8.
+
+### The Save Sync tab
+
+`desktop/settings/save-sync/` draws the Save Sync section and registered devices list of the QAM's
+[Settings](qam-panel.md#settings) page for the desktop client, over the same state and handlers
+(`utils/useSettingsPage.ts`), formatters and words (`utils/settingsWording.ts`, `utils/registeredDevices.ts`,
+`utils/formatters.ts`).
+
+The tab presents the master switch, and while enabled, displays the device registration status, launch/exit sync
+toggles, default save slot controls, server history retention limit, manual "Sync All Saves Now" trigger, and the
+registered devices table:
+
+- **Switches & Toggles**: Master enable, sync before launch, and sync after exit use Steam's `SettingsToggle`. Toggling
+  master enable on asks confirmation through `DesktopConfirmDialog` (`desktop/settings/settingsPrompts.tsx`).
+- **Default Save Slot**: Rendered using Steam's `Field` with the slot summary description placed above right-aligned
+  action buttons: `Edit` (which opens `DefaultSlotDialog` with an autofocus text input and trimmed validation) and
+  `Reset to default` (visible when the slot is not `"default"`).
+- **History Retention Limit**: Configured via Steam's `Dropdown` component (classified in `boot/steamModules.ts`),
+  matching Steam's native select inputs.
+- **Registered Devices**: Formatted as a desktop table (Device, Client, Last seen) using
+  `desktop/settings/settingsStyles.ts`, with current device identification and relative timestamp formatting via
+  `utils/registeredDevices.ts` and `utils/formatters.ts`.
 
 ### Moving the logic down first
 
