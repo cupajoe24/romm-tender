@@ -58,6 +58,10 @@ are sorted into dedicated lowercase subdirectories:
     the desktop over `utils/useSettingsPage.ts`, `utils/registeredDevices.ts`, `utils/settingsWording.ts` and
     `utils/formatters.ts`. Default save slot is edited through `DefaultSlotDialog.tsx` (and reset to `"default"`),
     history limit uses `Dropdown`, and the registered devices list renders as a Steam desktop table.
+  - `desktop/settings/controller/` — the Controller tab: the QAM's Controller section drawn for the desktop client over
+    `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Steam Input mode is configured with `Dropdown` inside a
+    `Field`, and Apply to All Shortcuts uses `DialogButton` with in-flight disabled protection and live status
+    reporting.
   - `desktop/settings/data-management/` — the Data Management tab: an inventory of what this device holds across six
     populations (Tender's shortcuts, Installed ROMs, Orphaned grid images, Other non-Steam games, Gone from RomM, and
     Recovery bundles) rendered as Steam-native setting cards (`DataManagementListPane.tsx`), with `DrillDown.tsx`
