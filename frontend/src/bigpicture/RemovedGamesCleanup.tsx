@@ -13,15 +13,12 @@ import {
   showModal,
 } from "@decky/ui";
 import {
-  cancelPrune,
   getPrunePreview,
   startPrune,
-  stagePruneInstalledSelection,
   logError,
   logInfo,
   logWarn,
   type PrunePreviewItem,
-  type PrunePreviewRequest,
   type PrunePreviewResult,
   type PruneScope,
 } from "../api/backend";
@@ -33,13 +30,36 @@ import {
   isPruneResultLost,
   onPruneStateChange,
   type PruneComplete,
-  type PruneGroupResult,
   type PruneProgress,
 } from "../utils/pruneStore";
 import { scrollNearestToTop } from "../utils/scrollHelpers";
 import { getSyncProgress, onSyncProgressChange } from "../utils/syncProgress";
 import { withTimeout } from "../utils/withTimeout";
 import type { PageRead } from "../utils/useDataPage";
+import {
+  CANCEL_HINT,
+  CANCELLING_HINT,
+  RESULT_LOST_MESSAGE,
+  completionDescription,
+  confirmBlockedReason,
+  confirmButtonLabel,
+  formatBytes,
+  omittedWarnings,
+  plural,
+  removedInGroup,
+  scanButtonDescription,
+  stageLabel,
+  verdictFor,
+  versionLine,
+} from "../utils/pruneWording";
+import {
+  finishedGroupsPercent,
+  loadRemainingPages,
+  requestFor,
+  requestPruneCancel,
+  stageInstalledSelections,
+  PRUNE_ENDPOINT_TIMEOUT_MS,
+} from "../utils/pruneReview";
 import {
   ButtonRow,
   CELL_CLIP,
@@ -52,14 +72,8 @@ import {
   type TableRegister,
 } from "./layout/pane";
 
-const PAGE_SIZE = 50;
-const SELECTION_PAGE_SIZE = 100;
-const PRUNE_ENDPOINT_TIMEOUT_MS = 15000;
-const RESULT_LOST_MESSAGE = "The cleanup result was lost — check your library and run the scan again.";
-/** What Cancel can and cannot promise — the running group is never rolled back. */
-const CANCEL_HINT = "Stops before the next game. The one being processed now finishes and reports what it changed.";
-/** Shown once Stop was pressed, so a second press never looks necessary. */
-const CANCELLING_HINT = "Stopping — finishing the current safe step, then reporting what changed.";
+export { STAGE_LABELS } from "../utils/pruneWording";
+export { stageInstalledSelections } from "../utils/pruneReview";
 
 /**
  * What makes the finished run's details region a focus stop.
@@ -84,66 +98,6 @@ const CANCELLING_HINT = "Stopping — finishing the current safe step, then repo
  * hand-written one would override a deliberate omission.
  */
 const DETAILS_REGION_STOP: { focusableIfEmpty: boolean } = { focusableIfEmpty: true };
-
-/**
- * Ask the backend to stop `runId`. Returns the message to surface, or null when
- * the request was accepted — the run's own terminal frame reports the outcome,
- * so a success here must not overwrite it with chatter.
- */
-async function requestPruneCancel(runId: string): Promise<string | null> {
-  logInfo(`[prune] Cancel pressed for run ${runId}`);
-  try {
-    const result = await withTimeout(cancelPrune(runId), PRUNE_ENDPOINT_TIMEOUT_MS);
-    if (!result.success) {
-      logWarn(`[prune] cancelPrune refused: reason=${result.reason ?? "none"}`);
-      return result.message;
-    }
-    logInfo(`[prune] cancelPrune accepted for run ${runId}`);
-    return null;
-  } catch (e) {
-    logError(`[prune] cancelPrune threw for run ${runId}: ${e}`);
-    return `Could not request cancellation: ${e}`;
-  }
-}
-
-const plural = (count: number, singular: string, pluralForm: string): string => (count === 1 ? singular : pluralForm);
-
-/**
- * The backend's stage slugs in the words the user reads — one entry per
- * `emit_progress` call site in `services/prune/`, and no others.
- * An unknown stage falls back to its slug with underscores opened up, so a new
- * backend stage degrades to something readable instead of vanishing; that
- * fallback is a safety net, not a licence to leave a real stage unmapped.
- *
- * Exported so a test can pin the key set against the backend's: an entry for a
- * stage that is never emitted hides a missing one behind it.
- */
-export const STAGE_LABELS: Record<string, string> = {
-  checking: "Checking with RomM",
-  creating_recovery: "Backing up",
-  recovery_sealed: "Backup complete",
-  removing_shortcut: "Removing the Steam shortcut",
-  removing: "Removing local data",
-  removed: "Done",
-};
-
-function stageLabel(stage: string): string {
-  return STAGE_LABELS[stage] ?? stage.replace(/_/g, " ");
-}
-
-/**
- * How full the bar is: the groups already behind the run, not the one in it.
- *
- * `current` names the group being worked on, so it is finished only once a later
- * frame moves past it. Counting it as done filled a one-group run before its
- * first byte moved, and a group publishes nothing during its longest phase — a
- * multi-hundred-megabyte content backup — so the bar sat at full for the whole
- * of it. Clamped: a frame that arrives late or out of order must not push the
- * fill past either end.
- */
-function finishedGroupsPercent(current: number, total: number): number {
-  return Math.min(100, Math.max(0, ((current - 1) / total) * 100));
-}
 
 /** Caption + bar for a running cleanup, shared by the dialog and Data Management's Gone from RomM pane. */
 const CleanupProgress: FC<{ progress: PruneProgress }> = ({ progress }) => (
@@ -172,209 +126,134 @@ const CleanupProgress: FC<{ progress: PruneProgress }> = ({ progress }) => (
  */
 const FinishedCleanupBar: FC = () => <ProgressBar nProgress={100} />;
 
-/** How many rows a group actually removed, however the frame reported it. */
-function removedInGroup(item: { removed_count?: number; removed_rom_ids?: number[] }): number {
-  return item.removed_count ?? item.removed_rom_ids?.length ?? 0;
+/** Game, Platform, Verdict, Installed, Keep a copy. */
+const CANDIDATE_COLUMNS = "minmax(0, 1fr) 64px 160px 64px 72px";
+
+/** The pane's register without its gutter: the dialog body is padded already. */
+const CANDIDATE_REGISTER: TableRegister = { rowPadding: "4px 0", headerPadding: "0 0 4px", rule: true };
+
+const SECONDARY_CELL: CSSProperties = { color: MUTED, fontSize: SECONDARY_FONT, fontVariantNumeric: "tabular-nums" };
+
+const ROW_WARNING: CSSProperties = { color: "#e5a43b", fontSize: SECONDARY_FONT };
+
+function installedCell(item: PrunePreviewItem): TableCell {
+  const style = { ...SECONDARY_CELL, textAlign: "right" } as const;
+  if (!item.installed) return { content: "—", title: "No ROM files on this device", style };
+  if (item.installed_bytes === null) return { content: "unknown", title: "Size unavailable", style };
+  return { content: formatBytes(item.installed_bytes), style };
 }
 
-/** How many of a group's warnings the backend left out at its per-group cap. */
-function omittedWarnings(item: PruneGroupResult): number {
-  return item.warnings_omitted ? Math.max(0, (item.warning_count ?? 0) - (item.warnings?.length ?? 0)) : 0;
-}
-
-/** The finished run's line on Data Management: what went wrong or warned, and how many warnings were left out. */
-function completionDescription(complete: PruneComplete): string {
-  const shown = complete.results.filter((item) => item.status !== "removed" || (item.warnings?.length ?? 0) > 0);
-  return [
-    complete.message,
-    ...shown.flatMap((item) => [
-      item.message,
-      ...(item.warnings ?? []).map((warning) => `Warning: ${warning}`),
-      omittedWarnings(item) > 0 ? `${omittedWarnings(item)} additional warning(s) omitted.` : "",
-    ]),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function requestFor(
-  scope: PruneScope,
-  romId: number | null,
-  previewId: string | null,
-  offset: number,
-): PrunePreviewRequest {
-  return { scope, rom_id: romId, preview_id: previewId, offset, limit: PAGE_SIZE };
-}
-
-/** Where {@link loadRemainingPages} puts what it fetched, and whether it still may. */
-interface PageLoadSink {
-  isCurrent: () => boolean;
-  addRows: (rows: PrunePreviewItem[], freeBytes: number | undefined) => void;
-  fail: (message: string, loaded: number) => void;
-  allArrived: () => void;
-}
-
-/**
- * Fetch a preview's pages after its first `from` rows, one after another, until
- * the whole list is here. A page that fails stops the loop and stays stopped —
- * Confirm keeps refusing and Retry resumes from the rows already loaded — rather
- * than retrying by itself against a backend that may keep failing.
- */
-async function loadRemainingPages(
-  preview: { scope: PruneScope; romId: number | null; previewId: string; total: number },
-  from: number,
-  sink: PageLoadSink,
-): Promise<void> {
-  let loaded = from;
-  const fail = (message: string): void => {
-    if (sink.isCurrent()) sink.fail(message, loaded);
-  };
-  while (loaded < preview.total) {
-    let page: PrunePreviewResult;
-    try {
-      page = await withTimeout(
-        getPrunePreview(requestFor(preview.scope, preview.romId, preview.previewId, loaded)),
-        PRUNE_ENDPOINT_TIMEOUT_MS,
-      );
-    } catch (e) {
-      fail(`Could not load the rest of the list: ${e}`);
-      return;
-    }
-    if (!sink.isCurrent()) return;
-    if (!page.success) {
-      fail(page.message ?? "Could not load the rest of the list.");
-      return;
-    }
-    const rows = page.items ?? [];
-    // The list cannot shrink under a preview, so an empty page short of the
-    // total would otherwise ask for the same offset forever.
-    if (rows.length === 0) {
-      fail("The list ended before every entry arrived.");
-      return;
-    }
-    loaded += rows.length;
-    sink.addRows(rows, typeof page.free_bytes === "number" ? page.free_bytes : undefined);
-  }
-  if (sink.isCurrent()) sink.allArrived();
-}
-
-/**
- * Why Confirm is unavailable, in the user's words. Several of these conditions
- * already render a warning somewhere in the dialog, but the dialog scrolls —
- * a greyed button with its explanation off-screen reads as a dead control, and
- * a press that does nothing at all is indistinguishable from a broken backend.
- */
-function confirmBlockedReason(state: {
-  completed: boolean;
+const CandidateRow: FC<{
+  item: PrunePreviewItem;
+  included: boolean;
+  recovery: boolean;
   runInFlight: boolean;
-  allEntriesLoaded: boolean;
-  loaded: number;
-  total: number;
-  pageLoadFailed: boolean;
-  destructiveConfirmed: boolean;
-  insufficientSpace: boolean;
-  unknownSelectedSize: boolean;
-  anyOptionChosen: boolean;
-}): { text: string; aboutList: boolean } | null {
-  const other = (text: string) => ({ text, aboutList: false });
-  if (state.completed) return null;
-  if (state.runInFlight) return other("A cleanup is already running.");
-  if (!state.allEntriesLoaded) {
-    return {
-      text: state.pageLoadFailed
-        ? `The list stopped loading at ${state.loaded} of ${state.total} entries. Retry loading before confirming.`
-        : `The list is still loading (${state.loaded} of ${state.total} entries). A cleanup can start once every entry has arrived.`,
-      aboutList: true,
-    };
-  }
-  if (!state.destructiveConfirmed) return other("Confirm you understand there will be no recovery bundle.");
-  if (state.insufficientSpace) {
-    return other(
-      state.unknownSelectedSize
-        ? "A selected ROM's size can't be measured, so the recovery bundle can't be guaranteed to fit."
-        : "The selected ROM content doesn't fit in the free space at the recovery target.",
-    );
-  }
-  if (!state.anyOptionChosen) return other("Choose at least one cleanup option above.");
-  return null;
-}
+  onInclude: (checked: boolean) => void;
+}> = ({ item, included, recovery, runInFlight, onInclude }) => {
+  const name = item.name || item.fs_name || `ROM ${item.rom_id}`;
+  const verdict = verdictFor(item);
+  const keepCopy: TableCell = item.installed
+    ? {
+        content: (
+          <ToggleField
+            checked={included}
+            disabled={runInFlight || !recovery}
+            bottomSeparator="none"
+            onChange={onInclude}
+          />
+        ),
+        title: "Include this version's installed ROM content in the recovery bundle",
+        // A control draws its focus ring outside its own box.
+        clip: false,
+      }
+    : { content: "—", style: { ...SECONDARY_CELL, textAlign: "right" } };
+  return (
+    <PaneTableRow
+      columns={CANDIDATE_COLUMNS}
+      register={CANDIDATE_REGISTER}
+      testId={`cleanup-row-${item.rom_id}`}
+      // An installed row's Keep-a-copy toggle is its stop already.
+      focusStop={!item.installed}
+      {...(item.candidate ? {} : { style: { opacity: 0.75 } })}
+      cells={[
+        {
+          content: name,
+          title: name,
+          ...(item.candidate ? { style: { fontWeight: 600 } } : {}),
+        },
+        { content: item.platform_slug, title: item.platform_slug, style: SECONDARY_CELL },
+        {
+          content: verdict.short,
+          title: verdict.full,
+          style: { fontSize: SECONDARY_FONT, color: item.candidate ? "#c7d5e0" : MUTED },
+        },
+        installedCell(item),
+        keepCopy,
+      ]}
+    >
+      <div style={{ ...SECONDARY_CELL, ...CELL_CLIP }} title={versionLine(item, name)}>
+        {versionLine(item, name)}
+      </div>
+      {item.warning && <div style={ROW_WARNING}>{item.warning}</div>}
+      {item.installed && (!recovery || !included) && (
+        <div style={ROW_WARNING}>Without a backup, the downloaded ROM file is deleted along with this version.</div>
+      )}
+    </PaneTableRow>
+  );
+};
 
 /**
- * Stage the installed-content opt-ins page by page, chaining each page onto the
- * selection the previous one opened. A refused page reports itself and stops the
- * whole Confirm — a partially staged selection must never reach the run.
- *
- * Exported so a test can pin the page boundary directly: reaching it through the
- * dialog needs one rendered row and one click per selected id, which makes the
- * cost of proving it grow with the boundary it is proving.
+ * The candidates, then — as a section of the same table — the other versions a
+ * whole-game removal could still take. The backend sorts candidates first, so
+ * the first non-candidate row is where that section starts.
  */
-export async function stageInstalledSelections(
-  previewId: string,
-  selected: number[],
-  setStatus: (message: string) => void,
-): Promise<{ ok: true; selectionId: string | null } | { ok: false }> {
-  let selectionId: string | null = null;
-  for (let offset = 0; offset < selected.length; offset += SELECTION_PAGE_SIZE) {
-    const page = selected.slice(offset, offset + SELECTION_PAGE_SIZE);
-    const staged: {
-      success: boolean;
-      selection_id?: string;
-      message?: string;
-    } = await withTimeout(
-      stagePruneInstalledSelection({
-        preview_id: previewId,
-        selection_id: selectionId,
-        rom_ids: page,
-        final: offset + page.length >= selected.length,
-      }),
-      PRUNE_ENDPOINT_TIMEOUT_MS,
-    );
-    if (!staged.success || !staged.selection_id) {
-      setStatus(staged.message ?? "Installed-content selections could not be staged.");
-      logWarn(`[prune] Confirm aborted while staging installed content: ${staged.message ?? "no message"}`);
-      return { ok: false };
-    }
-    selectionId = staged.selection_id;
-  }
-  return { ok: true, selectionId };
-}
-
-/** What the Confirm button says: pressed, then the run's current stage, then how many versions it removes. */
-function confirmButtonLabel(starting: boolean, progress: PruneProgress | null, versionsRemoved: number): string {
-  if (starting) return "Starting...";
-  if (progress) return `${stageLabel(progress.stage)}...`;
-  return `Remove ${versionsRemoved} ${plural(versionsRemoved, "version", "versions")}`;
-}
-
-/** The summary's counts, in the order the dialog states them, each left out where it is zero. */
-function countLabels(counts: CleanupCounts): string[] {
-  const kept =
-    counts.keptForShortcut > 0
-      ? [
-          `${counts.keptForShortcut} ${plural(counts.keptForShortcut, "version kept because a shortcut is on it", "versions kept because a shortcut is on them")}`,
-        ]
-      : [];
-  if (counts.versionsRemoved === 0) return kept;
-  return [
-    `${counts.versionsRemoved} ${plural(counts.versionsRemoved, "version", "versions")} removed`,
-    ...(counts.gamesRemovedWithShortcut > 0
-      ? [
-          `${counts.gamesRemovedWithShortcut} ${plural(counts.gamesRemovedWithShortcut, "game removed with its shortcut", "games removed with their shortcut")}`,
-        ]
-      : []),
-    ...(counts.filesDeleted > 0
-      ? [`${counts.filesDeleted} downloaded ${plural(counts.filesDeleted, "file", "files")} deleted`]
-      : []),
-    ...kept,
-  ];
-}
-
-/** Why the scan button is unavailable, or nothing when it is not. */
-function scanButtonDescription(syncRunning: boolean, runActive: boolean): string | undefined {
-  if (syncRunning) return "Unavailable while a library sync is running.";
-  if (runActive) return "A cleanup is running. Its progress is shown below.";
-  return undefined;
-}
+const CandidateTable: FC<{
+  items: readonly PrunePreviewItem[];
+  includedContent: ReadonlySet<number>;
+  recovery: boolean;
+  runInFlight: boolean;
+  onInclude: (romId: number, checked: boolean) => void;
+}> = ({ items, includedContent, recovery, runInFlight, onInclude }) => (
+  <div data-testid="cleanup-table" style={{ marginTop: "14px" }}>
+    <PaneTableHeader
+      columns={CANDIDATE_COLUMNS}
+      register={CANDIDATE_REGISTER}
+      testId="cleanup-header"
+      cells={[
+        "Game",
+        "Platform",
+        "Verdict",
+        { content: "Installed", style: { textAlign: "right" } },
+        { content: "Keep a copy", style: { textAlign: "right" } },
+      ]}
+    />
+    {items.map((item, index) => (
+      <Fragment key={item.rom_id}>
+        {!item.candidate && (index === 0 || items[index - 1]!.candidate) && (
+          <div data-testid="cleanup-kept-section" style={{ margin: "12px 0 4px" }}>
+            <div style={{ fontWeight: 700 }}>Other versions of these games — still on RomM</div>
+            <div style={{ fontSize: SECONDARY_FONT, color: MUTED }}>
+              Still on RomM at your last sync. Each is removed only if the final check finds every version of its game
+              gone — then the whole game goes, Steam shortcut included.
+            </div>
+          </div>
+        )}
+        {/* Steam scrolls only far enough to reveal the focused control, so
+            reaching the last row brings up what sits under it — its own lines,
+            and the note after the table. */}
+        <div {...(index === items.length - 1 ? { onFocus: scrollNearestToBottom } : {})}>
+          <CandidateRow
+            item={item}
+            included={includedContent.has(item.rom_id)}
+            recovery={recovery}
+            runInFlight={runInFlight}
+            onInclude={(checked) => onInclude(item.rom_id, checked)}
+          />
+        </div>
+      </Fragment>
+    ))}
+  </div>
+);
 
 /** A run in flight: its caption and bar, and the Stop that ends it. */
 const CleanupRunProgress: FC<{ progress: PruneProgress; cancelling: boolean; onStop: () => void }> = ({
