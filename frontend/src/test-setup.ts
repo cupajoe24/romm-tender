@@ -397,6 +397,27 @@ vi.mock("@decky/ui", () => {
         // user-facing copy, so it has to be assertable rather than dropped.
         p.description == null ? null : createElement("span", { "data-testid": "toggle-desc" }, p.description as never),
       ),
+    Dropdown: (
+      p: AnyProps & {
+        rgOptions?: { data: unknown; label: unknown }[];
+        selectedOption?: unknown;
+        onChange?: (opt: { data: unknown; label: unknown }) => void;
+      },
+    ) =>
+      createElement(
+        "select",
+        {
+          "data-testid": "dropdown",
+          value: p.selectedOption != null ? String(p.selectedOption) : undefined,
+          onChange: (e: { target: { value: string } }) => {
+            const opt = p.rgOptions?.find((o) => String(o.data) === e.target.value);
+            if (opt && p.onChange) p.onChange(opt);
+          },
+        },
+        p.rgOptions?.map((o) =>
+          createElement("option", { key: String(o.data), value: String(o.data) }, o.label as never),
+        ),
+      ),
     DropdownItem: (p: AnyProps) => createElement("select", {}, p.children as never),
     // Per-prop testids so bar wiring (nProgress / indeterminate) is assertable
     // without a local re-mock; mirrors DownloadProgressRow's own stub.

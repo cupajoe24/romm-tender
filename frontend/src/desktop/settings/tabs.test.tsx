@@ -10,6 +10,7 @@ import {
 } from "./tabs";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { LibraryTab } from "./library/LibraryTab";
+import { SaveSyncTab } from "./save-sync/SaveSyncTab";
 import { SyncTab } from "./sync/SyncTab";
 
 const EVERY_TAB: readonly SettingsTab[] = [
@@ -71,7 +72,7 @@ describe("the settings window's tabs", () => {
       expect(page.icon).toBeTruthy();
       if (page.content !== null) drawn.push(String(page.title));
     }
-    expect(drawn).toEqual(["Sync", "Library", "Connections"]);
+    expect(drawn).toEqual(["Sync", "Library", "Connections", "Save Sync"]);
   });
 
   it("draws the Sync tab as SyncTab", () => {
@@ -87,6 +88,11 @@ describe("the settings window's tabs", () => {
   it("draws the Connections tab as ConnectionsTab", () => {
     const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Connections");
     expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(ConnectionsTab);
+  });
+
+  it("draws the Save Sync tab as SaveSyncTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Save Sync");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(SaveSyncTab);
   });
   it("reads a tab back from its route and nothing from any other route", () => {
     for (const tab of EVERY_TAB) expect(settingsTabOfRoute(settingsTabRoute(tab))).toBe(tab);

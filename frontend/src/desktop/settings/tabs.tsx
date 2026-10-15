@@ -21,6 +21,7 @@ import {
 import type { SettingsTab } from "../../types/navigation";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { LibraryTab } from "./library/LibraryTab";
+import { SaveSyncTab } from "./save-sync/SaveSyncTab";
 import { SyncTab } from "./sync/SyncTab";
 
 interface TabEntry {
@@ -35,7 +36,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   library: { title: "Library", Icon: FaLayerGroup, Content: LibraryTab },
   downloads: { title: "Downloads", Icon: FaDownload, Content: null },
   connections: { title: "Connections", Icon: FaPlug, Content: ConnectionsTab },
-  "save-sync": { title: "Save Sync", Icon: FaSave, Content: null },
+  "save-sync": { title: "Save Sync", Icon: FaSave, Content: SaveSyncTab },
   controller: { title: "Controller", Icon: FaGamepad, Content: null },
   "steam-library": { title: "Steam Library", Icon: FaSteam, Content: null },
   updates: { title: "Updates", Icon: FaArrowCircleUp, Content: null },
