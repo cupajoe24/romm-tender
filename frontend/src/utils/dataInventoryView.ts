@@ -8,6 +8,7 @@
 
 import type { RecoveryBundleEntry } from "../types";
 import type { DataRowId } from "./dataRows";
+import { formatBytes } from "./formatters";
 import { fuzzyMatch } from "./fuzzyMatch";
 import { pluralize } from "./pluralize";
 import {
@@ -156,4 +157,102 @@ export function toggleWhitelistApp(
 export function filterForeignApps(apps: readonly NonSteamApp[], search: string): NonSteamApp[] {
   if (!search) return [...apps];
   return apps.filter((app) => fuzzyMatch(search, app.name));
+}
+
+/**
+ * A static explanatory sentence for each data population.
+ */
+export function rowBaseDescription(id: DataRowId): string {
+  switch (id) {
+    case "shortcuts":
+      return "The Steam entries Tender created for your RomM games.";
+    case "rom-files":
+      return "The ROM files Tender downloaded to your device.";
+    case "grid-images":
+      return "Leftover artwork and grid images whose shortcuts no longer exist.";
+    case "non-steam":
+      return "Everything in your Steam library that neither Steam nor Tender installed.";
+    case "removed-games":
+      return "Games whose entry is gone from your RomM server while local data remains.";
+    case "recovery-bundles":
+      return "Snapshots sealed before game removals, kept for recovery.";
+  }
+}
+
+/**
+ * The live figure or scan status of a data population for desktop setting cards.
+ */
+export function rowStatus(id: DataRowId, state: DataPageState): string {
+  switch (id) {
+    case "shortcuts": {
+      if (state.shortcutCount.state === "answered") {
+        return `${pluralize(state.shortcutCount.value, "shortcut")} in Steam`;
+      }
+      if (state.shortcutCount.state === "reading") {
+        return "Reading…";
+      }
+      return "Could not be read";
+    }
+    case "rom-files": {
+      if (state.inventory.state === "answered") {
+        const { installed_roms, installed_bytes } = state.inventory.value;
+        return `${pluralize(installed_roms, "installed ROM")} (≈ ${formatBytes(installed_bytes)})`;
+      }
+      if (state.inventory.state === "reading") {
+        return "Reading…";
+      }
+      return "Could not be read";
+    }
+    case "grid-images": {
+      if (state.orphanedGridImages.state === "answered") {
+        return `${pluralize(state.orphanedGridImages.value, "orphaned image")} found`;
+      }
+      if (state.orphanedGridImages.state === "reading") {
+        return "Scanning…";
+      }
+      if (state.orphanedGridImages.state === "failed") {
+        return "Scan failed";
+      }
+      return "Not scanned yet";
+    }
+    case "non-steam": {
+      if (state.foreignApps.state === "answered") {
+        return pluralize(state.foreignApps.value.length, "entry");
+      }
+      if (state.foreignApps.state === "reading") {
+        return "Reading…";
+      }
+      return "Could not be read";
+    }
+    case "removed-games": {
+      if (state.removedGames.state === "answered") {
+        return `${pluralize(state.removedGames.value, "game")} found`;
+      }
+      if (state.removedGames.state === "reading") {
+        return "Scanning…";
+      }
+      if (state.removedGames.state === "failed") {
+        return "Scan failed";
+      }
+      return "Not scanned yet";
+    }
+    case "recovery-bundles": {
+      if (state.inventory.state === "answered") {
+        const { recovery_bundles, recovery_bytes } = state.inventory.value;
+        return `${pluralize(recovery_bundles, "bundle")} (${formatBytes(recovery_bytes)})`;
+      }
+      if (state.inventory.state === "reading") {
+        return "Reading…";
+      }
+      return "Could not be read";
+    }
+  }
+}
+
+/**
+ * A concise summary of a population and its live figures for desktop setting cards.
+ */
+export function rowDescription(id: DataRowId, state: DataPageState): string {
+  const base = rowBaseDescription(id).replace(/\.$/, "");
+  return `${base} · ${rowStatus(id, state)}`;
 }

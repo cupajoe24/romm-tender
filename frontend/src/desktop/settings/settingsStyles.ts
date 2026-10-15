@@ -18,6 +18,27 @@ export const PALE_GREEN = "#8fc46b";
 /** The BIOS table's second mark: a file the RomM library does not hold. */
 export const VIOLET = "#a48fd4";
 
+/** A setting entry card: grey background box matching Steam desktop setting rows. */
+export const SETTING_CARD_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "16px",
+  backgroundColor: "rgba(255, 255, 255, 0.04)",
+  border: "1px solid rgba(255, 255, 255, 0.05)",
+  borderRadius: "4px",
+  padding: "14px 16px",
+  marginBottom: "8px",
+};
+
+/** A compact action button for setting entry cards (e.g. "Manage"). */
+export const CARD_BUTTON_STYLE: CSSProperties = {
+  width: "auto",
+  minWidth: "80px",
+  padding: "6px 16px",
+  fontSize: "13px",
+};
+
 /** A list row: what opens its detail, then the row's own switch where it has one. */
 export const LIST_ROW_STYLE: CSSProperties = {
   display: "flex",

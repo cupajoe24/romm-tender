@@ -9,6 +9,9 @@ import {
   nonSteamFigures,
   nonSteamUnidentifiedMessage,
   rowCount,
+  rowBaseDescription,
+  rowDescription,
+  rowStatus,
   scanned,
   toggleWhitelistApp,
 } from "./dataInventoryView";
@@ -183,6 +186,164 @@ describe("dataInventoryView", () => {
     it("filters apps using fuzzyMatch", () => {
       expect(filterForeignApps(apps, "chrome")).toEqual([{ appId: 1, name: "Google Chrome" }]);
       expect(filterForeignApps(apps, "fox")).toEqual([{ appId: 2, name: "Firefox" }]);
+    });
+  });
+
+  describe("rowDescription", () => {
+    const baseState: DataPageState = {
+      shortcutCount: { state: "answered", value: 33 },
+      inventory: {
+        state: "answered",
+        value: {
+          installed_roms: 3,
+          installed_bytes: 1073741824,
+          recovery_bundles: 0,
+          recovery_bytes: 0,
+          recovery_root: "/recovery",
+          recovery_bundle_list: [],
+        },
+      },
+      orphanedGridImages: { state: "not-asked" },
+      foreignApps: { state: "answered", value: [{ appId: 1, name: "App" }] },
+      removedGames: { state: "not-asked" },
+      unidentifiedCount: 0,
+      whitelistedIds: new Set(),
+      disabledDefaults: [],
+      customNames: [],
+      settingsLoaded: true,
+      busy: false,
+      busyLabel: "",
+      removalProgress: null,
+      shortcutStatus: "",
+      uninstallStatus: "",
+      gridStatus: "",
+      nonSteamStatus: "",
+      removeAllShortcuts: async () => {},
+      uninstallAllRoms: async () => {},
+      cleanupGridImages: async () => {},
+      removeNonSteamApps: async () => {},
+      persistWhitelist: () => {},
+      recordRemovedGamesScan: () => {},
+    };
+
+    it("formats answered state for all populations", () => {
+      expect(rowDescription("shortcuts", baseState)).toBe(
+        "The Steam entries Tender created for your RomM games · 33 shortcuts in Steam",
+      );
+      expect(rowDescription("rom-files", baseState)).toBe(
+        "The ROM files Tender downloaded to your device · 3 installed ROMs (≈ 1.00 GB)",
+      );
+      expect(rowDescription("grid-images", baseState)).toBe(
+        "Leftover artwork and grid images whose shortcuts no longer exist · Not scanned yet",
+      );
+      expect(rowDescription("non-steam", baseState)).toBe(
+        "Everything in your Steam library that neither Steam nor Tender installed · 1 entry",
+      );
+      expect(rowDescription("removed-games", baseState)).toBe(
+        "Games whose entry is gone from your RomM server while local data remains · Not scanned yet",
+      );
+      expect(rowDescription("recovery-bundles", baseState)).toBe(
+        "Snapshots sealed before game removals, kept for recovery · 0 bundles (0 B)",
+      );
+    });
+
+    it("formats reading states across rows", () => {
+      const readingState: DataPageState = {
+        ...baseState,
+        shortcutCount: { state: "reading" },
+        inventory: { state: "reading" },
+        orphanedGridImages: { state: "reading" },
+        foreignApps: { state: "reading" },
+        removedGames: { state: "reading" },
+      };
+
+      expect(rowDescription("shortcuts", readingState)).toBe(
+        "The Steam entries Tender created for your RomM games · Reading…",
+      );
+      expect(rowDescription("rom-files", readingState)).toBe(
+        "The ROM files Tender downloaded to your device · Reading…",
+      );
+      expect(rowDescription("grid-images", readingState)).toBe(
+        "Leftover artwork and grid images whose shortcuts no longer exist · Scanning…",
+      );
+      expect(rowDescription("non-steam", readingState)).toBe(
+        "Everything in your Steam library that neither Steam nor Tender installed · Reading…",
+      );
+      expect(rowDescription("removed-games", readingState)).toBe(
+        "Games whose entry is gone from your RomM server while local data remains · Scanning…",
+      );
+      expect(rowDescription("recovery-bundles", readingState)).toBe(
+        "Snapshots sealed before game removals, kept for recovery · Reading…",
+      );
+    });
+
+    it("formats failed states across rows", () => {
+      const failedState: DataPageState = {
+        ...baseState,
+        shortcutCount: { state: "failed" },
+        inventory: { state: "failed" },
+        orphanedGridImages: { state: "failed" },
+        foreignApps: { state: "failed" },
+        removedGames: { state: "failed" },
+      };
+
+      expect(rowDescription("shortcuts", failedState)).toBe(
+        "The Steam entries Tender created for your RomM games · Could not be read",
+      );
+      expect(rowDescription("rom-files", failedState)).toBe(
+        "The ROM files Tender downloaded to your device · Could not be read",
+      );
+      expect(rowDescription("grid-images", failedState)).toBe(
+        "Leftover artwork and grid images whose shortcuts no longer exist · Scan failed",
+      );
+      expect(rowDescription("non-steam", failedState)).toBe(
+        "Everything in your Steam library that neither Steam nor Tender installed · Could not be read",
+      );
+      expect(rowDescription("removed-games", failedState)).toBe(
+        "Games whose entry is gone from your RomM server while local data remains · Scan failed",
+      );
+      expect(rowDescription("recovery-bundles", failedState)).toBe(
+        "Snapshots sealed before game removals, kept for recovery · Could not be read",
+      );
+    });
+
+    it("formats scanned answered results for grid images and removed games", () => {
+      const scannedState: DataPageState = {
+        ...baseState,
+        orphanedGridImages: { state: "answered", value: 4 },
+        removedGames: { state: "answered", value: 2 },
+      };
+
+      expect(rowDescription("grid-images", scannedState)).toBe(
+        "Leftover artwork and grid images whose shortcuts no longer exist · 4 orphaned images found",
+      );
+      expect(rowDescription("removed-games", scannedState)).toBe(
+        "Games whose entry is gone from your RomM server while local data remains · 2 games found",
+      );
+    });
+
+    it("returns static explanatory sentence from rowBaseDescription", () => {
+      expect(rowBaseDescription("shortcuts")).toBe("The Steam entries Tender created for your RomM games.");
+      expect(rowBaseDescription("rom-files")).toBe("The ROM files Tender downloaded to your device.");
+      expect(rowBaseDescription("grid-images")).toBe(
+        "Leftover artwork and grid images whose shortcuts no longer exist.",
+      );
+      expect(rowBaseDescription("non-steam")).toBe(
+        "Everything in your Steam library that neither Steam nor Tender installed.",
+      );
+      expect(rowBaseDescription("removed-games")).toBe(
+        "Games whose entry is gone from your RomM server while local data remains.",
+      );
+      expect(rowBaseDescription("recovery-bundles")).toBe("Snapshots sealed before game removals, kept for recovery.");
+    });
+
+    it("evaluates rowStatus for live figures and scan states", () => {
+      expect(rowStatus("shortcuts", baseState)).toBe("33 shortcuts in Steam");
+      expect(rowStatus("rom-files", baseState)).toBe("3 installed ROMs (≈ 1.00 GB)");
+      expect(rowStatus("grid-images", baseState)).toBe("Not scanned yet");
+      expect(rowStatus("non-steam", baseState)).toBe("1 entry");
+      expect(rowStatus("removed-games", baseState)).toBe("Not scanned yet");
+      expect(rowStatus("recovery-bundles", baseState)).toBe("0 bundles (0 B)");
     });
   });
 });
