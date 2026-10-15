@@ -9,6 +9,7 @@ import {
   settingsTabRoute,
 } from "./tabs";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
+import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
 import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
@@ -73,7 +74,7 @@ describe("the settings window's tabs", () => {
       expect(page.icon).toBeTruthy();
       if (page.content !== null) drawn.push(String(page.title));
     }
-    expect(drawn).toEqual(["Sync", "Library", "Connections", "Save Sync", "Data Management"]);
+    expect(drawn).toEqual(["Sync", "Library", "Connections", "Save Sync", "Controller", "Data Management"]);
   });
 
   it("draws the Sync tab as SyncTab", () => {
@@ -94,6 +95,11 @@ describe("the settings window's tabs", () => {
   it("draws the Save Sync tab as SaveSyncTab", () => {
     const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Save Sync");
     expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(SaveSyncTab);
+  });
+
+  it("draws the Controller tab as ControllerTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Controller");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(ControllerTab);
   });
 
   it("draws the Data Management tab as DataManagementTab", () => {

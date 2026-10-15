@@ -20,6 +20,7 @@ import {
 } from "react-icons/fa";
 import type { SettingsTab } from "../../types/navigation";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
+import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
 import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
@@ -38,7 +39,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   downloads: { title: "Downloads", Icon: FaDownload, Content: null },
   connections: { title: "Connections", Icon: FaPlug, Content: ConnectionsTab },
   "save-sync": { title: "Save Sync", Icon: FaSave, Content: SaveSyncTab },
-  controller: { title: "Controller", Icon: FaGamepad, Content: null },
+  controller: { title: "Controller", Icon: FaGamepad, Content: ControllerTab },
   "steam-library": { title: "Steam Library", Icon: FaSteam, Content: null },
   updates: { title: "Updates", Icon: FaArrowCircleUp, Content: null },
   "data-management": { title: "Data Management", Icon: FaDatabase, Content: DataManagementTab },
