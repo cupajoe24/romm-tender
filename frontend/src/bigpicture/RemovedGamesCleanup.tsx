@@ -39,10 +39,18 @@ import {
 import { scrollNearestToTop } from "../utils/scrollHelpers";
 import { getSyncProgress, onSyncProgressChange } from "../utils/syncProgress";
 import { withTimeout } from "../utils/withTimeout";
-import type { PageRead } from "./data/useDataPage";
-import { CleanupList, formatBytes } from "./CleanupList";
-import { countCleanup, planCleanup, versionsDeletingFiles, type CleanupCounts } from "./cleanupPlan";
-import { ButtonRow, FLAT_BUTTON, MUTED, RED } from "./layout/pane";
+import type { PageRead } from "../utils/useDataPage";
+import {
+  ButtonRow,
+  CELL_CLIP,
+  FLAT_BUTTON,
+  MUTED,
+  PaneTableHeader,
+  PaneTableRow,
+  SECONDARY_FONT,
+  type TableCell,
+  type TableRegister,
+} from "./layout/pane";
 
 const PAGE_SIZE = 50;
 const SELECTION_PAGE_SIZE = 100;

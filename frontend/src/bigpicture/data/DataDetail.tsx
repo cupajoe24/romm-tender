@@ -19,7 +19,6 @@ import { useState, type FC, type ReactNode } from "react";
 import { ButtonItem, DialogButton, Field, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { detach } from "../../utils/detach";
 import { formatBytes } from "../../utils/formatters";
-import { fuzzyMatch } from "../../utils/fuzzyMatch";
 import { pluralize } from "../../utils/pluralize";
 import { SYNC_RUNNING_HINT, useSyncRunning } from "../../utils/syncRunning";
 import { LoadingRow } from "../LoadingRow";
@@ -36,8 +35,18 @@ import {
   type TableCell,
 } from "../layout/pane";
 import type { RecoveryBundleEntry } from "../../types";
-import { DEFAULT_WHITELIST_PATTERNS, type DataPageState, type NonSteamApp, type PageRead } from "./useDataPage";
-import type { DataRowId } from "./rows";
+import { type DataPageState, type NonSteamApp } from "../../utils/useDataPage";
+import type { DataRowId } from "../../utils/dataRows";
+import {
+  figureLine,
+  filterForeignApps,
+  gridImagesFigures,
+  isDefaultPatternMatch,
+  newestFirst,
+  nonSteamFigures,
+  nonSteamUnidentifiedMessage,
+  toggleWhitelistApp,
+} from "../../utils/dataInventoryView";
 
 /**
  * The one alarm colour on this page, brighter than the pane palette's `RED`.
@@ -50,17 +59,6 @@ const ALARM = "#ff4444";
 const Figures: FC<{ children: ReactNode }> = ({ children }) => (
   <div style={{ fontSize: SECONDARY_FONT, color: "#dcdedf", padding: "0 16px 8px" }}>{children}</div>
 );
-
-/**
- * A pane's figure line for a read the page makes when it opens: `Reading…`
- * while it is in flight, what could not be read if it failed, and the figure
- * once it is answered.
- */
-function figureLine<T>(read: PageRead<T>, what: string, answer: (value: T) => string): string {
-  if (read.state === "reading") return "Reading…";
-  if (read.state === "failed") return `${what} could not be read — open the page again to retry.`;
-  return answer(read.value);
-}
 
 /** A pane's own action result, under its buttons. */
 const Status: FC<{ text: string; testId: string }> = ({ text, testId }) =>
@@ -166,20 +164,7 @@ const GridImagesPane: FC<{ state: DataPageState }> = ({ state }) => {
   const read = state.orphanedGridImages;
   const found = read.state === "answered" ? read.value : null;
   const scanning = read.state === "reading";
-  const figures = (): string | null => {
-    switch (read.state) {
-      case "not-asked":
-        return "Not scanned yet";
-      case "reading":
-        // The button says it is scanning; a line saying so too would repeat it.
-        return null;
-      case "failed":
-        return "The scan failed — press Scan for orphaned images to try again.";
-      case "answered":
-        return `${pluralize(read.value, "orphaned image")} found`;
-    }
-  };
-  const line = figures();
+  const line = gridImagesFigures(read);
   return (
     <>
       <Muted>
@@ -228,27 +213,16 @@ const WhitelistSection: FC<{ state: DataPageState; onWhitelistChange: () => void
   // and never Tender's own — protecting one of ours from a removal that
   // cannot reach it would say the two were ever in the same set.
   const listed = state.foreignApps.state === "answered" ? state.foreignApps.value : [];
-  const filteredApps = whitelistSearch ? listed.filter((app) => fuzzyMatch(whitelistSearch, app.name)) : listed;
+  const filteredApps = filterForeignApps(listed, whitelistSearch);
 
   const handleToggle = (app: NonSteamApp, checked: boolean) => {
-    const matchingPattern = DEFAULT_WHITELIST_PATTERNS.find((p) => app.name.toLowerCase().includes(p));
-    let newDisabled = [...state.disabledDefaults];
-    let newCustom = [...state.customNames];
-
-    if (checked) {
-      if (matchingPattern && state.disabledDefaults.includes(matchingPattern)) {
-        newDisabled = newDisabled.filter((p) => p !== matchingPattern);
-      } else if (!matchingPattern && !newCustom.includes(app.name)) {
-        newCustom.push(app.name);
-      }
-    } else {
-      if (matchingPattern && !newDisabled.includes(matchingPattern)) {
-        newDisabled.push(matchingPattern);
-      }
-      newCustom = newCustom.filter((n) => n !== app.name);
-    }
-
-    state.persistWhitelist(newDisabled, newCustom);
+    const { disabledDefaults, customNames } = toggleWhitelistApp(
+      app,
+      checked,
+      state.disabledDefaults,
+      state.customNames,
+    );
+    state.persistWhitelist(disabledDefaults, customNames);
     onWhitelistChange();
   };
 
@@ -282,11 +256,7 @@ const WhitelistSection: FC<{ state: DataPageState; onWhitelistChange: () => void
           {filteredApps.map((app) => (
             <PanelSectionRow key={app.appId}>
               <ToggleField
-                label={
-                  DEFAULT_WHITELIST_PATTERNS.some((p) => app.name.toLowerCase().includes(p))
-                    ? `${app.name} (auto)`
-                    : app.name
-                }
+                label={isDefaultPatternMatch(app.name) ? `${app.name} (auto)` : app.name}
                 checked={state.whitelistedIds.has(app.appId)}
                 onChange={(checked: boolean) => handleToggle(app, checked)}
               />
@@ -343,12 +313,7 @@ const NonSteamPane: FC<{ state: DataPageState }> = ({ state }) => {
     return `Remove ${pluralize(toRemove.length, "non-Steam game")}`;
   };
 
-  const figures = () => {
-    if (state.foreignApps.state === "reading") return "Reading…";
-    if (foreign === null) return "Could not be read";
-    if (foreign.length === 0) return "No other non-Steam games found";
-    return `${foreign.length} ${foreign.length === 1 ? "entry" : "entries"} · ${state.whitelistedIds.size} protected · ${toRemove.length} would be removed`;
-  };
+  const figures = () => nonSteamFigures(state.foreignApps, state.whitelistedIds.size, toRemove.length);
 
   return (
     <>
@@ -358,13 +323,7 @@ const NonSteamPane: FC<{ state: DataPageState }> = ({ state }) => {
         whitelist below protects what you keep; everything else is what the button removes.
       </Muted>
       <Figures>{figures()}</Figures>
-      {state.unidentifiedCount > 0 && (
-        <Muted>
-          {state.unidentifiedCount === 1
-            ? "1 entry could not be identified — Steam did not answer for it in time. It is not in the count above and nothing here will remove it; open the page again to retry."
-            : `${state.unidentifiedCount} entries could not be identified — Steam did not answer for them in time. They are not in the count above and nothing here will remove them; open the page again to retry.`}
-        </Muted>
-      )}
+      {state.unidentifiedCount > 0 && <Muted>{nonSteamUnidentifiedMessage(state.unidentifiedCount)}</Muted>}
       {state.foreignApps.state === "failed" && (
         <Muted>
           Steam&apos;s shortcut list could not be read, so nothing here can be told apart from your RomM games. Nothing
@@ -415,16 +374,6 @@ const RemovedGamesPane: FC<{ state: DataPageState }> = ({ state }) => (
 const BUNDLE_COLUMNS = "minmax(0, 1fr) 72px 64px";
 
 const SECONDARY_CELL = { color: MUTED, fontSize: SECONDARY_FONT, fontVariantNumeric: "tabular-nums" } as const;
-
-/** Newest first, and a bundle whose folder names no day after every one that does. */
-function newestFirst(a: RecoveryBundleEntry, b: RecoveryBundleEntry): number {
-  if (a.day !== b.day) {
-    if (a.day === null) return 1;
-    if (b.day === null) return -1;
-    return a.day < b.day ? 1 : -1;
-  }
-  return a.name.localeCompare(b.name);
-}
 
 /** The bundles one by one, as their folders name them. */
 const BundleTable: FC<{ bundles: readonly RecoveryBundleEntry[] }> = ({ bundles }) => {

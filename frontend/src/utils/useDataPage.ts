@@ -30,12 +30,12 @@ import {
   reportRemovalResults,
   uninstallAllRoms,
   updateWhitelistSettings,
-} from "../../api/backend";
-import type { DataInventory } from "../../types";
-import { clearAllRomMCollections } from "../../utils/collections";
-import { detach } from "../../utils/detach";
-import { formatUninstallStatus } from "../../utils/formatters";
-import { batchConfirmLaunchOptions } from "../../utils/launchOptionsReconcile";
+} from "../api/backend";
+import type { DataInventory } from "../types";
+import { clearAllRomMCollections } from "./collections";
+import { detach } from "./detach";
+import { formatUninstallStatus } from "./formatters";
+import { batchConfirmLaunchOptions } from "./launchOptionsReconcile";
 import {
   capturePruneLeaseAdmission,
   isPruneLeaseCancellation,
@@ -43,22 +43,22 @@ import {
   mountPruneLeaseOwner,
   releasePruneLeasesByOwner,
   withPruneLease,
-} from "../../utils/pruneLease";
-import { pluralize } from "../../utils/pluralize";
-import { getPruneState, onPruneStateChange } from "../../utils/pruneStore";
-import { removeShortcutsPaced } from "../../utils/shortcutRemoval";
+} from "./pruneLease";
+import { pluralize } from "./pluralize";
+import { getPruneState, onPruneStateChange } from "./pruneStore";
+import { removeShortcutsPaced } from "./shortcutRemoval";
 import {
   getAllNonSteamShortcutAppIds,
   getLiveRomMShortcutAppIds,
   scanShortcutOwnership,
   type ShortcutOwnership,
-} from "../../utils/steamShortcuts";
-import { withTimeout } from "../../utils/withTimeout";
+} from "./steamShortcuts";
+import { withTimeout } from "./withTimeout";
 
 const REMOVAL_REPORT_TIMEOUT_MS = 15000;
 // Process-local: the owner is a key in `pruneLease`'s own map, so it has to be
 // unique among the pages that hold leases and means nothing outside this run.
-const DATA_PAGE_LEASE_OWNER = "data-management";
+const DEFAULT_DATA_PAGE_LEASE_OWNER = "data-management";
 
 export const DEFAULT_WHITELIST_PATTERNS: string[] = [
   "retrodeck",
@@ -128,8 +128,8 @@ export interface RemovalProgress {
  */
 export type PageRead<T> = { state: "reading" } | { state: "failed" } | { state: "answered"; value: T };
 
-const READING = { state: "reading" } as const;
-const FAILED = { state: "failed" } as const;
+export const READING = { state: "reading" } as const;
+export const FAILED = { state: "failed" } as const;
 
 /**
  * A population figure that costs a scan on the device: not asked until the
@@ -140,7 +140,7 @@ const FAILED = { state: "failed" } as const;
  */
 export type ScannedCount = { state: "not-asked" } | PageRead<number>;
 
-const NOT_ASKED = { state: "not-asked" } as const;
+export const NOT_ASKED = { state: "not-asked" } as const;
 
 export interface DataPageState {
   /** Bound RomM shortcuts, from the same stats read Main makes. */
@@ -195,7 +195,7 @@ export interface DataPageState {
   recordRemovedGamesScan: (read: PageRead<number>) => void;
 }
 
-export function useDataPage(): DataPageState {
+export function useDataPage(leaseOwner: string = DEFAULT_DATA_PAGE_LEASE_OWNER): DataPageState {
   const [shortcutCount, setShortcutCount] = useState<PageRead<number>>(READING);
   const [inventory, setInventory] = useState<PageRead<DataInventory>>(READING);
   const [nonSteamApps, setNonSteamApps] = useState<PageRead<NonSteamApp[]>>(READING);
@@ -298,7 +298,7 @@ export function useDataPage(): DataPageState {
   }, [loadNonSteamApps, loadOwnership]);
 
   useEffect(() => {
-    mountPruneLeaseOwner(DATA_PAGE_LEASE_OWNER);
+    mountPruneLeaseOwner(leaseOwner);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial async data loads on mount are the standard React pattern; the rule is overzealous here
     refreshNonSteam();
     getWhitelistSettings()
@@ -328,9 +328,9 @@ export function useDataPage(): DataPageState {
     });
     return () => {
       unsubscribePrune();
-      detach(releasePruneLeasesByOwner(DATA_PAGE_LEASE_OWNER));
+      detach(releasePruneLeasesByOwner(leaseOwner));
     };
-  }, [refreshNonSteam, readInventory]);
+  }, [leaseOwner, refreshNonSteam, readInventory]);
 
   const activeDefaults = useMemo(
     () => DEFAULT_WHITELIST_PATTERNS.filter((p) => !disabledDefaults.includes(p)),
@@ -397,7 +397,7 @@ export function useDataPage(): DataPageState {
     await runRemoval("Removing shortcuts", async (onProgress) => {
       setShortcutStatus("Removing all shortcuts...");
       let removedCount = 0;
-      const admission = capturePruneLeaseAdmission(DATA_PAGE_LEASE_OWNER);
+      const admission = capturePruneLeaseAdmission(leaseOwner);
       try {
         const result = await removeAllShortcuts();
         if (!result.success) {
@@ -452,7 +452,7 @@ export function useDataPage(): DataPageState {
                 );
               }
             },
-            DATA_PAGE_LEASE_OWNER,
+            leaseOwner,
             admission,
           );
           setShortcutStatus(result.message ?? "All shortcuts removed");
@@ -477,7 +477,7 @@ export function useDataPage(): DataPageState {
     await runRemoval("Uninstalling ROM files", async () => {
       try {
         setUninstallStatus("Uninstalling...");
-        const admission = capturePruneLeaseAdmission(DATA_PAGE_LEASE_OWNER);
+        const admission = capturePruneLeaseAdmission(leaseOwner);
         const result = await uninstallAllRoms();
         if (!result.success && result.app_ids === undefined) {
           // A refusal by the update, migration, sync or prune rule carries no removal
@@ -500,7 +500,7 @@ export function useDataPage(): DataPageState {
                 "uninstall-all",
                 signal,
               ),
-            DATA_PAGE_LEASE_OWNER,
+            leaseOwner,
             admission,
           );
           setUninstallStatus(formatUninstallStatus(result.removed_count ?? 0, (result.errors ?? []).length));

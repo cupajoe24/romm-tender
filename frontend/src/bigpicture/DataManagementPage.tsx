@@ -22,48 +22,9 @@ import { ListDetail, type ListDetailItem } from "./layout/ListDetail";
 import { LoadingRow } from "./LoadingRow";
 import { MUTED, ROW_MARKER_GAP, ROW_MARKER_WIDTH, SECONDARY_FONT, SELECTION_ACCENT } from "./layout/pane";
 import { DataDetail } from "./data/DataDetail";
-import { DATA_ROWS, asDataRowId, type DataRowId } from "./data/rows";
-import { useDataPage, type DataPageState, type PageRead, type ScannedCount } from "./data/useDataPage";
-
-/**
- * What a row's count slot says: a figure, `—` for a read that failed, or `null`
- * while the read is still in flight, which the slot draws as a spinner.
- *
- * A figure that costs a backend scan, which sends no request to RomM, reads
- * `scan` until the reader asks for it, because focus selects on this layout: a
- * figure fetched on selection would put that scan under every row the stick
- * passes. From
- * the press on it is read like any other figure; what sends it back to `scan`
- * is stated in `docs/architecture/qam-panel.md`, section Data Management.
- *
- * The dash is not a zero, and no row prints one for an emptiness.
- */
-function rowCount(id: DataRowId, state: DataPageState): string | null {
-  switch (id) {
-    case "shortcuts":
-      return figure(state.shortcutCount, (count) => count);
-    case "rom-files":
-      return figure(state.inventory, (inventory) => inventory.installed_roms);
-    case "grid-images":
-      return scanned(state.orphanedGridImages);
-    case "non-steam":
-      return figure(state.foreignApps, (apps) => apps.length);
-    case "removed-games":
-      return scanned(state.removedGames);
-    case "recovery-bundles":
-      return figure(state.inventory, (inventory) => inventory.recovery_bundles);
-  }
-}
-
-function figure<T>(read: PageRead<T>, count: (value: T) => number): string | null {
-  if (read.state === "reading") return null;
-  if (read.state === "failed") return "—";
-  return `${count(read.value)}`;
-}
-
-function scanned(read: ScannedCount): string | null {
-  return read.state === "not-asked" ? "scan" : figure(read, (count) => count);
-}
+import { DATA_ROWS, asDataRowId, type DataRowId } from "../utils/dataRows";
+import { useDataPage } from "../utils/useDataPage";
+import { rowCount } from "../utils/dataInventoryView";
 
 const RowLabel: FC<{ label: string; count: string | null; selected: boolean }> = ({ label, count, selected }) => (
   <span style={{ display: "flex", alignItems: "baseline", gap: "8px", width: "100%" }}>
