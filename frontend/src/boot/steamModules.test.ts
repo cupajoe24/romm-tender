@@ -364,6 +364,15 @@ describe("the start-up check's coverage of what the panel imports", () => {
     expect(Object.values(NOTIFICATION_LOOKUPS)).not.toContain("toastClasses");
   });
 
+  it("asks about desktop-only settings window components at feature cost", () => {
+    for (const name of ["SidebarNavigation", "DialogControlsSectionHeader", "Toggle", "Dropdown"]) {
+      const entry = STEAM_LOOKUPS.find((lookup) => lookup.name === name);
+      expect(entry).toBeDefined();
+      expect(entry?.absenceCost).toBe("feature");
+      expect(entry?.deckyUiExport).toBe(true);
+    }
+  });
+
   it("asks a real question of every search it lists", () => {
     // A `found` that never reads anything would answer `true` forever. Each one
     // is called here, which is also what catches an entry whose thunk throws.

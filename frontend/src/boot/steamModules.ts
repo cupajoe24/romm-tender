@@ -56,6 +56,7 @@ import {
   ConfirmModal,
   DialogButton,
   DialogControlsSectionHeader,
+  Dropdown,
   Field,
   Focusable,
   Menu,
@@ -253,6 +254,9 @@ export const STEAM_LOOKUPS: readonly SteamLookup[] = [
   // The switch the Tender Settings window draws in a `Field`, as Steam's own
   // settings rows do; desktop only, like the two above.
   truthy("Toggle", "feature", () => Toggle),
+  // The dropdown the Tender Settings window draws in a `Field` (e.g. Save
+  // History Limit); desktop only, like the three above.
+  truthy("Dropdown", "feature", () => Dropdown),
 
   // Not truthiness: `@decky/ui` declares `Navigation` as an empty object and
   // fills it from a lookup inside a `try`, so a miss leaves an object that is
