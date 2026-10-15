@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  APPLY_TO_ALL_SHORTCUTS_LABEL,
+  APPLYING_TO_ALL_SHORTCUTS_LABEL,
+  CONTROLLER_HEADING,
   DEFAULT_SAVE_SLOT_DESCRIPTION,
   DEFAULT_SAVE_SLOT_LABEL,
   DEVICE_LABEL,
@@ -19,6 +22,9 @@ import {
   SAVE_SYNC_HEADING,
   SIGN_OUT_CONFIRM,
   SIGN_OUT_DESCRIPTION,
+  STEAM_INPUT_MODE_DESCRIPTION,
+  STEAM_INPUT_MODE_LABEL,
+  STEAM_INPUT_MODE_OPTIONS,
   SYNC_AFTER_EXIT_DESCRIPTION,
   SYNC_AFTER_EXIT_LABEL,
   SYNC_ALL_FAILED_STATUS,
@@ -141,5 +147,26 @@ describe("Connections", () => {
   it("masks a configured SteamGridDB key", () => {
     expect(sgdbKeyState("abc")).toBe("••••");
     expect(sgdbKeyState("")).toBe("Not configured");
+  });
+});
+
+describe("Controller", () => {
+  it("labels the section and Steam Input mode", () => {
+    expect(CONTROLLER_HEADING).toBe("Controller");
+    expect(STEAM_INPUT_MODE_LABEL).toBe("Steam Input Mode");
+    expect(STEAM_INPUT_MODE_DESCRIPTION).toBe("Controls how Steam handles controller input for ROM shortcuts");
+  });
+
+  it("defines the Steam Input mode options", () => {
+    expect(STEAM_INPUT_MODE_OPTIONS).toEqual([
+      { data: "default", label: "Default (Recommended)" },
+      { data: "force_on", label: "Force On" },
+      { data: "force_off", label: "Force Off" },
+    ]);
+  });
+
+  it("labels the apply button states", () => {
+    expect(APPLY_TO_ALL_SHORTCUTS_LABEL).toBe("Apply to All Shortcuts");
+    expect(APPLYING_TO_ALL_SHORTCUTS_LABEL).toBe("Applying to all shortcuts…");
   });
 });

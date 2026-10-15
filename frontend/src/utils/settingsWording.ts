@@ -110,3 +110,24 @@ export const ENABLE_SAVE_SYNC_CONFIRM = {
 export const SGDB_HEADING = "SteamGridDB";
 export const SGDB_KEY_LABEL = "API Key";
 export const sgdbKeyState = (maskedKey: string): string => (maskedKey ? "••••" : "Not configured");
+
+// --- Controller ---
+
+export const CONTROLLER_HEADING = "Controller";
+
+export const STEAM_INPUT_MODE_LABEL = "Steam Input Mode";
+export const STEAM_INPUT_MODE_DESCRIPTION = "Controls how Steam handles controller input for ROM shortcuts";
+
+export interface SteamInputModeOption {
+  readonly data: "default" | "force_on" | "force_off";
+  readonly label: string;
+}
+
+export const STEAM_INPUT_MODE_OPTIONS: readonly SteamInputModeOption[] = [
+  { data: "default", label: "Default (Recommended)" },
+  { data: "force_on", label: "Force On" },
+  { data: "force_off", label: "Force Off" },
+];
+
+export const APPLY_TO_ALL_SHORTCUTS_LABEL = "Apply to All Shortcuts";
+export const APPLYING_TO_ALL_SHORTCUTS_LABEL = "Applying to all shortcuts…";

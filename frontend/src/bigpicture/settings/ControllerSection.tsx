@@ -6,6 +6,14 @@
 
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, ButtonItem, Field, DropdownItem } from "@decky/ui";
+import {
+  APPLY_TO_ALL_SHORTCUTS_LABEL,
+  APPLYING_TO_ALL_SHORTCUTS_LABEL,
+  CONTROLLER_HEADING,
+  STEAM_INPUT_MODE_DESCRIPTION,
+  STEAM_INPUT_MODE_LABEL,
+  STEAM_INPUT_MODE_OPTIONS,
+} from "../../utils/settingsWording";
 
 interface ControllerSectionProps {
   steamInputMode: string;
@@ -26,23 +34,19 @@ export const ControllerSection: FC<ControllerSectionProps> = ({
   onApplyMode,
 }) => {
   return (
-    <PanelSection title="Controller">
+    <PanelSection title={CONTROLLER_HEADING}>
       <PanelSectionRow>
         <DropdownItem
-          label="Steam Input Mode"
-          description="Controls how Steam handles controller input for ROM shortcuts"
-          rgOptions={[
-            { data: "default", label: "Default (Recommended)" },
-            { data: "force_on", label: "Force On" },
-            { data: "force_off", label: "Force Off" },
-          ]}
+          label={STEAM_INPUT_MODE_LABEL}
+          description={STEAM_INPUT_MODE_DESCRIPTION}
+          rgOptions={[...STEAM_INPUT_MODE_OPTIONS]}
           selectedOption={steamInputMode}
           onChange={(option) => onModeChange(option.data)}
         />
       </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={onApplyMode} disabled={applying}>
-          {applying ? "Applying to all shortcuts…" : "Apply to All Shortcuts"}
+          {applying ? APPLYING_TO_ALL_SHORTCUTS_LABEL : APPLY_TO_ALL_SHORTCUTS_LABEL}
         </ButtonItem>
       </PanelSectionRow>
       {steamInputStatus && (
