@@ -58,6 +58,13 @@ are sorted into dedicated lowercase subdirectories:
     the desktop over `utils/useSettingsPage.ts`, `utils/registeredDevices.ts`, `utils/settingsWording.ts` and
     `utils/formatters.ts`. Default save slot is edited through `DefaultSlotDialog.tsx` (and reset to `"default"`),
     history limit uses `Dropdown`, and the registered devices list renders as a Steam desktop table.
+  - `desktop/settings/data-management/` — the Data Management tab: an inventory of what this device holds across six
+    populations (Tender's shortcuts, Installed ROMs, Orphaned grid images, Other non-Steam games, Gone from RomM, and
+    Recovery bundles) rendered as Steam-native setting cards (`DataManagementListPane.tsx`), with `DrillDown.tsx`
+    navigation into detail panes (`ShortcutsDetailPane.tsx`, `RomFilesDetailPane.tsx`, `GridImagesDetailPane.tsx`,
+    `NonSteamDetailPane.tsx` with whitelist configuration and search, `RemovedGamesDetailPane.tsx` with inline prune
+    review, and `RecoveryBundlesDetailPane.tsx` with sealed bundle tables), confirmed with `DesktopConfirmDialog.tsx`
+    and using the isolated prune lease owner `"tender-settings-data-management"`.
 
 ## What reaches a bundle
 
