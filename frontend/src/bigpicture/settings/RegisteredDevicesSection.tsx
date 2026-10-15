@@ -21,8 +21,19 @@
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, Field } from "@decky/ui";
 import type { RegisteredDevice } from "../../types";
+import { formatLastSeen } from "../../utils/formatters";
+import {
+  CURRENT_DEVICE_LABEL,
+  DEVICES_ERROR_LABEL,
+  DEVICES_LOADING_LABEL,
+  DEVICE_TABLE_HEADERS,
+  NO_DEVICES_LABEL,
+  REGISTERED_DEVICES_HEADING,
+  deviceClientString,
+  deviceRowTitle,
+  isCurrentDevice,
+} from "../../utils/registeredDevices";
 import { CELL_CLIP, MUTED, PaneTableHeader, PaneTableRow, SECONDARY_FONT } from "../layout/pane";
-import { formatRelativeTime } from "./helpers";
 
 // The name is the column with something to say, so it takes what the other two
 // leave.
@@ -42,7 +53,7 @@ import { formatRelativeTime } from "./helpers";
 // two plus room for a three-digit minor version. Under-sizing it clips the
 // VERSION, which is the only part of the column that differs between rows.
 //
-// `Last seen` holds every answer `formatRelativeTime` gives — `never`,
+// `Last seen` holds every answer `formatLastSeen` gives — `never`,
 // `unknown`, `just now`, `59m ago` at the widest of its minute forms, `23h ago`
 // at the widest of its hour forms, and a date like `15 Jun`. The widest of them
 // measured the same way is `unknown` at 48px in Noto Sans and 50px in DejaVu,
@@ -65,9 +76,9 @@ interface RegisteredDevicesSectionProps {
 }
 
 const DeviceRow: FC<{ device: RegisteredDevice }> = ({ device }) => {
-  const name = device.name ?? "(unnamed)";
-  const client = `${device.client ?? "unknown client"} v${device.client_version ?? "?"}`;
-  const lastSeen = formatRelativeTime(device.last_seen);
+  const name = deviceRowTitle(device);
+  const client = deviceClientString(device);
+  const lastSeen = formatLastSeen(device.last_seen);
   return (
     <PaneTableRow
       columns={TABLE_COLUMNS}
@@ -83,8 +94,10 @@ const DeviceRow: FC<{ device: RegisteredDevice }> = ({ device }) => {
           content: (
             <>
               <span style={{ flex: "1 1 auto", ...CELL_CLIP }}>{name}</span>
-              {device.is_current_device && (
-                <span style={{ flexShrink: 0, color: "#6ab04c", fontSize: SECONDARY_FONT }}>(this device)</span>
+              {isCurrentDevice(device) && (
+                <span style={{ flexShrink: 0, color: "#6ab04c", fontSize: SECONDARY_FONT }}>
+                  {CURRENT_DEVICE_LABEL}
+                </span>
               )}
             </>
           ),
@@ -105,24 +118,24 @@ export const RegisteredDevicesSection: FC<RegisteredDevicesSectionProps> = ({
 }) => {
   const devices = devicesLoading || devicesError ? null : registeredDevices;
   return (
-    <PanelSection title="Registered Devices">
+    <PanelSection title={REGISTERED_DEVICES_HEADING}>
       {devicesLoading && (
         <PanelSectionRow>
-          <Field label="Loading..." focusable={true} />
+          <Field label={DEVICES_LOADING_LABEL} focusable={true} />
         </PanelSectionRow>
       )}
       {!devicesLoading && devicesError && (
         <PanelSectionRow>
-          <Field label="Could not load devices" description={devicesError} focusable={true} />
+          <Field label={DEVICES_ERROR_LABEL} description={devicesError} focusable={true} />
         </PanelSectionRow>
       )}
       {devices !== null && devices.length === 0 && (
         <PanelSectionRow>
-          <Field label="No devices registered" focusable={true} />
+          <Field label={NO_DEVICES_LABEL} focusable={true} />
         </PanelSectionRow>
       )}
       {devices !== null && devices.length > 0 && (
-        <PaneTableHeader columns={TABLE_COLUMNS} cells={["Device", "Client", "Last seen"]} testId="devices-header" />
+        <PaneTableHeader columns={TABLE_COLUMNS} cells={[...DEVICE_TABLE_HEADERS]} testId="devices-header" />
       )}
       {devices?.map((device, i) => (
         <DeviceRow key={device.id || `idx-${i}`} device={device} />

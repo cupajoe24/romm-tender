@@ -174,3 +174,20 @@ export function formatModalUnlockDate(dateStr: string): string {
   }
   return dateStr.replace(/:\d{2}$/, "");
 }
+
+/**
+ * Format a device's last-seen ISO timestamp as a coarse relative time (e.g. "5m ago", "2h ago", "15 Jun").
+ * Answers "never" for null or empty strings, and "unknown" for unparseable dates.
+ */
+export function formatLastSeen(isoStr: string | null): string {
+  if (!isoStr) return "never";
+  const date = new Date(isoStr);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h ago`;
+  const d = date.getDate();
+  return `${d} ${MONTH_NAMES[date.getMonth()]}`;
+}

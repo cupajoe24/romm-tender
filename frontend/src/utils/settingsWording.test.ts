@@ -1,14 +1,35 @@
 import { describe, it, expect } from "vitest";
 import {
+  DEFAULT_SAVE_SLOT_DESCRIPTION,
+  DEFAULT_SAVE_SLOT_LABEL,
+  DEVICE_LABEL,
   EDIT_LABEL,
   ENABLE_SAVE_SYNC_CONFIRM,
-  SAVE_LABEL,
+  ENABLE_SAVE_SYNC_DESCRIPTION,
+  ENABLE_SAVE_SYNC_LABEL,
   INSECURE_SSL_DESCRIPTION,
   INSECURE_SSL_LABEL,
+  RESET_DEFAULT_SLOT_LABEL,
+  SAVE_HISTORY_LIMIT_DESCRIPTION,
+  SAVE_HISTORY_LIMIT_LABEL,
+  SAVE_HISTORY_LIMIT_OPTIONS,
+  SAVE_LABEL,
+  SAVE_SYNC_DISABLED_DESCRIPTION,
+  SAVE_SYNC_DISABLED_LABEL,
+  SAVE_SYNC_HEADING,
   SIGN_OUT_CONFIRM,
   SIGN_OUT_DESCRIPTION,
+  SYNC_AFTER_EXIT_DESCRIPTION,
+  SYNC_AFTER_EXIT_LABEL,
+  SYNC_ALL_FAILED_STATUS,
+  SYNC_ALL_SAVES_NOW_LABEL,
+  SYNC_BEFORE_LAUNCH_DESCRIPTION,
+  SYNC_BEFORE_LAUNCH_LABEL,
+  SYNCING_ALL_LABEL,
   accountState,
   customHeadersSummary,
+  defaultSaveSlotSummary,
+  deviceRegisteredDescription,
   phraseText,
   sgdbKeyState,
   signInButtonLabel,
@@ -21,6 +42,52 @@ describe("phraseText", () => {
 });
 
 describe("Save Sync", () => {
+  it("labels the section and master switch", () => {
+    expect(SAVE_SYNC_HEADING).toBe("Save Sync");
+    expect(ENABLE_SAVE_SYNC_LABEL).toBe("Enable Save Sync");
+    expect(ENABLE_SAVE_SYNC_DESCRIPTION).toBe("Sync RetroArch saves between this device and RomM server");
+    expect(SAVE_SYNC_DISABLED_LABEL).toBe("Save sync is disabled");
+    expect(SAVE_SYNC_DISABLED_DESCRIPTION).toBe("Enable above to configure sync settings");
+  });
+
+  it("describes the registered device", () => {
+    expect(DEVICE_LABEL).toBe("Device");
+    expect(deviceRegisteredDescription("Decky")).toBe('Registered as "Decky"');
+  });
+
+  it("labels sync before launch and sync after exit", () => {
+    expect(SYNC_BEFORE_LAUNCH_LABEL).toBe("Sync before launch");
+    expect(SYNC_BEFORE_LAUNCH_DESCRIPTION).toBe("Download newer saves from server before starting a game");
+    expect(SYNC_AFTER_EXIT_LABEL).toBe("Sync after exit");
+    expect(SYNC_AFTER_EXIT_DESCRIPTION).toBe("Upload changed saves to server after closing a game");
+  });
+
+  it("labels the default slot editor and summarizes slots", () => {
+    expect(DEFAULT_SAVE_SLOT_LABEL).toBe("Default Save Slot");
+    expect(DEFAULT_SAVE_SLOT_DESCRIPTION).toBe("Applies to new games and games without a per-game slot override");
+    expect(defaultSaveSlotSummary("default")).toBe(
+      "default — applies to new games and games without a per-game slot override",
+    );
+    expect(RESET_DEFAULT_SLOT_LABEL).toBe("Reset to default");
+  });
+
+  it("labels history limit and defines its options", () => {
+    expect(SAVE_HISTORY_LIMIT_LABEL).toBe("Save History Limit");
+    expect(SAVE_HISTORY_LIMIT_DESCRIPTION).toBe("Max save versions kept per slot on the server");
+    expect(SAVE_HISTORY_LIMIT_OPTIONS).toEqual([
+      { data: 5, label: "5" },
+      { data: 10, label: "10 (Default)" },
+      { data: 20, label: "20" },
+      { data: 50, label: "50" },
+    ]);
+  });
+
+  it("labels sync all saves and failure statuses", () => {
+    expect(SYNC_ALL_SAVES_NOW_LABEL).toBe("Sync All Saves Now");
+    expect(SYNCING_ALL_LABEL).toBe("Syncing...");
+    expect(SYNC_ALL_FAILED_STATUS).toBe("Sync failed");
+  });
+
   it("asks before turning save sync on, and says what it covers and what to do first", () => {
     expect(ENABLE_SAVE_SYNC_CONFIRM.title).toBe("Enable Save Sync?");
     expect(ENABLE_SAVE_SYNC_CONFIRM.confirm).toBe("I am sure");

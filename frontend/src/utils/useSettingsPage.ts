@@ -38,6 +38,7 @@ import type { CollectionNamingMode, CustomHeaderEntry, RegisteredDevice, SaveSyn
 import type { SaveHeadersResult } from "./customHeaders";
 import { detach } from "./detach";
 import { AUTO_REGION, regionLabel } from "./preferredRegion";
+import { SYNC_ALL_FAILED_STATUS } from "./settingsWording";
 import { INVALID_URL_MESSAGE, signInToRomm, type SignInRequest, type SignInResult } from "./rommSignIn";
 import { isValidServerUrl, trimServerUrl } from "./serverUrl";
 import { showToast } from "./toast";
@@ -254,6 +255,13 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
           }),
         );
         if (updated.save_sync_enabled) {
+          ensureDeviceRegistered()
+            .then((result) => {
+              if (result.success) {
+                setDeviceInfo({ device_id: result.device_id, device_name: result.device_name });
+              }
+            })
+            .catch(() => {});
           loadDevices();
         } else {
           setRegisteredDevices(null);
@@ -273,7 +281,7 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
       setSyncStatus(result.message);
       globalThis.dispatchEvent(new CustomEvent("romm_data_changed", { detail: { type: "save_sync" } }));
     } catch {
-      setSyncStatus("Sync failed");
+      setSyncStatus(SYNC_ALL_FAILED_STATUS);
     }
     setSyncing(false);
   };

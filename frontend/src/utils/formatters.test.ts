@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   formatBytes,
-  formatLastPlayed,
   formatCardDate,
+  formatLastPlayed,
+  formatLastSeen,
   formatModalUnlockDate,
   formatPlaytime,
   formatReleaseDate,
@@ -320,5 +321,42 @@ describe("formatModalUnlockDate", () => {
 
   it("falls back to stripping seconds when parsing fails", () => {
     expect(formatModalUnlockDate("invalid-date 12:34:56")).toBe("invalid-date 12:34");
+  });
+});
+
+describe("formatLastSeen", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-06-15T12:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns 'never' for null or empty string", () => {
+    expect(formatLastSeen(null)).toBe("never");
+    expect(formatLastSeen("")).toBe("never");
+  });
+
+  it("returns 'unknown' for invalid date string", () => {
+    expect(formatLastSeen("not-a-date")).toBe("unknown");
+  });
+
+  it("formats timestamps under 1 minute as 'just now'", () => {
+    expect(formatLastSeen("2025-06-15T11:59:30Z")).toBe("just now");
+  });
+
+  it("formats timestamps under 1 hour as 'Xm ago'", () => {
+    expect(formatLastSeen("2025-06-15T11:30:00Z")).toBe("30m ago");
+  });
+
+  it("formats timestamps under 24 hours as 'Xh ago'", () => {
+    expect(formatLastSeen("2025-06-15T08:00:00Z")).toBe("4h ago");
+  });
+
+  it("formats timestamps older than 24 hours as 'D Mon'", () => {
+    const out = formatLastSeen("2025-06-05T12:00:00Z");
+    expect(out).toContain("Jun");
+    expect(out).toContain("5");
   });
 });

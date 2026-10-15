@@ -47,6 +47,49 @@ export const INSECURE_SSL_DESCRIPTION =
 
 // --- Save Sync ---
 
+export const SAVE_SYNC_HEADING = "Save Sync";
+
+export const ENABLE_SAVE_SYNC_LABEL = "Enable Save Sync";
+export const ENABLE_SAVE_SYNC_DESCRIPTION = "Sync RetroArch saves between this device and RomM server";
+
+export const SAVE_SYNC_DISABLED_LABEL = "Save sync is disabled";
+export const SAVE_SYNC_DISABLED_DESCRIPTION = "Enable above to configure sync settings";
+
+export const DEVICE_LABEL = "Device";
+export const deviceRegisteredDescription = (name: string): string => `Registered as "${name}"`;
+
+export const SYNC_BEFORE_LAUNCH_LABEL = "Sync before launch";
+export const SYNC_BEFORE_LAUNCH_DESCRIPTION = "Download newer saves from server before starting a game";
+
+export const SYNC_AFTER_EXIT_LABEL = "Sync after exit";
+export const SYNC_AFTER_EXIT_DESCRIPTION = "Upload changed saves to server after closing a game";
+
+export const DEFAULT_SAVE_SLOT_LABEL = "Default Save Slot";
+export const DEFAULT_SAVE_SLOT_DESCRIPTION = "Applies to new games and games without a per-game slot override";
+export const defaultSaveSlotSummary = (slot: string): string =>
+  `${slot} — applies to new games and games without a per-game slot override`;
+
+export const RESET_DEFAULT_SLOT_LABEL = "Reset to default";
+
+export const SAVE_HISTORY_LIMIT_LABEL = "Save History Limit";
+export const SAVE_HISTORY_LIMIT_DESCRIPTION = "Max save versions kept per slot on the server";
+
+export interface HistoryLimitOption {
+  readonly data: number;
+  readonly label: string;
+}
+
+export const SAVE_HISTORY_LIMIT_OPTIONS: readonly HistoryLimitOption[] = [
+  { data: 5, label: "5" },
+  { data: 10, label: "10 (Default)" },
+  { data: 20, label: "20" },
+  { data: 50, label: "50" },
+];
+
+export const SYNC_ALL_SAVES_NOW_LABEL = "Sync All Saves Now";
+export const SYNCING_ALL_LABEL = "Syncing...";
+export const SYNC_ALL_FAILED_STATUS = "Sync failed";
+
 export const ENABLE_SAVE_SYNC_CONFIRM = {
   title: "Enable Save Sync?",
   description:
