@@ -43,6 +43,10 @@ describe("no desktop code names a minified class hash", () => {
     ["one of Tender's own ids", 'export const s = "tender-desktop-play-button";\n'],
     ["a CSS transform", 'export const s = "matrix3d(1, 0, 0, 0)";\n'],
     ["a Fiber key", 'export const s = "__reactInternalInstance$";\n'],
+    [
+      "a data URI",
+      'export const s = "url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAACXBIWXMAAAsT)";\n',
+    ],
     ["a readable regex literal", "export const r = /\\/library\\/app\\/(\\d+)/;\n"],
   ])("leaves %s alone", async (_kind, source) => {
     expect(await reported(DESKTOP, source)).toEqual([]);

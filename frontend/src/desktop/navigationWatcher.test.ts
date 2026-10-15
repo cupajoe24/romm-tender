@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
+import { act, useEffect, useState } from "react";
+import * as reactDomClient from "react-dom/client";
+import type { Root } from "react-dom/client";
 import {
   appIdOf,
   startDesktopNavigationWatcher,
   stopDesktopNavigationWatcher,
   type DesktopGamePage,
 } from "./navigationWatcher";
+import * as elementSelectors from "./watcher/elementSelectors";
 import { TENDER_PLAY_BUTTON_ID, TENDER_SUBSTITUTE_ID } from "./watcher/elementSelectors";
 import {
   GLASS_PLAY_BAR_BG,
@@ -14,21 +18,157 @@ import {
 } from "./gameview/styles";
 import * as rommAppIds from "../utils/rommAppIds";
 import * as desktopWin from "./desktopWindow";
-import * as deckyUiInternals from "../utils/deckyUiInternals";
+import * as backend from "../api/backend";
 
-const PAGE: DesktopGamePage = { gameView: () => null, playButton: () => null };
+const Blank = () => null;
+const PAGE: DesktopGamePage = { gameView: Blank, playButton: Blank };
+
+interface Manager {
+  MainWindowBrowserManager?: unknown;
+}
+
+function navigateTo(path: string): void {
+  (window as unknown as Manager).MainWindowBrowserManager = { m_lastLocation: { pathname: path } };
+}
+
+/** React's real client, standing in for the one in Steam's module registry, keeping every root it creates. */
+function reactClient() {
+  const roots: Root[] = [];
+  const client = {
+    createRoot: vi.fn((host: Element | DocumentFragment, options?: { onUncaughtError?: (error: unknown) => void }) => {
+      const root = (reactDomClient as unknown as desktopWin.ReactClientModule).createRoot(host, options);
+      vi.spyOn(root, "unmount");
+      roots.push(root);
+      return root;
+    }),
+  };
+  const findClient = vi.spyOn(desktopWin, "findReactClient").mockReturnValue(client);
+  return { client, roots, findClient };
+}
+
+/**
+ * A stand-in for the desktop client's window. Its frames, timers and observer
+ * run only when the test says, and React's work runs inside each frame.
+ */
+function desktopClient(doc: Document, extra: Record<string, unknown> = {}) {
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextFrame = 1;
+  let observed: (() => void) | undefined;
+  class TestMutationObserver {
+    constructor(cb: () => void) {
+      observed = cb;
+    }
+    observe() {}
+    disconnect() {
+      observed = undefined;
+    }
+  }
+  const win = {
+    document: doc,
+    location: { pathname: "/" },
+    requestAnimationFrame: vi.fn((cb: FrameRequestCallback) => {
+      const id = nextFrame++;
+      frames.set(id, cb);
+      return id;
+    }),
+    cancelAnimationFrame: vi.fn((id: number) => {
+      frames.delete(id);
+    }),
+    setInterval: vi.fn(),
+    clearInterval: vi.fn(),
+    setTimeout: vi.fn(),
+    MutationObserver: TestMutationObserver,
+    ...extra,
+  } as unknown as Window;
+
+  /**
+   * Run every frame due, and the frames those ask for in turn. Inside `act`,
+   * React rethrows a render error rather than handing it to `onUncaughtError`,
+   * so a test of that handler runs its frames outside it.
+   */
+  const flush = (insideAct = true) => {
+    for (let i = 0; i < 20 && frames.size > 0; i++) {
+      const due = [...frames.values()];
+      frames.clear();
+      const run = () => {
+        for (const cb of due) cb(0);
+      };
+      if (insideAct) act(run);
+      else run();
+    }
+  };
+  return {
+    win,
+    frames,
+    flush,
+    /** Steam changed the page's children. */
+    mutate: () => {
+      observed?.();
+      flush();
+    },
+    observing: () => observed !== undefined,
+    fireObserver: () => observed?.(),
+  };
+}
+
+type DesktopClient = ReturnType<typeof desktopClient>;
+
+/** Start the watcher on `client`'s window and run its first pass; the stop it answers runs inside `act`. */
+function start(page: DesktopGamePage, client: DesktopClient): () => void {
+  const stop = startDesktopNavigationWatcher(page, client.win);
+  client.flush();
+  return () => {
+    act(() => {
+      stop();
+    });
+  };
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(doc: Document, tag: K, className = ""): HTMLElementTagNameMap[K] {
+  const node = doc.createElement(tag);
+  node.className = className;
+  return node;
+}
+
+/**
+ * A RomM game page: the hero, then a play bar holding the Play button, its
+ * badges and the right-hand controls, then a content section; Steam's
+ * duplicate sticky header sits outside the panel.
+ */
+function gamePage() {
+  const doc = document.implementation.createHTMLDocument("Steam Desktop");
+  const panel = el(doc, "div", "AppDetailsOverviewPanel");
+  const hero = el(doc, "div", "HeroHeaderWrapper");
+  const playBar = el(doc, "div", "PlayBar");
+  const playButton = el(doc, "button", "PlayButton");
+  const badges = el(doc, "div", "StatusAndStats");
+  const lastPlayed = el(doc, "div", "GameStat LastPlayed");
+  const controls = el(doc, "div", "RightControls");
+  const content = el(doc, "div", "AppDetailSectionList");
+  const duplicateHeader = el(doc, "div", "StickyHeaderBar");
+  badges.appendChild(lastPlayed);
+  playBar.append(playButton, badges, controls);
+  panel.append(hero, playBar, content);
+  doc.body.append(duplicateHeader, panel);
+  return { doc, panel, hero, playBar, playButton, badges, lastPlayed, controls, content, duplicateHeader };
+}
 
 describe("navigationWatcher", () => {
-  const originalManager = (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager;
+  const originalManager = (window as unknown as Manager).MainWindowBrowserManager;
+
+  beforeAll(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  });
 
   beforeEach(() => {
     stopDesktopNavigationWatcher();
-    vi.mocked(rommAppIds.isRomMAppId);
   });
 
   afterEach(() => {
-    stopDesktopNavigationWatcher();
-    (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = originalManager;
+    act(() => {
+      stopDesktopNavigationWatcher();
+    });
+    (window as unknown as Manager).MainWindowBrowserManager = originalManager;
     vi.restoreAllMocks();
   });
 
@@ -48,7 +188,7 @@ describe("navigationWatcher", () => {
   });
 
   describe("lifecycle and mounting", () => {
-    it("no-ops when target window has no document body", () => {
+    it("no-ops on a window that cannot run it", () => {
       const emptyWin = {} as Window;
       const stop = startDesktopNavigationWatcher(PAGE, emptyWin);
       expect(typeof stop).toBe("function");
@@ -56,1091 +196,401 @@ describe("navigationWatcher", () => {
     });
 
     it("mounts on RomM shortcut preserving play bar and unmounts on non-RomM navigation", () => {
-      const mockRoot = {
-        render: vi.fn(),
-        unmount: vi.fn(),
-      };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const ovClass = deckyUiInternals.appDetailsClasses?.AppDetailsOverviewPanel || "AppDetailsOverviewPanel";
-      const psClass = deckyUiInternals.basicAppDetailsSectionStylerClasses?.PlaySection || "PlaySection";
-      const listClass =
-        deckyUiInternals.basicAppDetailsSectionStylerClasses?.AppDetailSectionList || "AppDetailSectionList";
-
-      // Setup DOM with both playSection and contentSection
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const steamPanel = mockDoc.createElement("div");
-      steamPanel.className = ovClass;
-
-      const playSection = mockDoc.createElement("div");
-      playSection.className = psClass;
-      steamPanel.appendChild(playSection);
-
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = listClass;
-      steamPanel.appendChild(contentSection);
-
+      const react = reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = el(doc, "div");
+      const steamPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      const playSection = el(doc, "div", "PlaySection");
+      const contentSection = el(doc, "div", "AppDetailSectionList");
+      steamPanel.append(playSection, contentSection);
       parent.appendChild(steamPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(123),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/50000" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/50000" },
-      };
-
+      doc.body.appendChild(parent);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/50000");
       vi.spyOn(rommAppIds, "isRomMAppId").mockImplementation((id) => id === 50000);
 
-      // Start watching
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
 
-      // Verify mounting: play bar and steam panel are preserved visible; only content is hidden
       expect(steamPanel.style.display).not.toBe("none");
       expect(playSection.style.display).not.toBe("none");
       expect(contentSection.style.display).toBe("none");
-
-      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
-      expect(host).not.toBeNull();
+      const host = doc.getElementById(TENDER_SUBSTITUTE_ID);
       expect(host?.dataset.appid).toBe("50000");
-      // host is inserted right after playSection
       expect(playSection.nextElementSibling).toBe(host);
-      expect(mockRoot.render).toHaveBeenCalledTimes(1);
+      expect(react.client.createRoot).toHaveBeenCalledTimes(1);
 
-      // Re-invoking reinject with same appId should not re-render
-      // Navigate to a non-RomM app (e.g. 60000)
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/60000" },
-      };
+      navigateTo("/library/app/60000");
+      client.mutate();
 
-      // Trigger navigation interval check
-      const intervalCallback = vi.mocked(mockWin.setInterval).mock.calls[0]?.[0];
-      if (typeof intervalCallback === "function") {
-        intervalCallback();
-      }
-
-      // Verify unmount and restoration
-      expect(mockRoot.unmount).toHaveBeenCalledTimes(1);
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      expect(react.roots[0]?.unmount).toHaveBeenCalledTimes(1);
+      expect(doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
       expect(contentSection.style.display).toBe("");
       expect(playSection.style.display).toBe("");
       expect(steamPanel.style.display).toBe("");
 
       stop();
-      expect(mockWin.clearInterval).toHaveBeenCalledWith(123);
+      expect(client.observing()).toBe(false);
+    });
+
+    it("gives back the panel it hid as content, with the display it had, once the panel holds the play section", () => {
+      reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const steamPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      steamPanel.style.display = "flex";
+      const playSection = el(doc, "div", "PlaySection");
+      doc.body.append(steamPanel, playSection);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/50000");
+      const isRomM = vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = start(PAGE, client);
+      expect(steamPanel.style.display).toBe("none");
+
+      steamPanel.appendChild(playSection);
+      client.mutate();
+      expect(steamPanel.style.display).toBe("flex");
+
+      isRomM.mockReturnValue(false);
+      client.mutate();
+      expect(steamPanel.style.display).toBe("flex");
+      stop();
+    });
+
+    it("leaves a panel Steam hid as Steam set it", () => {
+      reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const steamPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      steamPanel.style.display = "none";
+      const playSection = el(doc, "div", "PlaySection");
+      steamPanel.appendChild(playSection);
+      doc.body.appendChild(steamPanel);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/50000");
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = start(PAGE, client);
+      expect(doc.getElementById(TENDER_SUBSTITUTE_ID)).not.toBeNull();
+      expect(steamPanel.style.display).toBe("none");
+      stop();
+      expect(steamPanel.style.display).toBe("none");
     });
 
     it("defers mounting when overview panel or play section is initially absent and mounts when they appear", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      mockDoc.body.appendChild(parent);
-
-      let observerCallback: (() => void) | undefined;
-      class TestMutationObserver {
-        constructor(cb: () => void) {
-          observerCallback = cb;
-        }
-        observe() {}
-        disconnect() {}
-      }
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(123),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: TestMutationObserver as unknown as typeof MutationObserver,
-        location: { pathname: "/library/app/555" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/555" },
-      };
+      const react = reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = el(doc, "div");
+      doc.body.appendChild(parent);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/555");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
+      expect(doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      expect(react.client.createRoot).not.toHaveBeenCalled();
 
-      // Should not mount into d.body when steam overview panel is absent
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-      expect(mockRoot.render).not.toHaveBeenCalled();
-
-      // Steam asynchronously inserts AppDetailsOverviewPanel with PlaySection
-      const steamPanel = mockDoc.createElement("div");
-      steamPanel.className = "AppDetailsOverviewPanel";
-      const playSection = mockDoc.createElement("div");
-      playSection.className = "PlaySection";
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "AppDetailSectionList";
-      steamPanel.appendChild(playSection);
-      steamPanel.appendChild(contentSection);
+      const steamPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      const playSection = el(doc, "div", "PlaySection");
+      const contentSection = el(doc, "div", "AppDetailSectionList");
+      steamPanel.append(playSection, contentSection);
       parent.appendChild(steamPanel);
+      client.mutate();
 
-      // Mutation observer fires
-      if (observerCallback) {
-        observerCallback();
-      }
-
-      // Should now be mounted with play section visible and content section hidden
       expect(steamPanel.style.display).not.toBe("none");
       expect(playSection.style.display).not.toBe("none");
       expect(contentSection.style.display).toBe("none");
-
-      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
-      expect(host).not.toBeNull();
+      const host = doc.getElementById(TENDER_SUBSTITUTE_ID);
       expect(host?.dataset.appid).toBe("555");
       expect(host?.parentElement).toBe(steamPanel);
-      expect(mockRoot.render).toHaveBeenCalledTimes(1);
-
-      stopDesktopNavigationWatcher();
+      expect(react.client.createRoot).toHaveBeenCalledTimes(1);
+      stop();
     });
 
     it("re-hides content section if Steam re-renders it after our mount", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const steamPanel = mockDoc.createElement("div");
-      steamPanel.className = "AppDetailsOverviewPanel";
-
-      const playSection = mockDoc.createElement("div");
-      playSection.className = "PlaySection";
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "AppDetailSectionList";
-      steamPanel.appendChild(playSection);
-      steamPanel.appendChild(contentSection);
-
-      parent.appendChild(steamPanel);
-      mockDoc.body.appendChild(parent);
-
-      let observerCallback: (() => void) | undefined;
-      class TestMutationObserver {
-        constructor(cb: () => void) {
-          observerCallback = cb;
-        }
-        observe() {}
-        disconnect() {}
-      }
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(123),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: TestMutationObserver as unknown as typeof MutationObserver,
-        location: { pathname: "/library/app/888" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/888" },
-      };
+      const react = reactClient();
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/888");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(PAGE, mockWin);
-      expect(contentSection.style.display).toBe("none");
+      const stop = start(PAGE, client);
+      expect(page.content.style.display).toBe("none");
 
-      // Steam re-renders and un-hides content section
-      contentSection.style.display = "";
+      page.content.style.display = "";
+      client.mutate();
 
-      // MutationObserver fires
-      if (observerCallback) {
-        observerCallback();
-      }
-
-      // It must be re-hidden without remounting React root
-      expect(contentSection.style.display).toBe("none");
-      expect(mockRoot.render).toHaveBeenCalledTimes(1);
-
-      stopDesktopNavigationWatcher();
+      expect(page.content.style.display).toBe("none");
+      expect(react.client.createRoot).toHaveBeenCalledTimes(2);
+      stop();
     });
 
     it("switches to new RomM game cleanly", () => {
-      const mockRoot = {
-        render: vi.fn(),
-        unmount: vi.fn(),
-      };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const ovClass = deckyUiInternals.appDetailsClasses?.AppDetailsOverviewPanel || "AppDetailsOverviewPanel";
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const steamPanel = mockDoc.createElement("div");
-      steamPanel.className = ovClass;
-      const playSection = mockDoc.createElement("div");
-      playSection.className = "PlaySection";
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "AppDetailSectionList";
-      steamPanel.appendChild(playSection);
-      steamPanel.appendChild(contentSection);
-      mockDoc.body.appendChild(steamPanel);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(123),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/111" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/111" },
-      };
-
+      const react = reactClient();
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/111");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      startDesktopNavigationWatcher(PAGE, mockWin);
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("111");
+      const stop = start({ gameView: Blank }, client);
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("111");
 
-      // Navigate to 222
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/222" },
-      };
-      const intervalCallback = vi.mocked(mockWin.setInterval).mock.calls[0]?.[0];
-      if (typeof intervalCallback === "function") {
-        intervalCallback();
-      }
+      navigateTo("/library/app/222");
+      client.mutate();
 
-      expect(mockRoot.unmount).toHaveBeenCalledTimes(1);
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("222");
+      expect(react.roots[0]?.unmount).toHaveBeenCalledTimes(1);
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("222");
 
-      stopDesktopNavigationWatcher();
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-    });
-
-    it("handles createRoot error by cleaning up host and resetting display", () => {
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockImplementation(() => {
-          throw new Error("Root mount failure");
-        }),
-      });
-
-      const ovClass = deckyUiInternals.appDetailsClasses?.AppDetailsOverviewPanel || "AppDetailsOverviewPanel";
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const steamPanel = mockDoc.createElement("div");
-      steamPanel.className = ovClass;
-      const playSection = mockDoc.createElement("div");
-      playSection.className = "PlaySection";
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "AppDetailSectionList";
-      steamPanel.appendChild(playSection);
-      steamPanel.appendChild(contentSection);
-      parent.appendChild(steamPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(123),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/444" },
-      };
-      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
-
-      startDesktopNavigationWatcher(PAGE, mockWin);
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-      expect(contentSection.style.display).toBe("");
-
-      stopDesktopNavigationWatcher();
+      stop();
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
 
     it("mounts directly after playBar inside innerContainer, hiding shortcut notice and notes/recordings panel", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-      const innerContainer = mockDoc.createElement("div");
-      innerContainer.className = "Container Glassy";
-
-      const playBar = mockDoc.createElement("div");
-      playBar.className = deckyUiInternals.playSectionClasses?.PlayBar || "PlayBar";
-      const playButton = mockDoc.createElement("button");
-      playBar.appendChild(playButton);
-
-      const shortcutNotice = mockDoc.createElement("div");
-      shortcutNotice.className = "hashed-shortcut-notice";
-      const columnContainer = mockDoc.createElement("div");
-      columnContainer.className = "hashed-column-container";
-
-      innerContainer.appendChild(playBar);
-      innerContainer.appendChild(shortcutNotice);
-      innerContainer.appendChild(columnContainer);
+      reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = el(doc, "div");
+      const overviewPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      const innerContainer = el(doc, "div", "Container Glassy");
+      const playBar = el(doc, "div", "PlayBar");
+      playBar.appendChild(el(doc, "button"));
+      const shortcutNotice = el(doc, "div", "hashed-shortcut-notice");
+      const columnContainer = el(doc, "div", "hashed-column-container");
+      innerContainer.append(playBar, shortcutNotice, columnContainer);
       overviewPanel.appendChild(innerContainer);
       parent.appendChild(overviewPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(999),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/70000" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/70000" },
-      };
+      doc.body.appendChild(parent);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/70000");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
 
-      // PlayBar is kept visible
       expect(playBar.style.display).not.toBe("none");
-      // Both the shortcut notice and the notes/recordings panel are hidden
       expect(shortcutNotice.style.display).toBe("none");
       expect(columnContainer.style.display).toBe("none");
-
-      // Substitute is mounted directly inside innerContainer, right after playBar
-      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
-      expect(host).not.toBeNull();
+      const host = doc.getElementById(TENDER_SUBSTITUTE_ID);
       expect(host?.parentElement).toBe(innerContainer);
       expect(playBar.nextElementSibling).toBe(host);
 
       stop();
       expect(shortcutNotice.style.display).toBe("");
       expect(columnContainer.style.display).toBe("");
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      expect(doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
 
     it("mounts after inPageContainer when playBar is nested inside in-page wrapper", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-      const innerContainer = mockDoc.createElement("div");
-      innerContainer.className = "_27RcNu8aXKBpYkHcNNrt-X";
-
-      const inPageContainer = mockDoc.createElement("div");
-      inPageContainer.className = "_3Yf8b2v5oOD8Wqsxu04ar _1U7LKpx70kEsz3jJwAFOi- InPage";
-      const playBar = mockDoc.createElement("div");
-      playBar.className = "_3fLo166MlaNqP8r8tTyRz PlayBar";
-      const playButton = mockDoc.createElement("button");
-      playButton.className = "PlayButton";
-      playBar.appendChild(playButton);
+      reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const parent = el(doc, "div");
+      const overviewPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      const innerContainer = el(doc, "div", "_27RcNu8aXKBpYkHcNNrt-X");
+      const inPageContainer = el(doc, "div", "_3Yf8b2v5oOD8Wqsxu04ar _1U7LKpx70kEsz3jJwAFOi- InPage");
+      const playBar = el(doc, "div", "_3fLo166MlaNqP8r8tTyRz PlayBar");
+      playBar.appendChild(el(doc, "button", "PlayButton"));
       inPageContainer.appendChild(playBar);
-
-      const columnContainer = mockDoc.createElement("div");
-      columnContainer.className = "OhSdLYuggDtBcWjYP0j_9";
-
-      innerContainer.appendChild(inPageContainer);
-      innerContainer.appendChild(columnContainer);
+      const columnContainer = el(doc, "div", "OhSdLYuggDtBcWjYP0j_9");
+      innerContainer.append(inPageContainer, columnContainer);
       overviewPanel.appendChild(innerContainer);
       parent.appendChild(overviewPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(888),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/70001" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/70001" },
-      };
+      doc.body.appendChild(parent);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/70001");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
 
-      // PlayBar and inPageContainer are kept visible
       expect(inPageContainer.style.display).not.toBe("none");
       expect(columnContainer.style.display).toBe("none");
-
-      // Substitute is mounted directly inside innerContainer, right after inPageContainer (not inside inPageContainer!)
-      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
-      expect(host).not.toBeNull();
+      const host = doc.getElementById(TENDER_SUBSTITUTE_ID);
       expect(host?.parentElement).toBe(innerContainer);
       expect(inPageContainer.nextElementSibling).toBe(host);
       expect(inPageContainer.contains(host)).toBe(false);
 
       stop();
       expect(columnContainer.style.display).toBe("");
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      expect(doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
 
     it("replaces native play button with Tender play button and restores on unmount", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-
-      const playBar = mockDoc.createElement("div");
-      playBar.className = "PlayBar";
-      const nativePlayBtn = mockDoc.createElement("button");
-      nativePlayBtn.className = deckyUiInternals.appActionButtonClasses?.PlayButton || "PlayButton";
-      playBar.appendChild(nativePlayBtn);
-
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "AppDetailSectionList";
-
-      overviewPanel.appendChild(playBar);
-      overviewPanel.appendChild(contentSection);
-      parent.appendChild(overviewPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(123),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/99999" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/99999" },
-      };
+      const react = reactClient();
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/99999");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
 
-      // Native play button should be hidden
-      expect(nativePlayBtn.style.display).toBe("none");
-
-      // Tender play button host should be created and inserted before native button
-      const playBtnHost = mockDoc.getElementById(TENDER_PLAY_BUTTON_ID);
-      expect(playBtnHost).not.toBeNull();
+      expect(page.playButton.style.display).toBe("none");
+      const playBtnHost = page.doc.getElementById(TENDER_PLAY_BUTTON_ID);
       expect(playBtnHost?.dataset.appid).toBe("99999");
       expect(playBtnHost?.style.paddingBottom).toBe("2px");
-      expect(playBtnHost?.nextElementSibling).toBe(nativePlayBtn);
+      expect(playBtnHost?.nextElementSibling).toBe(page.playButton);
 
-      // Stop watcher / unmount
       stop();
 
-      // Native play button restored and Tender host removed
-      expect(nativePlayBtn.style.display).toBe("");
-      expect(mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
-      expect(mockRoot.unmount).toHaveBeenCalled();
-    });
-
-    describe("switching games, stopping, and the cost of a pass", () => {
-      function playBarPage(appId: number) {
-        const createRoot = vi.fn().mockImplementation(() => ({ render: vi.fn(), unmount: vi.fn() }));
-        const findClient = vi.spyOn(desktopWin, "findReactClient").mockReturnValue({ createRoot });
-
-        const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-        const overviewPanel = mockDoc.createElement("div");
-        overviewPanel.className = "AppDetailsOverviewPanel";
-        const playBar = mockDoc.createElement("div");
-        playBar.className = "PlayBar";
-        const nativePlayBtn = mockDoc.createElement("button");
-        nativePlayBtn.className = deckyUiInternals.appActionButtonClasses?.PlayButton || "PlayButton";
-        playBar.appendChild(nativePlayBtn);
-        const contentSection = mockDoc.createElement("div");
-        contentSection.className = "AppDetailSectionList";
-        overviewPanel.appendChild(playBar);
-        overviewPanel.appendChild(contentSection);
-        mockDoc.body.appendChild(overviewPanel);
-
-        const timeouts: Array<() => void> = [];
-        const mockWin = {
-          document: mockDoc,
-          setInterval: vi.fn().mockReturnValue(123),
-          clearInterval: vi.fn(),
-          setTimeout: vi.fn((cb: () => void) => {
-            timeouts.push(cb);
-            return timeouts.length;
-          }),
-          MutationObserver: window.MutationObserver,
-          location: { pathname: `/library/app/${appId}` },
-        } as unknown as Window;
-        navigateTo(appId);
-        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
-
-        const tick = () => {
-          const intervalCallback = vi.mocked(mockWin.setInterval).mock.calls[0]?.[0];
-          if (typeof intervalCallback === "function") intervalCallback();
-        };
-        return { mockDoc, mockWin, nativePlayBtn, createRoot, findClient, timeouts, tick };
-      }
-
-      function navigateTo(appId: number) {
-        (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-          m_lastLocation: { pathname: `/library/app/${appId}` },
-        };
-      }
-
-      it("keeps Steam's play button hidden through a switch to another RomM game", () => {
-        const page = playBarPage(99999);
-        const stop = startDesktopNavigationWatcher(PAGE, page.mockWin);
-
-        navigateTo(88888);
-        page.tick();
-
-        expect(page.nativePlayBtn.style.display).toBe("none");
-        expect(page.mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)?.dataset.appid).toBe("88888");
-        expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("88888");
-        stop();
-      });
-
-      it("mounts nothing from a settle timeout that fires after the watcher stopped", () => {
-        const page = playBarPage(99999);
-        const stop = startDesktopNavigationWatcher(PAGE, page.mockWin);
-        const rootsBeforeStop = page.createRoot.mock.calls.length;
-
-        stop();
-        for (const settle of page.timeouts) settle();
-
-        expect(page.createRoot).toHaveBeenCalledTimes(rootsBeforeStop);
-        expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-        expect(page.nativePlayBtn.style.display).toBe("");
-      });
-
-      it("looks createRoot up once, not on every pass", () => {
-        const page = playBarPage(99999);
-        const stop = startDesktopNavigationWatcher(PAGE, page.mockWin);
-
-        page.tick();
-        page.tick();
-        for (const settle of page.timeouts) settle();
-
-        expect(page.findClient).toHaveBeenCalledTimes(1);
-        stop();
-      });
-
-      describe("a page with nothing to mount", () => {
-        it("leaves Steam's content and Play button in place and creates no React root", () => {
-          const page = playBarPage(99999);
-          const stop = startDesktopNavigationWatcher({}, page.mockWin);
-
-          expect(page.nativePlayBtn.style.display).toBe("");
-          expect(page.mockDoc.querySelector<HTMLElement>(".AppDetailSectionList")?.style.display).toBe("");
-          expect(page.mockDoc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
-          expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-          expect(page.findClient).not.toHaveBeenCalled();
-          stop();
-        });
-
-        it("adapts the play bar and gives it back on leaving the page", () => {
-          const page = playBarPage(99999);
-          const playBar = page.mockDoc.querySelector<HTMLElement>(".PlayBar");
-          const stop = startDesktopNavigationWatcher({}, page.mockWin);
-          expect(playBar?.style.position).toBe("sticky");
-
-          vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(false);
-          navigateTo(77777);
-          page.tick();
-
-          expect(playBar?.style.position).toBe("");
-          stop();
-        });
-
-        it("counts the page as mounted, so a tick on the same page schedules no settle passes", () => {
-          const page = playBarPage(99999);
-          const stop = startDesktopNavigationWatcher({}, page.mockWin);
-          page.tick();
-          const settlesSoFar = page.timeouts.length;
-
-          page.tick();
-          page.tick();
-
-          expect(page.timeouts).toHaveLength(settlesSoFar);
-          stop();
-        });
-      });
-
-      it("attaches nothing from a popup callback that fires after the supervisor stopped", () => {
-        const page = playBarPage(99999);
-        const popupCallbacks: Array<() => void> = [];
-        const findWindow = vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(undefined);
-        const g = window as unknown as { g_PopupManager?: unknown };
-        const originalPopupManager = g.g_PopupManager;
-        g.g_PopupManager = {
-          AddPopupCreatedCallback: (cb: () => void) => popupCallbacks.push(cb),
-          AddPopupDestroyedCallback: (cb: () => void) => popupCallbacks.push(cb),
-        };
-        try {
-          const stop = startDesktopNavigationWatcher(PAGE);
-          stop();
-
-          findWindow.mockReturnValue(page.mockWin);
-          for (const cb of popupCallbacks) cb();
-
-          expect(popupCallbacks).toHaveLength(2);
-          expect(page.mockWin.setInterval).not.toHaveBeenCalled();
-          expect(page.mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-        } finally {
-          g.g_PopupManager = originalPopupManager;
-        }
-      });
+      expect(page.playButton.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+      for (const root of react.roots) expect(root.unmount).toHaveBeenCalled();
     });
 
     it("hides Steam default play bar badges alongside native play button and restores on unmount", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-
-      const playBar = mockDoc.createElement("div");
-      playBar.className = "PlayBar";
-
-      const nativePlayBtn = mockDoc.createElement("button");
-      nativePlayBtn.className = "PlayButton";
-      playBar.appendChild(nativePlayBtn);
-
-      const nativeBadges = mockDoc.createElement("div");
-      nativeBadges.className = "StatusAndStats";
-      const lastPlayedItem = mockDoc.createElement("div");
-      lastPlayedItem.className = "GameStat LastPlayed";
-      lastPlayedItem.textContent = "LAST PLAYED Today";
-      nativeBadges.appendChild(lastPlayedItem);
-      playBar.appendChild(nativeBadges);
-
-      const rightControls = mockDoc.createElement("div");
-      rightControls.className = "RightControls";
-      playBar.appendChild(rightControls);
-
-      overviewPanel.appendChild(playBar);
-      parent.appendChild(overviewPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(456),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/88888" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/88888" },
-      };
+      reactClient();
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/88888");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
 
-      // Native play button AND default badges should be hidden
-      expect(nativePlayBtn.style.display).toBe("none");
-      expect(nativeBadges.style.display).toBe("none");
-      expect(lastPlayedItem.style.display).toBe("none");
-      // Right controls must remain visible and pinned to the right
-      expect(rightControls.style.display).not.toBe("none");
-      expect(rightControls.style.marginLeft).toBe("auto");
+      expect(page.playButton.style.display).toBe("none");
+      expect(page.badges.style.display).toBe("none");
+      expect(page.lastPlayed.style.display).toBe("none");
+      expect(page.controls.style.display).not.toBe("none");
+      expect(page.controls.style.marginLeft).toBe("auto");
 
-      // Stop watcher / unmount
       stop();
 
-      // Native badges, play button, and right controls margin restored
-      expect(nativePlayBtn.style.display).toBe("");
-      expect(nativeBadges.style.display).toBe("");
-      expect(lastPlayedItem.style.display).toBe("");
-      expect(rightControls.style.display).toBe("");
-      expect(rightControls.style.marginLeft).toBe("");
+      expect(page.playButton.style.display).toBe("");
+      expect(page.badges.style.display).toBe("");
+      expect(page.lastPlayed.style.display).toBe("");
+      expect(page.controls.style.display).toBe("");
+      expect(page.controls.style.marginLeft).toBe("");
     });
 
     it("isolates play bar container as sticky, hides duplicate sticky header, contains hero overflow, and restores on unmount", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const parent = mockDoc.createElement("div");
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-
-      const heroBanner = mockDoc.createElement("div");
-      heroBanner.className = "HeroHeaderWrapper";
-      overviewPanel.appendChild(heroBanner);
-
-      const duplicateStickyPlayBar = mockDoc.createElement("div");
-      duplicateStickyPlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
-      duplicateStickyPlayBar.style.position = "absolute";
-      overviewPanel.appendChild(duplicateStickyPlayBar);
-
-      const contentContainer = mockDoc.createElement("div");
-      contentContainer.className = "_27RcNu8aXKBpYkHcNNrt-X";
-
-      const inPagePlayBar = mockDoc.createElement("div");
-      inPagePlayBar.className = "InPagePlayBarContainer InPage";
-      const playBtn = mockDoc.createElement("button");
-      playBtn.className = "PlayButton";
-      inPagePlayBar.appendChild(playBtn);
-      contentContainer.appendChild(inPagePlayBar);
-
-      overviewPanel.appendChild(contentContainer);
-      parent.appendChild(overviewPanel);
-      mockDoc.body.appendChild(parent);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(777),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/55555" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/55555" },
-      };
+      reactClient();
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/55555");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+      const stop = start(PAGE, client);
 
-      // PlayBar container is sticky at top so cards scroll independently
-      expect(inPagePlayBar.style.position).toBe("sticky");
-      expect(inPagePlayBar.style.top).toBe("0px");
-      expect(inPagePlayBar.style.zIndex).toBe("10");
-      expect(inPagePlayBar.style.backgroundColor).toBe("rgb(39, 44, 53)");
-      expect(inPagePlayBar.style.paddingBottom).toBe("2px");
-
-      // Hero banner overflow is set to visible to preserve 3D parallax and refraction effect
-      expect(heroBanner.style.overflow).toBe("visible");
-
-      // Duplicate sticky header is hidden
-      expect(duplicateStickyPlayBar.style.display).toBe("none");
-
-      // Cards container has class tender-desktop-cards-container
-      const host = mockDoc.getElementById(TENDER_SUBSTITUTE_ID);
-      expect(host).not.toBeNull();
-      expect(host?.className).toContain("tender-desktop-cards-container");
-
-      // Stop watcher / unmount restores original properties
-      stop();
-
-      expect(inPagePlayBar.style.position).toBe("");
-      expect(inPagePlayBar.style.top).toBe("");
-      expect(inPagePlayBar.style.backgroundColor).toBe("");
-      expect(inPagePlayBar.style.paddingBottom).toBe("");
-      expect(heroBanner.style.overflow).toBe("");
-      expect(duplicateStickyPlayBar.style.display).toBe("");
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-    });
-
-    it("contains hero overflow when steamPanel.firstElementChild wraps the play bar (desktop nested layout)", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      // Build the nested desktop layout:
-      // scrollContainer > panel > heroWrapper(inflated) + contentPanel > overviewPanel(steamPanel) > playBar + ...
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-
-      const scrollContainer = mockDoc.createElement("div");
-      Object.defineProperty(scrollContainer, "scrollHeight", { value: 1978, configurable: true });
-
-      const panel = mockDoc.createElement("div");
-      scrollContainer.appendChild(panel);
-
-      // Hero wrapper with inflated scrollHeight (the bug target)
-      const heroWrapper = mockDoc.createElement("div");
-      heroWrapper.className = "HeroBanner";
-      Object.defineProperty(heroWrapper, "scrollHeight", { value: 1978, configurable: true });
-      Object.defineProperty(heroWrapper, "offsetHeight", { value: 307, configurable: true });
-      panel.appendChild(heroWrapper);
-
-      // Content panel wrapping the overview panel
-      const contentPanel = mockDoc.createElement("div");
-      panel.appendChild(contentPanel);
-
-      // Overview panel (what findSteamOverviewPanel will return)
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-      contentPanel.appendChild(overviewPanel);
-
-      const inPagePlayBar = mockDoc.createElement("div");
-      inPagePlayBar.className = "InPagePlayBarContainer InPage";
-      const playBtn = mockDoc.createElement("button");
-      playBtn.className = "PlayButton";
-      inPagePlayBar.appendChild(playBtn);
-      overviewPanel.appendChild(inPagePlayBar);
-
-      // Content section that should be hidden
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "ColumnContainer";
-      overviewPanel.appendChild(contentSection);
-
-      mockDoc.body.appendChild(scrollContainer);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(888),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/77777" },
-        getComputedStyle: (el: Element) => {
-          if (el === scrollContainer) {
-            return { ...window.getComputedStyle(el), overflowY: "scroll" } as CSSStyleDeclaration;
-          }
-          return window.getComputedStyle(el);
-        },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/77777" },
-      };
-      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
-
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
-
-      // The hero wrapper should have overflow:visible to preserve parallax and card refraction
-      expect(heroWrapper.style.overflow).toBe("visible");
+      expect(page.playBar.style.position).toBe("sticky");
+      expect(page.playBar.style.top).toBe("0px");
+      expect(page.playBar.style.zIndex).toBe("10");
+      expect(page.playBar.style.backgroundColor).toBe("rgb(39, 44, 53)");
+      expect(page.playBar.style.paddingBottom).toBe("2px");
+      expect(page.hero.style.overflow).toBe("visible");
+      expect(page.duplicateHeader.style.display).toBe("none");
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)?.className).toContain("tender-desktop-cards-container");
 
       stop();
 
-      // Overflow should be restored on unmount
-      expect(heroWrapper.style.overflow).toBe("");
+      expect(page.playBar.style.position).toBe("");
+      expect(page.playBar.style.top).toBe("");
+      expect(page.playBar.style.backgroundColor).toBe("");
+      expect(page.playBar.style.paddingBottom).toBe("");
+      expect(page.hero.style.overflow).toBe("");
+      expect(page.duplicateHeader.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
     });
 
-    it("contains hero wrapper overflow when it inflates asynchronously after substitute is already mounted", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-
-      const scrollContainer = mockDoc.createElement("div");
-      const panel = mockDoc.createElement("div");
-      scrollContainer.appendChild(panel);
-
-      // Hero wrapper initially NOT inflated (scrollHeight matches offsetHeight)
-      const heroWrapper = mockDoc.createElement("div");
-      heroWrapper.className = "HeroBanner";
-      Object.defineProperty(heroWrapper, "scrollHeight", { value: 307, configurable: true });
-      Object.defineProperty(heroWrapper, "offsetHeight", { value: 307, configurable: true });
-      panel.appendChild(heroWrapper);
-
-      const contentPanel = mockDoc.createElement("div");
-      panel.appendChild(contentPanel);
-
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-      contentPanel.appendChild(overviewPanel);
-
-      const inPagePlayBar = mockDoc.createElement("div");
-      inPagePlayBar.className = "InPagePlayBarContainer InPage";
-      const playBtn = mockDoc.createElement("button");
-      playBtn.className = "PlayButton";
-      inPagePlayBar.appendChild(playBtn);
-      overviewPanel.appendChild(inPagePlayBar);
-
-      const contentSection = mockDoc.createElement("div");
-      contentSection.className = "ColumnContainer";
-      overviewPanel.appendChild(contentSection);
-
-      mockDoc.body.appendChild(scrollContainer);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(999),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/77778" },
-        getComputedStyle: (el: Element) => {
-          if (el === scrollContainer) {
-            return { ...window.getComputedStyle(el), overflowY: "scroll" } as CSSStyleDeclaration;
-          }
-          return window.getComputedStyle(el);
-        },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/77778" },
-      };
-      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
-
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
-
-      // Initially, substitute is mounted, but hero wrapper is not yet inflated
-      expect(mockDoc.getElementById(TENDER_SUBSTITUTE_ID)).not.toBeNull();
-      expect(heroWrapper.style.overflow).toBe("");
-
-      // Steam renders canvas in background: heroWrapper scrollHeight inflates
-      Object.defineProperty(heroWrapper, "scrollHeight", { value: 1978, configurable: true });
-
-      // Trigger interval check while substitute is ALREADY mounted
-      const intervalCallback = vi.mocked(mockWin.setInterval).mock.calls[0]?.[0];
-      if (typeof intervalCallback === "function") {
-        intervalCallback();
+    describe("the hero wrapper", () => {
+      /** scroller > panel > hero wrapper + content panel > overview panel > play bar + a content section. */
+      function nestedHeroPage(heroScrollHeight: number) {
+        const doc = document.implementation.createHTMLDocument("Steam Desktop");
+        const scrollContainer = el(doc, "div");
+        const panel = el(doc, "div");
+        const heroWrapper = el(doc, "div", "HeroBanner");
+        Object.defineProperty(heroWrapper, "scrollHeight", { value: heroScrollHeight, configurable: true });
+        Object.defineProperty(heroWrapper, "offsetHeight", { value: 307, configurable: true });
+        const contentPanel = el(doc, "div");
+        const overviewPanel = el(doc, "div", "AppDetailsOverviewPanel");
+        const inPagePlayBar = el(doc, "div", "InPagePlayBarContainer InPage");
+        inPagePlayBar.appendChild(el(doc, "button", "PlayButton"));
+        overviewPanel.append(inPagePlayBar, el(doc, "div", "ColumnContainer"));
+        contentPanel.appendChild(overviewPanel);
+        panel.append(heroWrapper, contentPanel);
+        scrollContainer.appendChild(panel);
+        doc.body.appendChild(scrollContainer);
+        return { doc, heroWrapper };
       }
 
-      // On reinject pass, hero wrapper should preserve visible overflow
-      expect(heroWrapper.style.overflow).toBe("visible");
+      it("keeps it visible when the panel's first child wraps the play bar", () => {
+        reactClient();
+        const page = nestedHeroPage(1978);
+        const client = desktopClient(page.doc);
+        navigateTo("/library/app/77777");
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      stop();
-      expect(heroWrapper.style.overflow).toBe("");
+        const stop = start(PAGE, client);
+        expect(page.heroWrapper.style.overflow).toBe("visible");
+
+        stop();
+        expect(page.heroWrapper.style.overflow).toBe("");
+      });
+
+      it("keeps it visible once it inflates after the GameView has mounted", () => {
+        reactClient();
+        const page = nestedHeroPage(307);
+        const client = desktopClient(page.doc);
+        navigateTo("/library/app/77778");
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+        const stop = start(PAGE, client);
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).not.toBeNull();
+        expect(page.heroWrapper.style.overflow).toBe("");
+
+        page.heroWrapper.appendChild(el(page.doc, "canvas"));
+        Object.defineProperty(page.heroWrapper, "scrollHeight", { value: 1978, configurable: true });
+        client.mutate();
+
+        expect(page.heroWrapper.style.overflow).toBe("visible");
+        stop();
+        expect(page.heroWrapper.style.overflow).toBe("");
+      });
     });
 
     it("hides native duplicate sticky header when situated outside overviewPanel under main window split and restores on unmount", () => {
-      const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-        createRoot: vi.fn().mockReturnValue(mockRoot),
-      });
-
-      const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-      const mainWindowSplit = mockDoc.createElement("div");
-      mainWindowSplit.className = "MainWindowSplit";
-
-      // Native sticky play bar sits outside the overview panel
-      const duplicateStickyPlayBar = mockDoc.createElement("div");
-      duplicateStickyPlayBar.className = deckyUiInternals.appDetailsClasses?.PlayBar || "PlayBar";
-      mainWindowSplit.appendChild(duplicateStickyPlayBar);
-
-      const scrollContainer = mockDoc.createElement("div");
-      scrollContainer.className = "ScrollContainer";
-
-      const overviewPanel = mockDoc.createElement("div");
-      overviewPanel.className = "AppDetailsOverviewPanel";
-
-      const inPagePlayBar = mockDoc.createElement("div");
-      inPagePlayBar.className = "InPagePlayBarContainer InPage";
-      const playBtn = mockDoc.createElement("button");
-      playBtn.className = "PlayButton";
-      inPagePlayBar.appendChild(playBtn);
+      reactClient();
+      const doc = document.implementation.createHTMLDocument("Steam Desktop");
+      const mainWindowSplit = el(doc, "div", "MainWindowSplit");
+      const duplicateStickyPlayBar = el(doc, "div", "PlayBar");
+      const scrollContainer = el(doc, "div", "ScrollContainer");
+      const overviewPanel = el(doc, "div", "AppDetailsOverviewPanel");
+      const inPagePlayBar = el(doc, "div", "InPagePlayBarContainer InPage");
+      inPagePlayBar.appendChild(el(doc, "button", "PlayButton"));
       overviewPanel.appendChild(inPagePlayBar);
-
       scrollContainer.appendChild(overviewPanel);
-      mainWindowSplit.appendChild(scrollContainer);
-      mockDoc.body.appendChild(mainWindowSplit);
-
-      const mockWin = {
-        document: mockDoc,
-        setInterval: vi.fn().mockReturnValue(778),
-        clearInterval: vi.fn(),
-        setTimeout: vi.fn(),
-        MutationObserver: window.MutationObserver,
-        location: { pathname: "/library/app/55556" },
-      } as unknown as Window;
-
-      (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-        m_lastLocation: { pathname: "/library/app/55556" },
-      };
+      mainWindowSplit.append(duplicateStickyPlayBar, scrollContainer);
+      doc.body.appendChild(mainWindowSplit);
+      const client = desktopClient(doc);
+      navigateTo("/library/app/55556");
       vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-      const stop = startDesktopNavigationWatcher(PAGE, mockWin);
-
-      // Duplicate sticky header outside overviewPanel is hidden
+      const stop = start(PAGE, client);
       expect(duplicateStickyPlayBar.style.display).toBe("none");
 
-      // Stop watcher restores original display
       stop();
       expect(duplicateStickyPlayBar.style.display).toBe("");
     });
 
     describe("dynamic play bar glass and solid pinning", () => {
       it("applies grey glass styling when unpinned and transitions to solid grey when pinned", () => {
-        const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-        vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-          createRoot: vi.fn().mockReturnValue(mockRoot),
-        });
-
-        const mockDoc = document.implementation.createHTMLDocument("Steam Desktop Dynamic Pinned");
-        const scroller = mockDoc.createElement("div");
+        reactClient();
+        const doc = document.implementation.createHTMLDocument("Steam Desktop Dynamic Pinned");
+        const scroller = el(doc, "div");
         scroller.style.overflowY = "scroll";
-
-        const overviewPanel = mockDoc.createElement("div");
-        overviewPanel.className = "AppDetailsOverviewPanel";
-
-        const inPagePlayBar = mockDoc.createElement("div");
-        inPagePlayBar.className = "InPagePlayBarContainer InPage";
-
-        const playSection = mockDoc.createElement("div");
-        playSection.className = "PlaySection";
-        const playBtn = mockDoc.createElement("button");
-        playBtn.className = "PlayButton";
-        playSection.appendChild(playBtn);
+        const overviewPanel = el(doc, "div", "AppDetailsOverviewPanel");
+        const inPagePlayBar = el(doc, "div", "InPagePlayBarContainer InPage");
+        const playSection = el(doc, "div", "PlaySection");
+        playSection.appendChild(el(doc, "button", "PlayButton"));
         inPagePlayBar.appendChild(playSection);
-
         overviewPanel.appendChild(inPagePlayBar);
         scroller.appendChild(overviewPanel);
-        mockDoc.body.appendChild(scroller);
+        doc.body.appendChild(scroller);
 
         let pbTop = 300;
-        const scTop = 50;
+        const rect = (top: number, height: number) =>
+          ({ top, bottom: top + height, left: 0, right: 1000, width: 1000, height }) as DOMRect;
+        vi.spyOn(inPagePlayBar, "getBoundingClientRect").mockImplementation(() => rect(pbTop, 50));
+        vi.spyOn(scroller, "getBoundingClientRect").mockImplementation(() => rect(50, 600));
 
-        vi.spyOn(inPagePlayBar, "getBoundingClientRect").mockImplementation(
-          () =>
-            ({
-              top: pbTop,
-              bottom: pbTop + 50,
-              left: 0,
-              right: 1000,
-              width: 1000,
-              height: 50,
-            }) as DOMRect,
-        );
-
-        vi.spyOn(scroller, "getBoundingClientRect").mockImplementation(
-          () =>
-            ({
-              top: scTop,
-              bottom: scTop + 600,
-              left: 0,
-              right: 1000,
-              width: 1000,
-              height: 600,
-            }) as DOMRect,
-        );
-
-        const mockWin = {
-          document: mockDoc,
-          setInterval: vi.fn().mockReturnValue(779),
-          clearInterval: vi.fn(),
-          setTimeout: vi.fn(),
-          MutationObserver: window.MutationObserver,
-          location: { pathname: "/library/app/55557" },
-        } as unknown as Window;
-
-        (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-          m_lastLocation: { pathname: "/library/app/55557" },
-        };
+        const client = desktopClient(doc);
+        navigateTo("/library/app/55557");
         vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-        const stop = startDesktopNavigationWatcher(PAGE, mockWin);
+        const stop = start(PAGE, client);
 
-        // Initially unpinned: grey glass styling
         expect(inPagePlayBar.style.position).toBe("sticky");
         expect(inPagePlayBar.style.top).toBe("0px");
         expect(inPagePlayBar.style.backgroundImage).toBe(GLASS_PLAY_BAR_GRADIENT);
@@ -1149,7 +599,6 @@ describe("navigationWatcher", () => {
         expect(inPagePlayBar.style.boxShadow).toBe("none");
         expect(playSection.style.backgroundColor).toBe("transparent");
 
-        // Simulate scroll to top where play bar becomes pinned
         pbTop = 50;
         scroller.dispatchEvent(new Event("scroll"));
 
@@ -1159,7 +608,6 @@ describe("navigationWatcher", () => {
         expect(inPagePlayBar.style.boxShadow).toBe(PINNED_PLAY_BAR_SHADOW);
         expect(playSection.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
 
-        // Simulate scroll back to top (unpinned)
         pbTop = 300;
         scroller.dispatchEvent(new Event("scroll"));
 
@@ -1169,7 +617,6 @@ describe("navigationWatcher", () => {
         expect(inPagePlayBar.style.boxShadow).toBe("none");
         expect(playSection.style.backgroundColor).toBe("transparent");
 
-        // Stop watcher restores original styles cleanly
         stop();
         expect(inPagePlayBar.style.position).toBe("");
         expect(inPagePlayBar.style.top).toBe("");
@@ -1181,65 +628,451 @@ describe("navigationWatcher", () => {
       });
 
       it("recreates sticky controller when playBarTop is replaced during Steam re-render", () => {
-        const mockRoot = { render: vi.fn(), unmount: vi.fn() };
-        vi.spyOn(desktopWin, "findReactClient").mockReturnValue({
-          createRoot: vi.fn().mockReturnValue(mockRoot),
-        });
-
-        const mockDoc = document.implementation.createHTMLDocument("Steam Desktop");
-        const parent = mockDoc.createElement("div");
-        const overviewPanel = mockDoc.createElement("div");
-        overviewPanel.className = "AppDetailsOverviewPanel";
-
-        const playBar1 = mockDoc.createElement("div");
-        playBar1.className = "PlayBar";
-        const playBtn1 = mockDoc.createElement("button");
-        playBtn1.className = "PlayButton";
-        playBar1.appendChild(playBtn1);
-
+        reactClient();
+        const doc = document.implementation.createHTMLDocument("Steam Desktop");
+        const overviewPanel = el(doc, "div", "AppDetailsOverviewPanel");
+        const playBar1 = el(doc, "div", "PlayBar");
+        playBar1.appendChild(el(doc, "button", "PlayButton"));
         overviewPanel.appendChild(playBar1);
-        parent.appendChild(overviewPanel);
-        mockDoc.body.appendChild(parent);
-
-        let checkNavCb: () => void = () => {};
-        const mockWin = {
-          document: mockDoc,
-          setInterval: vi.fn().mockImplementation((cb) => {
-            checkNavCb = cb;
-            return 888;
-          }),
-          clearInterval: vi.fn(),
-          setTimeout: vi.fn(),
-          MutationObserver: window.MutationObserver,
-          location: { pathname: "/library/app/55558" },
-        } as unknown as Window;
-
-        (window as unknown as { MainWindowBrowserManager?: unknown }).MainWindowBrowserManager = {
-          m_lastLocation: { pathname: "/library/app/55558" },
-        };
+        doc.body.appendChild(overviewPanel);
+        const client = desktopClient(doc);
+        navigateTo("/library/app/55558");
         vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
 
-        const stop = startDesktopNavigationWatcher(PAGE, mockWin);
-
+        const stop = start(PAGE, client);
         expect(playBar1.style.zIndex).toBe("10");
 
-        // Simulate Steam re-rendering PlayBar element
-        const playBar2 = mockDoc.createElement("div");
-        playBar2.className = "PlayBar";
-        const playBtn2 = mockDoc.createElement("button");
-        playBtn2.className = "PlayButton";
-        playBar2.appendChild(playBtn2);
-
+        const playBar2 = el(doc, "div", "PlayBar");
+        playBar2.appendChild(el(doc, "button", "PlayButton"));
         overviewPanel.replaceChild(playBar2, playBar1);
-
-        // Run checkNav tick
-        checkNavCb();
+        client.mutate();
 
         expect(playBar2.style.zIndex).toBe("10");
         expect(playBar2.style.position).toBe("sticky");
-
         stop();
       });
+    });
+  });
+
+  describe("switching games, stopping, and the cost of a pass", () => {
+    function startOn(appId: number, page: DesktopGamePage = PAGE) {
+      const react = reactClient();
+      const steam = gamePage();
+      const client = desktopClient(steam.doc);
+      navigateTo(`/library/app/${appId}`);
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+      const stop = start(page, client);
+      return { ...steam, react, desktop: client, findClient: react.findClient, stop };
+    }
+
+    it("keeps Steam's play button hidden through a switch to another RomM game", () => {
+      const page = startOn(99999);
+
+      navigateTo("/library/app/88888");
+      page.desktop.mutate();
+
+      expect(page.playButton.style.display).toBe("none");
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)?.dataset.appid).toBe("88888");
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("88888");
+      page.stop();
+    });
+
+    it("mounts nothing from a frame asked for just before the watcher stopped", () => {
+      const page = startOn(99999);
+      const rootsBeforeStop = page.react.client.createRoot.mock.calls.length;
+
+      page.desktop.fireObserver();
+      page.stop();
+      page.desktop.flush();
+
+      expect(page.react.client.createRoot).toHaveBeenCalledTimes(rootsBeforeStop);
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      expect(page.playButton.style.display).toBe("");
+    });
+
+    it("looks createRoot up once, not on every pass", () => {
+      const page = startOn(99999);
+
+      page.desktop.mutate();
+      page.desktop.mutate();
+
+      expect(page.findClient).toHaveBeenCalledTimes(1);
+      page.stop();
+    });
+
+    it("looks a missing createRoot up once too, and says so once", () => {
+      const logWarn = vi.spyOn(backend, "logWarn").mockImplementation(() => {});
+      const steam = gamePage();
+      const findClient = vi.spyOn(desktopWin, "findReactClient").mockReturnValue(undefined);
+      const client = desktopClient(steam.doc);
+      navigateTo("/library/app/99999");
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = start(PAGE, client);
+      client.mutate();
+      client.mutate();
+
+      expect(findClient).toHaveBeenCalledTimes(1);
+      expect(logWarn).toHaveBeenCalledTimes(1);
+      expect(steam.playButton.style.display).toBe("");
+      expect(steam.playBar.style.position).toBe("sticky");
+      stop();
+    });
+
+    it("mounts the play button and the GameView once, not on every pass", () => {
+      const page = startOn(99999);
+
+      page.desktop.mutate();
+      page.desktop.mutate();
+
+      expect(page.react.client.createRoot).toHaveBeenCalledTimes(2);
+      page.stop();
+    });
+
+    it("runs one pass for every trigger that arrives before the next frame", () => {
+      const page = startOn(99999);
+      const framesSoFar = vi.mocked(page.desktop.win.requestAnimationFrame).mock.calls.length;
+
+      for (let i = 0; i < 10; i++) page.desktop.fireObserver();
+      page.desktop.mutate();
+
+      expect(vi.mocked(page.desktop.win.requestAnimationFrame).mock.calls.length - framesSoFar).toBe(1);
+      page.stop();
+    });
+
+    describe("a page with nothing to mount", () => {
+      it("leaves Steam's content and Play button in place and creates no React root", () => {
+        const page = startOn(99999, {});
+
+        expect(page.playButton.style.display).toBe("");
+        expect(page.content.style.display).toBe("");
+        expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+        expect(page.findClient).not.toHaveBeenCalled();
+        page.stop();
+      });
+
+      it("adapts the play bar and gives it back on leaving the page", () => {
+        const page = startOn(99999, {});
+        expect(page.playBar.style.position).toBe("sticky");
+
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(false);
+        navigateTo("/library/app/77777");
+        page.desktop.mutate();
+
+        expect(page.playBar.style.position).toBe("");
+        page.stop();
+      });
+
+      it("runs on no timer of its own: every pass is one something asked for", () => {
+        const page = startOn(99999, {});
+        navigateTo("/library/app/88888");
+        page.desktop.mutate();
+
+        expect(page.desktop.win.setInterval).not.toHaveBeenCalled();
+        expect(page.desktop.win.setTimeout).not.toHaveBeenCalled();
+        page.stop();
+      });
+    });
+
+    describe("a page handed one part", () => {
+      it("with only a GameView, draws it and leaves Steam's Play button and badges", () => {
+        const page = startOn(99999, { gameView: Blank });
+
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)?.dataset.appid).toBe("99999");
+        expect(page.content.style.display).toBe("none");
+        expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+        expect(page.playButton.style.display).toBe("");
+        expect(page.badges.style.display).toBe("");
+        page.stop();
+      });
+
+      it("with only a Play button, draws it and leaves Steam's content", () => {
+        const page = startOn(99999, { playButton: Blank });
+
+        expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)?.dataset.appid).toBe("99999");
+        expect(page.playButton.style.display).toBe("none");
+        expect(page.badges.style.display).toBe("none");
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+        expect(page.content.style.display).toBe("");
+        page.stop();
+      });
+    });
+  });
+
+  describe("every change it makes is given back", () => {
+    it.each([
+      ["with both parts handed", PAGE],
+      ["with nothing handed", {}],
+    ])("leaves every element's style attribute as it found it, %s", (_name, handed: DesktopGamePage) => {
+      reactClient();
+      const page = gamePage();
+      page.panel.style.display = "flex";
+      page.playBar.style.zIndex = "3";
+      page.lastPlayed.style.display = "inline-block";
+      const before = new Map(
+        Array.from(page.doc.querySelectorAll<HTMLElement>("*"), (node) => [node, node.getAttribute("style") ?? ""]),
+      );
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/50000");
+      vi.spyOn(rommAppIds, "isRomMAppId").mockImplementation((id) => id === 50000);
+
+      const stop = start(handed, client);
+      client.mutate();
+      client.mutate();
+      page.playBar.dispatchEvent(new Event("scroll", { bubbles: true }));
+      client.mutate();
+      navigateTo("/library/home");
+      client.mutate();
+
+      for (const [node, style] of before) expect(node.getAttribute("style") ?? "", node.className).toBe(style);
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      stop();
+    });
+  });
+
+  describe("what makes it look again", () => {
+    it("adapts a page whose shortcut is registered after the page opened", async () => {
+      const appId = 31337;
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo(`/library/app/${appId}`);
+      try {
+        const stop = start({}, client);
+        expect(page.playBar.style.position).toBe("");
+
+        rommAppIds.registerRomMAppId(appId);
+        await Promise.resolve();
+        client.flush();
+
+        expect(page.playBar.style.position).toBe("sticky");
+        stop();
+      } finally {
+        rommAppIds.unregisterRomMAppId(appId);
+      }
+    });
+
+    it("adapts what Steam adds to a page it has already adapted", () => {
+      const page = gamePage();
+      page.duplicateHeader.remove();
+      const client = desktopClient(page.doc);
+      navigateTo("/library/app/50000");
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+      const stop = start({}, client);
+      client.mutate();
+
+      page.doc.body.prepend(page.duplicateHeader);
+      client.mutate();
+
+      expect(page.duplicateHeader.style.display).toBe("none");
+      stop();
+    });
+  });
+
+  describe("when something fails", () => {
+    function failingPage(appId = 50000) {
+      const page = gamePage();
+      const client = desktopClient(page.doc);
+      navigateTo(`/library/app/${appId}`);
+      vi.spyOn(rommAppIds, "isRomMAppId").mockImplementation((id) => id === appId);
+      const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
+      return { ...page, desktop: client, logError };
+    }
+
+    it("gives back what a pass changed before it threw, and says so once", () => {
+      const page = failingPage();
+      vi.spyOn(elementSelectors, "findSteamRightControls").mockImplementation(() => {
+        throw new Error("a finder broke");
+      });
+
+      const stop = start({}, page.desktop);
+      page.desktop.mutate();
+      page.desktop.mutate();
+      expect(page.playBar.style.position).toBe("sticky");
+
+      navigateTo("/library/home");
+      page.desktop.mutate();
+
+      expect(page.playBar.style.position).toBe("");
+      expect(page.playBar.style.zIndex).toBe("");
+      expect(page.logError).toHaveBeenCalledTimes(1);
+      expect(page.logError).toHaveBeenCalledWith(expect.stringContaining("a finder broke"));
+      stop();
+    });
+
+    it("leaves Steam's Play button when createRoot throws, and does not try again", () => {
+      const page = failingPage();
+      const createRoot = vi.fn(() => {
+        throw new Error("no root");
+      });
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({ createRoot });
+
+      const stop = start({ playButton: Blank }, page.desktop);
+      for (let i = 0; i < 5; i++) page.desktop.mutate();
+      page.desktop.mutate();
+
+      expect(page.playButton.style.display).toBe("");
+      expect(page.badges.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+      expect(createRoot).toHaveBeenCalledTimes(1);
+      expect(page.logError).toHaveBeenCalledTimes(1);
+      expect(page.logError).toHaveBeenCalledWith(expect.stringContaining("no root"));
+      stop();
+    });
+
+    it("gives Steam's Play button back when the view it drew throws, and does not try again", async () => {
+      const page = failingPage();
+      const react = reactClient();
+      const view: { break?: () => void } = {};
+      const Flaky = () => {
+        const [broken, setBroken] = useState(false);
+        useEffect(() => {
+          view.break = () => setBroken(true);
+        }, []);
+        if (broken) throw new Error("the view broke");
+        return null;
+      };
+      const stop = startDesktopNavigationWatcher({ playButton: Flaky }, page.desktop.win);
+      page.desktop.flush();
+      expect(page.playButton.style.display).toBe("none");
+
+      const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        view.break?.();
+        await vi.waitFor(() => expect(page.logError).toHaveBeenCalledWith(expect.stringContaining("the view broke")));
+        page.desktop.flush(false);
+        page.desktop.fireObserver();
+        page.desktop.flush(false);
+
+        expect(page.playButton.style.display).toBe("");
+        expect(page.badges.style.display).toBe("");
+        expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+        expect(react.client.createRoot).toHaveBeenCalledTimes(1);
+        stop();
+      } finally {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+      }
+    });
+
+    it("unmounts the root of a Play button it replaces", () => {
+      const page = failingPage();
+      const react = reactClient();
+      const stop = start({ playButton: Blank }, page.desktop);
+
+      const otherSlot = el(page.doc, "div", "Elsewhere");
+      page.playBar.appendChild(otherSlot);
+      otherSlot.appendChild(page.playButton);
+      page.desktop.mutate();
+
+      expect(react.roots).toHaveLength(2);
+      expect(react.roots[0]?.unmount).toHaveBeenCalledTimes(1);
+      expect(page.doc.querySelectorAll(`#${TENDER_PLAY_BUTTON_ID}`)).toHaveLength(1);
+      stop();
+    });
+  });
+
+  describe("finding the desktop client's window", () => {
+    function popupManager() {
+      const callbacks: Array<() => void> = [];
+      const g = window as unknown as { g_PopupManager?: unknown };
+      const original = g.g_PopupManager;
+      g.g_PopupManager = {
+        AddPopupCreatedCallback: (cb: () => void) => callbacks.push(cb),
+        AddPopupDestroyedCallback: (cb: () => void) => callbacks.push(cb),
+      };
+      return {
+        fire: () => {
+          for (const cb of callbacks) cb();
+        },
+        callbacks,
+        restore: () => {
+          g.g_PopupManager = original;
+        },
+      };
+    }
+
+    it("attaches to the window it finds, and detaches and gives the page back once that window closes", () => {
+      const popups = popupManager();
+      try {
+        const page = gamePage();
+        const client = desktopClient(page.doc);
+        navigateTo("/library/app/50000");
+        vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+        const findWindow = vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(client.win);
+
+        const stop = startDesktopNavigationWatcher({});
+        client.flush();
+        expect(page.playBar.style.position).toBe("sticky");
+
+        (client.win as { closed?: boolean }).closed = true;
+        findWindow.mockReturnValue(undefined);
+        popups.fire();
+
+        expect(page.playBar.style.position).toBe("");
+        expect(client.observing()).toBe(false);
+        stop();
+      } finally {
+        popups.restore();
+      }
+    });
+
+    it("leaves nothing running on a window it could not attach to, and does not try that window again", () => {
+      const popups = popupManager();
+      try {
+        const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
+        const page = gamePage();
+        let built = 0;
+        const disconnect = vi.fn();
+        const client = desktopClient(page.doc, {
+          MutationObserver: class {
+            constructor() {
+              built += 1;
+            }
+            observe() {
+              throw new Error("no observer");
+            }
+            disconnect = disconnect;
+          },
+        });
+        vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(client.win);
+        const unlisten = vi.fn();
+        const listen = vi.spyOn(rommAppIds, "onRomMAppIdsChanged").mockReturnValue(unlisten);
+
+        const stop = startDesktopNavigationWatcher({});
+        popups.fire();
+
+        expect(built).toBe(1);
+        expect(disconnect).toHaveBeenCalledTimes(1);
+        expect(listen).not.toHaveBeenCalled();
+        expect(client.frames.size).toBe(0);
+        expect(logError).toHaveBeenCalledTimes(1);
+        expect(logError).toHaveBeenCalledWith(expect.stringContaining("no observer"));
+        stop();
+      } finally {
+        popups.restore();
+      }
+    });
+
+    it("attaches nothing from a popup callback that fires after the supervisor stopped", () => {
+      const popups = popupManager();
+      try {
+        const page = gamePage();
+        const client = desktopClient(page.doc);
+        const findWindow = vi.spyOn(desktopWin, "findDesktopWindow").mockReturnValue(undefined);
+
+        const stop = startDesktopNavigationWatcher(PAGE);
+        stop();
+        findWindow.mockReturnValue(client.win);
+        popups.fire();
+
+        expect(popups.callbacks).toHaveLength(2);
+        expect(client.win.requestAnimationFrame).not.toHaveBeenCalled();
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      } finally {
+        popups.restore();
+      }
     });
   });
 });

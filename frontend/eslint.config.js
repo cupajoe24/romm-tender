@@ -30,15 +30,16 @@ const NAMES_THAT_MISNAME_TENDER = ["Identifier", "JSXIdentifier", "PrivateIdenti
 
 // A token shaped like a minified class hash: twelve or more letters, digits,
 // `_` and `-`, holding a digit, a capital and a small letter. What that shape
-// misses is listed at the rule's entry in CLAUDE.md's invariant register.
+// misses is listed at the rule's entry in CLAUDE.md's invariant register. A
+// data URI is left out: its base64 payload is letters and digits throughout.
 const CLASS_HASH = String.raw`(^|[^\w-])(?=[\w-]*\d)(?=[\w-]*[A-Z])(?=[\w-]*[a-z])[\w-]{12,}([^\w-]|$)`;
 
 // A regex literal's `value` is a RegExp, which the `value` selector never
 // matches, so its pattern is read separately.
 const NO_CLASS_HASHES = [
-  `Literal[value=/${CLASS_HASH}/]`,
+  `Literal[value=/${CLASS_HASH}/]:not([value=/base64,/])`,
   `Literal[regex.pattern=/${CLASS_HASH}/]`,
-  `TemplateElement[value.raw=/${CLASS_HASH}/]`,
+  `TemplateElement[value.raw=/${CLASS_HASH}/]:not([value.raw=/base64,/])`,
 ].map((selector) => ({
   selector,
   message:

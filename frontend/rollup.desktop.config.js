@@ -1,28 +1,10 @@
 import { configure } from "./rollup.config.js";
+import { insertDesktopSurfaceStart } from "./scripts/start-desktop-surface.mjs";
 
-// Dev config with source maps enabled for CEF debugging
-// Build-time injection of the desktop surface
-// This starts the desktop UI surface without modifying frontend/src/index.tsx on disk
-const START_ANCHOR = "disownStrandedPruneLeases();";
+const GLOBALS_INPUT = "./src/boot/steamGlobals.ts";
 
-const desktopSurfacePlugin = {
-  name: "inject-desktop-surface",
-  transform(code, id) {
-    const normalized = id.replace(/\\/g, "/");
-    if (!normalized.endsWith("/src/index.tsx")) return null;
-    if (!code.includes(START_ANCHOR)) {
-      this.error(`no longer contains ${START_ANCHOR}, so the desktop surface would not start`);
-    }
-    // No stop call: a JS-context rebuild, not a teardown call, is what ends the panel.
-    const transformed = `import { startDesktopSurface } from "./desktop";\n${code.replace(
-      START_ANCHOR,
-      `${START_ANCHOR}\n  startDesktopSurface();`,
-    )}`;
-    return { code: transformed, map: null };
-  },
-};
-
-export default configure({ sourcemap: true }).map((build) => ({
-  ...build,
-  plugins: [...build.plugins, desktopSurfacePlugin],
-}));
+// The desktop surface's dev build (docs/architecture/frontend-bundles.md, "The
+// desktop dev build"). Every build but the globals one is a build of the panel.
+export default configure({ sourcemap: true }).map((build) =>
+  build.input === GLOBALS_INPUT ? build : { ...build, plugins: [...build.plugins, insertDesktopSurfaceStart()] },
+);

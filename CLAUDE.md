@@ -55,7 +55,8 @@ is invisible at the citation site), so reach it through the page that owns the t
 - Emulator and core selection — [core-emulator-selection.md](docs/architecture/core-emulator-selection.md)
 - RetroArch/ES-DE config parsing — [config-source-parsers.md](docs/architecture/config-source-parsers.md)
 - Steam Remote Play — [steam-remote-play.md](docs/architecture/steam-remote-play.md)
-- Desktop Mode DOM adaptation — [desktop-dom-architecture.md](docs/architecture/desktop-dom-architecture.md)
+- The desktop surface's changes to Steam's page in the desktop client (dev build only) —
+  [desktop-dom-architecture.md](docs/architecture/desktop-dom-architecture.md)
 - Desktop Feature Parity Matrix — [desktop-parity-matrix.md](docs/architecture/desktop-parity-matrix.md)
 - Invariants register in full — the historical rationale, failure modes, and test coverage behind every invariant —
   [invariants.md](docs/architecture/invariants.md)
@@ -103,8 +104,10 @@ new code in it.
   nothing in the toolchain contradicts it. **No mechanical check exists.**
 - `steam-ui.md` — Steam DevTools inspection requirement (never blind/automated scraping), standalone architecture (no
   Decky dependency), and desktop DOM adaptation guidance.
-- `desktop-dom.md` — atomic restoration ledger required for all desktop DOM mutations, read-only Fiber introspection
-  across realms, strict ban on minified CSS hashes, and continuous adaptation pass order before substitute mount guard.
+- `desktop-dom.md` — every change the desktop surface makes to Steam's page goes through the restoration ledger, or
+  leaving the page leaves it behind; and a selector never names a hashed class. Both are in the register below, with
+  what checks them; the file's other rules — Steam's part hidden only behind a drawn view, every failure logged — have
+  no check.
 
 ## Documentation
 
@@ -156,15 +159,14 @@ locally with `mise run docs`.
   windows), **always ask the user for the Steam DevTools inspector URL** (`http://<ip>:8081/devtools/...` from another
   machine; `http://localhost:8080/devtools/...` on the device itself). Asking the user is faster, avoids context races,
   and provides immediate, reliable DOM access.
-- **Desktop DOM adaptation pass order & Hero Parallax** (dev build only): In desktop `reinject()`, continuous DOM
+- **Desktop DOM adaptation pass order & Hero Parallax** (dev build only): In the navigation watcher's `pass()`, the
   adaptations (hero wrapper visible overflow preservation for 3D parallax/refraction, native badge hiding, duplicate
-  sticky suppression, right controls margin alignment) MUST run before the `existingSubstitute` early-return guard.
-  Steam renders hero banner gradient canvases and play bar elements asynchronously (100–500ms after initial mount);
-  returning early because the React root is already mounted skips critical styling passes. Crucially, the hero banner
-  wrapper MUST maintain `overflow: visible` — setting `overflow: hidden` flattens CSS 3D transforms (`perspective: 1px`
-  / `preserve-3d`), destroying Steam's native 0.5x parallax and truncating the artwork bleed-through behind the play bar
-  and cards. The empty scroll gap that overflow would leave is closed on the parallax layer below the 3D chain
-  (`boundHeroOverflow`), never on the wrapper.
+  sticky suppression, right controls margin alignment) MUST run before the `GameView` mount guard. Steam renders the
+  hero's background canvases and play bar elements after the page's first render; returning early because the React root
+  is already mounted skips them. Crucially, the hero banner wrapper MUST maintain `overflow: visible` — setting
+  `overflow: hidden` flattens CSS 3D transforms (`perspective: 1px` / `preserve-3d`), destroying Steam's native 0.5x
+  parallax and truncating the artwork bleed-through behind the play bar and cards. The empty scroll gap that overflow
+  would leave is closed on the parallax layer below the 3D chain (`boundHeroOverflow`), never on the wrapper.
 - **The build output lives at `<repo>/dist/`, not under `frontend/`** — and the frontend package writes one directory UP
   to put it there (`OUT_DIR` in `frontend/rollup.config.js`). `dist/` is the SEAM between the two halves rather than the
   frontend's property: the backend serves it as `os.path.join(directories.code_dir, "dist")` (`backend/main.py`), and a
@@ -277,10 +279,9 @@ locally with `mise run docs`.
   either direction; those are named because taking the constructor from the node costs a property read, so the question
   need not be answered. Take the constructor from the node — `el.ownerDocument.defaultView` — as `WidePage` and
   `ScrollRegion` do, or from the window the code was handed, as the desktop surface's navigation watcher does. **The
-  frontend suite cannot see the `instanceof` half**: two happy-dom windows answer it alike. A `MutationObserver` taken
-  from the wrong window it CAN see — each happy-dom `Window` has its own, and a document's `defaultView` is its window —
-  but not a `ResizeObserver`, which every happy-dom `Window` shares (`new Window().ResizeObserver` is the same class
-  twice), and neither over a document built with `createHTMLDocument`, whose `defaultView` is null.
+  frontend suite cannot see the `instanceof` half**: two happy-dom windows answer it alike. A constructor taken from the
+  wrong window it CAN see — each happy-dom `Window` has its own, and a document's `defaultView` is its window — but not
+  over a document built with `createHTMLDocument`, whose `defaultView` is null.
 - **The Python CI runs is not the Python a device runs** — what that makes of a change under `_vendor/` is
   [`.claude/rules/vendored-assets.md`](.claude/rules/vendored-assets.md)'s, which loads only once a file there is read.
 - **An empty collection in a resolver answer is a statement about PROVENANCE, never about need** — and Python spells it
@@ -1113,22 +1114,18 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   itself is device-only, and so is whether Steam honours that preference (on a tabbed page it lands on Steam's active
   tab instead). Prompt-only: `bigpicture/layout/WidePage.tsx` places entry focus through `pageEntryStop`
   (`utils/entryFocus.ts`), never `firstBodyStop`; `bigpicture/layout/ListDetail.tsx` puts the `ENTRY_STOP_ATTR` mark on
-  the `display: contents` wrapper around the selected row, never on the row; and a wide page that opens on a non-first
-  row without `ListDetail` places the mark itself, the same way, and gives that row `preferredFocus` too, only while
-  `EntryPreferenceContext` holds
+  the `display: contents` wrapper around the selected row, never on the row; a wide page that opens on a non-first row
+  without `ListDetail` places the mark itself, the same way
 - **Every change the desktop surface's navigation watcher makes to Steam's page goes through the restoration ledger, and
   is given back on leaving the page whenever the ledger holds anything — a pass that threw partway included** (dev build
   only) — test + prompt-only — `frontend/src/desktop/navigationWatcher.test.ts`, "every change it makes is given back":
-  the `style` attribute of every element on a page, recorded before the watcher starts, is what it was after passes from
-  Steam's mutations and from a change to the set of RomM shortcuts, a scroll and a resize, and leaving the page, with
-  both views handed and with none; and "gives back what a pass changed before it threw" for a pass that threw partway.
-  Prompt-only: a write to anything but `style` — a class, another attribute, a node moved — and a change to an element
-  the test's page does not hold
+  the `style` attribute of every element on a page, recorded before the watcher starts, is what it was after several
+  passes and leaving the page, with both views handed and with none. Prompt-only: a write to anything but `style` — a
+  class, another attribute, a node moved — and a change to an element the test's page does not hold
 - **No code under `frontend/src/desktop/` names one of Steam's minified class hashes** (dev build only) — check —
-  `frontend/eslint.config.js` (`no-restricted-syntax` over string literals, regex literals and template parts,
-  `NO_CLASS_HASHES`; test files left out), kept live by `frontend/src/eslintNoClassHashes.test.ts`. Unseen by it: a hash
-  with no digit, no capital or no small letter in it, one shorter than twelve characters, and one built at run time.
-  This list is the one home of what the check misses; the config, the rules file and the long form point here
+  `frontend/eslint.config.js` (`no-restricted-syntax` over string literals and template parts, `NO_CLASS_HASHES`; test
+  files and data URIs left out), kept live by `frontend/src/eslintNoClassHashes.test.ts`. Unseen by it: a hash with no
+  digit in it, one shorter than twelve characters, one built at run time, and one inside a data URI
 
 When a change applies a guard / sanitize / backup / grouping pattern, sweep for sibling sites of the same pattern — the
 register is what that sweep checks against.

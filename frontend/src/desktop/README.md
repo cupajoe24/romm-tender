@@ -1,7 +1,9 @@
 # `desktop/` — the desktop-client surface
 
-This directory is where the desktop client's UI goes. It is the peer of `bigpicture/`, which holds the gamepad surface —
-the QAM panel and the patch into Steam's game-detail route.
+This directory is the desktop surface: what Tender draws into Steam's desktop client. It is the peer of `bigpicture/`,
+which holds the gamepad surface — the QAM panel and the patch into Steam's game-detail route. How it adapts Steam's
+page, and the rules every change to that page follows, are in
+[How the desktop surface adapts Steam's game page](../../../docs/architecture/desktop-dom-architecture.md).
 
 **Dev build only.** Nothing here reaches a shipped bundle; see [below](#what-reaches-a-bundle).
 

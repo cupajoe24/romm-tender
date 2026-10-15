@@ -1,15 +1,10 @@
 /**
- * Sticky play bar scroll controller and hero wrapper layout containment.
- *
- * Handles:
- *  - Discovering the scroll container for the game overview
- *  - Monitoring scroll position to toggle between semi-transparent glass
- *    and solid background with drop shadow when pinned
- *  - Keeping the hero wrapper at `overflow: visible`, which the banner's 3D parallax needs, and
- *    bounding the artwork's overflow so it does not scroll the page past its content
- *    (docs/architecture/desktop-dom-architecture.md, "Hero Banner Parallax")
+ * The sticky play bar controller: pins Steam's play bar, keeps the hero wrapper
+ * at `overflow: visible` and bounds the artwork's overflow
+ * (docs/architecture/desktop-dom-architecture.md, "The hero's parallax").
  */
 
+import { logWarn } from "../../api/backend";
 import {
   GLASS_PLAY_BAR_BG,
   GLASS_PLAY_BAR_GRADIENT,
@@ -41,18 +36,11 @@ function setIfChanged(ledger: DomRestorationLedger, el: HTMLElement, property: s
 }
 
 /**
- * Keep the hero artwork from extending the page past its content.
- *
- * The parallax layer's content (the image, then the mirrored canvas below it)
- * is far taller than the layer, and Chromium counts that overflow towards the
- * scroller's height at the layer's own scale, so the page scrolls on past the
- * last card. The layer is clipped (`overflow: clip`), with an
- * `overflow-clip-margin` that lets the artwork run on exactly as far as the
- * content does: its scrollable bottom is `layerTop + scale × (height + margin)`.
- * The clip goes on the layer because it is the end of the 3D chain and already
- * `transform-style: flat`; clipping the hero wrapper or any ancestor would
- * flatten the parallax. The mirrored canvas then fades out over its last
- * {@link HERO_FADE_PX} pixels before the clip edge rather than stopping on a line.
+ * Clip the parallax layer with an `overflow-clip-margin` so its scrollable
+ * bottom, `layerTop + scale × (height + margin)`, lands on the content's bottom,
+ * or on the scroller's height when the page is shorter; then fade the mirrored
+ * canvas over its last {@link HERO_FADE_PX} pixels before that edge. Why:
+ * docs/architecture/desktop-dom-architecture.md, "Bounding the artwork".
  */
 export function boundHeroOverflow(
   heroWrapper: HTMLElement,
@@ -81,7 +69,7 @@ export function boundHeroOverflow(
   setIfChanged(ledger, layer, "overflow-clip-margin", `${margin}px`);
 
   const mirror = findHeroMirrorCanvas(layer);
-  if (!mirror || mirror.offsetParent !== layer) return;
+  if (mirror?.offsetParent !== layer) return;
   const visible = layer.offsetHeight + margin - mirror.offsetTop;
   if (visible <= 0) return;
   // The canvas is flipped, so its visual top is its own bottom edge.
@@ -101,7 +89,7 @@ export function boundHeroOverflow(
  * Returns the scrollable element if found, or the default window.
  */
 export function findScrollContainer(el: HTMLElement): HTMLElement | Window {
-  const win = el.ownerDocument.defaultView || window;
+  const win = el.ownerDocument.defaultView ?? window;
   let curr = el.parentElement;
   while (curr && curr !== el.ownerDocument.body && curr !== el.ownerDocument.documentElement) {
     const style = win.getComputedStyle(curr);
@@ -127,8 +115,20 @@ export function isPlayBarPinned(playBarTop: HTMLElement, scroller: HTMLElement |
 }
 
 /**
+ * Whether `el` overflows the way the hero wrapper does: by more than 200px, or at
+ * all when it holds a canvas (absolutely-positioned or inline canvas/img children
+ * are what overflow it).
+ */
+function isInflated(el: HTMLElement): boolean {
+  return (
+    el.scrollHeight > el.offsetHeight + 200 ||
+    (el.querySelector("canvas") !== null && el.scrollHeight > el.offsetHeight)
+  );
+}
+
+/**
  * Locate any hero background wrapper whose canvas/content inflates scrollHeight.
- * Walks up from the container looking for siblings whose scrollHeight exceeds offsetHeight by 200px.
+ * Walks up from the container to the scroller, looking for a sibling that {@link isInflated}.
  */
 export function findInflatedHeroWrapper(
   container: HTMLElement,
@@ -143,20 +143,12 @@ export function findInflatedHeroWrapper(
     const parent: HTMLElement | null = curr.parentElement;
     if (!parent) break;
 
-    for (const sibling of Array.from(parent.children) as HTMLElement[]) {
-      if (sibling === curr) continue;
-      if (isTenderElement(sibling)) continue;
-      if (sibling.contains(playBarTop)) continue;
-
-      // An element whose scrollHeight exceeds its offsetHeight by more than 200px
-      // is overflowing due to absolutely-positioned or inline canvas/img children.
-      if (
-        sibling.scrollHeight > sibling.offsetHeight + 200 ||
-        (sibling.querySelector("canvas") !== null && sibling.scrollHeight > sibling.offsetHeight)
-      ) {
-        return sibling;
-      }
-    }
+    const from = curr;
+    const inflated = (Array.from(parent.children) as HTMLElement[]).find(
+      (sibling) =>
+        sibling !== from && !isTenderElement(sibling) && !sibling.contains(playBarTop) && isInflated(sibling),
+    );
+    if (inflated) return inflated;
 
     if (parent === scrollerEl) break;
     curr = parent;
@@ -202,16 +194,15 @@ export function createStickyPlayBarController(
   applyBaselineStyles();
 
   const scroller = findScrollContainer(playBarTop);
-  const win = playBarTop.ownerDocument.defaultView || window;
+  const win = playBarTop.ownerDocument.defaultView ?? window;
 
   const getHeroWrapper = (): HTMLElement | null => {
     if (!container || !steamPanel) return null;
     return findInflatedHeroWrapper(container, playBarTop, scroller) || findHeroWrapperFallback(steamPanel, playBarTop);
   };
 
-  const ensureHeroVisible = (heroWrapper = getHeroWrapper()) => {
-    if (!heroWrapper) return;
-    if (heroWrapper.style.overflow !== "visible") {
+  const ensureHeroVisible = (heroWrapper: HTMLElement | null) => {
+    if (heroWrapper && heroWrapper.style.overflow !== "visible") {
       ledger.style(heroWrapper, "overflow", "visible");
     }
   };
@@ -219,7 +210,6 @@ export function createStickyPlayBarController(
   let isPinnedState: boolean | null = null;
 
   function applyPlayBarState(pinned: boolean) {
-    ensureHeroVisible();
     if (isPinnedState === pinned) return;
     isPinnedState = pinned;
 
@@ -244,9 +234,23 @@ export function createStickyPlayBarController(
     }
   }
 
-  // The settle timeouts below still fire after dispose; once the ledger has
-  // restored the page they must write nothing back onto it.
+  // Once the ledger has restored the page, nothing writes back onto it.
   let disposed = false;
+  let ro: ResizeObserver | null = null;
+  let observedLayer: HTMLElement | null = null;
+
+  /**
+   * The parallax layer's size feeds `boundHeroOverflow`'s margin as the
+   * content's does, and changes without a child-list mutation, so the observer
+   * follows whichever layer the hero holds now.
+   */
+  const observeLayer = (heroWrapper: HTMLElement | null) => {
+    const layer = heroWrapper ? findHeroParallaxLayer(heroWrapper) : null;
+    if (!ro || layer === observedLayer) return;
+    if (observedLayer) ro.unobserve(observedLayer);
+    if (layer) ro.observe(layer);
+    observedLayer = layer;
+  };
 
   const updatePinning = () => {
     if (disposed || !playBarTop.isConnected) return;
@@ -256,12 +260,12 @@ export function createStickyPlayBarController(
     if (heroWrapper && container && scroller !== win) {
       boundHeroOverflow(heroWrapper, scroller as HTMLElement, container, ledger);
     }
+    observeLayer(heroWrapper);
     const pinned = isPlayBarPinned(playBarTop, scroller);
     applyPlayBarState(pinned);
   };
 
   const WinResizeObserver = (win as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver || ResizeObserver;
-  let ro: ResizeObserver | null = null;
   if (typeof WinResizeObserver === "function") {
     try {
       ro = new WinResizeObserver(() => {
@@ -271,21 +275,15 @@ export function createStickyPlayBarController(
       if ("nodeType" in scroller && (scroller as HTMLElement).nodeType === 1) {
         ro.observe(scroller as HTMLElement);
       }
-    } catch {
-      // Ignored in headless/test environments
+      if (container) ro.observe(container);
+    } catch (e) {
+      logWarn(`desktop: no ResizeObserver on the play bar, so it re-pins only on scroll and resize: ${String(e)}`);
     }
   }
 
   ledger.addListener(scroller, "scroll", updatePinning, { passive: true });
   ledger.addListener(win, "resize", updatePinning, { passive: true });
   updatePinning();
-
-  // Async hero banner canvas rendering often completes 50-350ms after initial mount
-  if (typeof win.setTimeout === "function") {
-    win.setTimeout(updatePinning, 50);
-    win.setTimeout(updatePinning, 150);
-    win.setTimeout(updatePinning, 350);
-  }
 
   return {
     matches: (top: HTMLElement, sec: HTMLElement) =>

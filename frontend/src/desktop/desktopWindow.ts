@@ -11,7 +11,7 @@ import { findModule } from "@decky/ui";
 import type { Root } from "react-dom/client";
 
 export interface ReactClientModule {
-  createRoot: (container: Element | DocumentFragment) => Root;
+  createRoot: (container: Element | DocumentFragment, options?: { onUncaughtError?: (error: unknown) => void }) => Root;
 }
 
 interface PopupDescriptor {
@@ -45,12 +45,7 @@ export function findDesktopWindow(): Window | undefined {
   return undefined;
 }
 
-/**
- * Resolves React 19's `createRoot` via module probe.
- *
- * In React 19, `createRoot` is housed in its own client module rather than
- * on `SP_REACTDOM`. We locate the module export carrying `createRoot`.
- */
+/** The module in Steam's registry that exports `createRoot`. */
 export function findReactClient(): ReactClientModule | undefined {
   return findModule((m: unknown) => {
     return typeof m === "object" && m !== null && typeof (m as Record<string, unknown>).createRoot === "function";

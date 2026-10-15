@@ -9,6 +9,38 @@ import {
 import { DomRestorationLedger } from "./restorationLedger";
 import { GLASS_PLAY_BAR_BG, PINNED_PLAY_BAR_SHADOW, SOLID_PLAY_BAR_BG } from "../gameview/styles";
 
+/**
+ * Puts a ResizeObserver on `window` that keeps what it observes and reports a
+ * resize only when the test says, even after it was disconnected.
+ */
+function mockResizeObserver() {
+  const observed = new Set<Element>();
+  let callback: (() => void) | undefined;
+  class MockResizeObserver {
+    constructor(cb: () => void) {
+      callback = cb;
+    }
+    observe(target: Element) {
+      observed.add(target);
+    }
+    unobserve(target: Element) {
+      observed.delete(target);
+    }
+    disconnect() {
+      observed.clear();
+    }
+  }
+  const original = window.ResizeObserver;
+  window.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
+  return {
+    observed,
+    report: () => callback?.(),
+    restore: () => {
+      window.ResizeObserver = original;
+    },
+  };
+}
+
 describe("stickyPlayBarController", () => {
   let ledger: DomRestorationLedger;
 
@@ -55,7 +87,7 @@ describe("stickyPlayBarController", () => {
       const el = document.createElement("div");
       document.body.appendChild(el);
 
-      expect(findScrollContainer(el) === el.ownerDocument.defaultView).toBe(true);
+      expect(findScrollContainer(el)).toBe(el.ownerDocument.defaultView);
       el.remove();
     });
   });
@@ -120,14 +152,16 @@ describe("stickyPlayBarController", () => {
 
       expect(playBar.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
       expect(playBar.style.boxShadow).toBe(PINNED_PLAY_BAR_SHADOW);
+      // A pinned bar casts a shadow over the page scrolling under it.
+      expect(PINNED_PLAY_BAR_SHADOW).toMatch(/rgba\([^)]*\) \d+px \d+px \d+px/);
 
       controller.dispose();
       ledger.restoreAll();
       scroller.remove();
     });
 
-    it("writes nothing back from a settle timer that fires after dispose and restore", () => {
-      vi.useFakeTimers();
+    it("writes nothing back from a resize reported after dispose and restore", () => {
+      const resize = mockResizeObserver();
       try {
         const scroller = document.createElement("div");
         scroller.style.overflowY = "scroll";
@@ -140,14 +174,29 @@ describe("stickyPlayBarController", () => {
         const controller = createStickyPlayBarController(playBar, playBar, ledger);
         controller.dispose();
         ledger.restoreAll();
-        vi.advanceTimersByTime(1000);
+        resize.report();
 
         expect(playBar.style.position).toBe("");
         expect(playBar.style.backgroundColor).toBe("");
         scroller.remove();
       } finally {
-        vi.useRealTimers();
+        resize.restore();
       }
+    });
+
+    it("sets no timer of its own", () => {
+      const setTimeout = vi.spyOn(window, "setTimeout");
+      const scroller = document.createElement("div");
+      scroller.style.overflowY = "scroll";
+      document.body.appendChild(scroller);
+      const playBar = document.createElement("div");
+      scroller.appendChild(playBar);
+
+      const controller = createStickyPlayBarController(playBar, playBar, ledger);
+
+      expect(setTimeout).not.toHaveBeenCalled();
+      controller.dispose();
+      scroller.remove();
     });
 
     it("resets playSection background to transparent on dispose if disposed while pinned", () => {
@@ -313,9 +362,9 @@ describe("stickyPlayBarController", () => {
   });
 
   describe("boundHeroOverflow", () => {
-    // The shape measured on the device: a 307px parallax layer at the top of the
-    // page, scaled 2x by its matrix3d, holding the artwork and a flipped canvas
-    // 369px down that runs far below it.
+    // A fixture in the page's shape: a parallax layer at the top of the page,
+    // scaled 2x by its matrix3d, holding the artwork and a flipped canvas that
+    // runs far below it.
     function heroPage({ contentBottom, clientHeight = 617 }: { contentBottom: number; clientHeight?: number }) {
       const scroller = document.createElement("div");
       Object.defineProperty(scroller, "clientHeight", { value: clientHeight, configurable: true });
@@ -408,6 +457,31 @@ describe("stickyPlayBarController", () => {
 
       controller.dispose();
       page.scroller.remove();
+    });
+
+    it("follows the content's and the parallax layer's size, which no child-list mutation reports", () => {
+      const resize = mockResizeObserver();
+      try {
+        const page = heroPage({ contentBottom: 1405 });
+        page.scroller.style.overflowY = "scroll";
+        Object.defineProperty(page.wrapper, "scrollHeight", { value: 1978, configurable: true });
+        Object.defineProperty(page.wrapper, "offsetHeight", { value: 307, configurable: true });
+        const playBar = document.createElement("div");
+        page.content.appendChild(playBar);
+
+        const controller = createStickyPlayBarController(playBar, playBar, ledger, page.content, page.scroller);
+        expect(resize.observed).toContain(page.content);
+        expect(resize.observed).toContain(page.layer);
+
+        page.content.getBoundingClientRect = () => ({ bottom: 1805 }) as DOMRect;
+        resize.report();
+        expect(page.layer.style.getPropertyValue("overflow-clip-margin")).toBe("595px");
+
+        controller.dispose();
+        page.scroller.remove();
+      } finally {
+        resize.restore();
+      }
     });
 
     it("does nothing where the hero carries no matrix3d layer", () => {

@@ -416,7 +416,8 @@ the one on this page that deploys to another machine rather than running beside 
 
 3. **Verify and debug**: Select a RomM shortcut in Steam's desktop library view, and inspect it in DevTools (below) at
    `http://<remote-ip>:8081`. From another machine the debugger is reached on 8081; on the device itself, and for the
-   backend there, it is 8080 (below).
+   backend there, it is 8080 (below). What the watcher found and what failed is in the backend's log, on the lines
+   starting `desktop:`: its failures at any log level, the rest only with Tender's log level at Info or Debug.
 
 ## DevTools
 

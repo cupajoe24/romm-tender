@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DomRestorationLedger } from "./restorationLedger";
 import type { Root } from "react-dom/client";
+import * as backend from "../../api/backend";
 
 describe("DomRestorationLedger", () => {
   let ledger: DomRestorationLedger;
@@ -17,11 +18,11 @@ describe("DomRestorationLedger", () => {
 
       ledger.hide(el);
       expect(el.style.display).toBe("none");
-      expect(ledger.isElementHidden(el)).toBe(true);
+      expect(ledger.isEmpty()).toBe(false);
 
       ledger.restoreAll();
       expect(el.style.display).toBe("flex");
-      expect(ledger.isElementHidden(el)).toBe(false);
+      expect(ledger.isEmpty()).toBe(true);
 
       el.remove();
     });
@@ -39,18 +40,16 @@ describe("DomRestorationLedger", () => {
       el.remove();
     });
 
-    it("unhides single element on demand", () => {
+    it("keeps the display from before the first hide through a later one", () => {
       const el = document.createElement("div");
-      el.style.display = "block";
+      el.style.display = "flex";
       document.body.appendChild(el);
 
       ledger.hide(el);
-      expect(el.style.display).toBe("none");
+      ledger.hide(el);
+      ledger.restoreAll();
 
-      ledger.unhide(el);
-      expect(el.style.display).toBe("block");
-      expect(ledger.isElementHidden(el)).toBe(false);
-
+      expect(el.style.display).toBe("flex");
       el.remove();
     });
   });
@@ -93,26 +92,6 @@ describe("DomRestorationLedger", () => {
 
       el.remove();
     });
-
-    it("setStyles applies batch styles", () => {
-      const el = document.createElement("div");
-      document.body.appendChild(el);
-
-      ledger.setStyles(el, {
-        opacity: "0.5",
-        "pointer-events": "none",
-      });
-
-      expect(el.style.opacity).toBe("0.5");
-      expect(el.style.pointerEvents).toBe("none");
-
-      ledger.restoreAll();
-
-      expect(el.style.opacity).toBe("");
-      expect(el.style.pointerEvents).toBe("");
-
-      el.remove();
-    });
   });
 
   describe("React roots lifecycle", () => {
@@ -132,7 +111,8 @@ describe("DomRestorationLedger", () => {
       expect(host.isConnected).toBe(false);
     });
 
-    it("handles root unmount errors gracefully", () => {
+    it("logs a root that throws on unmount and still removes its host", () => {
+      const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
       const host = document.createElement("div");
       document.body.appendChild(host);
 
@@ -145,6 +125,28 @@ describe("DomRestorationLedger", () => {
       ledger.recordRoot(mockRoot, host);
       expect(() => ledger.restoreAll()).not.toThrow();
       expect(host.isConnected).toBe(false);
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("Unmount error"));
+    });
+
+    it("releases one root by its host and keeps the others", () => {
+      const released = document.createElement("div");
+      const kept = document.createElement("div");
+      document.body.append(released, kept);
+      const releasedRoot = { unmount: vi.fn() } as unknown as Root;
+      const keptRoot = { unmount: vi.fn() } as unknown as Root;
+      ledger.recordRoot(releasedRoot, released);
+      ledger.recordRoot(keptRoot, kept);
+
+      ledger.releaseRoot(released);
+
+      expect(releasedRoot.unmount).toHaveBeenCalledTimes(1);
+      expect(released.isConnected).toBe(false);
+      expect(keptRoot.unmount).not.toHaveBeenCalled();
+      expect(kept.isConnected).toBe(true);
+
+      ledger.restoreAll();
+      expect(releasedRoot.unmount).toHaveBeenCalledTimes(1);
+      expect(kept.isConnected).toBe(false);
     });
   });
 

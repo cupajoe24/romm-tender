@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import * as desktopIndex from "./index";
 import * as desktopWin from "./desktopWindow";
+import * as backend from "../api/backend";
 import { launchPromptsForThisStart } from "../utils/launchPromptRouter";
 import type { LaunchPrompts } from "../utils/launchVerdict";
 
@@ -41,5 +42,22 @@ describe("the launch watcher's prompts", () => {
 
     desktopIndex.stopDesktopSurface();
     expect(launchPromptsForThisStart(gamepad)).toBe(gamepad);
+  });
+});
+
+describe("a start that throws", () => {
+  afterEach(() => {
+    desktopIndex.stopDesktopSurface();
+    vi.restoreAllMocks();
+  });
+
+  it("is logged instead of thrown into the panel's start-up", () => {
+    const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
+    vi.spyOn(desktopWin, "findDesktopWindow").mockImplementation(() => {
+      throw new Error("no popup manager");
+    });
+
+    expect(() => desktopIndex.startDesktopSurface()).not.toThrow();
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining("no popup manager"));
   });
 });

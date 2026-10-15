@@ -8,6 +8,7 @@
  * shares data and logic from api/, utils/, and types/, and never imports from bigpicture/.
  */
 
+import { logError } from "../api/backend";
 import { GameView } from "./gameview/GameView";
 import { PlayButton } from "./gameview/PlayButton";
 import { offerDesktopLaunchPrompts, withdrawDesktopLaunchPrompts } from "./launchPromptHost";
@@ -18,8 +19,12 @@ const GAME_PAGE: DesktopGamePage = { gameView: GameView, playButton: PlayButton 
 /** Start the navigation watcher and offer the desktop dialogs to the launch watcher. */
 export function startDesktopSurface(): void {
   stopDesktopSurface();
-  offerDesktopLaunchPrompts();
-  startDesktopNavigationWatcher(GAME_PAGE);
+  try {
+    offerDesktopLaunchPrompts();
+    startDesktopNavigationWatcher(GAME_PAGE);
+  } catch (e) {
+    logError(`desktop: the desktop surface did not start: ${String(e)}`);
+  }
 }
 
 /**

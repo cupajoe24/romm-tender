@@ -3,73 +3,31 @@ paths:
   - "frontend/src/desktop/**"
 ---
 
-# Desktop Mode DOM Adaptation & Lifecycle Rules
+# Changing Steam's page in the desktop client
 
 **Dev build only.** This surface reaches Steam only through `pnpm -C frontend build:desktop`; no shipped bundle carries
-it (`docs/architecture/frontend-bundles.md`, "The desktop dev build").
+it (`docs/architecture/frontend-bundles.md`, "The desktop dev build"). Why each rule below holds is
+`docs/architecture/desktop-dom-architecture.md`'s, in the section named beside it. Rules 1 and 2 are in `CLAUDE.md`'s
+invariant register with what checks them; the others have no mechanical check.
 
-## 1. Ban on Ephemeral Minified CSS Class Hashes
-
-- **Never** hardcode ephemeral Webpack hashes (e.g. `_3fLoY...`, `_3by_V...`). These hashes change arbitrarily with
-  Steam client updates.
-- Always resolve elements through the ladder in `watcher/elementSelectors.ts`, whose rungs and order are listed on
-  `docs/architecture/desktop-dom-architecture.md` ("Multi-Tier Resilient Selection Ladder"): CSS module tokens from
-  `deckyUiInternals`, then the readable part of a class name (`[class*="PlayBar"]`), then read-only Fiber names, then
-  ARIA labels and text, then structural walks.
-
-## 2. Mandatory Atomic Restoration
-
-- **Never** perform untracked DOM mutations. Injected inline styles, hidden elements, attached event listeners, and
-  mounted React roots must be recorded via `DomRestorationLedger`.
-- Direct element assignments (e.g. bare `el.style.display = "none"` or `el.style.overflow = "hidden"`) or untracked
-  `addEventListener` calls on Steam's elements are strictly prohibited. This covers what the watcher does to Steam's
-  DOM; a React component's own listener, removed by its effect's cleanup (`DesktopDialog`'s Escape key), and styles on
-  hosts Tender creates itself are outside it. One site breaks the rule today: `reinject()` clears
-  `steamPanel.style.display` directly.
-- All adaptations must tear down cleanly via `ledger.restoreAll()` on route changes, non-RomM navigation, or window
-  close.
-- The ledger cannot cancel what it never recorded: a timeout, or a callback registered with Steam, that can still fire
-  after its teardown must do nothing once that teardown has run (the `stopped` / `disposed` flags in
-  `navigationWatcher.ts` and `stickyPlayBarController.ts`).
-
-## 3. Read-Only React Fiber Introspection
-
-- Desktop plugin code runs from `SharedJSContext` while targeting the desktop library CEF window — two distinct
-  execution realms.
-- Treat all `__reactFiber$` structures as strictly read-only inspection surfaces.
-- **Never** modify Fiber properties, hooks, state, or linked lists, and never invoke React reconciler methods across
-  window boundaries.
-
-## 4. Continuous Adaptation Pass Order Invariant
-
-- Steam renders hero banner background canvases and play bar badges asynchronously (100–500ms after initial DOM mount).
-- In `reinject()`, continuous layout adaptations (keeping the hero wrapper's overflow visible, hiding native badges,
-  suppressing duplicate sticky bars, aligning right controls) **must execute before** checking if `existingSubstitute`
-  is already mounted.
-- The `existingSubstitute` check (`dataset.appid === appId`) must **only** gate React root instantiation
-  (`client.createRoot` / `render`). A substitute left from another game is torn down **before** the adaptations:
-  `unmountCurrent()` runs `ledger.restoreAll()`, so after them it would undo the whole pass.
-- The hero wrapper's overflow must remain `visible` throughout scroll so the hero banner continues to scroll in 3D
-  parallax on `z-index: -1000` behind the play bar and subsequent cards, creating the artwork refraction and
-  bleed-through effect.
-- Placing the `existingSubstitute` early return above DOM adaptations silently skips ongoing adaptations and
-  late-mounting elements.
-- Continuous watcher polling (`checkNav`) must invoke `reinject()` on interval even when `isMountedForCurrent` is true
-  to catch asynchronous background canvas renders and layout updates.
-
-## 5. Hero Banner 3D Parallax & Glass Refraction Invariant
-
-- Steam Desktop achieves its signature hero banner parallax using CSS 3D transforms:
-  - Scroll container: `perspective: 1px`, `overflow-y: scroll`.
-  - Hero wrapper ancestors: `transform-style: preserve-3d`, `overflow: visible`.
-  - Hero image: `transform: matrix3d(...)` (`scale(2) translateZ(-1px)`), positioned on `z-index: -1000`.
-  - Play bar & cards: semi-transparent glass (`backdrop-filter: blur(12px)`) positioned on `z-index: 10` and
-    `z-index: 1`.
-- **Never set `overflow: hidden` on the hero wrapper**: setting `overflow: hidden` on any ancestor flattens CSS 3D
-  transforms (`preserve-3d` -> `flat`), destroying the 0.5x parallax motion, and clips the hero image at its container
-  height (~307px), preventing it from bleeding behind the play bar and cards.
-- The hero wrapper must strictly maintain `overflow: visible` across both unpinned and pinned scroll states so the
-  artwork continues to scroll in the background behind the remaining cards.
-- The empty scroll gap that overflow would otherwise leave below the cards is closed one level lower, on the parallax
-  layer (the `matrix3d` element, already `flat`), by `boundHeroOverflow` — never by clipping the wrapper or any other
-  ancestor in the `preserve-3d` chain.
+1. **No hashed class names.** A selector never names a webpack-hashed class; it resolves through
+   `watcher/elementSelectors.ts` ("The selector ladder"). ESLint fails a string under `frontend/src/desktop/` that holds
+   a token shaped like one; a hash with no digit in it, one built at run time, and anything in a data URI pass it.
+2. **Every change to Steam's DOM goes through the `DomRestorationLedger`** — inline styles, hidden elements, listeners
+   and mounted roots alike ("The restoration ledger"). A bare `el.style.x = …` or `addEventListener` on one of Steam's
+   elements is never restored. A React component's own listener, removed by its effect's cleanup (`DesktopDialog`'s
+   Escape key), and styles on a host Tender creates itself are outside the rule. A callback that can fire after the
+   teardown does nothing once it has run (the `stopped` / `disposed` flags in `navigationWatcher.ts` and
+   `stickyPlayBarController.ts`). The test that holds it compares `style` attributes only; a write to anything else is
+   on you.
+3. **Fiber is read, never written** ("Fiber, read-only").
+4. **A constructor used on the desktop window's nodes comes from that window**, and from the global scope only where
+   that window has none ("Two windows, two realms"); why is `CLAUDE.md`'s trap on `instanceof` and realms.
+5. **The adaptations in `pass()` run before the mount guard**, and a stale `GameView` is torn down before them ("The
+   pass order"). The guard gates only the `GameView` mount; a pass runs on a RomM page even when everything is mounted.
+   Passes run on what Steam reports, never on a timer; a change that follows sizes is a `ResizeObserver`'s to catch.
+6. **Steam's own part is hidden only once Tender's view is drawn**, and a mount that failed is not tried again for that
+   appId ("Drawing a view").
+7. **A failure is logged with what it was doing**, never swallowed ("What it logs").
+8. **The hero wrapper stays `overflow: visible`.** Nothing in its `preserve-3d` chain is clipped; the page's scroll gap
+   is closed on the parallax layer by `boundHeroOverflow` ("The hero's parallax").

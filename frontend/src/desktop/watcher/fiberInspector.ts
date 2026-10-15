@@ -1,18 +1,14 @@
 /**
- * Read-only React Fiber inspection utilities for Steam Desktop client DOM elements.
- *
- * In Steam's Desktop client, React attaches fiber nodes to DOM elements via
- * `__reactFiber$...` or `__reactInternalInstance$...`. Inspecting these fibers
- * in a read-only manner provides access to component names and props without
- * depending on minified CSS class hashes or mutating React reconciler internals.
+ * Read-only React Fiber inspection for DOM elements of Steam's desktop client
+ * (docs/architecture/desktop-dom-architecture.md, "Fiber, read-only").
  */
 
 export interface MinimalFiber {
-  type?: unknown;
-  memoizedProps?: Record<string, unknown> | null;
-  return?: MinimalFiber | null;
-  child?: MinimalFiber | null;
-  sibling?: MinimalFiber | null;
+  readonly type?: unknown;
+  readonly memoizedProps?: Readonly<Record<string, unknown>> | null;
+  readonly return?: MinimalFiber | null;
+  readonly child?: MinimalFiber | null;
+  readonly sibling?: MinimalFiber | null;
 }
 
 /**
@@ -85,7 +81,7 @@ export function findAncestorFiber(
 }
 
 /**
- * Extract the authoritative Steam shortcut appId from an element's fiber tree.
+ * Extract a Steam appId from an element's fiber tree, for when the route yields none.
  * Inspects `overview.appid`, `appId`, or `details.appid` on ancestor props.
  */
 export function getAppIdFromFiber(el: Element | null | undefined): number | null {
@@ -103,7 +99,7 @@ export function getAppIdFromFiber(el: Element | null | undefined): number | null
     return false;
   });
 
-  if (!found || !found.memoizedProps) return null;
+  if (!found?.memoizedProps) return null;
   const p = found.memoizedProps;
   if (typeof p.appId === "number") return p.appId;
   if (typeof p.appid === "number") return p.appid;

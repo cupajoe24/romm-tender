@@ -11,6 +11,9 @@ import {
   findSteamPlayBarBadges,
   findSteamRightControls,
   findHeroWrapperFallback,
+  findPlayBarAndContainer,
+  locateOverviewPanel,
+  locatePlayButton,
   TENDER_PLAY_BUTTON_ID,
   TENDER_SUBSTITUTE_ID,
 } from "./elementSelectors";
@@ -18,6 +21,12 @@ import * as deckyUiInternals from "../../utils/deckyUiInternals";
 
 describe("elementSelectors", () => {
   describe("isTenderElement", () => {
+    it("keeps Tender's two host ids apart, and both under tender-", () => {
+      expect(TENDER_SUBSTITUTE_ID).toMatch(/^tender-/);
+      expect(TENDER_PLAY_BUTTON_ID).toMatch(/^tender-/);
+      expect(TENDER_SUBSTITUTE_ID).not.toBe(TENDER_PLAY_BUTTON_ID);
+    });
+
     it("identifies Tender substitute and play button by ID", () => {
       const el1 = document.createElement("div");
       el1.id = TENDER_PLAY_BUTTON_ID;
@@ -158,22 +167,29 @@ describe("elementSelectors", () => {
       expect(findSteamPlayButton(root)).toBe(btn);
     });
 
-    it("finds button via ARIA label", () => {
+    it("returns the container of a button found by its Fiber name, whatever the case of the container's class", () => {
       const root = document.createElement("div");
+      const container = document.createElement("div");
+      container.className = "Playbuttoncontainer_x";
       const btn = document.createElement("button");
-      btn.setAttribute("aria-label", "Play Game");
-      root.appendChild(btn);
+      (btn as unknown as Record<string, unknown>)["__reactFiber$btn"] = {
+        type: { displayName: "PlayButton" },
+      };
+      container.appendChild(btn);
+      root.appendChild(container);
 
-      expect(findSteamPlayButton(root)).toBe(btn);
+      expect(findSteamPlayButton(root)).toBe(container);
     });
 
-    it("finds button via text content PLAY", () => {
+    it("does not take a button by its label or its text, which read differently in every language", () => {
       const root = document.createElement("div");
-      const btn = document.createElement("button");
-      btn.textContent = "PLAY";
-      root.appendChild(btn);
+      const labelled = document.createElement("button");
+      labelled.setAttribute("aria-label", "Play Game");
+      const worded = document.createElement("button");
+      worded.textContent = "PLAY";
+      root.append(labelled, worded);
 
-      expect(findSteamPlayButton(root)).toBe(btn);
+      expect(findSteamPlayButton(root)).toBeNull();
     });
 
     it("returns null when no play button elements exist", () => {
@@ -181,13 +197,74 @@ describe("elementSelectors", () => {
       expect(findSteamPlayButton(doc)).toBeNull();
     });
 
-    it("handles elements with null textContent without error", () => {
+    it.each([
+      ["class name", "PlayButton", undefined],
+      ["Fiber name", "custom-button", "PlayButton"],
+    ] as const)("names the %s rung that found it", (rung, className, fiberName) => {
       const root = document.createElement("div");
       const btn = document.createElement("button");
-      Object.defineProperty(btn, "textContent", { value: null });
+      btn.className = className;
+      if (fiberName) {
+        (btn as unknown as Record<string, unknown>)["__reactFiber$btn"] = { type: { displayName: fiberName } };
+      }
       root.appendChild(btn);
 
-      expect(findSteamPlayButton(root)).toBeNull();
+      expect(locatePlayButton(root)).toEqual({ element: btn, rung });
+    });
+  });
+
+  describe("locateOverviewPanel", () => {
+    it.each([
+      ["class name", "appdetails_AppDetailsOverviewPanel_x", undefined],
+      ["Fiber name", "SomePanel", "AppDetailsOverviewPanel"],
+    ] as const)("names the %s rung that found it", (rung, className, fiberName) => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const panel = doc.createElement("div");
+      panel.className = className;
+      if (fiberName) {
+        (panel as unknown as Record<string, unknown>)["__reactFiber$p"] = { type: { displayName: fiberName } };
+      }
+      doc.body.appendChild(panel);
+
+      expect(locateOverviewPanel(doc)).toEqual({ element: panel, rung });
+    });
+
+    it("names the structural rung for the right panel's first child", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const rightPanel = doc.createElement("div");
+      rightPanel.className = "RightPanel";
+      const firstChild = doc.createElement("div");
+      rightPanel.appendChild(firstChild);
+      doc.body.appendChild(rightPanel);
+
+      expect(locateOverviewPanel(doc)).toEqual({ element: firstChild, rung: "structure" });
+    });
+  });
+
+  describe("findPlayBarAndContainer's rung", () => {
+    it("names the rung that recognised the play bar", () => {
+      const panel = document.createElement("div");
+      const playBar = document.createElement("div");
+      playBar.className = "PlayBar";
+      const playSection = document.createElement("div");
+      playBar.appendChild(playSection);
+      panel.append(playBar, document.createElement("div"));
+
+      expect(findPlayBarAndContainer(panel, playSection).rung).toBe("class name");
+    });
+
+    it("names the structural rung when no rung recognised one", () => {
+      const panel = document.createElement("div");
+      const wrapper = document.createElement("div");
+      const playSection = document.createElement("div");
+      wrapper.appendChild(playSection);
+      panel.append(wrapper, document.createElement("div"));
+
+      expect(findPlayBarAndContainer(panel, playSection)).toEqual({
+        playBarTop: wrapper,
+        container: panel,
+        rung: "structure",
+      });
     });
   });
 
@@ -224,7 +301,7 @@ describe("elementSelectors", () => {
       const section = document.createElement("div");
       section.className = "PlaySection";
       const btn = document.createElement("button");
-      btn.setAttribute("aria-label", "Play Game");
+      (btn as unknown as Record<string, unknown>)["__reactFiber$btn"] = { type: { displayName: "PlayButton" } };
       section.appendChild(btn);
       root.appendChild(section);
 
@@ -473,30 +550,32 @@ describe("elementSelectors", () => {
       expect(badges).toContain(achievements);
     });
 
-    it("identifies stat items by PlayBarDetailLabel or text fallback", () => {
+    it("identifies a stat item by its PlayBarDetailLabel", () => {
       const doc = document.implementation.createHTMLDocument("Test");
       const playBar = doc.createElement("div");
       playBar.className = "PlayBar";
+      const statItem = doc.createElement("div");
+      statItem.className = "game-stat-wrapper";
+      const label = doc.createElement("div");
+      label.className = "PlayBarDetailLabel";
+      statItem.appendChild(label);
+      playBar.appendChild(statItem);
 
-      const statItem1 = doc.createElement("div");
-      statItem1.className = "game-stat-wrapper";
-      const label1 = doc.createElement("div");
-      label1.className = "PlayBarDetailLabel";
-      label1.textContent = "LAST PLAYED";
-      statItem1.appendChild(label1);
+      expect(findSteamPlayBarBadges(playBar)).toContain(statItem);
+    });
 
-      const statItem2 = doc.createElement("div");
-      statItem2.className = "custom-wrapper";
-      const label2 = doc.createElement("div");
-      label2.textContent = "Last Played";
-      statItem2.appendChild(label2);
+    it("does not take a badge by its text, which reads differently in every language", () => {
+      const doc = document.implementation.createHTMLDocument("Test");
+      const playBar = doc.createElement("div");
+      playBar.className = "PlayBar";
+      const statItem = doc.createElement("div");
+      statItem.className = "custom-wrapper";
+      const label = doc.createElement("div");
+      label.textContent = "LAST PLAYED";
+      statItem.appendChild(label);
+      playBar.appendChild(statItem);
 
-      playBar.appendChild(statItem1);
-      playBar.appendChild(statItem2);
-
-      const badges = findSteamPlayBarBadges(playBar);
-      expect(badges).toContain(statItem1);
-      expect(badges).toContain(statItem2);
+      expect(findSteamPlayBarBadges(playBar)).toEqual([]);
     });
 
     it("identifies GameStat badges while ignoring Tender elements", () => {
