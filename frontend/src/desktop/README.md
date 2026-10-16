@@ -70,6 +70,14 @@ are sorted into dedicated lowercase subdirectories:
     client over `utils/useSettingsPage.ts`, `utils/preferredRegion.ts` and `utils/settingsWording.ts`. Preferred region
     is configured with `Dropdown` inside a `Field` (confirmed via `DesktopConfirmDialog` before saving), and collection
     platform groups and collection naming mode use `SettingsToggle`.
+  - `desktop/settings/updates/` — the Updates tab: the QAM's Updates section drawn for the desktop client over
+    `utils/useSettingsPage.ts`, `utils/useUpdateInstall.ts`, `utils/updateAvailableView.ts`,
+    `utils/updateInstallView.ts`, `utils/updateNoticeStore.ts`, and `utils/settingsWording.ts`. Displays installed and
+    available versions, daily check toggle (`SettingsToggle`), Check now button, install action (`DialogButton`) with
+    wait reasons and paused downloads hint, active progress card with step status marks, and "Show what the installer
+    said" trigger opening `DesktopUpdateOutputDialog.tsx`. Sidebar update dot indicator sits on the Updates tab icon
+    (`UpdatesTabIcon`), and dwelling on the tab marks updates as seen via `useSeenAfterDwell(true, "desktop")` (Decision
+    D12).
   - `desktop/settings/data-management/` — the Data Management tab: an inventory of what this device holds across six
     populations (Tender's shortcuts, Installed ROMs, Orphaned grid images, Other non-Steam games, Gone from RomM, and
     Recovery bundles) rendered as Steam-native setting cards (`DataManagementListPane.tsx`), with `DrillDown.tsx`
