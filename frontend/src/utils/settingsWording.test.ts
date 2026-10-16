@@ -3,7 +3,12 @@ import {
   ADVANCED_HEADING,
   APPLY_TO_ALL_SHORTCUTS_LABEL,
   APPLYING_TO_ALL_SHORTCUTS_LABEL,
+  AVAILABLE_VERSION_LABEL,
+  CHECK_NOW_LABEL,
+  CHECKING_NOW_LABEL,
   CONTROLLER_HEADING,
+  DAILY_CHECK_DESCRIPTION,
+  DAILY_CHECK_LABEL,
   DEFAULT_SAVE_SLOT_DESCRIPTION,
   DEFAULT_SAVE_SLOT_LABEL,
   DEVICE_LABEL,
@@ -13,6 +18,7 @@ import {
   ENABLE_SAVE_SYNC_LABEL,
   INSECURE_SSL_DESCRIPTION,
   INSECURE_SSL_LABEL,
+  INSTALLED_VERSION_LABEL,
   LOG_LEVEL_DESCRIPTION,
   LOG_LEVEL_LABEL,
   LOG_LEVEL_OPTIONS,
@@ -50,6 +56,7 @@ import {
   sgdbKeyState,
   signInButtonLabel,
   STEAM_LIBRARY_HEADING,
+  UPDATES_HEADING,
 } from "./settingsWording";
 
 describe("phraseText", () => {
@@ -212,6 +219,27 @@ describe("Steam Library", () => {
   });
 });
 
+describe("Updates", () => {
+  it("labels the section heading", () => {
+    expect(UPDATES_HEADING).toBe("Updates");
+  });
+
+  it("labels installed and available version rows", () => {
+    expect(INSTALLED_VERSION_LABEL).toBe("Installed");
+    expect(AVAILABLE_VERSION_LABEL).toBe("Available");
+  });
+
+  it("labels and describes daily check toggle", () => {
+    expect(DAILY_CHECK_LABEL).toBe("Check for updates daily");
+    expect(DAILY_CHECK_DESCRIPTION).toBe("Asks GitHub at most once a day whether a newer release is out.");
+  });
+
+  it("labels check now button states", () => {
+    expect(CHECK_NOW_LABEL).toBe("Check now");
+    expect(CHECKING_NOW_LABEL).toBe("Checking…");
+  });
+});
+
 describe("Advanced", () => {
   it("labels the section heading", () => {
     expect(ADVANCED_HEADING).toBe("Advanced");
@@ -222,7 +250,7 @@ describe("Advanced", () => {
     expect(LOG_LEVEL_DESCRIPTION).toBe("Controls how much detail Tender writes to its log");
   });
 
-  it("defines the four canonical log level options", () => {
+  it("defines the log level options", () => {
     expect(LOG_LEVEL_OPTIONS).toEqual([
       { data: "error", label: "Error" },
       { data: "warn", label: "Warn (default)" },

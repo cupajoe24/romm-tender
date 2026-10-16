@@ -6,7 +6,7 @@ import { HostTransportError } from "../../api/host";
 import { setUpdateInstallAttempt } from "../../utils/updateInstallStore";
 import { INSTALLER_OVERDUE_MS, NOT_BACK_LINE, restartWaitLine } from "../../utils/updateInstallView";
 import { UpdateInstallRows } from "./UpdateInstallRows";
-import { UPDATE_INSTALL_READ_DEADLINE_MS, useUpdateInstall } from "./useUpdateInstall";
+import { UPDATE_INSTALL_READ_DEADLINE_MS, useUpdateInstall } from "../../utils/useUpdateInstall";
 
 // The rows over the real hook, reads and all: what a reader sees once the
 // backend the installer stopped no longer answers.

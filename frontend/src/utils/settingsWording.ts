@@ -151,6 +151,19 @@ export const COLLECTION_NAMING_MODE_DESCRIPTION =
   "keep their plain name, and the other kinds get their type added, such as (Smart) or (Franchise). " +
   "Applies on the next sync.";
 
+// --- Updates ---
+
+export const UPDATES_HEADING = "Updates";
+
+export const INSTALLED_VERSION_LABEL = "Installed";
+export const AVAILABLE_VERSION_LABEL = "Available";
+
+export const DAILY_CHECK_LABEL = "Check for updates daily";
+export const DAILY_CHECK_DESCRIPTION = "Asks GitHub at most once a day whether a newer release is out.";
+
+export const CHECK_NOW_LABEL = "Check now";
+export const CHECKING_NOW_LABEL = "Checking…";
+
 // --- Advanced ---
 
 export const ADVANCED_HEADING = "Advanced";

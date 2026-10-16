@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { availableCardVersion, updateDotVersion } from "./updateAvailableView";
+import {
+  NOT_INSTALLED_PROGRAM,
+  availableCardVersion,
+  availableNewer,
+  availableValue,
+  updateDotVersion,
+} from "./updateAvailableView";
 import type { UpdateNoticeState } from "./updateNoticeStore";
 import type { UpdateOutcomeState } from "./updateOutcomeStore";
 
@@ -78,5 +83,23 @@ describe("updateDotVersion", () => {
     expect(updateDotVersion({ ...AVAILABLE, available: false }, NO_OUTCOME, null)).toBeNull();
     expect(updateDotVersion(AVAILABLE, failedTo("1.1.0", true), null)).toBeNull();
     expect(updateDotVersion(AVAILABLE, NO_OUTCOME, { attemptedVersion: "1.1.0", fromVersion: "1.0.0" })).toBeNull();
+  });
+});
+
+describe("availableNewer & availableValue & NOT_INSTALLED_PROGRAM", () => {
+  it("determines whether a release is newer", () => {
+    expect(availableNewer(AVAILABLE)).toBe(true);
+    expect(availableNewer({ ...AVAILABLE, newer: false })).toBe(false);
+    expect(availableNewer({ ...AVAILABLE, latestVersion: null })).toBe(false);
+  });
+
+  it("formats the available version label appropriately", () => {
+    expect(availableValue(AVAILABLE)).toBe("1.1.0");
+    expect(availableValue({ ...AVAILABLE, newer: false })).toBe("None newer");
+    expect(availableValue({ ...AVAILABLE, latestVersion: null })).toBe("Not known yet");
+  });
+
+  it("exports NOT_INSTALLED_PROGRAM constant", () => {
+    expect(NOT_INSTALLED_PROGRAM).toContain("Development build");
   });
 });

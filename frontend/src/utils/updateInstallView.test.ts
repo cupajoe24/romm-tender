@@ -6,16 +6,26 @@ import {
   INSTALL_FAILURE_SENTENCES,
   INSTALLER_OVERDUE_MS,
   RELOAD_LIMIT,
-  refusalStands,
+  SHOW_OUTPUT,
+  STEP_MARKS,
+  STEP_TONES,
+  attemptTitle,
+  buttonLabel,
+  clock,
   downloadPercent,
   failedStep,
   furtherAttempt,
+  installButtonShown,
+  installStateUnread,
   installSteps,
   pausedDownloadsHint,
+  refusalStands,
   restartWaitLine,
+  shownBlock,
   waitReasonLine,
   waitReasonLines,
 } from "./updateInstallView";
+import type { UpdateInstall } from "./useUpdateInstall";
 
 const DOWNLOADING: UpdateInstallAttempt = {
   version: "1.0.0",
@@ -192,6 +202,12 @@ describe("INSTALLER_OVERDUE_MS", () => {
   });
 });
 
+describe("SHOW_OUTPUT", () => {
+  it("labels the show output button", () => {
+    expect(SHOW_OUTPUT).toBe("Show what the installer said");
+  });
+});
+
 describe("restartWaitLine", () => {
   it("names the version Tender would go back to", () => {
     expect(restartWaitLine("1.0.20")).toBe(
@@ -267,5 +283,116 @@ describe("furtherAttempt", () => {
   it("takes the read where the two name different versions", () => {
     const other = { ...DOWNLOADING, version: "1.1.0" };
     expect(furtherAttempt(failed("download_failed"), other)).toBe(other);
+  });
+});
+
+describe("buttonLabel, installButtonShown & installStateUnread", () => {
+  const baseInstall: UpdateInstall = {
+    answered: true,
+    offered: true,
+    version: "1.0.0",
+    waitReasons: [],
+    pausedDownloads: 0,
+    attempt: null,
+    tryAgain: false,
+    pressing: false,
+    refusal: "",
+    underWay: false,
+    restarting: false,
+    overdue: false,
+    readFailed: false,
+    install: () => undefined,
+  };
+
+  it("computes buttonLabel according to underway and tryAgain state", () => {
+    expect(buttonLabel(baseInstall)).toBe("Install update");
+    expect(buttonLabel({ ...baseInstall, tryAgain: true })).toBe("Try again");
+    expect(buttonLabel({ ...baseInstall, underWay: true })).toBe("Installing…");
+  });
+
+  it("computes installButtonShown appropriately", () => {
+    expect(installButtonShown(baseInstall)).toBe(true);
+    expect(installButtonShown({ ...baseInstall, offered: false })).toBe(false);
+    expect(installButtonShown({ ...baseInstall, offered: false, underWay: true })).toBe(true);
+    expect(installButtonShown({ ...baseInstall, answered: false, attempt: DOWNLOADING })).toBe(true);
+  });
+
+  it("computes installStateUnread", () => {
+    expect(installStateUnread(baseInstall)).toBe(false);
+    expect(installStateUnread({ ...baseInstall, readFailed: true })).toBe(true);
+    expect(installStateUnread({ ...baseInstall, readFailed: true, restarting: true })).toBe(false);
+  });
+});
+
+describe("clock & STEP_MARKS & STEP_TONES", () => {
+  it("formats milliseconds to clock string", () => {
+    expect(clock(0)).toBe("0:00");
+    expect(clock(65000)).toBe("1:05");
+  });
+
+  it("maps each step status to glyph mark and tone token", () => {
+    expect(STEP_MARKS.done).toBe("✓");
+    expect(STEP_MARKS.current).toBe("●");
+    expect(STEP_MARKS.pending).toBe("○");
+    expect(STEP_MARKS.failed).toBe("✕");
+
+    expect(STEP_TONES.done).toBe("success");
+    expect(STEP_TONES.current).toBe("accent");
+    expect(STEP_TONES.pending).toBe("muted");
+    expect(STEP_TONES.failed).toBe("warning");
+  });
+});
+
+describe("attemptTitle & shownBlock", () => {
+  const baseInstall: UpdateInstall = {
+    answered: true,
+    offered: true,
+    version: "1.0.0",
+    waitReasons: [],
+    pausedDownloads: 0,
+    attempt: null,
+    tryAgain: false,
+    pressing: false,
+    refusal: "",
+    underWay: false,
+    restarting: false,
+    overdue: false,
+    readFailed: false,
+    install: () => undefined,
+  };
+
+  it("computes attemptTitle for failures and cancellations", () => {
+    expect(attemptTitle({ ...DOWNLOADING, failure: "download_failed" }, "0.9.0", false)).toContain(
+      "Update to 1.0.0 failed",
+    );
+    expect(attemptTitle({ ...DOWNLOADING, failure: "game_started" }, "0.9.0", false)).toContain(
+      "was cancelled — nothing was changed",
+    );
+  });
+
+  it("computes shownBlock for progress, failure, and rollback records", () => {
+    const progress = shownBlock({ ...baseInstall, underWay: true, attempt: DOWNLOADING }, null, "0.9.0");
+    expect(progress?.caption).toContain("Downloading 1.0.0");
+    expect(progress?.failed).toBe(false);
+
+    const failure = shownBlock(
+      { ...baseInstall, attempt: { ...DOWNLOADING, step: "failed", failure: "download_failed" } },
+      null,
+      "0.9.0",
+    );
+    expect(failure?.failed).toBe(true);
+
+    const record = shownBlock(
+      baseInstall,
+      {
+        attemptedVersion: "1.0.0",
+        restoredVersion: "0.9.0",
+        rolledBackAt: "2026-10-15T12:00:00Z",
+        kind: "rollback",
+      },
+      "0.9.0",
+    );
+    expect(record?.failed).toBe(true);
+    expect(record?.caption).toContain("Tender went back to 0.9.0");
   });
 });

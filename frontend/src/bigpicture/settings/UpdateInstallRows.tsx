@@ -1,210 +1,45 @@
 import { FC, ReactNode, useEffect, useReducer } from "react";
 import { PanelSectionRow, ButtonItem, Field, ProgressBar } from "@decky/ui";
 import { AMBER, AMBER_WASH, GREEN, MUTED, SELECTION_ACCENT } from "../layout/pane";
-import type { UpdateInstallAttempt, UpdateInstallFailure } from "../../api/backend";
-import { attemptSeenAt, installerSeenAt } from "../../utils/updateInstallStore";
 import {
-  GAME_STARTS_CANCEL,
-  INSTALL_FAILURE_SENTENCES,
   INSTALL_STATE_UNREAD,
-  INSTALLER_RAN,
-  NOT_BACK_LINE,
-  TAKING_LONG_LINE,
+  SHOW_OUTPUT,
+  STEP_MARKS,
+  STEP_TONES,
   WAITING_FOR,
-  downloadPercent,
-  failedStep,
+  buttonLabel,
+  installButtonShown,
+  installStateUnread,
   installSteps,
   namesStatusUnread,
   pausedDownloadsHint,
-  restartWaitLine,
+  shownBlock,
   waitReasonLines,
-  type InstallStepId,
-  type InstallStepStatus,
+  type BlockNote,
+  type InstallTone,
 } from "../../utils/updateInstallView";
-import {
-  UPDATE_CHECK_FAILURE_NOTE,
-  updateDidNotGoThrough,
-  updateFailureReason,
-  updateFailureSentence,
-  type RolledBackUpdate,
-} from "../../utils/updateOutcomeStore";
+import type { RolledBackUpdate } from "../../utils/updateOutcomeStore";
 import { cardFrame } from "../UpdateCard";
 import { showUpdateOutput } from "./UpdateOutputModal";
-import type { UpdateInstall } from "./useUpdateInstall";
+import type { UpdateInstall } from "../../utils/useUpdateInstall";
 
-export function buttonLabel(install: UpdateInstall): string {
-  if (install.underWay) return "Installing…";
-  return install.tryAgain ? "Try again" : "Install update";
-}
+export { installButtonShown, installStateUnread, SHOW_OUTPUT };
 
-/**
- * Whether the install's button is there: while the backend offers a release,
- * through an attempt, and — so an attempt's end does not take it away under
- * focus — beside a known attempt until the first read answers.
- */
-export function installButtonShown(install: UpdateInstall): boolean {
-  return (
-    (install.offered && install.version !== null) || install.underWay || (!install.answered && install.attempt !== null)
-  );
-}
-
-/** Whether to say the state could not be read: a read failed, and no installer's restart explains it. */
-export function installStateUnread(install: UpdateInstall): boolean {
-  return install.readFailed && !install.restarting;
-}
-
-/** Each step's mark and its colour. */
-export const STEP_MARKS: Record<InstallStepStatus, [string, string]> = {
-  done: ["✓", GREEN],
-  current: ["●", SELECTION_ACCENT],
-  pending: ["○", MUTED],
-  failed: ["✕", AMBER],
+/** Each step tone's colour, here and on the fallback page. */
+export const STEP_COLORS: Record<InstallTone, string> = {
+  success: GREEN,
+  accent: SELECTION_ACCENT,
+  muted: MUTED,
+  warning: AMBER,
 };
 
 const SMALL = { fontSize: "12px", color: MUTED, paddingTop: "6px" } as const;
 
-function clock(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-/** What the block under the button shows: an attempt's progress, or a failure. */
-export interface Block {
-  caption: string;
-  /** Beside the caption: the percent and the clock of an attempt under way. */
-  aside?: string;
-  /** The bar's percent, `null` for an indeterminate one; a failure has none. */
-  percent?: number | null;
-  /** The step under way, or the one marked failed; `null` for no step line. */
-  at: InstallStepId | null;
-  failed: boolean;
-  note: ReactNode;
-  /**
-   * Where the installer ran, whose output the button under the block shows:
-   * the record's `rolledBackAt`, or `null` for this backend's attempt, and the
-   * version the update tried to install.
-   */
-  output?: { rolledBackAt: string | null; version: string };
-}
-
-/** The installer has started: what the panel can infer of the restart. */
-function restartBlock(install: UpdateInstall, earlier: string, elapsed: string): Block {
-  // The backend reports nothing more, so the phase is the panel's inference:
-  // while reads still answer, the installer is running its pre-install check,
-  // which it does before it stops this backend; once they fail, Tender is
-  // restarting. A backend that answers again refuses this panel as stranded,
-  // and the stranded card then stands in place of the whole panel.
-  const gone = install.readFailed;
-  return {
-    caption: gone ? "Tender is restarting" : "Checking the new version",
-    aside: elapsed,
-    percent: null,
-    at: gone ? "install" : "check",
-    failed: false,
-    note: install.overdue ? (
-      <span style={{ color: AMBER }}>{gone ? NOT_BACK_LINE : TAKING_LONG_LINE}</span>
-    ) : (
-      gone && restartWaitLine(earlier)
-    ),
-  };
-}
-
-/** An attempt under way. */
-function progressBlock(install: UpdateInstall, attempt: UpdateInstallAttempt, earlier: string): Block {
-  const elapsed = clock(Date.now() - (attemptSeenAt() ?? Date.now()));
-  if (attempt.step !== "installer_started") {
-    const percent = attempt.step === "downloading" ? downloadPercent(attempt) : null;
-    const verifying = attempt.step === "verifying";
-    return {
-      caption: `${verifying ? "Verifying" : "Downloading"} ${attempt.version}`,
-      aside: percent === null ? elapsed : `${percent}% · ${elapsed}`,
-      percent,
-      at: verifying ? "verify" : "download",
-      failed: false,
-      note: GAME_STARTS_CANCEL,
-    };
-  }
-  return restartBlock(install, earlier, elapsed);
-}
-
-/** The button under a failed block where the installer ran. */
-export const SHOW_OUTPUT = "Show what the installer said";
-
-const failedTo = (version: string, outcome: string) => `Update to ${version} failed — ${outcome}.`;
-
-/** Aborts for a game — one started, or no reading of whether one runs — titled as cancelled rather than failed. */
-const CANCELLED_BY: ReadonlySet<UpdateInstallFailure> = new Set(["game_started", "running_apps_unknown"]);
-
-/**
- * A failed attempt's title. An installer that stopped says nothing was changed
- * only where this panel saw it start, as `failedStep` marks it: elsewhere it
- * claims no more than Main's card does.
- */
-function attemptTitle(attempt: UpdateInstallAttempt, earlier: string, installerSeen: boolean): string {
-  const kind = attempt.failure;
-  if (kind === null || (kind === "installer_stopped" && !installerSeen)) {
-    return updateDidNotGoThrough(attempt.version, earlier);
-  }
-  if (CANCELLED_BY.has(kind)) return `Update to ${attempt.version} was cancelled — nothing was changed.`;
-  return failedTo(attempt.version, "nothing was changed");
-}
-
-function attemptFailure(attempt: UpdateInstallAttempt, earlier: string): Block {
-  const kind = attempt.failure;
-  const installerSeen = installerSeenAt() !== null;
-  return {
-    caption: attemptTitle(attempt, earlier, installerSeen),
-    at: kind && failedStep(kind, installerSeen),
-    failed: true,
-    note: kind && INSTALL_FAILURE_SENTENCES[kind],
-    ...(kind && INSTALLER_RAN.has(kind) ? { output: { rolledBackAt: null, version: attempt.version } } : {}),
-  };
-}
-
-/** The installer's record, where no attempt of this backend's is shown. Every kind of it is one the installer ran. */
-function recordFailure(record: RolledBackUpdate): Block {
-  const { kind, attemptedVersion } = record;
-  const output = { output: { rolledBackAt: record.rolledBackAt, version: attemptedVersion } };
-  if (kind === "rollback") {
-    return {
-      caption: failedTo(attemptedVersion, `Tender went back to ${record.restoredVersion}`),
-      at: "install",
-      failed: true,
-      note: updateFailureReason(record),
-      ...output,
-    };
-  }
-  if (kind === "check") {
-    return {
-      caption: failedTo(attemptedVersion, "nothing was changed"),
-      at: "check",
-      failed: true,
-      note: UPDATE_CHECK_FAILURE_NOTE,
-      ...output,
-    };
-  }
-  return {
-    caption: updateFailureSentence(record),
-    at: null,
-    failed: true,
-    note: updateFailureReason(record),
-    ...output,
-  };
-}
-
-/**
- * The block the section shows. A failed attempt for a version no longer
- * offered says nothing about the one that is. Before the first read answers
- * nothing is known about the offer yet, so it stays, and the block it replaced
- * does not leave under focus.
- */
-export function shownBlock(install: UpdateInstall, record: RolledBackUpdate | null, earlier: string): Block | null {
-  const { attempt } = install;
-  if (attempt !== null && install.underWay) return progressBlock(install, attempt, earlier);
-  if (attempt?.step === "failed" && (!install.answered || attempt.version === install.version)) {
-    return attemptFailure(attempt, earlier);
-  }
-  return record && recordFailure(record);
+/** A block's note as the section and the fallback page draw it: a warning in amber. */
+export function renderNote(note: string | BlockNote | null | undefined): ReactNode {
+  if (!note) return null;
+  if (typeof note === "string") return note;
+  return <span style={note.tone === "warning" ? { color: AMBER } : undefined}>{note.text}</span>;
 }
 
 /**
@@ -309,14 +144,14 @@ export const UpdateInstallRows: FC<{ install: UpdateInstall; record: RolledBackU
                 >
                   {installSteps(block.at, block.failed).map(({ id, label, status }) => (
                     <span key={id} data-testid={`updates-step-${id}`} data-status={status}>
-                      <span style={{ color: STEP_MARKS[status][1] }}>{STEP_MARKS[status][0]}</span> {label}
+                      <span style={{ color: STEP_COLORS[STEP_TONES[status]] }}>{STEP_MARKS[status]}</span> {label}
                     </span>
                   ))}
                 </div>
               )}
               {block.note && (
                 <div data-testid="updates-note" style={SMALL}>
-                  {block.note}
+                  {renderNote(block.note)}
                 </div>
               )}
             </div>

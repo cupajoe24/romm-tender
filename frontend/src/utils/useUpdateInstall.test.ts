@@ -1,23 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import * as backend from "../../api/backend";
+import * as backend from "../api/backend";
 import {
   getUpdateInstallState,
   installUpdate,
   type UpdateInstallAttempt,
   type UpdateInstallState,
-} from "../../api/backend";
+} from "../api/backend";
 import {
   getStoppedUpdateAttempt,
   resetStoppedUpdateStoreForTests,
   takePushedStoppedAttempt,
-} from "../../utils/stoppedUpdateStore";
+} from "./stoppedUpdateStore";
 import {
   installUnderWay,
   resetUpdateInstallStoreForTests,
   setUpdateInstallAttempt,
-} from "../../utils/updateInstallStore";
-import { INSTALL_REQUEST_FAILED, INSTALLER_OVERDUE_MS } from "../../utils/updateInstallView";
+} from "./updateInstallStore";
+import { INSTALL_REQUEST_FAILED, INSTALLER_OVERDUE_MS } from "./updateInstallView";
 import { UPDATE_INSTALL_POLL_MS, UPDATE_INSTALL_READ_DEADLINE_MS, useUpdateInstall } from "./useUpdateInstall";
 
 const OFFERED: UpdateInstallState = {

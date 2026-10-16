@@ -64,3 +64,17 @@ export function updateDotVersion(
 ): string | null {
   return notice.seen ? null : availableCardVersion(notice, outcome, stopped);
 }
+
+/** Shown only to a run from a checkout, which is never offered an install. */
+export const NOT_INSTALLED_PROGRAM = "Development build — install updates with the installer.";
+
+/** Whether the Available row names a newer release — the one value it shows in green. */
+export function availableNewer(update: UpdateNoticeState): boolean {
+  return update.latestVersion !== null && update.newer;
+}
+
+/** The Available row's value: a version only where one is newer, and otherwise what is known — whatever the switch says. */
+export function availableValue(update: UpdateNoticeState): string {
+  if (update.latestVersion === null) return "Not known yet";
+  return update.newer ? update.latestVersion : "None newer";
+}

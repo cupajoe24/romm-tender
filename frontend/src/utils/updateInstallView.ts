@@ -10,7 +10,20 @@
 
 import type { UpdateInstallAttempt, UpdateInstallFailure, UpdateWaitReason } from "../api/backend";
 import type { WireReasonSubset } from "../types/reasons";
+import { INSTALL_FAILURE_REASONS } from "./failedUpdateToast";
 import { statusUnreadSentence } from "./runningAppsWording";
+import { attemptSeenAt, installerSeenAt } from "./updateInstallStore";
+import {
+  UPDATE_CHECK_FAILURE_NOTE,
+  updateDidNotGoThrough,
+  updateFailureReason,
+  updateFailureSentence,
+  type RolledBackUpdate,
+} from "./updateOutcomeStore";
+import type { UpdateInstall } from "./useUpdateInstall";
+
+export { INSTALLER_OVERDUE_MS } from "./updateInstallStore";
+export { INSTALL_FAILURE_REASONS } from "./failedUpdateToast";
 
 export const WAITING_FOR = "Waiting for:";
 
@@ -42,9 +55,6 @@ export const NOT_BACK_LINE = `Tender has not come back. ${INSTALLER_JOURNAL} —
 
 /** Seven minutes after the installer started, with the backend still answering: the installer has not stopped it yet. */
 export const TAKING_LONG_LINE = `The installer is taking unusually long. ${INSTALLER_JOURNAL}`;
-
-/** How long after the panel first sees the installer started the line under the steps gives way to one of the two above. */
-export const INSTALLER_OVERDUE_MS = 7 * 60 * 1000;
 
 /** A press the backend refused for something other than a wait, and a press the connection did not carry. */
 export type InstallRefusalReason =
@@ -92,20 +102,6 @@ export function refusalStands(
  * `updateInstallView.test.ts` holds this equal to.
  */
 export const RELOAD_LIMIT: number = 2;
-
-/**
- * What a failed attempt ended in, leaving out what its title says and where to
- * read more: the reason its toast gives.
- */
-export const INSTALL_FAILURE_REASONS: Record<UpdateInstallFailure, string> = {
-  download_failed: "The download failed.",
-  checksum_mismatch: "The download did not match its checksum.",
-  installer_not_started: "The installer could not be started.",
-  installer_stopped: "The installer stopped without updating.",
-  game_started: "A game was started. Try again once it has closed.",
-  running_apps_unknown: "Could not check whether a game is running.",
-  new_version_does_not_start: "The new version does not start.",
-};
 
 /**
  * The line under a failed attempt's title, which leaves out what the title
@@ -265,4 +261,186 @@ export function furtherAttempt(
   const byStep = STEP_RANK[pushed.step] - STEP_RANK[read.step];
   if (byStep !== 0) return byStep > 0 ? pushed : read;
   return pushed.bytes_done >= read.bytes_done ? pushed : read;
+}
+
+export function buttonLabel(install: UpdateInstall): string {
+  if (install.underWay) return "Installing…";
+  return install.tryAgain ? "Try again" : "Install update";
+}
+
+/**
+ * Whether the install's button is there: while the backend offers a release,
+ * through an attempt, and — so an attempt's end does not take it away under
+ * focus — beside a known attempt until the first read answers.
+ */
+export function installButtonShown(install: UpdateInstall): boolean {
+  return (
+    (install.offered && install.version !== null) || install.underWay || (!install.answered && install.attempt !== null)
+  );
+}
+
+/** Whether to say the state could not be read: a read failed, and no installer's restart explains it. */
+export function installStateUnread(install: UpdateInstall): boolean {
+  return install.readFailed && !install.restarting;
+}
+
+export type InstallTone = "success" | "accent" | "muted" | "warning";
+
+export const STEP_MARKS: Record<InstallStepStatus, string> = {
+  done: "✓",
+  current: "●",
+  pending: "○",
+  failed: "✕",
+};
+
+export const STEP_TONES: Record<InstallStepStatus, InstallTone> = {
+  done: "success",
+  current: "accent",
+  pending: "muted",
+  failed: "warning",
+};
+
+export function clock(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** A note with an optional tone token for surface-specific palette mapping. */
+export interface BlockNote {
+  readonly text: string;
+  readonly tone?: "warning" | "muted" | "default";
+}
+
+/** What the block under the button shows: an attempt's progress, or a failure. */
+export interface Block {
+  caption: string;
+  /** Beside the caption: the percent and the clock of an attempt under way. */
+  aside?: string;
+  /** The bar's percent, `null` for an indeterminate one; a failure has none. */
+  percent?: number | null;
+  /** The step under way, or the one marked failed; `null` for no step line. */
+  at: InstallStepId | null;
+  failed: boolean;
+  note?: string | BlockNote | null;
+  /**
+   * Where the installer ran, whose output the button under the block shows:
+   * the record's `rolledBackAt`, or `null` for this backend's attempt, and the
+   * version the update tried to install.
+   */
+  output?: { rolledBackAt: string | null; version: string };
+}
+
+/** The installer has started: what the panel can infer of the restart. */
+export function restartBlock(install: UpdateInstall, earlier: string, elapsed: string): Block {
+  const gone = install.readFailed;
+  return {
+    caption: gone ? "Tender is restarting" : "Checking the new version",
+    aside: elapsed,
+    percent: null,
+    at: gone ? "install" : "check",
+    failed: false,
+    note: install.overdue
+      ? { text: gone ? NOT_BACK_LINE : TAKING_LONG_LINE, tone: "warning" }
+      : gone
+        ? restartWaitLine(earlier)
+        : null,
+  };
+}
+
+/** An attempt under way. */
+export function progressBlock(install: UpdateInstall, attempt: UpdateInstallAttempt, earlier: string): Block {
+  const elapsed = clock(Date.now() - (attemptSeenAt() ?? Date.now()));
+  if (attempt.step !== "installer_started") {
+    const percent = attempt.step === "downloading" ? downloadPercent(attempt) : null;
+    const verifying = attempt.step === "verifying";
+    return {
+      caption: `${verifying ? "Verifying" : "Downloading"} ${attempt.version}`,
+      aside: percent === null ? elapsed : `${percent}% · ${elapsed}`,
+      percent,
+      at: verifying ? "verify" : "download",
+      failed: false,
+      note: GAME_STARTS_CANCEL,
+    };
+  }
+  return restartBlock(install, earlier, elapsed);
+}
+
+/** The button under a failed block where the installer ran. */
+export const SHOW_OUTPUT = "Show what the installer said";
+
+export const failedTo = (version: string, outcome: string): string => `Update to ${version} failed — ${outcome}.`;
+
+/** Aborts for a game — one started, or no reading of whether one runs — titled as cancelled rather than failed. */
+export const CANCELLED_BY: ReadonlySet<UpdateInstallFailure> = new Set(["game_started", "running_apps_unknown"]);
+
+/**
+ * A failed attempt's title. An installer that stopped says nothing was changed
+ * only where this panel saw it start, as `failedStep` marks it: elsewhere it
+ * claims no more than Main's card does.
+ */
+export function attemptTitle(attempt: UpdateInstallAttempt, earlier: string, installerSeen: boolean): string {
+  const kind = attempt.failure;
+  if (kind === null || (kind === "installer_stopped" && !installerSeen)) {
+    return updateDidNotGoThrough(attempt.version, earlier);
+  }
+  if (CANCELLED_BY.has(kind)) return `Update to ${attempt.version} was cancelled — nothing was changed.`;
+  return failedTo(attempt.version, "nothing was changed");
+}
+
+export function attemptFailure(attempt: UpdateInstallAttempt, earlier: string): Block {
+  const kind = attempt.failure;
+  const installerSeen = installerSeenAt() !== null;
+  return {
+    caption: attemptTitle(attempt, earlier, installerSeen),
+    at: kind ? failedStep(kind, installerSeen) : null,
+    failed: true,
+    note: kind ? INSTALL_FAILURE_SENTENCES[kind] : null,
+    ...(kind && INSTALLER_RAN.has(kind) ? { output: { rolledBackAt: null, version: attempt.version } } : {}),
+  };
+}
+
+/** The installer's record, where no attempt of this backend's is shown. Every kind of it is one the installer ran. */
+export function recordFailure(record: RolledBackUpdate): Block {
+  const { kind, attemptedVersion } = record;
+  const output = { output: { rolledBackAt: record.rolledBackAt, version: attemptedVersion } };
+  if (kind === "rollback") {
+    return {
+      caption: failedTo(attemptedVersion, `Tender went back to ${record.restoredVersion}`),
+      at: "install",
+      failed: true,
+      note: updateFailureReason(record),
+      ...output,
+    };
+  }
+  if (kind === "check") {
+    return {
+      caption: failedTo(attemptedVersion, "nothing was changed"),
+      at: "check",
+      failed: true,
+      note: UPDATE_CHECK_FAILURE_NOTE,
+      ...output,
+    };
+  }
+  return {
+    caption: updateFailureSentence(record),
+    at: null,
+    failed: true,
+    note: updateFailureReason(record),
+    ...output,
+  };
+}
+
+/**
+ * The block the section shows. A failed attempt for a version no longer
+ * offered says nothing about the one that is. Before the first read answers
+ * nothing is known about the offer yet, so it stays, and the block it replaced
+ * does not leave under focus.
+ */
+export function shownBlock(install: UpdateInstall, record: RolledBackUpdate | null, earlier: string): Block | null {
+  const { attempt } = install;
+  if (attempt !== null && install.underWay) return progressBlock(install, attempt, earlier);
+  if (attempt?.step === "failed" && (!install.answered || attempt.version === install.version)) {
+    return attemptFailure(attempt, earlier);
+  }
+  return record ? recordFailure(record) : null;
 }

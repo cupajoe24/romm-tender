@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, render, fireEvent } from "@testing-library/react";
 import { UpdatesSection, NOT_INSTALLED_PROGRAM } from "./UpdatesSection";
-import type { UpdateInstall } from "./useUpdateInstall";
+import type { UpdateInstall } from "../../utils/useUpdateInstall";
 import { showModal } from "@decky/ui";
 import { getUpdateOutput, type UpdateInstallAttempt } from "../../api/backend";
 import { setUpdateInstallAttempt } from "../../utils/updateInstallStore";
@@ -22,7 +22,7 @@ import {
 // The install's reads and press are `useUpdateInstall.test.ts`'s; here the
 // section is handed what the hook answers, so what it renders is all there is.
 const installView = vi.hoisted(() => ({ current: undefined as unknown as UpdateInstall }));
-vi.mock("./useUpdateInstall", () => ({ useUpdateInstall: () => installView.current }));
+vi.mock("../../utils/useUpdateInstall", () => ({ useUpdateInstall: () => installView.current }));
 
 const NOTHING_OFFERED: UpdateInstall = {
   answered: true,

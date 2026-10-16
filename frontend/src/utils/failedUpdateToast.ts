@@ -26,11 +26,25 @@ import {
   logError,
   logWarn,
   type UpdateAttemptToast,
+  type UpdateInstallFailure,
   type UpdateSettingWrite,
 } from "../api/backend";
 import { TOAST_READINESS_DEADLINE_MS, waitUntilSteamCanShowToasts } from "./steamReadyForToasts";
 import { showToast } from "./toast";
-import { INSTALL_FAILURE_REASONS } from "./updateInstallView";
+
+/**
+ * What a failed attempt ended in, leaving out what its title says and where to
+ * read more: the reason its toast gives.
+ */
+export const INSTALL_FAILURE_REASONS: Record<UpdateInstallFailure, string> = {
+  download_failed: "The download failed.",
+  checksum_mismatch: "The download did not match its checksum.",
+  installer_not_started: "The installer could not be started.",
+  installer_stopped: "The installer stopped without updating.",
+  game_started: "A game was started. Try again once it has closed.",
+  running_apps_unknown: "Could not check whether a game is running.",
+  new_version_does_not_start: "The new version does not start.",
+};
 
 /** What a toast raised in this JavaScript context was for, so a push and a read of the same update raise one. */
 const raised = new Set<string>();

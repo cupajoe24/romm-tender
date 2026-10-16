@@ -14,39 +14,20 @@ import { DialogButton, Focusable, ModalRoot, showModal } from "@decky/ui";
 import { getUpdateOutput, logError, type UpdateOutput, type UpdateOutputSection } from "../../api/backend";
 import { detach } from "../../utils/detach";
 import { clockTime } from "../../utils/updateInstallView";
+import {
+  OUTPUT_GONE,
+  OUTPUT_MISSING,
+  OUTPUT_READING,
+  OUTPUT_UNREAD,
+  UPDATE_OUTPUT_TITLE,
+  outputLineTone,
+  outputStops,
+} from "../../utils/updateOutputView";
 import { AMBER, GREEN, MUTED } from "../layout/pane";
 
-const TITLE = "What the installer said";
+export { OUTPUT_MISSING, OUTPUT_READING, OUTPUT_GONE, OUTPUT_UNREAD, outputStops };
 
-/** What the window says where the journal holds no run of the installer's for this failure. */
-export const OUTPUT_MISSING: Partial<Record<string, string>> = {
-  rotated: "This output is no longer in the system journal — it keeps only the last hours of logs.",
-  terminal: "This update was run in a terminal, so its output is there, not in the journal.",
-  empty: "The installer left nothing in the journal for this update.",
-};
-
-/** What the window says while the answer is on its way. */
-export const OUTPUT_READING = "Reading what the installer said…";
-
-/** What the window says where the failure it was opened for no longer stands. */
-export const OUTPUT_GONE = "This failed update is no longer on record.";
-
-/**
- * What the window says where no output can be shown and no other line says
- * why: the journal could not be read, the answer did not arrive or was another
- * failure than `not_found`, or it named a `missing` this panel has no line for.
- */
-export const OUTPUT_UNREAD = "Tender could not read what the installer said.";
-
-/**
- * How much one focus stop holds: this many lines, and no more characters than
- * this, so that no stop is taller than the dialog — a line of 500 characters
- * wraps to several rows. The window scrolls only by moving focus
- * (`docs/architecture/qam-panel.md`, "Two widths"), so a part of several
- * hundred lines is walked one stop at a time.
- */
-const LINES_PER_STOP = 12;
-const CHARS_PER_STOP = 1200;
+const TITLE = UPDATE_OUTPUT_TITLE;
 
 /**
  * What makes text a focus stop: `focusableIfEmpty`, which `FocusableProps`
@@ -56,22 +37,6 @@ const CHARS_PER_STOP = 1200;
 const TEXT_STOP: { focusableIfEmpty: boolean } = { focusableIfEmpty: true };
 
 const MONO = { fontFamily: "monospace", fontSize: "12px", whiteSpace: "pre-wrap", overflowWrap: "anywhere" } as const;
-
-/** *lines* cut into the text of one focus stop each, within both of the caps above. */
-export function outputStops(lines: string[]): string[] {
-  const stops: string[] = [];
-  let stop = "";
-  let held = 0;
-  for (const line of lines) {
-    if (held === LINES_PER_STOP || (held > 0 && stop.length + line.length >= CHARS_PER_STOP)) {
-      stops.push(stop);
-      held = 0;
-    }
-    stop = held++ > 0 ? `${stop}\n${line}` : line;
-  }
-  if (held > 0) stops.push(stop);
-  return stops;
-}
 
 /** Each of *texts* beside where it starts once they are joined by newlines — a key no two of them share. */
 function atOffsets(texts: string[]): { at: number; text: string }[] {
@@ -84,16 +49,13 @@ function atOffsets(texts: string[]): { at: number; text: string }[] {
 }
 
 /**
- * The colour of one line, read off how the installer starts it: a step that
- * failed (`[!!]`) and the installer's own failure lines (`install.sh: `) in
- * amber, a step done (`[ok]`) in green, a step under way (`[..]`) muted — the
- * marks it writes where it draws no glyphs, as it does in the journal.
- * Anything else keeps the text colour.
+ * The colour of one line, mapped from the line's tone token to Big Picture's palette.
  */
 export function outputLineColour(line: string): string | undefined {
-  if (line.startsWith("[!!]") || line.startsWith("install.sh: ")) return AMBER;
-  if (line.startsWith("[ok]")) return GREEN;
-  if (line.startsWith("[..]")) return MUTED;
+  const tone = outputLineTone(line);
+  if (tone === "danger") return AMBER;
+  if (tone === "success") return GREEN;
+  if (tone === "muted") return MUTED;
   return undefined;
 }
 

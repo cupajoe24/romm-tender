@@ -7,9 +7,9 @@ import {
   type UpdateInstallRefusal,
   type UpdateInstallState,
   type UpdateWaitReason,
-} from "../../api/backend";
-import { detach } from "../../utils/detach";
-import { endStoppedAttempt } from "../../utils/stoppedUpdateStore";
+} from "../api/backend";
+import { detach } from "./detach";
+import { endStoppedAttempt } from "./stoppedUpdateStore";
 import {
   endPress,
   getUpdateInstallAttempt,
@@ -17,14 +17,14 @@ import {
   noteAttempt,
   notePress,
   useUpdateInstallAttempt,
-} from "../../utils/updateInstallStore";
+} from "./updateInstallStore";
 import {
   furtherAttempt,
   INSTALL_REFUSAL_SENTENCES,
   INSTALLER_OVERDUE_MS,
   refusalStands,
   type InstallRefusal,
-} from "../../utils/updateInstallView";
+} from "./updateInstallView";
 
 export const UPDATE_INSTALL_POLL_MS = 3000;
 

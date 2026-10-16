@@ -37,7 +37,9 @@
 
 import { useSyncExternalStore } from "react";
 import type { UpdateInstallAttempt } from "../api/backend";
-import { INSTALLER_OVERDUE_MS } from "./updateInstallView";
+
+/** How long after the panel first sees the installer started the line under the steps gives way to an overdue line. */
+export const INSTALLER_OVERDUE_MS = 7 * 60 * 1000;
 
 let _attempt: UpdateInstallAttempt | null = null;
 let _listeners: Array<() => void> = [];

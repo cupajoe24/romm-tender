@@ -9,14 +9,14 @@
 import { FC } from "react";
 import { PanelSection, PanelSectionRow, ButtonItem, Field, ToggleField } from "@decky/ui";
 import { UpdateInstallRows, installButtonShown, installStateUnread } from "./UpdateInstallRows";
-import { useUpdateInstall } from "./useUpdateInstall";
+import { useUpdateInstall } from "../../utils/useUpdateInstall";
 import { GREEN } from "../layout/pane";
 import { INSTALL_STATE_UNREAD } from "../../utils/updateInstallView";
 import type { UpdateNoticeState } from "../../utils/updateNoticeStore";
 import type { UpdateOutcomeState } from "../../utils/updateOutcomeStore";
+import { NOT_INSTALLED_PROGRAM, availableNewer, availableValue } from "../../utils/updateAvailableView";
 
-/** Shown only to a run from a checkout, which is never offered an install. */
-export const NOT_INSTALLED_PROGRAM = "Development build — install updates with the installer.";
+export { NOT_INSTALLED_PROGRAM };
 
 interface UpdatesSectionProps {
   update: UpdateNoticeState;
@@ -28,17 +28,6 @@ interface UpdatesSectionProps {
   result: string;
   onEnabledChange: (enabled: boolean) => void;
   onCheckNow: () => void;
-}
-
-/** Whether the Available row names a newer release — the one value it shows in green. */
-function availableNewer(update: UpdateNoticeState): boolean {
-  return update.latestVersion !== null && update.newer;
-}
-
-/** The Available row's value: a version only where one is newer, and otherwise what is known — whatever the switch says. */
-function availableValue(update: UpdateNoticeState): string {
-  if (update.latestVersion === null) return "Not known yet";
-  return update.newer ? update.latestVersion : "None newer";
 }
 
 export const UpdatesSection: FC<UpdatesSectionProps> = ({
