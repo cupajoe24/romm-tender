@@ -275,12 +275,12 @@ Both are recomputed on every pinning update, because the cards change height, an
 
 ## The Tender Settings Window
 
-> **The frame is built and four tabs (Sync, Library, Connections, Save Sync) are drawn; the other six tabs are blank.**
-> `frontend/src/desktop/settings/` puts a "Tender Settings" item in Steam's "Steam" menu and opens a window made from
-> the parts of Steam's own settings window, with the ten tabs below in its sidebar. What each tab will carry, and the
-> ordered steps that remain, are on the parity matrix
-> ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records what
-> Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
+> **The frame is built and eight tabs (Sync, Library, Downloads, Connections, Save Sync, Controller, Steam Library, Data
+> Management) are drawn; the other two tabs (Updates, Advanced) are blank.** `frontend/src/desktop/settings/` puts a
+> "Tender Settings" item in Steam's "Steam" menu and opens a window made from the parts of Steam's own settings window,
+> with the ten tabs below in its sidebar. What each tab will carry, and the ordered steps that remain, are on the parity
+> matrix ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records
+> what Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
 > behind it, and the device checks still open.
 
 ### What Steam's settings window is
@@ -548,6 +548,25 @@ The tab holds its prune leases under the owner `tender-settings-library`, not th
 page's unmount releases every lease its owner holds, so closing the window must not release leases an open QAM page
 still holds. Whether the core picker's emulator menu opens inside the settings window is device check 8.
 
+### The Downloads tab
+
+`desktop/settings/downloads/` draws the downloads queue and active progress for the desktop client, over the shared
+state, lifecycle, and action handlers (`utils/downloadQueue.ts`, `useDownloadQueue`) and store
+(`utils/downloadStore.ts`).
+
+- **Active Downloads**: Each active download (`queued`, `downloading`, `paused`, `extracting`) renders as a Steam-native
+  card (`SETTING_CARD_STYLE`) displaying the ROM name, platform, byte counts (`formatBytes`), live status indicators
+  (`— Paused`, `— Extracting…`), and a Steam `ProgressBar` (`indeterminate` when total bytes are unknown).
+- **Controls**: Action buttons use Steam's `DialogButton` in a compact row (`CARD_BUTTON_STYLE`). Resumable active
+  downloads offer `Pause <name>`, paused downloads offer `Resume <name>`, and active non-extracting downloads offer
+  `Cancel <name>` with failure/rejection toast reporting. Post-transfer extraction unpack runs to completion without
+  cancel/pause/resume actions, matching Big Picture behavior.
+- **Completed Downloads**: Terminal downloads (`completed`, `failed`, `cancelled`) are listed in setting cards with
+  detail descriptions (`formatFinishedDescription`), accompanied by a "Clear Completed" button that evicts them from the
+  store on backend success while keeping them intact if the clear call fails.
+- **Empty Queue**: When no downloads exist in the queue, renders a clean Steam desktop empty card ("No downloads / There
+  are no downloads in progress or queued.") fulfilling Decision D13 so the tab always lands reliably.
+
 ### The Save Sync tab
 
 `desktop/settings/save-sync/` draws the Save Sync section and registered devices list of the QAM's
@@ -670,7 +689,7 @@ Three preconditions come first:
 | 16  | `bigpicture/data/useDataPage.ts`, `bigpicture/data/rows.ts`                                                                                                                                                                                                                                                                                                                                               | `utils/useDataPage.ts`, `utils/dataRows.ts` (done)                                                                                                  | precondition 2                                                                                                                                                                                                   |
 | 17  | The pure logic of `DataManagementPage.tsx` and `data/DataDetail.tsx`: figures, `figureLine`, `newestFirst`, the whitelist toggle, the non-Steam removal's arming                                                                                                                                                                                                                                          | `utils/dataInventoryView.ts` (done)                                                                                                                 | —                                                                                                                                                                                                                |
 | 18  | `RemovedGamesCleanup.tsx`'s flow: stage labels, `confirmBlockedReason`, `verdictFor`, the scan, the review's state and actions, the section's subscriptions                                                                                                                                                                                                                                               | `utils/pruneReview.ts` and `utils/pruneWording.ts` (`useCleanupReview`, `useRemovedGamesSection`, done)                                             | its private `formatBytes` (KiB, MiB) was preserved as `formatBinaryBytes` while `formatBytes` stays standard (KB, MB)                                                                                            |
-| 19  | `DownloadQueue.tsx`'s seed, handlers and active/finished split                                                                                                                                                                                                                                                                                                                                            | new `utils/downloadQueue.ts` (`useDownloadQueue`)                                                                                                   | —                                                                                                                                                                                                                |
+| 19  | `DownloadQueue.tsx`'s seed, handlers and active/finished split                                                                                                                                                                                                                                                                                                                                            | `utils/downloadQueue.ts` (`useDownloadQueue`, done)                                                                                                 | —                                                                                                                                                                                                                |
 | 20  | `MigrationBlockedPage.tsx`'s `runMigration` and dismiss; the settings-reset title and message                                                                                                                                                                                                                                                                                                             | new `utils/retrodeckMigration.ts`; `utils/settingsResetStore.ts`                                                                                    | the reset card's message sends the reader to the QAM and needs a desktop variant                                                                                                                                 |
 | 21  | The Sync page's words and the decisions behind what it draws: `SyncPage.tsx`'s idle body, `sync/PreviewPanel.tsx`, `sync/RunPanel.tsx`, `sync/SyncControls.tsx`; the session-budget card's decision and words and the memory formatters, from `SessionBudgetBanner.tsx`                                                                                                                                   | `utils/syncPageWording.ts`, `utils/syncPageView.ts`; `utils/sessionBudget.ts` (done)                                                                | each surface keeps its colours: `memoryLevel` answers a level, which Big Picture maps to its traffic light                                                                                                       |
 | 22  | The Library page's words and the decisions behind what it draws: `library/PlatformDetail.tsx`'s BIOS marks, legend, Contents cell, row lines and buttons, its core offer and clause, its confirms; `library/PlatformsTab.tsx`'s dot tooltip and lines; `library/CollectionsTab.tsx`'s row counts and `library/CollectionsDetail.tsx`'s pane sentences, render cap and batch confirm; the pane's busy line | `utils/platformsPageView.ts`, `utils/platformsPageWording.ts`; `utils/collectionsPageView.ts`; `utils/busyElsewhere.ts` (done)                      | each surface keeps its colours: a mark answers a tone (`MarkTone`) and the core clause a `CoreTone`, which Big Picture maps to its pane colours                                                                  |
