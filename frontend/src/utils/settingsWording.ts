@@ -131,3 +131,22 @@ export const STEAM_INPUT_MODE_OPTIONS: readonly SteamInputModeOption[] = [
 
 export const APPLY_TO_ALL_SHORTCUTS_LABEL = "Apply to All Shortcuts";
 export const APPLYING_TO_ALL_SHORTCUTS_LABEL = "Applying to all shortcuts…";
+
+// --- Steam Library ---
+
+export const STEAM_LIBRARY_HEADING = "Steam Library";
+
+export const PREFERRED_REGION_LABEL = "Preferred region";
+export const PREFERRED_REGION_DESCRIPTION =
+  "When a game has several regional versions, prefer this region for the shortcut and its name. " +
+  "Applies to games synced from now on; existing shortcuts keep their name.";
+
+export const PLATFORM_GROUPS_LABEL = "Show collection games in platform groups";
+export const PLATFORM_GROUPS_DESCRIPTION =
+  "When syncing a collection, also add its games to their platform-specific Steam group.";
+
+export const COLLECTION_NAMING_MODE_LABEL = "Distinguish collection types in Steam names";
+export const COLLECTION_NAMING_MODE_DESCRIPTION =
+  "Keeps collections that share a name apart in Steam instead of merging them: hand-picked collections " +
+  "keep their plain name, and the other kinds get their type added, such as (Smart) or (Franchise). " +
+  "Applies on the next sync.";

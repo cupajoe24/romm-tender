@@ -33,12 +33,19 @@ import {
   SYNC_BEFORE_LAUNCH_LABEL,
   SYNCING_ALL_LABEL,
   accountState,
+  COLLECTION_NAMING_MODE_DESCRIPTION,
+  COLLECTION_NAMING_MODE_LABEL,
   customHeadersSummary,
   defaultSaveSlotSummary,
   deviceRegisteredDescription,
   phraseText,
+  PLATFORM_GROUPS_DESCRIPTION,
+  PLATFORM_GROUPS_LABEL,
+  PREFERRED_REGION_DESCRIPTION,
+  PREFERRED_REGION_LABEL,
   sgdbKeyState,
   signInButtonLabel,
+  STEAM_LIBRARY_HEADING,
 } from "./settingsWording";
 
 describe("phraseText", () => {
@@ -168,5 +175,35 @@ describe("Controller", () => {
   it("labels the apply button states", () => {
     expect(APPLY_TO_ALL_SHORTCUTS_LABEL).toBe("Apply to All Shortcuts");
     expect(APPLYING_TO_ALL_SHORTCUTS_LABEL).toBe("Applying to all shortcuts…");
+  });
+});
+
+describe("Steam Library", () => {
+  it("labels the section heading", () => {
+    expect(STEAM_LIBRARY_HEADING).toBe("Steam Library");
+  });
+
+  it("labels and describes preferred region", () => {
+    expect(PREFERRED_REGION_LABEL).toBe("Preferred region");
+    expect(PREFERRED_REGION_DESCRIPTION).toBe(
+      "When a game has several regional versions, prefer this region for the shortcut and its name. " +
+        "Applies to games synced from now on; existing shortcuts keep their name.",
+    );
+  });
+
+  it("labels and describes platform groups toggle", () => {
+    expect(PLATFORM_GROUPS_LABEL).toBe("Show collection games in platform groups");
+    expect(PLATFORM_GROUPS_DESCRIPTION).toBe(
+      "When syncing a collection, also add its games to their platform-specific Steam group.",
+    );
+  });
+
+  it("labels and describes collection naming mode toggle", () => {
+    expect(COLLECTION_NAMING_MODE_LABEL).toBe("Distinguish collection types in Steam names");
+    expect(COLLECTION_NAMING_MODE_DESCRIPTION).toBe(
+      "Keeps collections that share a name apart in Steam instead of merging them: hand-picked collections " +
+        "keep their plain name, and the other kinds get their type added, such as (Smart) or (Franchise). " +
+        "Applies on the next sync.",
+    );
   });
 });

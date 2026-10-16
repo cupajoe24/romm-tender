@@ -14,6 +14,15 @@ import { FC } from "react";
 import { PanelSection, PanelSectionRow, DropdownItem, ToggleField } from "@decky/ui";
 import type { CollectionNamingMode } from "../../types";
 import { buildRegionOptions } from "../../utils/preferredRegion";
+import {
+  COLLECTION_NAMING_MODE_DESCRIPTION,
+  COLLECTION_NAMING_MODE_LABEL,
+  PLATFORM_GROUPS_DESCRIPTION,
+  PLATFORM_GROUPS_LABEL,
+  PREFERRED_REGION_DESCRIPTION,
+  PREFERRED_REGION_LABEL,
+  STEAM_LIBRARY_HEADING,
+} from "../../utils/settingsWording";
 
 interface LibrarySectionProps {
   preferredRegion: string;
@@ -43,11 +52,11 @@ export const LibrarySection: FC<LibrarySectionProps> = ({
   onNamingModeChange,
 }) => {
   return (
-    <PanelSection title="Steam Library">
+    <PanelSection title={STEAM_LIBRARY_HEADING}>
       <PanelSectionRow>
         <DropdownItem
-          label="Preferred region"
-          description="When a game has several regional versions, prefer this region for the shortcut and its name. Applies to games synced from now on; existing shortcuts keep their name."
+          label={PREFERRED_REGION_LABEL}
+          description={PREFERRED_REGION_DESCRIPTION}
           rgOptions={buildRegionOptions(libraryRegions, preferredRegion)}
           selectedOption={preferredRegion}
           onChange={(option) => onPreferredRegionChange(option.data)}
@@ -55,16 +64,16 @@ export const LibrarySection: FC<LibrarySectionProps> = ({
       </PanelSectionRow>
       <PanelSectionRow>
         <ToggleField
-          label="Show collection games in platform groups"
-          description="When syncing a collection, also add its games to their platform-specific Steam group."
+          label={PLATFORM_GROUPS_LABEL}
+          description={PLATFORM_GROUPS_DESCRIPTION}
           checked={platformGroups}
           onChange={onPlatformGroupsChange}
         />
       </PanelSectionRow>
       <PanelSectionRow>
         <ToggleField
-          label="Distinguish collection types in Steam names"
-          description="Keeps collections that share a name apart in Steam instead of merging them: hand-picked collections keep their plain name, and the other kinds get their type added, such as (Smart) or (Franchise). Applies on the next sync."
+          label={COLLECTION_NAMING_MODE_LABEL}
+          description={COLLECTION_NAMING_MODE_DESCRIPTION}
           checked={namingMode === "by_label"}
           onChange={(v) => onNamingModeChange(v ? "by_label" : "merge")}
         />
