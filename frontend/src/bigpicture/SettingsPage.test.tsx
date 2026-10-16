@@ -277,6 +277,7 @@ describe("SettingsPage", () => {
       device_id: "dev-1",
       device_name: "Test Deck",
     });
+    vi.mocked(backend.saveLogLevel).mockResolvedValue({ success: true });
   });
 
   describe("initial mount — getSettings", () => {
@@ -1604,11 +1605,38 @@ describe("SettingsPage", () => {
     it("handleLogLevelChange persists via saveLogLevel and updates the dropdown", async () => {
       renderPage();
       await flushAsync();
-      act(() => {
+      await act(async () => {
         capturedAdvanced[capturedAdvanced.length - 1]?.onLogLevelChange("debug");
+        await Promise.resolve();
       });
       expect(vi.mocked(backend.saveLogLevel)).toHaveBeenCalledWith("debug");
       expect(capturedAdvanced[capturedAdvanced.length - 1]?.logLevel).toBe("debug");
+    });
+
+    it("reverts the log level if saveLogLevel returns success: false", async () => {
+      vi.mocked(backend.saveLogLevel).mockResolvedValueOnce({ success: false });
+      renderPage();
+      await flushAsync();
+      expect(capturedAdvanced[capturedAdvanced.length - 1]?.logLevel).toBe("warn");
+      await act(async () => {
+        capturedAdvanced[capturedAdvanced.length - 1]?.onLogLevelChange("debug");
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(capturedAdvanced[capturedAdvanced.length - 1]?.logLevel).toBe("warn");
+    });
+
+    it("reverts the log level if saveLogLevel rejects", async () => {
+      vi.mocked(backend.saveLogLevel).mockRejectedValueOnce(new Error("Refused"));
+      renderPage();
+      await flushAsync();
+      expect(capturedAdvanced[capturedAdvanced.length - 1]?.logLevel).toBe("warn");
+      await act(async () => {
+        capturedAdvanced[capturedAdvanced.length - 1]?.onLogLevelChange("debug");
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(capturedAdvanced[capturedAdvanced.length - 1]?.logLevel).toBe("warn");
     });
   });
 

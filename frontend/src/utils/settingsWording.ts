@@ -150,3 +150,22 @@ export const COLLECTION_NAMING_MODE_DESCRIPTION =
   "Keeps collections that share a name apart in Steam instead of merging them: hand-picked collections " +
   "keep their plain name, and the other kinds get their type added, such as (Smart) or (Franchise). " +
   "Applies on the next sync.";
+
+// --- Advanced ---
+
+export const ADVANCED_HEADING = "Advanced";
+
+export const LOG_LEVEL_LABEL = "Log Level";
+export const LOG_LEVEL_DESCRIPTION = "Controls how much detail Tender writes to its log";
+
+export interface LogLevelOption {
+  readonly data: "error" | "warn" | "info" | "debug";
+  readonly label: string;
+}
+
+export const LOG_LEVEL_OPTIONS: readonly LogLevelOption[] = [
+  { data: "error", label: "Error" },
+  { data: "warn", label: "Warn (default)" },
+  { data: "info", label: "Info" },
+  { data: "debug", label: "Debug" },
+];

@@ -5,7 +5,13 @@
  */
 
 import { FC } from "react";
-import { PanelSection, PanelSectionRow, DropdownItem } from "@decky/ui";
+import { DropdownItem, PanelSection, PanelSectionRow } from "@decky/ui";
+import {
+  ADVANCED_HEADING,
+  LOG_LEVEL_DESCRIPTION,
+  LOG_LEVEL_LABEL,
+  LOG_LEVEL_OPTIONS,
+} from "../../utils/settingsWording";
 
 interface AdvancedSectionProps {
   logLevel: string;
@@ -14,17 +20,12 @@ interface AdvancedSectionProps {
 
 export const AdvancedSection: FC<AdvancedSectionProps> = ({ logLevel, onLogLevelChange }) => {
   return (
-    <PanelSection title="Advanced">
+    <PanelSection title={ADVANCED_HEADING}>
       <PanelSectionRow>
         <DropdownItem
-          label="Log Level"
-          description="Controls how much detail Tender writes to its log"
-          rgOptions={[
-            { data: "error", label: "Error" },
-            { data: "warn", label: "Warn" },
-            { data: "info", label: "Info" },
-            { data: "debug", label: "Debug" },
-          ]}
+          label={LOG_LEVEL_LABEL}
+          description={LOG_LEVEL_DESCRIPTION}
+          rgOptions={[...LOG_LEVEL_OPTIONS]}
           selectedOption={logLevel}
           onChange={(option) => onLogLevelChange(option.data)}
         />

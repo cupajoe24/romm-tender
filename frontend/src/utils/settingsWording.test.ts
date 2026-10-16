@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  ADVANCED_HEADING,
   APPLY_TO_ALL_SHORTCUTS_LABEL,
   APPLYING_TO_ALL_SHORTCUTS_LABEL,
   CONTROLLER_HEADING,
@@ -12,6 +13,9 @@ import {
   ENABLE_SAVE_SYNC_LABEL,
   INSECURE_SSL_DESCRIPTION,
   INSECURE_SSL_LABEL,
+  LOG_LEVEL_DESCRIPTION,
+  LOG_LEVEL_LABEL,
+  LOG_LEVEL_OPTIONS,
   RESET_DEFAULT_SLOT_LABEL,
   SAVE_HISTORY_LIMIT_DESCRIPTION,
   SAVE_HISTORY_LIMIT_LABEL,
@@ -205,5 +209,25 @@ describe("Steam Library", () => {
         "keep their plain name, and the other kinds get their type added, such as (Smart) or (Franchise). " +
         "Applies on the next sync.",
     );
+  });
+});
+
+describe("Advanced", () => {
+  it("labels the section heading", () => {
+    expect(ADVANCED_HEADING).toBe("Advanced");
+  });
+
+  it("labels and describes log level", () => {
+    expect(LOG_LEVEL_LABEL).toBe("Log Level");
+    expect(LOG_LEVEL_DESCRIPTION).toBe("Controls how much detail Tender writes to its log");
+  });
+
+  it("defines the four canonical log level options", () => {
+    expect(LOG_LEVEL_OPTIONS).toEqual([
+      { data: "error", label: "Error" },
+      { data: "warn", label: "Warn (default)" },
+      { data: "info", label: "Info" },
+      { data: "debug", label: "Debug" },
+    ]);
   });
 });

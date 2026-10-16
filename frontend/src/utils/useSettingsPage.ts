@@ -417,8 +417,20 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
 
   // --- Advanced handlers ---
   const handleLogLevelChange = (level: string) => {
+    const previous = logLevel;
     setLogLevel(level);
-    detach(saveLogLevel(level));
+    detach(
+      (async () => {
+        try {
+          const result = await saveLogLevel(level);
+          if (!result.success) {
+            setLogLevel(previous);
+          }
+        } catch {
+          setLogLevel(previous);
+        }
+      })(),
+    );
   };
 
   // --- Updates handlers ---
