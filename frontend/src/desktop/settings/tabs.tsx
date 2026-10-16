@@ -24,6 +24,7 @@ import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
 import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
+import { SteamLibraryTab } from "./steam-library/SteamLibraryTab";
 import { SyncTab } from "./sync/SyncTab";
 
 interface TabEntry {
@@ -40,7 +41,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   connections: { title: "Connections", Icon: FaPlug, Content: ConnectionsTab },
   "save-sync": { title: "Save Sync", Icon: FaSave, Content: SaveSyncTab },
   controller: { title: "Controller", Icon: FaGamepad, Content: ControllerTab },
-  "steam-library": { title: "Steam Library", Icon: FaSteam, Content: null },
+  "steam-library": { title: "Steam Library", Icon: FaSteam, Content: SteamLibraryTab },
   updates: { title: "Updates", Icon: FaArrowCircleUp, Content: null },
   "data-management": { title: "Data Management", Icon: FaDatabase, Content: DataManagementTab },
   advanced: { title: "Advanced", Icon: FaSlidersH, Content: null },

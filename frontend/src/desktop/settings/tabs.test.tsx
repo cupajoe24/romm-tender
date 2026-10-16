@@ -13,6 +13,7 @@ import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
 import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
+import { SteamLibraryTab } from "./steam-library/SteamLibraryTab";
 import { SyncTab } from "./sync/SyncTab";
 
 const EVERY_TAB: readonly SettingsTab[] = [
@@ -74,7 +75,15 @@ describe("the settings window's tabs", () => {
       expect(page.icon).toBeTruthy();
       if (page.content !== null) drawn.push(String(page.title));
     }
-    expect(drawn).toEqual(["Sync", "Library", "Connections", "Save Sync", "Controller", "Data Management"]);
+    expect(drawn).toEqual([
+      "Sync",
+      "Library",
+      "Connections",
+      "Save Sync",
+      "Controller",
+      "Steam Library",
+      "Data Management",
+    ]);
   });
 
   it("draws the Sync tab as SyncTab", () => {
@@ -100,6 +109,11 @@ describe("the settings window's tabs", () => {
   it("draws the Controller tab as ControllerTab", () => {
     const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Controller");
     expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(ControllerTab);
+  });
+
+  it("draws the Steam Library tab as SteamLibraryTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Steam Library");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(SteamLibraryTab);
   });
 
   it("draws the Data Management tab as DataManagementTab", () => {
