@@ -11,6 +11,7 @@ import {
 import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
+import { DownloadsTab } from "./downloads/DownloadsTab";
 import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
 import { SteamLibraryTab } from "./steam-library/SteamLibraryTab";
@@ -78,6 +79,7 @@ describe("the settings window's tabs", () => {
     expect(drawn).toEqual([
       "Sync",
       "Library",
+      "Downloads",
       "Connections",
       "Save Sync",
       "Controller",
@@ -94,6 +96,11 @@ describe("the settings window's tabs", () => {
   it("draws the Library tab as LibraryTab", () => {
     const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Library");
     expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(LibraryTab);
+  });
+
+  it("draws the Downloads tab as DownloadsTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Downloads");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(DownloadsTab);
   });
 
   it("draws the Connections tab as ConnectionsTab", () => {
