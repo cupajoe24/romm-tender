@@ -62,6 +62,10 @@ are sorted into dedicated lowercase subdirectories:
     `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Steam Input mode is configured with `Dropdown` inside a
     `Field`, and Apply to All Shortcuts uses `DialogButton` with in-flight disabled protection and live status
     reporting.
+  - `desktop/settings/steam-library/` — the Steam Library tab: the QAM's Steam Library section drawn for the desktop
+    client over `utils/useSettingsPage.ts`, `utils/preferredRegion.ts` and `utils/settingsWording.ts`. Preferred region
+    is configured with `Dropdown` inside a `Field` (confirmed via `DesktopConfirmDialog` before saving), and collection
+    platform groups and collection naming mode use `SettingsToggle`.
   - `desktop/settings/data-management/` — the Data Management tab: an inventory of what this device holds across six
     populations (Tender's shortcuts, Installed ROMs, Orphaned grid images, Other non-Steam games, Gone from RomM, and
     Recovery bundles) rendered as Steam-native setting cards (`DataManagementListPane.tsx`), with `DrillDown.tsx`
