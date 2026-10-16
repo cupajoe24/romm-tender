@@ -30,6 +30,7 @@ import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
 import { SteamLibraryTab } from "./steam-library/SteamLibraryTab";
 import { SyncTab } from "./sync/SyncTab";
+import { UpdatesTab } from "./updates/UpdatesTab";
 
 const DOT_SIZE_PX = 8;
 
@@ -79,7 +80,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   "save-sync": { title: "Save Sync", Icon: FaSave, Content: SaveSyncTab },
   controller: { title: "Controller", Icon: FaGamepad, Content: ControllerTab },
   "steam-library": { title: "Steam Library", Icon: FaSteam, Content: SteamLibraryTab },
-  updates: { title: "Updates", Icon: UpdatesTabIcon, Content: null },
+  updates: { title: "Updates", Icon: UpdatesTabIcon, Content: UpdatesTab },
   "data-management": { title: "Data Management", Icon: FaDatabase, Content: DataManagementTab },
   advanced: { title: "Advanced", Icon: FaSlidersH, Content: AdvancedTab },
 };

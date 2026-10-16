@@ -23,6 +23,7 @@ import { LibraryTab } from "./library/LibraryTab";
 import { SaveSyncTab } from "./save-sync/SaveSyncTab";
 import { SteamLibraryTab } from "./steam-library/SteamLibraryTab";
 import { SyncTab } from "./sync/SyncTab";
+import { UpdatesTab } from "./updates/UpdatesTab";
 
 const EVERY_TAB: readonly SettingsTab[] = [
   "connections",
@@ -91,6 +92,7 @@ describe("the settings window's tabs", () => {
       "Save Sync",
       "Controller",
       "Steam Library",
+      "Updates",
       "Data Management",
       "Advanced",
     ]);
@@ -129,6 +131,11 @@ describe("the settings window's tabs", () => {
   it("draws the Steam Library tab as SteamLibraryTab", () => {
     const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Steam Library");
     expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(SteamLibraryTab);
+  });
+
+  it("draws the Updates tab as UpdatesTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Updates");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(UpdatesTab);
   });
 
   it("draws the Data Management tab as DataManagementTab", () => {
