@@ -306,4 +306,32 @@ describe("useSeenAfterDwell", () => {
 
     expect(markUpdateAvailableSeen).not.toHaveBeenCalled();
   });
+
+  describe("desktop surface", () => {
+    const desktopDwell = (shown: boolean) =>
+      renderHook(({ on }: { on: boolean }) => useSeenAfterDwell(on, "desktop"), { initialProps: { on: shown } });
+
+    it("records the release as seen after dwelling on Updates even when QAM is not visible", async () => {
+      setUpdateNoticeState(AVAILABLE);
+      setQamVisible(false);
+      act(() => setOwningQamTabActive(false));
+      desktopDwell(true);
+
+      pass(SEEN_AFTER_MS);
+      await settle();
+
+      expect(markUpdateAvailableSeen).toHaveBeenCalledExactlyOnceWith("1.1.0");
+    });
+
+    it("records nothing when leaving Updates before the second is up on desktop", () => {
+      setUpdateNoticeState(AVAILABLE);
+      const { rerender } = desktopDwell(true);
+
+      pass(SEEN_AFTER_MS - 1);
+      rerender({ on: false });
+      pass(SEEN_AFTER_MS * 5);
+
+      expect(markUpdateAvailableSeen).not.toHaveBeenCalled();
+    });
+  });
 });

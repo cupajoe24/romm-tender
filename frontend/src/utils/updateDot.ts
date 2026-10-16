@@ -99,17 +99,18 @@ export function useUpdateDot(): UpdateDotPhase {
 /**
  * Record the release the dots mark as seen once Settings › Updates has been on
  * screen for {@link SEEN_AFTER_MS} without a break — *onUpdates*, the section
- * shown, with the Quick Access menu open on Tender's tab. Going elsewhere,
- * closing the menu or choosing another of its tabs before then cancels it, so
- * moving through the list past Updates does not count, and coming back starts
- * the wait over. A record the backend refused leaves the dots standing until
- * Updates is shown again.
+ * shown, with the Quick Access menu open on Tender's tab (or on desktop where
+ * the window's Updates tab is open). Going elsewhere, closing the menu or
+ * choosing another of its tabs before then cancels it, so moving through the
+ * list past Updates does not count, and coming back starts the wait over. A
+ * record the backend refused leaves the dots standing until Updates is shown
+ * again.
  */
-export function useSeenAfterDwell(onUpdates: boolean): void {
+export function useSeenAfterDwell(onUpdates: boolean, surface: "qam" | "desktop" = "qam"): void {
   const { dot } = useDotAnswer();
   const qamVisible = useQuickAccessVisible();
   const tabActive = useOwningQamTabActive();
-  const shown = onUpdates && qamVisible && tabActive;
+  const shown = surface === "desktop" ? onUpdates : onUpdates && qamVisible && tabActive;
   useEffect(() => {
     if (!shown || dot === null) return;
     const timer = setTimeout(() => {

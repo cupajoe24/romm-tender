@@ -4,7 +4,7 @@
  */
 
 import type { SidebarNavigationPage } from "@decky/ui";
-import type { ComponentType } from "react";
+import type { ComponentType, CSSProperties, FC } from "react";
 import type { IconType } from "react-icons";
 import {
   FaArrowCircleUp,
@@ -19,6 +19,8 @@ import {
   FaSync,
 } from "react-icons/fa";
 import type { SettingsTab } from "../../types/navigation";
+import { UPDATE_AVAILABLE_COLOR } from "../../utils/updateAvailableView";
+import { DOT_FADE_STYLE, useUpdateDot } from "../../utils/updateDot";
 import { AdvancedTab } from "./advanced/AdvancedTab";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { ControllerTab } from "./controller/ControllerTab";
@@ -29,9 +31,42 @@ import { SaveSyncTab } from "./save-sync/SaveSyncTab";
 import { SteamLibraryTab } from "./steam-library/SteamLibraryTab";
 import { SyncTab } from "./sync/SyncTab";
 
+const DOT_SIZE_PX = 8;
+
+const DOT: CSSProperties = {
+  position: "absolute",
+  top: "-2px",
+  right: "-3px",
+  width: `${DOT_SIZE_PX}px`,
+  height: `${DOT_SIZE_PX}px`,
+  borderRadius: "50%",
+  background: UPDATE_AVAILABLE_COLOR,
+};
+
+const DOT_FADING: CSSProperties = { ...DOT, ...DOT_FADE_STYLE };
+
+export const UpdatesTabIcon: FC = () => {
+  const dot = useUpdateDot();
+  return (
+    <span
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <FaArrowCircleUp />
+      {dot !== "none" && (
+        <span aria-hidden="true" data-testid="update-dot" style={dot === "fading" ? DOT_FADING : DOT} />
+      )}
+    </span>
+  );
+};
+
 interface TabEntry {
   readonly title: string;
-  readonly Icon: IconType;
+  readonly Icon: IconType | ComponentType;
   /** What the tab shows; `null` for a tab still blank. */
   readonly Content: ComponentType | null;
 }
@@ -44,7 +79,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   "save-sync": { title: "Save Sync", Icon: FaSave, Content: SaveSyncTab },
   controller: { title: "Controller", Icon: FaGamepad, Content: ControllerTab },
   "steam-library": { title: "Steam Library", Icon: FaSteam, Content: SteamLibraryTab },
-  updates: { title: "Updates", Icon: FaArrowCircleUp, Content: null },
+  updates: { title: "Updates", Icon: UpdatesTabIcon, Content: null },
   "data-management": { title: "Data Management", Icon: FaDatabase, Content: DataManagementTab },
   advanced: { title: "Advanced", Icon: FaSlidersH, Content: AdvancedTab },
 };

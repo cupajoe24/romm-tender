@@ -1,9 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { isValidElement } from "react";
+import { render } from "@testing-library/react";
 import type { SettingsTab } from "../../types/navigation";
+import { resetStoppedUpdateStoreForTests } from "../../utils/stoppedUpdateStore";
+import { UPDATE_AVAILABLE_COLOR } from "../../utils/updateAvailableView";
+import { resetUpdateNoticeStoreForTests, setUpdateNoticeState } from "../../utils/updateNoticeStore";
+import { resetUpdateOutcomeStoreForTests } from "../../utils/updateOutcomeStore";
 import {
   DEFAULT_SETTINGS_TAB,
   SETTINGS_TAB_GROUPS,
+  UpdatesTabIcon,
   settingsSidebarPages,
   settingsTabOfRoute,
   settingsTabRoute,
@@ -139,5 +145,55 @@ describe("the settings window's tabs", () => {
     expect(settingsTabOfRoute("/library/home")).toBeNull();
     expect(settingsTabOfRoute(settingsTabRoute("sync").replace("sync", "toString"))).toBeNull();
     expect(settingsTabOfRoute(settingsTabRoute("sync").replace("sync", "nope"))).toBeNull();
+  });
+});
+
+describe("UpdatesTabIcon and update dot indicator", () => {
+  beforeEach(() => {
+    resetUpdateNoticeStoreForTests();
+    resetUpdateOutcomeStoreForTests();
+    resetStoppedUpdateStoreForTests();
+  });
+
+  it("draws the Updates tab icon as UpdatesTabIcon", () => {
+    const updates = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Updates");
+    expect(updates !== "separator" && isValidElement(updates?.icon) && updates.icon.type).toBe(UpdatesTabIcon);
+  });
+
+  it("shows no update dot when no update is available", () => {
+    const { container } = render(<UpdatesTabIcon />);
+    expect(container.querySelector('[data-testid="update-dot"]')).toBeNull();
+  });
+
+  it("shows the update dot when an update is available", () => {
+    setUpdateNoticeState({
+      available: true,
+      newer: true,
+      latestVersion: "1.1.0",
+      currentVersion: "1.0.0",
+      enabled: true,
+      installedProgram: true,
+      toastOwed: false,
+      seen: false,
+    });
+    const { container } = render(<UpdatesTabIcon />);
+    const dot = container.querySelector<HTMLElement>('[data-testid="update-dot"]');
+    expect(dot).not.toBeNull();
+    expect(dot?.style.background).toBe(UPDATE_AVAILABLE_COLOR);
+  });
+
+  it("shows no update dot when the available update was already seen", () => {
+    setUpdateNoticeState({
+      available: true,
+      newer: true,
+      latestVersion: "1.1.0",
+      currentVersion: "1.0.0",
+      enabled: true,
+      installedProgram: true,
+      toastOwed: false,
+      seen: true,
+    });
+    const { container } = render(<UpdatesTabIcon />);
+    expect(container.querySelector('[data-testid="update-dot"]')).toBeNull();
   });
 });
