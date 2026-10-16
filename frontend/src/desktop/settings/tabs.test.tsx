@@ -8,6 +8,7 @@ import {
   settingsTabOfRoute,
   settingsTabRoute,
 } from "./tabs";
+import { AdvancedTab } from "./advanced/AdvancedTab";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
@@ -85,6 +86,7 @@ describe("the settings window's tabs", () => {
       "Controller",
       "Steam Library",
       "Data Management",
+      "Advanced",
     ]);
   });
 
@@ -126,6 +128,11 @@ describe("the settings window's tabs", () => {
   it("draws the Data Management tab as DataManagementTab", () => {
     const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Data Management");
     expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(DataManagementTab);
+  });
+
+  it("draws the Advanced tab as AdvancedTab", () => {
+    const tab = settingsSidebarPages().find((page) => page !== "separator" && page.title === "Advanced");
+    expect(tab !== "separator" && isValidElement(tab?.content) && tab.content.type).toBe(AdvancedTab);
   });
   it("reads a tab back from its route and nothing from any other route", () => {
     for (const tab of EVERY_TAB) expect(settingsTabOfRoute(settingsTabRoute(tab))).toBe(tab);

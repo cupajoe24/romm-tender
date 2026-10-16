@@ -19,6 +19,7 @@ import {
   FaSync,
 } from "react-icons/fa";
 import type { SettingsTab } from "../../types/navigation";
+import { AdvancedTab } from "./advanced/AdvancedTab";
 import { ConnectionsTab } from "./connections/ConnectionsTab";
 import { ControllerTab } from "./controller/ControllerTab";
 import { DataManagementTab } from "./data-management/DataManagementTab";
@@ -45,7 +46,7 @@ const TABS: Readonly<Record<SettingsTab, TabEntry>> = {
   "steam-library": { title: "Steam Library", Icon: FaSteam, Content: SteamLibraryTab },
   updates: { title: "Updates", Icon: FaArrowCircleUp, Content: null },
   "data-management": { title: "Data Management", Icon: FaDatabase, Content: DataManagementTab },
-  advanced: { title: "Advanced", Icon: FaSlidersH, Content: null },
+  advanced: { title: "Advanced", Icon: FaSlidersH, Content: AdvancedTab },
 };
 
 /** The tabs in sidebar order, in the groups a separator splits them into. */
