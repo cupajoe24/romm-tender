@@ -77,6 +77,8 @@ are sorted into dedicated lowercase subdirectories:
     `NonSteamDetailPane.tsx` with whitelist configuration and search, `RemovedGamesDetailPane.tsx` with inline prune
     review, and `RecoveryBundlesDetailPane.tsx` with sealed bundle tables), confirmed with `DesktopConfirmDialog.tsx`
     and using the isolated prune lease owner `"tender-settings-data-management"`.
+  - `desktop/settings/advanced/` — the Advanced tab: the QAM's Advanced section drawn for the desktop client over
+    `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Log level is configured with `Dropdown` inside a `Field`.
 
 ## What reaches a bundle
 

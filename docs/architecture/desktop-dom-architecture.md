@@ -275,12 +275,12 @@ Both are recomputed on every pinning update, because the cards change height, an
 
 ## The Tender Settings Window
 
-> **The frame is built and eight tabs (Sync, Library, Downloads, Connections, Save Sync, Controller, Steam Library, Data
-> Management) are drawn; the other two tabs (Updates, Advanced) are blank.** `frontend/src/desktop/settings/` puts a
-> "Tender Settings" item in Steam's "Steam" menu and opens a window made from the parts of Steam's own settings window,
-> with the ten tabs below in its sidebar. What each tab will carry, and the ordered steps that remain, are on the parity
-> matrix ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records
-> what Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
+> **The frame is built and nine tabs (Sync, Library, Downloads, Connections, Save Sync, Controller, Steam Library, Data
+> Management, Advanced) are drawn; the other tab (Updates) is blank.** `frontend/src/desktop/settings/` puts a "Tender
+> Settings" item in Steam's "Steam" menu and opens a window made from the parts of Steam's own settings window, with the
+> ten tabs below in its sidebar. What each tab will carry, and the ordered steps that remain, are on the parity matrix
+> ([Phase 2](desktop-parity-matrix.md#phase-2-the-tender-settings-window-medium-priority)). The section records what
+> Steam's own settings window and its "Steam" menu were measured to be, what Tender builds from them, the decisions
 > behind it, and the device checks still open.
 
 ### What Steam's settings window is
