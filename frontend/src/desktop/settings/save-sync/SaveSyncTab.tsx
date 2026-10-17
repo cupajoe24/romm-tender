@@ -6,12 +6,12 @@
  * Switches use Steam's settings switch (`SettingsToggle`), section headers use
  * Steam's `DialogControlsSectionHeader` (`SectionHeading`), the default save
  * slot is edited via a desktop dialog (`DefaultSlotDialog`), the history limit
- * uses Steam's `Dropdown`, and the registered devices list is rendered as a
+ * uses `SettingsDropdown`, and the registered devices list is rendered as a
  * Steam desktop table.
  */
 
 import type { FC } from "react";
-import { DialogButton, Dropdown, Field } from "@decky/ui";
+import { DialogButton, Field } from "@decky/ui";
 import { detach } from "../../../utils/detach";
 import { formatLastSeen } from "../../../utils/formatters";
 import {
@@ -51,6 +51,7 @@ import {
 import { useSettingsPage, type SettingsPageState } from "../../../utils/useSettingsPage";
 import { useDialogHost, type AskDialog } from "../../gameview/dialogs/useDialogHost";
 import { SectionHeading } from "../SectionHeading";
+import { SettingsDropdown } from "../SettingsDropdown";
 import { SettingsToggle } from "../SettingsToggle";
 import { desktopSettingsPrompts } from "../settingsPrompts";
 import {
@@ -131,13 +132,13 @@ const SaveSyncControlsSection: FC<{ state: SettingsPageState; ask: AskDialog }> 
               </>
             }
           />
-          <Field label={SAVE_HISTORY_LIMIT_LABEL} description={SAVE_HISTORY_LIMIT_DESCRIPTION}>
-            <Dropdown
-              rgOptions={[...SAVE_HISTORY_LIMIT_OPTIONS]}
-              selectedOption={settings.autocleanup_limit}
-              onChange={(option) => state.changeSaveSyncSetting({ autocleanup_limit: option.data as number })}
-            />
-          </Field>
+          <SettingsDropdown
+            label={SAVE_HISTORY_LIMIT_LABEL}
+            description={SAVE_HISTORY_LIMIT_DESCRIPTION}
+            rgOptions={SAVE_HISTORY_LIMIT_OPTIONS}
+            selectedOption={settings.autocleanup_limit}
+            onChange={(option) => state.changeSaveSyncSetting({ autocleanup_limit: option.data as number })}
+          />
           <div style={BUTTON_ROW_STYLE}>
             <DialogButton style={BUTTON_STYLE} onClick={state.syncAll} disabled={state.syncing}>
               {state.syncing ? SYNCING_ALL_LABEL : SYNC_ALL_SAVES_NOW_LABEL}

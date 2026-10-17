@@ -4,13 +4,13 @@
  * handlers (`useSettingsPage`), region resolution (`utils/preferredRegion.ts`),
  * and wording (`utils/settingsWording.ts`).
  *
- * Preferred region uses Steam's `Dropdown` inside a `Field`, with changes
- * confirmed via `DesktopConfirmDialog` before saving. Platform groups and
+ * Preferred region uses `SettingsDropdown`, with changes confirmed via
+ * `DesktopConfirmDialog` before saving; a cancelled change remounts the
+ * dropdown. Platform groups and
  * collection naming modes use `SettingsToggle` (`Field` + `Toggle`).
  */
 
-import type { FC } from "react";
-import { Dropdown, Field } from "@decky/ui";
+import { useState, type FC } from "react";
 import { buildRegionOptions } from "../../../utils/preferredRegion";
 import {
   COLLECTION_NAMING_MODE_DESCRIPTION,
@@ -24,21 +24,26 @@ import {
 import { useSettingsPage, type SettingsPageState } from "../../../utils/useSettingsPage";
 import { useDialogHost } from "../../gameview/dialogs/useDialogHost";
 import { SectionHeading } from "../SectionHeading";
+import { SettingsDropdown } from "../SettingsDropdown";
 import { SettingsToggle } from "../SettingsToggle";
 import { desktopSettingsPrompts } from "../settingsPrompts";
 import { SECTION_STYLE } from "../settingsStyles";
 
-const SteamLibraryControlsSection: FC<{ state: SettingsPageState }> = ({ state }) => {
+const SteamLibraryControlsSection: FC<{ state: SettingsPageState; regionDropdownKey: number }> = ({
+  state,
+  regionDropdownKey,
+}) => {
   return (
     <section style={SECTION_STYLE}>
       <SectionHeading title={STEAM_LIBRARY_HEADING} />
-      <Field label={PREFERRED_REGION_LABEL} description={PREFERRED_REGION_DESCRIPTION}>
-        <Dropdown
-          rgOptions={buildRegionOptions(state.libraryRegions, state.preferredRegion)}
-          selectedOption={state.preferredRegion}
-          onChange={(option) => state.changePreferredRegion(option.data as string)}
-        />
-      </Field>
+      <SettingsDropdown
+        key={regionDropdownKey}
+        label={PREFERRED_REGION_LABEL}
+        description={PREFERRED_REGION_DESCRIPTION}
+        rgOptions={buildRegionOptions(state.libraryRegions, state.preferredRegion)}
+        selectedOption={state.preferredRegion}
+        onChange={(option) => state.changePreferredRegion(option.data as string)}
+      />
       <SettingsToggle
         label={PLATFORM_GROUPS_LABEL}
         description={PLATFORM_GROUPS_DESCRIPTION}
@@ -57,11 +62,23 @@ const SteamLibraryControlsSection: FC<{ state: SettingsPageState }> = ({ state }
 
 export const SteamLibraryTab: FC = () => {
   const dialogs = useDialogHost();
-  const state = useSettingsPage(desktopSettingsPrompts(dialogs.ask));
+  // Steam's Dropdown holds the option it was last given in state of its own,
+  // which an unchanged `selectedOption` never takes back; a "no" to the region
+  // question remounts it so it draws the region still in force.
+  const [regionDropdownKey, setRegionDropdownKey] = useState(0);
+  const prompts = desktopSettingsPrompts(dialogs.ask);
+  const state = useSettingsPage({
+    ...prompts,
+    confirmPreferredRegion: async (fromLabel, toLabel) => {
+      const proceed = await prompts.confirmPreferredRegion(fromLabel, toLabel);
+      if (!proceed) setRegionDropdownKey((k) => k + 1);
+      return proceed;
+    },
+  });
 
   return (
     <div data-testid="tender-settings-steam-library">
-      <SteamLibraryControlsSection state={state} />
+      <SteamLibraryControlsSection state={state} regionDropdownKey={regionDropdownKey} />
       {dialogs.element}
     </div>
   );

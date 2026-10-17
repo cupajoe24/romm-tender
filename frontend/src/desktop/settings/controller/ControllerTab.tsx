@@ -3,12 +3,12 @@
  * Controller section, drawn for the desktop client over the same state and
  * handlers (`useSettingsPage`) and wording (`utils/settingsWording.ts`).
  *
- * Steam Input mode uses Steam's `Dropdown` inside a `Field`, and Apply to All
- * Shortcuts uses Steam's `DialogButton` in a button row with live status reporting.
+ * Steam Input mode uses `SettingsDropdown`, and Apply to All Shortcuts uses
+ * Steam's `DialogButton` in a button row with live status reporting.
  */
 
 import type { FC } from "react";
-import { DialogButton, Dropdown, Field } from "@decky/ui";
+import { DialogButton } from "@decky/ui";
 import {
   APPLY_TO_ALL_SHORTCUTS_LABEL,
   APPLYING_TO_ALL_SHORTCUTS_LABEL,
@@ -20,6 +20,7 @@ import {
 import { useSettingsPage, type SettingsPageState } from "../../../utils/useSettingsPage";
 import { useDialogHost } from "../../gameview/dialogs/useDialogHost";
 import { SectionHeading } from "../SectionHeading";
+import { SettingsDropdown } from "../SettingsDropdown";
 import { desktopSettingsPrompts } from "../settingsPrompts";
 import { BUTTON_ROW_STYLE, BUTTON_STYLE, MUTED_TEXT_STYLE, SECTION_STYLE } from "../settingsStyles";
 
@@ -27,13 +28,13 @@ const ControllerControlsSection: FC<{ state: SettingsPageState }> = ({ state }) 
   return (
     <section style={SECTION_STYLE}>
       <SectionHeading title={CONTROLLER_HEADING} />
-      <Field label={STEAM_INPUT_MODE_LABEL} description={STEAM_INPUT_MODE_DESCRIPTION}>
-        <Dropdown
-          rgOptions={[...STEAM_INPUT_MODE_OPTIONS]}
-          selectedOption={state.steamInputMode}
-          onChange={(option) => state.changeSteamInputMode(option.data as string)}
-        />
-      </Field>
+      <SettingsDropdown
+        label={STEAM_INPUT_MODE_LABEL}
+        description={STEAM_INPUT_MODE_DESCRIPTION}
+        rgOptions={STEAM_INPUT_MODE_OPTIONS}
+        selectedOption={state.steamInputMode}
+        onChange={(option) => state.changeSteamInputMode(option.data as string)}
+      />
       <div style={BUTTON_ROW_STYLE}>
         <DialogButton style={BUTTON_STYLE} onClick={state.applySteamInput} disabled={state.applyingSteamInput}>
           {state.applyingSteamInput ? APPLYING_TO_ALL_SHORTCUTS_LABEL : APPLY_TO_ALL_SHORTCUTS_LABEL}

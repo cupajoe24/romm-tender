@@ -192,6 +192,29 @@ describe("SteamLibraryTab", () => {
       expect(dropdown().value).toBe(AUTO_REGION);
     });
 
+    // Steam's Dropdown keeps the picked option in state of its own, which an
+    // unchanged `selectedOption` never takes back; only a new instance does.
+    it("remounts the dropdown when the region change is cancelled", async () => {
+      await renderTab({ preferred_region: AUTO_REGION });
+      const before = dropdown();
+
+      await selectOption(before, "Japan");
+      await press(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+
+      expect(dropdown()).not.toBe(before);
+      expect(before).not.toBeInTheDocument();
+    });
+
+    it("keeps the same dropdown when the region change is accepted", async () => {
+      await renderTab({ preferred_region: AUTO_REGION });
+      const before = dropdown();
+
+      await selectOption(before, "Japan");
+      await press(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
+
+      expect(dropdown()).toBe(before);
+    });
+
     it("persists and updates dropdown when confirmation is accepted", async () => {
       await renderTab({ preferred_region: AUTO_REGION });
 

@@ -3,11 +3,10 @@
  * Advanced section, drawn for the desktop client over the same state and
  * handlers (`useSettingsPage`) and wording (`utils/settingsWording.ts`).
  *
- * Log level uses Steam's `Dropdown` inside a `Field`.
+ * Log level uses `SettingsDropdown`.
  */
 
 import type { FC } from "react";
-import { Dropdown, Field } from "@decky/ui";
 import {
   ADVANCED_HEADING,
   LOG_LEVEL_DESCRIPTION,
@@ -17,6 +16,7 @@ import {
 import { useSettingsPage, type SettingsPageState } from "../../../utils/useSettingsPage";
 import { useDialogHost } from "../../gameview/dialogs/useDialogHost";
 import { SectionHeading } from "../SectionHeading";
+import { SettingsDropdown } from "../SettingsDropdown";
 import { desktopSettingsPrompts } from "../settingsPrompts";
 import { SECTION_STYLE } from "../settingsStyles";
 
@@ -24,13 +24,13 @@ const AdvancedControlsSection: FC<{ state: SettingsPageState }> = ({ state }) =>
   return (
     <section style={SECTION_STYLE}>
       <SectionHeading title={ADVANCED_HEADING} />
-      <Field label={LOG_LEVEL_LABEL} description={LOG_LEVEL_DESCRIPTION}>
-        <Dropdown
-          rgOptions={[...LOG_LEVEL_OPTIONS]}
-          selectedOption={state.logLevel}
-          onChange={(option) => state.changeLogLevel(option.data as string)}
-        />
-      </Field>
+      <SettingsDropdown
+        label={LOG_LEVEL_LABEL}
+        description={LOG_LEVEL_DESCRIPTION}
+        rgOptions={LOG_LEVEL_OPTIONS}
+        selectedOption={state.logLevel}
+        onChange={(option) => state.changeLogLevel(option.data as string)}
+      />
     </section>
   );
 };

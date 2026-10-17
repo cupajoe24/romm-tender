@@ -494,6 +494,14 @@ through that selector: its rows render a field component of their own, which dra
 plays the `ToggleOff` sound — the one module in Steam's bundle that does, and the one `@decky/ui`'s `Toggle` finds.
 `SettingsToggle.test.tsx` fails on a desktop component that draws `ToggleField`.
 
+A dropdown is Steam's `Dropdown` in a `Field`, always through `desktop/settings/SettingsDropdown.tsx`. Steam's dropdown
+button is as wide as the label it shows, so a shorter pick would shrink it; `SettingsDropdown` draws the shown label
+over hidden copies of every option's label in one grid cell (through the `Dropdown`'s `renderButtonValue`), which holds
+the button at the widest option's width. `SettingsDropdown.test.tsx` fails on a desktop component that draws a bare
+`Dropdown`. The `Dropdown` also keeps the option it was last given in state of its own, which an unchanged
+`selectedOption` never takes back, so a pick the tab refuses (the Steam Library tab's cancelled region question)
+remounts it.
+
 ### The Sync tab
 
 `desktop/settings/sync/` draws the QAM's [Sync](qam-panel.md#sync) page for the desktop client, over the same state
@@ -583,8 +591,8 @@ registered devices table:
 - **Default Save Slot**: Rendered using Steam's `Field` with the slot summary description placed above right-aligned
   action buttons: `Edit` (which opens `DefaultSlotDialog` with an autofocus text input and trimmed validation) and
   `Reset to default` (visible when the slot is not `"default"`).
-- **History Retention Limit**: Configured via Steam's `Dropdown` component (classified in `boot/steamModules.ts`),
-  matching Steam's native select inputs.
+- **History Retention Limit**: Configured via `SettingsDropdown` (Steam's `Dropdown`, classified in
+  `boot/steamModules.ts`), matching Steam's native select inputs.
 - **Registered Devices**: Formatted as a desktop table (Device, Client, Last seen) using
   `desktop/settings/settingsStyles.ts`, with current device identification and relative timestamp formatting via
   `utils/registeredDevices.ts` and `utils/formatters.ts`.
@@ -594,8 +602,8 @@ registered devices table:
 `desktop/settings/controller/` draws the Controller section of the QAM's [Settings](qam-panel.md#settings) page for the
 desktop client, over the same state and handlers (`utils/useSettingsPage.ts`) and wording (`utils/settingsWording.ts`).
 
-- **Steam Input Mode**: Configured via Steam's `Dropdown` component inside a `Field`, allowing selection between Default
-  (Recommended), Force On, and Force Off (`STEAM_INPUT_MODE_OPTIONS`).
+- **Steam Input Mode**: Configured via `SettingsDropdown`, allowing selection between Default (Recommended), Force On,
+  and Force Off (`STEAM_INPUT_MODE_OPTIONS`).
 - **Apply to All Shortcuts**: Rendered via Steam's `DialogButton` in a button row (`BUTTON_ROW_STYLE`, `BUTTON_STYLE`).
   While an apply operation is in flight, the button is disabled and reflects its progress ("Applying to all
   shortcuts…"), refusing duplicate concurrent presses, and displays live outcome status reporting.
@@ -606,10 +614,10 @@ desktop client, over the same state and handlers (`utils/useSettingsPage.ts`) an
 for the desktop client, over the same state and handlers (`utils/useSettingsPage.ts`), region resolution
 (`utils/preferredRegion.ts`), and wording (`utils/settingsWording.ts`).
 
-- **Preferred Region**: Configured via Steam's `Dropdown` component inside a `Field`, populated with anchor regions and
-  locally synced library regions (`buildRegionOptions`). Changing the selection prompts for confirmation via
-  `DesktopConfirmDialog` (`desktop/settings/settingsPrompts.tsx`), explaining that the change applies only to newly
-  synced shortcuts without retroactively renaming existing shortcuts.
+- **Preferred Region**: Configured via `SettingsDropdown`, populated with anchor regions and locally synced library
+  regions (`buildRegionOptions`). Changing the selection prompts for confirmation via `DesktopConfirmDialog`
+  (`desktop/settings/settingsPrompts.tsx`), explaining that the change applies only to newly synced shortcuts without
+  retroactively renaming existing shortcuts.
 - **Collection Games in Platform Groups**: Configured via `SettingsToggle` (`Field` + `Toggle`), saving the setting
   optimistically and reverting on error.
 - **Distinguish Collection Types in Steam Names**: Configured via `SettingsToggle`, toggling between `"by_label"` and

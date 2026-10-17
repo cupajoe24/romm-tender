@@ -61,15 +61,14 @@ are sorted into dedicated lowercase subdirectories:
   - `desktop/settings/save-sync/` — the Save Sync tab: the QAM's Save Sync section and registered devices list drawn for
     the desktop over `utils/useSettingsPage.ts`, `utils/registeredDevices.ts`, `utils/settingsWording.ts` and
     `utils/formatters.ts`. Default save slot is edited through `DefaultSlotDialog.tsx` (and reset to `"default"`),
-    history limit uses `Dropdown`, and the registered devices list renders as a Steam desktop table.
+    history limit uses `SettingsDropdown`, and the registered devices list renders as a Steam desktop table.
   - `desktop/settings/controller/` — the Controller tab: the QAM's Controller section drawn for the desktop client over
-    `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Steam Input mode is configured with `Dropdown` inside a
-    `Field`, and Apply to All Shortcuts uses `DialogButton` with in-flight disabled protection and live status
-    reporting.
+    `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Steam Input mode is configured with `SettingsDropdown`,
+    and Apply to All Shortcuts uses `DialogButton` with in-flight disabled protection and live status reporting.
   - `desktop/settings/steam-library/` — the Steam Library tab: the QAM's Steam Library section drawn for the desktop
     client over `utils/useSettingsPage.ts`, `utils/preferredRegion.ts` and `utils/settingsWording.ts`. Preferred region
-    is configured with `Dropdown` inside a `Field` (confirmed via `DesktopConfirmDialog` before saving), and collection
-    platform groups and collection naming mode use `SettingsToggle`.
+    is configured with `SettingsDropdown` (confirmed via `DesktopConfirmDialog` before saving), and collection platform
+    groups and collection naming mode use `SettingsToggle`.
   - `desktop/settings/updates/` — the Updates tab: the QAM's Updates section drawn for the desktop client over
     `utils/useSettingsPage.ts`, `utils/useUpdateInstall.ts`, `utils/updateAvailableView.ts`,
     `utils/updateInstallView.ts`, `utils/updateNoticeStore.ts`, and `utils/settingsWording.ts`. Displays installed and
@@ -86,7 +85,7 @@ are sorted into dedicated lowercase subdirectories:
     review, and `RecoveryBundlesDetailPane.tsx` with sealed bundle tables), confirmed with `DesktopConfirmDialog.tsx`
     and using the isolated prune lease owner `"tender-settings-data-management"`.
   - `desktop/settings/advanced/` — the Advanced tab: the QAM's Advanced section drawn for the desktop client over
-    `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Log level is configured with `Dropdown` inside a `Field`.
+    `utils/useSettingsPage.ts` and `utils/settingsWording.ts`. Log level is configured with `SettingsDropdown`.
 
 ## What reaches a bundle
 
