@@ -61,7 +61,13 @@ import { PlayButtonBadges } from "./PlayButtonBadges";
 import { DownloadingButton } from "./DownloadingButton";
 import { PlayStateButton } from "./PlayStateButton";
 import { usePlayLaunch } from "./usePlayLaunch";
-import type { DownloadCompleteEvent, DownloadFailedEvent, SaveSetupInfo, SaveStatus } from "../../types";
+import type {
+  DownloadCompleteEvent,
+  DownloadFailedEvent,
+  DownloadProgressEvent,
+  SaveSetupInfo,
+  SaveStatus,
+} from "../../types";
 
 export interface PlayButtonProps {
   appId: number;
@@ -392,7 +398,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     effectiveState = "download";
   }
 
-  // Listen for download completion and failure events
+  // Listen for download completion, progress, and failure events
   useEffect(() => {
     const handleComplete = (e: DownloadCompleteEvent) => {
       if (e.rom_id === romId || e.app_id === appId) {
@@ -403,6 +409,21 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
         setTimeout(() => {
           setStateOverride(null);
         }, 1500);
+      }
+    };
+
+    const handleProgress = (e: DownloadProgressEvent) => {
+      if (e.rom_id !== romId) return;
+      if (e.status === "cancelled" || e.status === "failed") {
+        setStateOverride(null);
+        setActionPending(false);
+        // A cancelled replace-download already removed what was found.
+        setFoundOnDisk({ romId: null, targetOccupied: false, candidatePresent: false });
+      } else {
+        // Once active progress frames arrive, the download store reflects the transfer;
+        // clear the transitional downloading override so subsequent queue changes
+        // naturally drive the button's effective state.
+        setStateOverride((prev) => (prev === "downloading" ? null : prev));
       }
     };
 
@@ -417,10 +438,12 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     };
 
     addEventListener("download_complete", handleComplete);
+    addEventListener("download_progress", handleProgress);
     addEventListener("download_failed", handleFailed);
 
     return () => {
       removeEventListener("download_complete", handleComplete);
+      removeEventListener("download_progress", handleProgress);
       removeEventListener("download_failed", handleFailed);
     };
   }, [appId, romId]);

@@ -22,6 +22,7 @@ import type {
   AdoptResult,
   DownloadCompleteEvent,
   DownloadItem,
+  DownloadProgressEvent,
   SaveStatus,
   SyncConflict,
   TargetOccupiedResult,
@@ -451,6 +452,164 @@ describe("PlayButton", () => {
     expect(steamShortcuts.setLaunchOptionsConfirmed).toHaveBeenCalledWith(123, "run-smw");
     expect(backend.invalidateCachedGameDetail).toHaveBeenCalledWith(123);
     expect(screen.getByText("READY!")).toBeInTheDocument();
+  });
+
+  it("switches download bar back to download button when an active download is cancelled externally", () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: false,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
+      emulatorPlatformSystem: null,
+    });
+
+    const activeItem: DownloadItem = {
+      rom_id: 100,
+      rom_name: "Super Mario World",
+      platform_name: "snes",
+      file_name: "smw.sfc",
+      status: "downloading",
+      progress: 30,
+      bytes_downloaded: 300,
+      total_bytes: 1000,
+      resumable: true,
+    };
+    vi.mocked(downloadStore.useDownloads).mockReturnValue([activeItem]);
+
+    const { rerender } = render(<PlayButton appId={123} />);
+
+    // Initially shows downloading progress bar
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    expect(screen.getByText("30%")).toBeInTheDocument();
+
+    // Now simulate cancellation from settings:
+    // 1) download_progress with status "cancelled" is emitted
+    // 2) useDownloads queue is updated to empty (item removed)
+    act(() => {
+      emitHostEvent<DownloadProgressEvent>("download_progress", {
+        rom_id: 100,
+        rom_name: "Super Mario World",
+        platform_name: "snes",
+        file_name: "smw.sfc",
+        status: "cancelled",
+        progress: 30,
+        bytes_downloaded: 300,
+        total_bytes: 1000,
+      });
+    });
+
+    vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
+    rerender(<PlayButton appId={123} />);
+
+    // The download bar must be gone, replaced by the DOWNLOAD button
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    const downloadBtn = screen.getByRole("button", { name: /^DOWNLOAD/i });
+    expect(downloadBtn).toBeInTheDocument();
+    expect(downloadBtn).not.toBeDisabled();
+  });
+
+  it("switches download bar back to download button when a download started on the button is cancelled externally", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: false,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      saveSyncLabel: "",
+      savefilesInContentDir: false,
+      raId: null,
+      achievementEarned: 0,
+      achievementTotal: 0,
+      biosNeeded: false,
+      biosLabel: "",
+      biosRequiredMissing: false,
+      activeCoreLabel: null,
+      activeCoreIsDefault: true,
+      emulators: [],
+      emulatorDataAvailable: true,
+      platformCoreLabel: null,
+      hasGameOverride: false,
+      fileMissingAt: null,
+      emulatorDataReason: null,
+      emulatorSource: null,
+      emulatorPlatformSystem: null,
+    });
+    vi.mocked(backend.startDownload).mockResolvedValueOnce({ success: true, message: "Download started" } as never);
+    vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
+
+    const { rerender } = render(<PlayButton appId={123} />);
+
+    const downloadBtn = screen.getByRole("button", { name: /^DOWNLOAD/i });
+    expect(downloadBtn).toBeInTheDocument();
+
+    // Click download -> triggers stateOverride = "downloading"
+    fireEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+
+    // Store receives the active item (as backend begins transferring)
+    const activeItem: DownloadItem = {
+      rom_id: 100,
+      rom_name: "Super Mario World",
+      platform_name: "snes",
+      file_name: "smw.sfc",
+      status: "downloading",
+      progress: 45,
+      bytes_downloaded: 450,
+      total_bytes: 1000,
+      resumable: true,
+    };
+    vi.mocked(downloadStore.useDownloads).mockReturnValue([activeItem]);
+    rerender(<PlayButton appId={123} />);
+
+    expect(screen.getByText("45%")).toBeInTheDocument();
+
+    // Now user opens settings and cancels: backend emits cancelled frame and store drops item
+    act(() => {
+      emitHostEvent<DownloadProgressEvent>("download_progress", {
+        rom_id: 100,
+        rom_name: "Super Mario World",
+        platform_name: "snes",
+        file_name: "smw.sfc",
+        status: "cancelled",
+        progress: 45,
+        bytes_downloaded: 450,
+        total_bytes: 1000,
+      });
+    });
+
+    vi.mocked(downloadStore.useDownloads).mockReturnValue([]);
+    rerender(<PlayButton appId={123} />);
+
+    // Must not remain stuck at 0% progressbar; must switch back to DOWNLOAD button
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^DOWNLOAD/i })).toBeInTheDocument();
   });
 
   it("renders PLAY when installed, runs preLaunchSync and calls RunGame on click", async () => {
