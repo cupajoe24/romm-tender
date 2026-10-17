@@ -254,6 +254,7 @@ main() {
     case "$MODE" in
         disable) do_disable ;;
         uninstall) do_uninstall ;;
+        purge) do_purge ;;
         rollback) do_rollback ;;
         install) do_install ;;
     esac
@@ -269,6 +270,7 @@ Usage: install.sh [options]
   --rollback       go back to the version the last update replaced
   --disable        stop Tender and leave it installed
   --uninstall      remove Tender
+  --purge          remove Tender and its configuration, database and cache
   --yes            skip the question a first install asks (required there when
                    there is no terminal)
   --help           this text
@@ -1104,6 +1106,10 @@ parse_arguments() {
                 ;;
             --uninstall)
                 MODE="uninstall"
+                shift
+                ;;
+            --purge)
+                MODE="purge"
                 shift
                 ;;
             --rollback)
@@ -2348,6 +2354,34 @@ do_uninstall() {
     printf '\n'
     # The entry is code a backend loaded into Steam, and removing the backend
     # does not take it back out again — only Steam restarting does.
+    if steam_is_running; then
+        echo
+        echo "Steam still shows Tender's entry until it restarts."
+    fi
+}
+
+do_purge() {
+    greeter mode_lines "Removing the service, the program, and all configuration and data."
+    systemctl --user disable --now "$UNIT_NAME" 2> /dev/null || true
+    rm -f "$UNIT"
+    systemctl --user daemon-reload 2> /dev/null || true
+    rm -rf "$CODE" "$CODE.new" "$CODE.old"
+
+    remove_marker_if_ours
+    rm -rf "$STATE"
+    [ -z "${XDG_RUNTIME_DIR:-}" ] || rm -rf "$XDG_RUNTIME_DIR/romm-tender"
+
+    rm -rf "$CONFIG"
+    rm -rf "$DATA"
+    rm -rf "$CACHE"
+    rm -f "$BIN/tender-rom-launcher"
+
+    echo "Tender is purged. Left in place on purpose:"
+    style 2
+    printf '  %-34s %s\n' "$(tilde "$HOME/romm-tender-recovery")" "recovery bundles, if you made any"
+    printf '  %-34s %s' "RetroDECK's own folders" "your games, saves and BIOS files"
+    reset_style
+    printf '\n'
     if steam_is_running; then
         echo
         echo "Steam still shows Tender's entry until it restarts."

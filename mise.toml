@@ -194,6 +194,15 @@ description = "Build the frontend and assemble the release tarball under build/ 
 # runs the same two steps and there is one layout with one producer.
 run = ["pnpm -C frontend build", "bash scripts/package.sh --source . --out build"]
 
+[tasks."package:desktop"]
+description = "Build frontend with desktop surface included, assemble release tarball, and produce standalone installer and distribution zip under build/"
+run = [
+    "pnpm -C frontend build:desktop",
+    "pnpm -C frontend check:bundle",
+    "bash scripts/package.sh --source . --out build",
+    "python scripts/build_desktop_installer.py",
+]
+
 [tasks.docs]
 description = "Serve the documentation site locally with live reload"
 run = "mkdocs serve"

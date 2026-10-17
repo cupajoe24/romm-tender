@@ -345,7 +345,8 @@ makes no such copy: what it discards was written by a version that was never see
 
 Going back, by itself or by hand, puts the kept tree in place of the current one, so there is none left afterwards and
 `--rollback` refuses until the next update keeps one. `--uninstall` removes the kept tree and leaves both backups with
-the rest of the data root. `TENDER_UPDATE_WAIT` sets the wait; it exists for the tests.
+the rest of the data root. `--purge` removes the kept tree, all backups, configuration, cache, state, and launcher,
+leaving only recovery bundles in `~/romm-tender-recovery`. `TENDER_UPDATE_WAIT` sets the wait; it exists for the tests.
 
 Where Steam's debugger is answering, an update or a rollback that ends on a backend which replaces a panel an earlier
 one left

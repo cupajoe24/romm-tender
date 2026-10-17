@@ -3131,6 +3131,61 @@ class TestUninstall:
         assert "Decky Loader is installed" in result.stdout
 
 
+class TestPurge:
+    def _installed(self, machine) -> None:
+        machine.run("--from", str(_build_tarball(machine.tmp_path)), "--yes")
+
+    def test_it_removes_the_program_the_unit_state_and_marker(self, machine):
+        self._installed(machine)
+        (machine.runtime / "romm-tender").mkdir(parents=True, exist_ok=True)
+        assert machine.marker.is_file()
+
+        result = machine.run("--purge")
+
+        assert result.returncode == 0, result.stderr
+        assert not machine.code.exists()
+        assert not machine.unit.exists()
+        assert not machine.state.exists()
+        assert not (machine.runtime / "romm-tender").exists()
+        assert not machine.marker.exists()
+        assert "--user disable --now romm-tender" in machine.systemctl_calls()
+
+    def test_it_removes_the_library_settings_cache_and_launcher(self, machine):
+        self._installed(machine)
+        machine.config.mkdir(parents=True, exist_ok=True)
+        (machine.config / "settings.json").write_text("{}", encoding="utf-8")
+        machine.data.mkdir(parents=True, exist_ok=True)
+        (machine.data / "library.db").write_text("the database", encoding="utf-8")
+        (machine.data / "update-backup").mkdir(parents=True, exist_ok=True)
+        machine.cache.mkdir(parents=True, exist_ok=True)
+        (machine.cache / "covers").mkdir(parents=True, exist_ok=True)
+        machine.bin.mkdir(parents=True, exist_ok=True)
+        (machine.bin / "tender-rom-launcher").write_text("#!/bin/bash\n", encoding="utf-8")
+
+        result = machine.run("--purge")
+
+        assert result.returncode == 0, result.stderr
+        assert not machine.config.exists()
+        assert not machine.data.exists()
+        assert not machine.cache.exists()
+        assert not (machine.bin / "tender-rom-launcher").exists()
+        assert "Tender is purged." in result.stdout
+
+    def test_it_leaves_recovery_bundles_intact(self, machine):
+        self._installed(machine)
+        recovery_dir = machine.home / "romm-tender-recovery" / "bundles"
+        recovery_dir.mkdir(parents=True, exist_ok=True)
+        bundle_file = recovery_dir / "my_backup.tar"
+        bundle_file.write_text("backup data", encoding="utf-8")
+
+        result = machine.run("--purge")
+
+        assert result.returncode == 0, result.stderr
+        assert bundle_file.is_file()
+        assert "~/romm-tender-recovery" in result.stdout
+        assert str(machine.home) not in result.stdout
+
+
 class TestABackendOutsideTheService:
     """A backend started by hand holds the lock the service's own backend needs.
 
@@ -3248,7 +3303,7 @@ class TestABackendOutsideTheService:
         assert result.returncode == 0, result.stderr
         assert (machine.code / "backend" / "main.py").is_file()
 
-    @pytest.mark.parametrize("mode", ["--uninstall", "--disable"])
+    @pytest.mark.parametrize("mode", ["--uninstall", "--disable", "--purge"])
     def test_the_modes_that_start_nothing_do_not_ask(self, machine, mode):
         with _holding_the_lock(machine):
             result = machine.run(mode)
@@ -3808,7 +3863,7 @@ def _blank_lines_before(screen: list[str], sentence: str) -> int:
     return count
 
 
-class TestTheOtherTwoModes:
+class TestTheOtherModes:
     """Neither installs anything, so neither lists what an install would put where."""
 
     def test_uninstall_says_what_it_is_about_to_do(self, machine):
@@ -3821,6 +3876,17 @@ class TestTheOtherTwoModes:
         assert "Removing the service and the program, and keeping your data." in screen
         assert "Install to" not in screen, "an uninstall lists what an install would do"
         assert _blank_lines_before(screen.splitlines(), "Tender is removed.") == 1
+
+    def test_purge_says_what_it_is_about_to_do(self, machine):
+        machine.state.mkdir(parents=True, exist_ok=True)
+        _code, output = machine.on_a_terminal("--purge", COLUMNS="160", COLORTERM="truecolor")
+
+        screen = _screen(output)
+        assert _icon_rows()[3] in screen, "the mark is not drawn"
+        assert "TENDER" in screen
+        assert "Removing the service, the program, and all configuration and data." in screen
+        assert "Install to" not in screen, "a purge lists what an install would do"
+        assert _blank_lines_before(screen.splitlines(), "Tender is purged.") == 1
 
     def test_disable_says_what_it_is_about_to_do(self, machine):
         _code, output = machine.on_a_terminal("--disable", COLUMNS="160", COLORTERM="truecolor")
@@ -3860,6 +3926,14 @@ class TestWhatTheUninstallLeavesBehind:
         machine.state.mkdir(parents=True, exist_ok=True)
 
         result = machine.run("--uninstall", STUB_STEAM_RUNNING="yes")
+
+        assert "Steam still shows Tender's entry until it restarts." in result.stdout
+
+    def test_a_running_steam_is_told_the_entry_outlives_the_purge(self, machine):
+        """Removing the backend does not take its panel back out of Steam."""
+        machine.state.mkdir(parents=True, exist_ok=True)
+
+        result = machine.run("--purge", STUB_STEAM_RUNNING="yes")
 
         assert "Steam still shows Tender's entry until it restarts." in result.stdout
 

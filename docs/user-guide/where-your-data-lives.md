@@ -11,12 +11,12 @@ Tender keeps what it knows about your library in folders under your own home dir
 
 Four more places sit outside those folders, because none of them holds anything of yours:
 
-| Where                              | What it is                                                                                                                                                                                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `~/.local/bin/tender-rom-launcher` | The small program every one of your Steam shortcuts starts through. It sits in the folder your own programs go in, shared with anything else you installed for yourself, and uninstalling Tender leaves it there so your games keep launching |
-| `~/.local/lib/romm-tender/`        | Tender itself, with the installer that updates it and puts the previous version back (`install.sh`). Replaced whole when you update, removed when you uninstall                                                                               |
-| `~/.local/lib/romm-tender.old/`    | The version your last update replaced, kept so that it can be put back. Each update replaces it; going back puts it in place of the current version, after which there is none. Uninstalling removes it                                       |
-| `/run/user/<id>/romm-tender/`      | One note saying which port Tender is answering on while it runs. Your session clears it when you log out                                                                                                                                      |
+| Where                              | What it is                                                                                                                                                                                                                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `~/.local/bin/tender-rom-launcher` | The small program every one of your Steam shortcuts starts through. It sits in the folder your own programs go in, shared with anything else you installed for yourself; uninstalling Tender leaves it there so your games keep launching, while purging Tender removes it |
+| `~/.local/lib/romm-tender/`        | Tender itself, with the installer that updates it and puts the previous version back (`install.sh`). Replaced whole when you update, removed when you uninstall or purge                                                                                                   |
+| `~/.local/lib/romm-tender.old/`    | The version your last update replaced, kept so that it can be put back. Each update replaces it; going back puts it in place of the current version, after which there is none. Uninstalling or purging removes it                                                         |
+| `/run/user/<id>/romm-tender/`      | One note saying which port Tender is answering on while it runs. Your session clears it when you log out                                                                                                                                                                   |
 
 Your **games** are not in any of them. Downloaded ROMs, BIOS files and save files live in RetroDECK's own folders,
 exactly as before, and nothing on this page moves them. The one folder outside RetroDECK's that can hold copies of them
@@ -32,7 +32,7 @@ and how to restore from it is under
 It sits directly in your home directory on purpose. It is the one folder you are meant to open in a file manager, and a
 folder under `~/.local` is hidden there by default.
 
-Tender never removes a bundle, and uninstalling Tender leaves the folder where it is.
+Tender never removes a bundle, and uninstalling or purging Tender leaves the folder where it is.
 
 Bundles that versions 0.30 to 0.32 sealed sit in `~/decky-romm-sync-recovery/` instead, are not counted on the Data
 Management page, and are yours to keep or delete — [Recovery bundles](troubleshooting.md#recovery-bundles) has the
@@ -71,6 +71,26 @@ Going back to the previous version by hand (`install.sh --rollback`) puts back t
 database and settings it is about to replace to `~/.local/share/romm-tender/rollback-backup/`, replacing the copy the
 previous time you went back made, with a previous copy that cannot be removed left as `rollback-backup.prev/` the same
 way. Updates leave that folder alone, and so does uninstalling.
+
+## Uninstalling and purging
+
+When you run `install.sh --uninstall`:
+
+- Tender is stopped, and its systemd service unit is disabled and removed.
+- Tender's program files in `~/.local/lib/romm-tender/` (and `~/.local/lib/romm-tender.old/`) are removed.
+- Your configuration (`~/.config/romm-tender/`), library database and backups (`~/.local/share/romm-tender/`), artwork
+  cache (`~/.cache/romm-tender/`), and launcher program (`~/.local/bin/tender-rom-launcher`) are left intact so
+  reinstalling picks up where you left off and shortcuts continue to work.
+
+When you run `install.sh --purge`:
+
+- Tender is stopped, and its service unit is removed.
+- Tender's program files and the launcher program (`~/.local/bin/tender-rom-launcher`) are removed.
+- All Tender settings (`~/.config/romm-tender/`), library databases and backups (`~/.local/share/romm-tender/`), artwork
+  cache (`~/.cache/romm-tender/`), and state/logs (`~/.local/state/romm-tender/`) are removed.
+- The recovery folder (`~/romm-tender-recovery/`) is **kept intact**, preserving any manual recovery bundles you have
+  sealed.
+- Downloaded ROMs, BIOS files, and saves in RetroDECK's folders are never touched.
 
 ## The split that matters
 
