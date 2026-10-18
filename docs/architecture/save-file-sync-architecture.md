@@ -1470,13 +1470,13 @@ check, the pre-launch sync itself (`runPreLaunchSync`) and what each verdict mea
 switched-off source toasts, resolved conflicts announce the save change to the page and then launch. A path supplies
 only what is its own:
 
-| Supplied by the path               | Play button (gamepad and desktop)                                                                | Launch watcher                                |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------- |
-| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`shared/launchPrompts.ts`); `desktopLaunchPrompts` on the desktop client | chosen once per start (below)                 |
-| Tracking setup                     | `ensureTrackingConfiguredOnPage` — a slot to choose aborts and opens the Saves tab               | adopts a default silently and always proceeds |
-| Toast for a sync that moved saves  | yes                                                                                              | no                                            |
-| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                   | nothing; a pending migration is toasted       |
-| A gate run that throws             | the trigger returns to Play                                                                      | fails open: the game starts                   |
+| Supplied by the path               | Play button (gamepad and desktop)                                                                                          | Launch watcher                                |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`shared/launchPrompts.ts`); `desktopLaunchPrompts` on the desktop client                           | chosen once per start (below)                 |
+| Tracking setup                     | `ensureTrackingConfiguredOnPage` — a slot to choose aborts and opens Saves (or scrolls to `SaveManagementCard` on desktop) | adopts a default silently and always proceeds |
+| Toast for a sync that moved saves  | yes                                                                                                                        | no                                            |
+| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                                             | nothing; a pending migration is toasted       |
+| A gate run that throws             | the trigger returns to Play                                                                                                | fails open: the game starts                   |
 
 The watcher has no surface of its own, so `index.tsx` hands it a function rather than a set of prompts:
 `launchPromptsForThisStart(gamepadLaunchPrompts)` (`frontend/src/utils/launchPromptRouter.ts`), called once per start as
