@@ -25,7 +25,7 @@ import { romHasLaunchTarget } from "./launchTarget";
 import { getMigrationState } from "./migrationStore";
 import { readStartingSource } from "./startingSource";
 import { saveSyncToastBody } from "./saveSyncToast";
-import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome } from "./saveSetup";
+import { applyLaunchGateSetupOutcome, resolveSaveSetupOutcome, type LaunchGateSetupDeps } from "./saveSetup";
 import { showToast } from "./toast";
 import { boundedOr, withTimeout } from "./withTimeout";
 
@@ -103,7 +103,10 @@ export async function runPreLaunchSync(romId: number, options: PreLaunchSyncOpti
  * outside them so that a throw from a side effect (the toast, the tab switch, the
  * slot confirm) cannot be swallowed into "proceed" and launch past an "abort".
  */
-export async function ensureTrackingConfiguredOnPage(romId: number): Promise<"proceed" | "abort"> {
+export async function ensureTrackingConfiguredOnPage(
+  romId: number,
+  overrides?: Partial<LaunchGateSetupDeps>,
+): Promise<"proceed" | "abort"> {
   const trackingResult = await boundedOr(isSaveTrackingConfigured(romId), LOCAL_CALL_LIMIT_MS, () => ({
     configured: true,
   }));
@@ -117,6 +120,7 @@ export async function ensureTrackingConfiguredOnPage(romId: number): Promise<"pr
     confirmSlotChoice: (...args) => withTimeout(confirmSlotChoice(...args), LOCAL_CALL_LIMIT_MS),
     toast: (body) => showToast(body),
     dispatchSavesTab: () => globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "saves" } })),
+    ...overrides,
   });
 }
 

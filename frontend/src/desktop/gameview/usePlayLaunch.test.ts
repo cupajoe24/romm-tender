@@ -375,4 +375,56 @@ describe("usePlayLaunch", () => {
     );
     expect(setStateOverride).toHaveBeenLastCalledWith(null);
   });
+
+  it("aborts launch and shows desktop-adapted toast when save tracking needs user choice", async () => {
+    vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValueOnce({
+      configured: false,
+      active_slot: null,
+    });
+    vi.mocked(backend.getSaveSetupInfo).mockResolvedValueOnce({
+      has_local_saves: false,
+      local_files: [],
+      server_slots: [
+        {
+          slot: "slot1",
+          saves: [],
+          count: 1,
+          latest_updated_at: "2026-06-15T21:04:00Z",
+        },
+      ],
+      default_slot: "slot1",
+      slot_confirmed: false,
+      active_slot: null,
+      recommended_action: "show_wizard",
+      server_query_failed: false,
+    });
+
+    const tabSwitchListener = vi.fn();
+    globalThis.addEventListener("romm_tab_switch", tabSwitchListener);
+
+    const { result } = renderHook(() =>
+      usePlayLaunch({
+        appId: 12345,
+        romId: 100,
+        romName: "Test Game",
+        effectiveState: "play",
+        ask,
+        leaseOwner: "desktop-play-button:12345",
+        setStateOverride,
+        holdVerdict,
+        setShowMenu,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handlePlayClick();
+    });
+
+    globalThis.removeEventListener("romm_tab_switch", tabSwitchListener);
+
+    expect(backend.preLaunchSync).not.toHaveBeenCalled();
+    expect(toast.showToast).toHaveBeenCalledWith("Configure save sync in Saves first");
+    expect(tabSwitchListener).toHaveBeenCalled();
+    expect(setStateOverride).toHaveBeenLastCalledWith(null);
+  });
 });

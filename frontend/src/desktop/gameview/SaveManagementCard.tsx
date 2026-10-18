@@ -12,7 +12,7 @@
  * - Clean desktop dialogs for new slot, copy to slot, and delete confirmation.
  */
 
-import { useState, useEffect, useCallback, type FC } from "react";
+import { useState, useEffect, useCallback, useRef, type FC } from "react";
 import {
   getSaveSlots,
   getSlotSaves,
@@ -25,6 +25,9 @@ import {
   getVersionList,
   checkLocalDrift,
   debugLog,
+  isEndpointFailure,
+  isSaveTrackingConfigured,
+  confirmSlotChoice,
 } from "../../api/backend";
 import { useRommConnectionState, reportServerReachable } from "../../utils/connectionState";
 import { refreshSaveStatus, type GameDetailState } from "../../utils/gameDetailStore";
@@ -80,6 +83,9 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   const isOffline = connectionState === "offline";
   const [isSyncing, setIsSyncing] = useState(false);
   const [strandedVersion, setStrandedVersion] = useState<string | null>(null);
+  const [slotConfirmed, setSlotConfirmed] = useState<boolean | null>(null);
+  const [confirmingSlot, setConfirmingSlot] = useState(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
 
   // Expanded state map for accordion slots
   const [expandedSlots, setExpandedSlots] = useState<Record<string, boolean>>({});
@@ -137,7 +143,31 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     } finally {
       setSlotsLoading(false);
     }
-  }, [romId]);
+
+    if (detail.saveSyncEnabled) {
+      try {
+        const tracking = await isSaveTrackingConfigured(romId);
+        setSlotConfirmed(tracking.configured);
+      } catch (e) {
+        detach(debugLog(`SaveManagementCard: failed to check tracking: ${e}`));
+        setSlotConfirmed(true);
+      }
+    } else {
+      setSlotConfirmed(true);
+    }
+  }, [romId, detail.saveSyncEnabled]);
+
+  // Scroll into view if tab switch to saves requested
+  useEffect(() => {
+    const handleTabSwitch = (e: Event) => {
+      const customEvent = e as CustomEvent<{ tab?: string }>;
+      if (customEvent.detail.tab === "saves") {
+        cardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    };
+    globalThis.addEventListener("romm_tab_switch", handleTabSwitch);
+    return () => globalThis.removeEventListener("romm_tab_switch", handleTabSwitch);
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial async data loads on mount are the standard React pattern; the rule is overzealous here
@@ -257,6 +287,30 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     }
   };
 
+  // Confirm slot handler for unconfirmed save tracking
+  const handleConfirmSlot = async (slotName: string) => {
+    if (!romId || !slotName) return;
+    setConfirmingSlot(true);
+    try {
+      const result = await confirmSlotChoice(romId, slotName, false, null, false);
+      if ("success" in result && result.success) {
+        setSlotConfirmed(true);
+        showToast(`Confirmed save slot '${slotName}'`);
+        announceSaveSync(romId);
+        await refreshSaveStatus(appId);
+        await loadSlots();
+      } else {
+        const msg = result.message || "Failed to confirm save slot";
+        showToast(msg);
+      }
+    } catch (e) {
+      detach(debugLog(`SaveManagementCard: failed to confirm slot: ${e}`));
+      showToast("An error occurred while confirming the slot");
+    } finally {
+      setConfirmingSlot(false);
+    }
+  };
+
   // New slot submit
   const handleCreateSlot = async (name: string) => {
     const trimmed = name.trim();
@@ -265,11 +319,23 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       const result = await switchSlot(romId, trimmed);
       if (result.success) {
         reportServerReachable(true);
-        showToast(`Switched to slot '${trimmed}'`);
         setLocalActiveSlot(trimmed);
         setSlotSavesCache({});
         setShowNewSlotModal(false);
         setNewSlotError(null);
+        let confirmedNow = false;
+        if (detail.saveSyncEnabled && slotConfirmed === false) {
+          try {
+            const confirmResult = await confirmSlotChoice(romId, trimmed, false, null, false);
+            if ("success" in confirmResult && confirmResult.success) {
+              setSlotConfirmed(true);
+              confirmedNow = true;
+            }
+          } catch (e) {
+            detach(debugLog(`SaveManagementCard: auto-confirm on create failed: ${e}`));
+          }
+        }
+        showToast(confirmedNow ? `Created and confirmed slot '${trimmed}'` : `Switched to slot '${trimmed}'`);
         globalThis.dispatchEvent(
           new CustomEvent("romm_data_changed", {
             detail: { type: "save_sync", rom_id: romId, save_status: result.save_status },
@@ -298,9 +364,21 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       const result = await switchSlot(romId, slotName);
       if (result.success) {
         reportServerReachable(true);
-        showToast(`Switched to slot '${slotName}'`);
         setLocalActiveSlot(slotName);
         setSlotSavesCache({});
+        let confirmedNow = false;
+        if (detail.saveSyncEnabled && slotConfirmed === false) {
+          try {
+            const confirmResult = await confirmSlotChoice(romId, slotName, false, null, false);
+            if ("success" in confirmResult && confirmResult.success) {
+              setSlotConfirmed(true);
+              confirmedNow = true;
+            }
+          } catch (e) {
+            detach(debugLog(`SaveManagementCard: auto-confirm on activate failed: ${e}`));
+          }
+        }
+        showToast(confirmedNow ? `Switched to and confirmed slot '${slotName}'` : `Switched to slot '${slotName}'`);
         globalThis.dispatchEvent(
           new CustomEvent("romm_data_changed", {
             detail: { type: "save_sync", rom_id: romId, save_status: result.save_status },
@@ -416,7 +494,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
   const syncLabel = detail.saveSyncEnabled ? "save sync on" : "save sync off";
 
   return (
-    <div className="tender-desktop-card tender-desktop-saves-card" style={CARD_STYLE}>
+    <div ref={cardRef} className="tender-desktop-card tender-desktop-saves-card" style={CARD_STYLE}>
       {/* Card Header */}
       <div
         style={{
@@ -506,6 +584,46 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
           }}
         >
           {`Version "${strandedVersion}" has saves that were never uploaded — switch back to sync them.`}
+        </div>
+      )}
+
+      {detail.saveSyncEnabled && slotConfirmed === false && (
+        <div
+          data-testid="unconfirmed-slot-banner"
+          style={{
+            padding: "8px 12px",
+            background: "rgba(26, 159, 255, 0.15)",
+            borderRadius: "4px",
+            border: "1px solid rgba(26, 159, 255, 0.4)",
+            marginBottom: "12px",
+            fontSize: "12px",
+            color: "#1a9fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <div>
+            <strong>Save slot tracking is not confirmed.</strong> Confirm the active slot or choose another slot to
+            enable sync.
+          </div>
+          {activeSlot && (
+            <button
+              type="button"
+              style={{
+                ...BUTTON_STYLE,
+                backgroundColor: "rgba(26, 159, 255, 0.2)",
+                borderColor: "rgba(26, 159, 255, 0.5)",
+                color: "#ffffff",
+                whiteSpace: "nowrap",
+              }}
+              disabled={isOffline || confirmingSlot}
+              onClick={() => void handleConfirmSlot(activeSlot)}
+            >
+              {confirmingSlot ? "Confirming..." : `Confirm '${displaySlot(activeSlot)}'`}
+            </button>
+          )}
         </div>
       )}
 
@@ -644,6 +762,38 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
                   {isSlotActive ? (
                     /* Active Slot Body */
                     <div>
+                      {detail.saveSyncEnabled && slotConfirmed === false && (
+                        <div
+                          data-testid="active-slot-unconfirmed-box"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "8px 12px",
+                            marginBottom: "12px",
+                            backgroundColor: "rgba(26, 159, 255, 0.1)",
+                            border: "1px solid rgba(26, 159, 255, 0.3)",
+                            borderRadius: "4px",
+                          }}
+                        >
+                          <span style={{ fontSize: "12px", color: "#dfe3e6" }}>
+                            This slot is active but not confirmed for save sync.
+                          </span>
+                          <button
+                            type="button"
+                            style={{
+                              ...BUTTON_STYLE,
+                              backgroundColor: "rgba(26, 159, 255, 0.2)",
+                              borderColor: "rgba(26, 159, 255, 0.5)",
+                              color: "#1a9fff",
+                            }}
+                            disabled={isOffline || confirmingSlot}
+                            onClick={() => void handleConfirmSlot(slot.slot)}
+                          >
+                            {confirmingSlot ? "Confirming..." : "Confirm Slot"}
+                          </button>
+                        </div>
+                      )}
                       {saveStatus?.files && saveStatus.files.length > 0 ? (
                         saveStatus.files.map((file) => {
                           const conflict = conflicts.find((c) => c.filename === file.filename);

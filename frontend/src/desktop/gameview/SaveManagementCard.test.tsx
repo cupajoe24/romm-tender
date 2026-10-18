@@ -26,6 +26,8 @@ vi.mock("../../api/backend", () => ({
   getVersionList: vi.fn(),
   checkLocalDrift: vi.fn(),
   debugLog: vi.fn(),
+  isSaveTrackingConfigured: vi.fn(),
+  confirmSlotChoice: vi.fn(),
 }));
 
 vi.mock("../../utils/connectionState", () => ({
@@ -137,6 +139,15 @@ describe("SaveManagementCard", () => {
     });
     vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
     vi.mocked(connectionState.useRommConnectionState).mockReturnValue("connected");
+    vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({
+      configured: true,
+      active_slot: "default",
+    });
+    vi.mocked(backend.confirmSlotChoice).mockResolvedValue({
+      success: true,
+      needs_conflict_resolution: false,
+      message: "Slot confirmed",
+    });
   });
 
   afterEach(() => {
@@ -647,6 +658,166 @@ describe("SaveManagementCard", () => {
       expect(toast.showToast).toHaveBeenCalledWith(
         "Restored locally, but the server didn't update. Other devices will see the previous version until you retry.",
       );
+    });
+  });
+
+  describe("save slot tracking confirmation", () => {
+    it("renders unconfirmed banner and active slot prompt when tracking is unconfigured", async () => {
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({
+        configured: false,
+        active_slot: "default",
+      });
+
+      render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("unconfirmed-slot-banner")).toBeInTheDocument();
+        expect(screen.getByTestId("active-slot-unconfirmed-box")).toBeInTheDocument();
+      });
+
+      expect(screen.getByText("Confirm 'default'")).toBeInTheDocument();
+    });
+
+    it("confirms slot choice when clicking Confirm button on unconfirmed banner", async () => {
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValueOnce({
+        configured: false,
+        active_slot: "default",
+      });
+
+      render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Confirm 'default'")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Confirm 'default'"));
+
+      await waitFor(() => {
+        expect(backend.confirmSlotChoice).toHaveBeenCalledWith(42, "default", false, null, false);
+        expect(toast.showToast).toHaveBeenCalledWith("Confirmed save slot 'default'");
+        expect(screen.queryByTestId("unconfirmed-slot-banner")).not.toBeInTheDocument();
+      });
+    });
+
+    it("confirms slot choice when clicking Confirm Slot in active slot box", async () => {
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValueOnce({
+        configured: false,
+        active_slot: "default",
+      });
+
+      render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("active-slot-unconfirmed-box")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Confirm Slot"));
+
+      await waitFor(() => {
+        expect(backend.confirmSlotChoice).toHaveBeenCalledWith(42, "default", false, null, false);
+        expect(toast.showToast).toHaveBeenCalledWith("Confirmed save slot 'default'");
+        expect(screen.queryByTestId("active-slot-unconfirmed-box")).not.toBeInTheDocument();
+      });
+    });
+
+    it("auto-confirms slot when activating an inactive slot while unconfigured", async () => {
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({
+        configured: false,
+        active_slot: "default",
+      });
+      vi.mocked(backend.switchSlot).mockResolvedValue({
+        success: true,
+        save_status: mockSaveStatus,
+      });
+
+      render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("speedrun")).toBeInTheDocument();
+      });
+
+      // Expand speedrun accordion
+      fireEvent.click(screen.getByText("speedrun"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Activate Slot")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Activate Slot"));
+
+      await waitFor(() => {
+        expect(backend.switchSlot).toHaveBeenCalledWith(42, "speedrun");
+        expect(backend.confirmSlotChoice).toHaveBeenCalledWith(42, "speedrun", false, null, false);
+        expect(toast.showToast).toHaveBeenCalledWith("Switched to and confirmed slot 'speedrun'");
+      });
+    });
+
+    it("auto-confirms slot when creating a new slot while unconfigured", async () => {
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({
+        configured: false,
+        active_slot: "default",
+      });
+      vi.mocked(backend.switchSlot).mockResolvedValue({
+        success: true,
+        save_status: mockSaveStatus,
+      });
+
+      render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("+ New Slot")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("+ New Slot"));
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText(/Slot Name/i)).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText(/Slot Name/i), { target: { value: "new_slot" } });
+      fireEvent.click(screen.getByText("Create Slot"));
+
+      await waitFor(() => {
+        expect(backend.switchSlot).toHaveBeenCalledWith(42, "new_slot");
+        expect(backend.confirmSlotChoice).toHaveBeenCalledWith(42, "new_slot", false, null, false);
+        expect(toast.showToast).toHaveBeenCalledWith("Created and confirmed slot 'new_slot'");
+      });
+    });
+
+    it("does not render unconfirmed banner when saveSyncEnabled is false", async () => {
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({
+        configured: false,
+        active_slot: "default",
+      });
+
+      const disabledDetail: GameDetailState = {
+        ...baseDetail,
+        saveSyncEnabled: false,
+      };
+
+      render(<SaveManagementCard appId={100} romId={42} detail={disabledDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Saves")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("unconfirmed-slot-banner")).not.toBeInTheDocument();
+      expect(backend.isSaveTrackingConfigured).not.toHaveBeenCalled();
+    });
+
+    it("scrolls into view when romm_tab_switch event is dispatched with saves tab", async () => {
+      const scrollIntoViewMock = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoViewMock;
+
+      render(<SaveManagementCard appId={100} romId={42} detail={baseDetail} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Saves")).toBeInTheDocument();
+      });
+
+      globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "saves" } }));
+
+      expect(scrollIntoViewMock).toHaveBeenCalled();
     });
   });
 });

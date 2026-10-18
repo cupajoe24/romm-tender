@@ -25,6 +25,7 @@ import { markLaunchSkipped } from "../../utils/launchGate";
 import { ensureTrackingConfiguredOnPage, makeLaunchGateOps } from "../../utils/launchGateOps";
 import { runGateLoop } from "../../utils/launchVerdict";
 import { refreshSaveStatus } from "../../utils/gameDetailStore";
+import { showToast } from "../../utils/toast";
 import type { AskDialog } from "./dialogs/useDialogHost";
 import type { PlayButtonState } from "./PlayButton";
 
@@ -133,7 +134,22 @@ export function usePlayLaunch({
         tag: "DesktopPlayButton",
         toastSyncResult: true,
         onSyncStart: () => setStateOverride("syncing"),
-        ensureTrackingConfigured: () => ensureTrackingConfiguredOnPage(romId),
+        ensureTrackingConfigured: () =>
+          ensureTrackingConfiguredOnPage(romId, {
+            toast: (body) => {
+              const desktopBody = body.includes("Saves tab")
+                ? body.replace("in the Saves tab", "in Saves").replace("the Saves tab", "Saves")
+                : body;
+              showToast(desktopBody);
+            },
+            dispatchSavesTab: () => {
+              const card = document.querySelector(".tender-desktop-saves-card");
+              if (card) {
+                card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              }
+              globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "saves" } }));
+            },
+          }),
         checkCoreChange: () =>
           confirmCoreChangeIfNeeded(romId, (oldLabel, newLabel) => prompts.confirmCoreChange(oldLabel, newLabel)),
         confirmUncheckedStartingSource: prompts.confirmUncheckedSource,
