@@ -11,6 +11,7 @@ import {
   confirmSlotChoice,
   debugLog,
   getSaveSetupInfo,
+  isEndpointFailure,
   isSaveTrackingConfigured,
   logError,
   preLaunchSync,
@@ -109,7 +110,7 @@ export async function ensureTrackingConfiguredOnPage(romId: number): Promise<"pr
   if (trackingResult.configured) return "proceed";
 
   const setupInfo = await boundedOr(getSaveSetupInfo(romId), SERVER_CALL_LIMIT_MS, () => null);
-  if (setupInfo === null) return "proceed";
+  if (setupInfo === null || isEndpointFailure(setupInfo)) return "proceed";
 
   return applyLaunchGateSetupOutcome(resolveSaveSetupOutcome(setupInfo), {
     rid: romId,

@@ -20,6 +20,8 @@ vi.mock("../api/backend", () => ({
   debugLog: vi.fn(() => Promise.resolve()),
   getInstalledRom: vi.fn(),
   getSaveSetupInfo: vi.fn(),
+  isEndpointFailure: (value: object): boolean =>
+    "success" in value && (value as { success?: unknown }).success === false,
   isSaveTrackingConfigured: vi.fn(),
   logError: vi.fn(),
   preLaunchSync: vi.fn(),
@@ -234,6 +236,19 @@ describe("ensureTrackingConfiguredOnPage", () => {
   it("a failed setup read proceeds, switching nothing", async () => {
     vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
     vi.mocked(backend.getSaveSetupInfo).mockRejectedValue(new Error("net"));
+
+    expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("proceed");
+    expect(tabSwitch).not.toHaveBeenCalled();
+    expect(toaster.toast).not.toHaveBeenCalled();
+  });
+
+  it("an endpoint refusal (sync_disabled) on setup proceeds without switching tabs or toasting", async () => {
+    vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
+    vi.mocked(backend.getSaveSetupInfo).mockResolvedValue({
+      success: false,
+      reason: "sync_disabled",
+      message: "Save sync is disabled",
+    } as unknown as Awaited<ReturnType<typeof backend.getSaveSetupInfo>>);
 
     expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("proceed");
     expect(tabSwitch).not.toHaveBeenCalled();

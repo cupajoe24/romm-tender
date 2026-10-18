@@ -23,11 +23,12 @@ from services.saves._helpers import newest_server_saves_by_target
 from services.saves._messages import (
     MIGRATION_DEVICE_NOT_REGISTERED,
     MIGRATION_LOCAL_FILES_FAILED,
+    SAVE_SYNC_DISABLED,
     SAVE_SYNC_IN_CONTENT_DIR,
 )
 from services.saves._refusals import SavefilesInContentDir, shape_refusal
 from services.saves._save_state import read_save_state, write_save_state
-from services.saves._settings import autocleanup_limit, resolve_default_slot
+from services.saves._settings import autocleanup_limit, resolve_default_slot, save_sync_enabled
 
 if TYPE_CHECKING:
     import asyncio
@@ -158,6 +159,8 @@ class SetupWizard:
         verdict differ (#1570).
         """
         rom_id = int(rom_id)
+        if not save_sync_enabled(self._settings):
+            raise Refused("sync_disabled", SAVE_SYNC_DISABLED)
 
         # Local saves
         local_files = self._rom_info.find_save_files(rom_id)

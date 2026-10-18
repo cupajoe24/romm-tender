@@ -30,6 +30,7 @@ import {
   confirmSlotChoice,
   logInfo,
   logError,
+  isEndpointFailure,
 } from "../api/backend";
 import { confirmCoreChangeIfNeeded } from "./coreChange";
 import { setMigrationStatus } from "./migrationStore";
@@ -81,7 +82,7 @@ async function ensureTrackingConfiguredWatcher(romId: number): Promise<"proceed"
     logError(`Watcher save-setup fetch failed (proceeding unconfigured): ${e}`);
     return null;
   });
-  if (setupInfo === null) return "proceed";
+  if (setupInfo === null || isEndpointFailure(setupInfo)) return "proceed";
 
   // Reuse the shared outcome handler with a no-op saves-tab dispatch and a
   // swallowed toast: the auto_confirm branch fires `confirmSlotChoice`; every

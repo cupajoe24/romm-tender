@@ -20,6 +20,8 @@ vi.mock("../api/backend", () => ({
   getCachedGameDetail: vi.fn(),
   isSaveTrackingConfigured: vi.fn(),
   getSaveSetupInfo: vi.fn(),
+  isEndpointFailure: (value: object): boolean =>
+    "success" in value && (value as { success?: unknown }).success === false,
   confirmSlotChoice: vi.fn(),
   checkCoreChange: vi.fn(),
   probeReachability: vi.fn(),
@@ -1645,6 +1647,18 @@ describe("launchInterceptor — full funnel watcher", () => {
       vi.mocked(backend.getSaveSetupInfo).mockRejectedValueOnce(new Error("net"));
       expect(await ops.ensureTrackingConfigured()).toBe("proceed");
       expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining("save-setup fetch failed"));
+    });
+
+    it("ensureTrackingConfigured: an endpoint failure (sync_disabled) on setup proceeds unconfigured", async () => {
+      const ops = await captureOps();
+
+      vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValueOnce({ configured: false, active_slot: null });
+      vi.mocked(backend.getSaveSetupInfo).mockResolvedValueOnce({
+        success: false,
+        reason: "sync_disabled",
+        message: "Save sync is disabled",
+      } as unknown as Awaited<ReturnType<typeof backend.getSaveSetupInfo>>);
+      expect(await ops.ensureTrackingConfigured()).toBe("proceed");
     });
 
     it("ensureTrackingConfigured: an auto-adopt confirmSlotChoice throw logs and still proceeds", async () => {

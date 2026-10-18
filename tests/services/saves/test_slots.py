@@ -899,6 +899,15 @@ class TestGetSaveSetupInfo:
         assert result["recommended_action"] == "show_wizard"
         assert result["server_query_failed"] is False
 
+    @pytest.mark.asyncio
+    async def test_get_save_setup_info_refuses_when_save_sync_disabled(self, tmp_path):
+        """get_save_setup_info refuses with sync_disabled when save sync is off."""
+        svc, _ = make_service(tmp_path)
+        svc._config.settings["save_sync_enabled"] = False
+        with pytest.raises(Refused) as exc_info:
+            await svc.get_save_setup_info(42)
+        assert exc_info.value.reason == "sync_disabled"
+
 
 class TestConfirmSlotChoice:
     @pytest.mark.asyncio
