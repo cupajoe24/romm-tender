@@ -47,8 +47,9 @@ function reactClient() {
 }
 
 /**
- * A stand-in for the desktop client's window. Its frames, timers and observer
- * run only when the test says, and React's work runs inside each frame.
+ * A stand-in for the desktop client's window. Its frames and observer run only
+ * when the test says, React's work runs inside each frame, and its timers never
+ * run: the watcher sets none.
  */
 function desktopClient(doc: Document, extra: Record<string, unknown> = {}) {
   const frames = new Map<number, FrameRequestCallback>();
@@ -665,6 +666,34 @@ describe("navigationWatcher", () => {
       return { ...steam, react, desktop: client, findClient: react.findClient, stop };
     }
 
+    it("gives Steam's Play button back on a switch to a RomM game whose Play button cannot be drawn", () => {
+      vi.spyOn(backend, "logError").mockImplementation(() => {});
+      const page = startOn(99999, { playButton: Blank });
+      expect(page.playButton.style.display).toBe("none");
+      page.react.client.createRoot.mockImplementationOnce(() => {
+        throw new Error("no root for this game");
+      });
+
+      navigateTo("/library/app/88888");
+      page.desktop.mutate();
+      expect(page.playButton.style.display).toBe("");
+      expect(page.badges.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+
+      navigateTo("/library/app/99999");
+      page.desktop.mutate();
+      expect(page.playButton.style.display).toBe("none");
+
+      // Not drawn again for the game it failed on, and Steam's button stays.
+      navigateTo("/library/app/88888");
+      page.desktop.mutate();
+      expect(page.playButton.style.display).toBe("");
+      expect(page.badges.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+      expect(page.react.client.createRoot).toHaveBeenCalledTimes(3);
+      page.stop();
+    });
+
     it("keeps Steam's play button hidden through a switch to another RomM game", () => {
       const page = startOn(99999);
 
@@ -740,6 +769,25 @@ describe("navigationWatcher", () => {
       page.stop();
     });
 
+    it("hides none of Steam's page behind a view that has not rendered", () => {
+      const steam = gamePage();
+      const createRoot = vi.fn(() => ({ render: vi.fn(), unmount: vi.fn() }) as unknown as Root);
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({ createRoot });
+      const client = desktopClient(steam.doc);
+      navigateTo("/library/app/99999");
+      vi.spyOn(rommAppIds, "isRomMAppId").mockReturnValue(true);
+
+      const stop = start(PAGE, client);
+      for (let i = 0; i < 3; i++) client.mutate();
+
+      expect(steam.doc.getElementById(TENDER_PLAY_BUTTON_ID)).not.toBeNull();
+      expect(steam.doc.getElementById(TENDER_SUBSTITUTE_ID)).not.toBeNull();
+      expect(steam.playButton.style.display).toBe("");
+      expect(steam.badges.style.display).toBe("");
+      expect(steam.content.style.display).toBe("");
+      stop();
+    });
+
     describe("a page with nothing to mount", () => {
       it("leaves Steam's content and Play button in place and creates no React root", () => {
         const page = startOn(99999, {});
@@ -804,9 +852,13 @@ describe("navigationWatcher", () => {
     it.each([
       ["with both parts handed", PAGE],
       ["with nothing handed", {}],
-    ])("leaves every element's style attribute as it found it, %s", (_name, handed: DesktopGamePage) => {
+    ])("leaves every element's style attribute as it found it, %s", async (_name, handed: DesktopGamePage) => {
       reactClient();
       const page = gamePage();
+      const scroller = el(page.doc, "div", "ScrollPanel");
+      scroller.style.overflowY = "auto";
+      page.panel.replaceWith(scroller);
+      scroller.appendChild(page.panel);
       page.panel.style.display = "flex";
       page.playBar.style.zIndex = "3";
       page.lastPlayed.style.display = "inline-block";
@@ -816,19 +868,38 @@ describe("navigationWatcher", () => {
       const client = desktopClient(page.doc);
       navigateTo("/library/app/50000");
       vi.spyOn(rommAppIds, "isRomMAppId").mockImplementation((id) => id === 50000);
+      const otherShortcut = 50001;
 
-      const stop = start(handed, client);
-      client.mutate();
-      client.mutate();
-      page.playBar.dispatchEvent(new Event("scroll", { bubbles: true }));
-      client.mutate();
-      navigateTo("/library/home");
-      client.mutate();
+      try {
+        const stop = start(handed, client);
+        client.mutate();
+        client.mutate();
+        expect(page.playBar.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
 
-      for (const [node, style] of before) expect(node.getAttribute("style") ?? "", node.className).toBe(style);
-      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
-      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
-      stop();
+        // A scroll and a resize re-pin the play bar; each must reach the listener it is for.
+        vi.spyOn(page.playBar, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect);
+        scroller.dispatchEvent(new Event("scroll"));
+        expect(page.playBar.style.backgroundColor).toBe(GLASS_PLAY_BAR_BG);
+        vi.spyOn(page.playBar, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
+        window.dispatchEvent(new Event("resize"));
+        expect(page.playBar.style.backgroundColor).toBe(SOLID_PLAY_BAR_BG);
+
+        const framesSoFar = vi.mocked(client.win.requestAnimationFrame).mock.calls.length;
+        rommAppIds.registerRomMAppId(otherShortcut);
+        await Promise.resolve();
+        expect(vi.mocked(client.win.requestAnimationFrame).mock.calls).toHaveLength(framesSoFar + 1);
+        client.flush();
+
+        navigateTo("/library/home");
+        client.mutate();
+
+        for (const [node, style] of before) expect(node.getAttribute("style") ?? "", node.className).toBe(style);
+        expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+        stop();
+      } finally {
+        rommAppIds.unregisterRomMAppId(otherShortcut);
+      }
     });
   });
 
@@ -943,8 +1014,6 @@ describe("navigationWatcher", () => {
         view.break?.();
         await vi.waitFor(() => expect(page.logError).toHaveBeenCalledWith(expect.stringContaining("the view broke")));
         page.desktop.flush(false);
-        page.desktop.fireObserver();
-        page.desktop.flush(false);
 
         expect(page.playButton.style.display).toBe("");
         expect(page.badges.style.display).toBe("");
@@ -954,6 +1023,143 @@ describe("navigationWatcher", () => {
       } finally {
         actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
       }
+    });
+
+    it("leaves Steam's content when createRoot throws for the GameView, and does not try again", () => {
+      const page = failingPage();
+      const createRoot = vi.fn(() => {
+        throw new Error("no root");
+      });
+      vi.spyOn(desktopWin, "findReactClient").mockReturnValue({ createRoot });
+
+      const stop = start({ gameView: Blank }, page.desktop);
+      for (let i = 0; i < 5; i++) page.desktop.mutate();
+
+      expect(page.content.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+      expect(createRoot).toHaveBeenCalledTimes(1);
+      expect(page.logError).toHaveBeenCalledWith(expect.stringContaining("no root"));
+      stop();
+    });
+
+    it("gives Steam's content back when the GameView it drew throws, and does not try again", async () => {
+      const page = failingPage();
+      const react = reactClient();
+      const view: { break?: () => void } = {};
+      const Flaky = () => {
+        const [broken, setBroken] = useState(false);
+        useEffect(() => {
+          view.break = () => setBroken(true);
+        }, []);
+        if (broken) throw new Error("the view broke");
+        return null;
+      };
+      const stop = startDesktopNavigationWatcher({ gameView: Flaky }, page.desktop.win);
+      page.desktop.flush();
+      expect(page.content.style.display).toBe("none");
+
+      const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
+      try {
+        view.break?.();
+        await vi.waitFor(() => expect(page.logError).toHaveBeenCalledWith(expect.stringContaining("the view broke")));
+        page.desktop.flush(false);
+
+        expect(page.content.style.display).toBe("");
+        expect(page.doc.getElementById(TENDER_SUBSTITUTE_ID)).toBeNull();
+        expect(react.client.createRoot).toHaveBeenCalledTimes(1);
+        stop();
+      } finally {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+      }
+    });
+
+    it("gives Steam's Play button back when a Play button it replaces cannot be drawn", () => {
+      const page = failingPage();
+      const react = reactClient();
+      const stop = start({ playButton: Blank }, page.desktop);
+      expect(page.playButton.style.display).toBe("none");
+      react.client.createRoot.mockImplementationOnce(() => {
+        throw new Error("no root");
+      });
+
+      const otherSlot = el(page.doc, "div", "Elsewhere");
+      page.playBar.appendChild(otherSlot);
+      otherSlot.appendChild(page.playButton);
+      page.desktop.mutate();
+
+      expect(page.playButton.style.display).toBe("");
+      expect(page.badges.style.display).toBe("");
+      expect(page.doc.getElementById(TENDER_PLAY_BUTTON_ID)).toBeNull();
+      stop();
+    });
+
+    it.each([
+      ["overview panel", (page: ReturnType<typeof gamePage>) => page.panel.remove()],
+      // The structural rung answers a panel's first child once it holds two.
+      [
+        "play section",
+        (page: ReturnType<typeof gamePage>) => {
+          page.playBar.remove();
+          page.content.remove();
+        },
+      ],
+    ])("says once, on leaving it, that it never recognised a RomM game page: no %s", (missing, breakPage) => {
+      const page = failingPage();
+      const logWarn = vi.spyOn(backend, "logWarn").mockImplementation(() => {});
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+      breakPage(page);
+
+      const stop = start({}, page.desktop);
+      now.mockReturnValue(5_000);
+      page.desktop.mutate();
+      page.desktop.mutate();
+      expect(logWarn).not.toHaveBeenCalled();
+
+      now.mockReturnValue(13_000);
+      navigateTo("/library/home");
+      page.desktop.mutate();
+      page.desktop.mutate();
+
+      expect(logWarn).toHaveBeenCalledTimes(1);
+      expect(logWarn).toHaveBeenCalledWith(
+        `desktop: left the game page of 50000 after 12000 ms without recognising it: found no ${missing}`,
+      );
+      stop();
+    });
+
+    it("says how soon it was left of a page left before Steam drew it", () => {
+      const page = failingPage();
+      const logWarn = vi.spyOn(backend, "logWarn").mockImplementation(() => {});
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+      page.panel.remove();
+
+      const stop = start({}, page.desktop);
+      now.mockReturnValue(1_040);
+      navigateTo("/library/home");
+      page.desktop.mutate();
+
+      expect(logWarn).toHaveBeenCalledWith(
+        "desktop: left the game page of 50000 after 40 ms without recognising it: found no overview panel",
+      );
+      stop();
+    });
+
+    it("says nothing of a page it recognised once Steam had drawn it", () => {
+      const page = failingPage();
+      const logWarn = vi.spyOn(backend, "logWarn").mockImplementation(() => {});
+      page.panel.remove();
+
+      const stop = start({}, page.desktop);
+      page.doc.body.append(page.panel);
+      page.desktop.mutate();
+      expect(page.playBar.style.position).toBe("sticky");
+
+      navigateTo("/library/home");
+      page.desktop.mutate();
+
+      expect(logWarn).not.toHaveBeenCalled();
+      stop();
     });
 
     it("unmounts the root of a Play button it replaces", () => {

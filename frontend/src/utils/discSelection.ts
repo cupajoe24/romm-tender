@@ -42,7 +42,7 @@ export function computeDiscDisplayState(
   // The m3u playlist is active only when the default is m3u and nothing is pinned.
   const showPlaylistFace = isM3u && selected === null;
   const activeDisc = discs.find((d) => d.filename === effectiveSelected);
-  const activeNum = activeDisc ? (activeDisc.label.match(/\d+/)?.[0] ?? String(activeDisc.index)) : "";
+  const activeNum = activeDisc ? (/\d+/.exec(activeDisc.label)?.[0] ?? String(activeDisc.index)) : "";
 
   return {
     isM3u,

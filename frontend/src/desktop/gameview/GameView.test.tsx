@@ -37,6 +37,7 @@ vi.mock("../desktopWindow", () => ({
 
 vi.mock("../../utils/artwork", () => ({
   applyArtwork: vi.fn().mockResolvedValue(4),
+  fillEmptyArtwork: vi.fn().mockResolvedValue(4),
   cancelArtworkApply: vi.fn().mockResolvedValue(undefined),
   getGameIconUrl: vi.fn().mockResolvedValue(null),
 }));
@@ -272,7 +273,7 @@ describe("GameView", () => {
     });
   });
 
-  it("triggers applyArtwork when romId is present and cancels on unmount", async () => {
+  it("fills the empty artwork slots when romId is present and cancels on unmount", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 999,
       romName: "Zelda",
@@ -305,7 +306,7 @@ describe("GameView", () => {
     const { unmount } = render(<GameView appId={55555} />);
 
     await waitFor(() => {
-      expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(999, 55555);
+      expect(vi.mocked(artwork.fillEmptyArtwork)).toHaveBeenCalledWith(999, 55555);
     });
 
     unmount();
@@ -336,6 +337,8 @@ describe("GameView", () => {
       emulators: [
         {
           label: "Mupen64Plus-Next",
+          labels: ["Mupen64Plus-Next"],
+          name: "mupen64plus_next",
           kind: "libretro",
           core_so: "mupen64plus_next",
           emulator: "mupen64plus_next",
@@ -377,7 +380,7 @@ describe("GameView", () => {
     expect(rightColumn?.querySelector(".tender-desktop-saves-card")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(101, 101);
+      expect(vi.mocked(artwork.fillEmptyArtwork)).toHaveBeenCalledWith(101, 101);
     });
   });
 

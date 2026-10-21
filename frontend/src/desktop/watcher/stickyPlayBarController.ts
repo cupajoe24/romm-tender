@@ -283,9 +283,8 @@ export function createStickyPlayBarController(
 
   ledger.addListener(scroller, "scroll", updatePinning, { passive: true });
   ledger.addListener(win, "resize", updatePinning, { passive: true });
-  updatePinning();
 
-  return {
+  const controller: StickyPlayBarController = {
     matches: (top: HTMLElement, sec: HTMLElement) =>
       top === playBarTop && sec === playSection && playBarTop.isConnected,
     updatePinning,
@@ -302,4 +301,14 @@ export function createStickyPlayBarController(
       }
     },
   };
+
+  // The observer is already observing, and a caller handed a throw never gets
+  // the controller whose dispose would disconnect it.
+  try {
+    updatePinning();
+  } catch (e) {
+    controller.dispose();
+    throw e;
+  }
+  return controller;
 }

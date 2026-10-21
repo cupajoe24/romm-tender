@@ -13,7 +13,8 @@ vi.mock("../../utils/gameDetailStore", () => ({
   noteSaveSyncDisplay: vi.fn(),
 }));
 
-vi.mock("../../api/backend", () => ({
+vi.mock("../../api/backend", async () => ({
+  isEndpointFailure: (await vi.importActual<typeof import("../../api/backend")>("../../api/backend")).isEndpointFailure,
   getSaveSlots: vi.fn(),
   getSlotSaves: vi.fn(),
   switchSlot: vi.fn(),

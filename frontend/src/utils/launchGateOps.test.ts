@@ -6,16 +6,18 @@ import { getMigrationState } from "./migrationStore";
 import { SERVER_UNREACHABLE_TOAST_BODY } from "./saveSetup";
 import { LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
 import {
+  ensureTrackingConfiguredBigPicture,
   ensureTrackingConfiguredOnPage,
   makeLaunchGateOps,
   runPreLaunchSync,
-  type LaunchGateOpsOptions,
 } from "./launchGateOps";
 import { TimeoutError } from "./withTimeout";
 import type { SaveSetupInfo, SyncConflict } from "../types";
 
 vi.mock("../api/backend", () => ({
+  checkCoreChange: vi.fn(),
   checkLocalDrift: vi.fn(),
+  checkStartSource: vi.fn(),
   confirmSlotChoice: vi.fn(),
   debugLog: vi.fn(() => Promise.resolve()),
   getInstalledRom: vi.fn(),
@@ -76,6 +78,7 @@ describe("runPreLaunchSync", () => {
       success: false,
       message: "skip",
       reason: "savefiles_in_content_dir",
+      uploaded: 1,
     });
 
     expect(await runPreLaunchSync(ROM_ID, { tag: TAG, toastSyncResult: true })).toEqual({
@@ -89,7 +92,12 @@ describe("runPreLaunchSync", () => {
   });
 
   it("conflicts pass through with the sync's own success and message", async () => {
-    vi.mocked(backend.preLaunchSync).mockResolvedValue({ success: false, message: "c", conflicts: [conflict] });
+    vi.mocked(backend.preLaunchSync).mockResolvedValue({
+      success: false,
+      message: "c",
+      conflicts: [conflict],
+      uploaded: 1,
+    });
 
     expect(await runPreLaunchSync(ROM_ID, { tag: TAG, toastSyncResult: true })).toEqual({
       success: false,
@@ -114,6 +122,7 @@ describe("runPreLaunchSync", () => {
       message: "Server offline",
       reason: "server_unreachable",
       errors: ["a", "b"],
+      uploaded: 1,
     });
 
     expect(await runPreLaunchSync(ROM_ID, { tag: TAG, toastSyncResult: true })).toEqual({
@@ -210,7 +219,7 @@ describe("runPreLaunchSync", () => {
   });
 });
 
-describe("ensureTrackingConfiguredOnPage", () => {
+describe("ensureTrackingConfiguredBigPicture", () => {
   let tabSwitch: Mock<(e: Event) => void>;
 
   beforeEach(() => {
@@ -222,24 +231,8 @@ describe("ensureTrackingConfiguredOnPage", () => {
   it("a configured ROM proceeds without asking for setup", async () => {
     vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: true, active_slot: "slot1" });
 
-    expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("proceed");
+    expect(await ensureTrackingConfiguredBigPicture(ROM_ID)).toBe("proceed");
     expect(backend.getSaveSetupInfo).not.toHaveBeenCalled();
-  });
-
-  it("a failed tracking check reads as configured", async () => {
-    vi.mocked(backend.isSaveTrackingConfigured).mockRejectedValue(new Error("net"));
-
-    expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("proceed");
-    expect(backend.getSaveSetupInfo).not.toHaveBeenCalled();
-  });
-
-  it("a failed setup read proceeds, switching nothing", async () => {
-    vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
-    vi.mocked(backend.getSaveSetupInfo).mockRejectedValue(new Error("net"));
-
-    expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("proceed");
-    expect(tabSwitch).not.toHaveBeenCalled();
-    expect(toaster.toast).not.toHaveBeenCalled();
   });
 
   it("an endpoint refusal (sync_disabled) on setup proceeds without switching tabs or toasting", async () => {
@@ -255,6 +248,22 @@ describe("ensureTrackingConfiguredOnPage", () => {
     expect(toaster.toast).not.toHaveBeenCalled();
   });
 
+  it("a failed tracking check reads as configured", async () => {
+    vi.mocked(backend.isSaveTrackingConfigured).mockRejectedValue(new Error("net"));
+
+    expect(await ensureTrackingConfiguredBigPicture(ROM_ID)).toBe("proceed");
+    expect(backend.getSaveSetupInfo).not.toHaveBeenCalled();
+  });
+
+  it("a failed setup read proceeds, switching nothing", async () => {
+    vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
+    vi.mocked(backend.getSaveSetupInfo).mockRejectedValue(new Error("net"));
+
+    expect(await ensureTrackingConfiguredBigPicture(ROM_ID)).toBe("proceed");
+    expect(tabSwitch).not.toHaveBeenCalled();
+    expect(toaster.toast).not.toHaveBeenCalled();
+  });
+
   it("an adoptable default is adopted and the start proceeds", async () => {
     vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
     vi.mocked(backend.getSaveSetupInfo).mockResolvedValue(setupInfo());
@@ -264,7 +273,7 @@ describe("ensureTrackingConfiguredOnPage", () => {
       message: "",
     });
 
-    expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("proceed");
+    expect(await ensureTrackingConfiguredBigPicture(ROM_ID)).toBe("proceed");
     expect(backend.confirmSlotChoice).toHaveBeenCalledWith(ROM_ID, "slot1", false, null, false);
     expect(tabSwitch).not.toHaveBeenCalled();
   });
@@ -273,7 +282,7 @@ describe("ensureTrackingConfiguredOnPage", () => {
     vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
     vi.mocked(backend.getSaveSetupInfo).mockResolvedValue(setupInfo({ recommended_action: "server_unreachable" }));
 
-    expect(await ensureTrackingConfiguredOnPage(ROM_ID)).toBe("abort");
+    expect(await ensureTrackingConfiguredBigPicture(ROM_ID)).toBe("abort");
     expect(toastBodies()).toEqual([SERVER_UNREACHABLE_TOAST_BODY]);
     expect(backend.confirmSlotChoice).not.toHaveBeenCalled();
     expect((tabSwitch.mock.calls[0]?.[0] as CustomEvent | undefined)?.detail).toEqual({ tab: "saves" });
@@ -284,7 +293,7 @@ describe("ensureTrackingConfiguredOnPage", () => {
     vi.mocked(backend.getSaveSetupInfo).mockResolvedValue(setupInfo());
     vi.mocked(backend.confirmSlotChoice).mockRejectedValue(new Error("confirm blew up"));
 
-    await expect(ensureTrackingConfiguredOnPage(ROM_ID)).rejects.toThrow("confirm blew up");
+    await expect(ensureTrackingConfiguredBigPicture(ROM_ID)).rejects.toThrow("confirm blew up");
   });
 
   describe("past the deadline", () => {
@@ -299,7 +308,7 @@ describe("ensureTrackingConfiguredOnPage", () => {
       vi.mocked(backend.isSaveTrackingConfigured).mockResolvedValue({ configured: false, active_slot: null });
       vi.mocked(backend.getSaveSetupInfo).mockReturnValue(new Promise(() => {}));
 
-      const outcome = expect(ensureTrackingConfiguredOnPage(ROM_ID)).rejects.toBeInstanceOf(TimeoutError);
+      const outcome = expect(ensureTrackingConfiguredBigPicture(ROM_ID)).rejects.toBeInstanceOf(TimeoutError);
       await vi.advanceTimersByTimeAsync(SERVER_CALL_LIMIT_MS);
 
       await outcome;
@@ -309,11 +318,12 @@ describe("ensureTrackingConfiguredOnPage", () => {
 });
 
 describe("makeLaunchGateOps", () => {
+  type LaunchGateOpsOptions = Parameters<typeof makeLaunchGateOps>[1];
   const options = (overrides: Partial<LaunchGateOpsOptions> = {}): LaunchGateOpsOptions => ({
     tag: TAG,
     toastSyncResult: false,
     ensureTrackingConfigured: vi.fn(() => Promise.resolve("proceed" as const)),
-    checkCoreChange: vi.fn(() => Promise.resolve(true)),
+    confirmCoreChange: vi.fn(() => Promise.resolve(true)),
     confirmUncheckedStartingSource: vi.fn(() => Promise.resolve(true)),
     ...overrides,
   });
@@ -331,15 +341,49 @@ describe("makeLaunchGateOps", () => {
     expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining(`${TAG} launch-target check threw`));
   });
 
-  it("the tracking and core-change steps are the path's own", async () => {
+  it("readStartingSource asks with the tag, and the unchecked-source question is the path's own", async () => {
+    vi.mocked(backend.checkStartSource).mockRejectedValue(new Error("net"));
+    const confirmUncheckedStartingSource = vi.fn(() => Promise.resolve(false));
+    const ops = makeLaunchGateOps(ROM_ID, options({ confirmUncheckedStartingSource }));
+
+    expect(await ops.readStartingSource()).toEqual({ checked: false });
+    expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining(`${TAG} start-source check got no answer`));
+    expect(await ops.confirmUncheckedStartingSource()).toBe(false);
+    expect(confirmUncheckedStartingSource).toHaveBeenCalledTimes(1);
+  });
+
+  it("the tracking step is the path's own", async () => {
     const opts = options({
       ensureTrackingConfigured: vi.fn(() => Promise.resolve("abort" as const)),
-      checkCoreChange: vi.fn(() => Promise.resolve(false)),
     });
     const ops = makeLaunchGateOps(ROM_ID, opts);
 
     expect(await ops.ensureTrackingConfigured()).toBe("abort");
+  });
+
+  it("checkCoreChange asks through confirmCoreChange when core changed", async () => {
+    vi.mocked(backend.checkCoreChange).mockResolvedValue({
+      changed: true,
+      old_label: "Genesis Plus GX",
+      new_label: "Picodrive",
+    });
+    const confirmCoreChange = vi.fn(() => Promise.resolve(false));
+    const ops = makeLaunchGateOps(ROM_ID, options({ confirmCoreChange }));
+
     expect(await ops.checkCoreChange()).toBe(false);
+    expect(confirmCoreChange).toHaveBeenCalledWith("Genesis Plus GX", "Picodrive");
+  });
+
+  it("checkCoreChange logs and assumes unchanged when check throws", async () => {
+    vi.mocked(backend.checkCoreChange).mockRejectedValue(new Error("socket down"));
+    const confirmCoreChange = vi.fn();
+    const ops = makeLaunchGateOps(ROM_ID, options({ confirmCoreChange }));
+
+    expect(await ops.checkCoreChange()).toBe(true);
+    expect(backend.logError).toHaveBeenCalledWith(
+      `${TAG}: core-change check failed (assuming unchanged): Error: socket down`,
+    );
+    expect(confirmCoreChange).not.toHaveBeenCalled();
   });
 
   it("checkReachability reports an answered probe to the connection store", async () => {
@@ -412,5 +456,25 @@ describe("makeLaunchGateOps", () => {
     vi.mocked(backend.preLaunchSync).mockRejectedValue(new Error("boom"));
 
     expect(await makeLaunchGateOps(ROM_ID, options()).preLaunchSync()).toEqual({ success: false, message: "" });
+  });
+
+  it("preLaunchSync: a throwing onSyncStart hook is caught and logged, and sync still runs", async () => {
+    const onSyncStart = vi.fn(() => {
+      throw new Error("hook boom");
+    });
+    const ops = makeLaunchGateOps(ROM_ID, options({ onSyncStart }));
+    vi.mocked(backend.preLaunchSync).mockResolvedValue({
+      success: true,
+      synced: 1,
+      uploaded: 0,
+      downloaded: 0,
+      message: "ok",
+    });
+
+    const outcome = await ops.preLaunchSync();
+
+    expect(outcome.success).toBe(true);
+    expect(backend.logError).toHaveBeenCalledWith(`${TAG}: onSyncStart threw: Error: hook boom`);
+    expect(backend.preLaunchSync).toHaveBeenCalledWith(ROM_ID);
   });
 });

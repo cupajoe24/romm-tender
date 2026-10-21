@@ -1476,7 +1476,7 @@ only what is its own:
 | Tracking setup                     | `ensureTrackingConfiguredOnPage` — a slot to choose aborts and opens Saves (or scrolls to `SaveManagementCard` on desktop) | adopts a default silently and always proceeds |
 | Toast for a sync that moved saves  | yes                                                                                                                        | no                                            |
 | A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                                             | nothing; a pending migration is toasted       |
-| A gate run that throws             | the trigger returns to Play                                                                                                | fails open: the game starts                   |
+| Acting on a verdict throws         | the trigger returns to Play                                                                                                | fails open: the game starts (bare relaunch)   |
 
 The watcher has no surface of its own, so `index.tsx` hands it a function rather than a set of prompts:
 `launchPromptsForThisStart(gamepadLaunchPrompts)` (`frontend/src/utils/launchPromptRouter.ts`), called once per start as
@@ -1486,22 +1486,6 @@ and the desktop surface has offered them and has a window to draw into, and with
 always, in a shipped bundle, which carries no desktop surface to offer them. How Steam's main UI is read, and the one
 case it cannot see — a desktop client closed to the tray, where the dialog waits unseen until Steam is opened again —
 are on [Desktop Mode DOM Adaptation](desktop-dom-architecture.md#dialogs-for-a-start-the-launch-watcher-catches).
-
-Every launch path builds the gate's inputs with `makeLaunchGateOps` (`frontend/src/utils/launchGateOps.ts`) and acts on
-its verdict with `runGateLoop` (`frontend/src/utils/launchVerdict.ts`), which runs the gate, hands the verdict to
-`actOnGateVerdict` and runs the gate again for as long as the user picks Retry on the offline-drift prompt. The shared
-parts are the migration check, the launch-target check, the starting-source check, a fresh reachability probe, the drift
-check, the pre-launch sync itself (`runPreLaunchSync`) and what each verdict means: a missing launch target or a
-switched-off source toasts, resolved conflicts announce the save change to the page and then launch. A path supplies
-only what is its own:
-
-| Supplied by the path               | Play button                                                                                                                      | Launch watcher                                        |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`frontend/src/shared/launchPrompts.ts`)                                                                  | `gamepadLaunchPrompts`, from `frontend/src/index.tsx` |
-| Tracking setup                     | `ensureTrackingConfiguredBigPicture` — an answer it cannot settle aborts and opens the Saves tab (`applyLaunchGateSetupOutcome`) | adopts a default silently and always proceeds         |
-| Toast for a sync that moved saves  | yes                                                                                                                              | no                                                    |
-| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                                                   | nothing of its own; a pending migration is toasted    |
-| Acting on a verdict throws         | the trigger returns to Play                                                                                                      | fails open: the game starts (bare relaunch)           |
 
 The watcher listens on `SteamClient.Apps.RegisterForGameActionStart`, which reports a start with `action` `"LaunchApp"`
 before Steam creates the game's process. Its second argument is **not the appId but the 64-bit game ID** in decimal: for

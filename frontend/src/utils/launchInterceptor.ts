@@ -28,15 +28,14 @@ import {
   isSaveTrackingConfigured,
   getSaveSetupInfo,
   confirmSlotChoice,
+  getVersionList,
   logInfo,
   logError,
   isEndpointFailure,
 } from "../api/backend";
-import { confirmCoreChangeIfNeeded } from "./coreChange";
 import { setMigrationStatus } from "./migrationStore";
 import { getAppIdRomIdMapSnapshot, readGameRunning, refreshAppIdMap } from "./sessionManager";
 import { markLaunchSkipped, consumeLaunchSkip, LOCAL_CALL_LIMIT_MS, SERVER_CALL_LIMIT_MS } from "./launchGate";
-import type { GateVerdict } from "./launchGate";
 import { makeLaunchGateOps } from "./launchGateOps";
 import { runGateLoop, type LaunchPrompts } from "./launchVerdict";
 import { reconfirmLaunchOptions } from "./launchOptionsReconcile";
@@ -45,6 +44,7 @@ import { detach } from "./detach";
 import { tellStrandedPress } from "./strandedPanelStore";
 import { strandedPanelSentence } from "./strandedPanelWording";
 import { TimeoutError, boundedOr, rethrowTimeout, withTimeout } from "./withTimeout";
+import { boundAvailabilityOf, type BoundAvailability } from "./vanishedBinding";
 
 /**
  * A start the watcher cancelled: the appId it resolved, and the game ID Steam
@@ -66,23 +66,25 @@ const WATCHER_TAG = "Watcher";
  * game page open, so — unlike the Play button — this MUST NOT route the user
  * to the saves tab. Instead it silently auto-adopts the default/recommended
  * slot (via `confirmSlotChoice`) and proceeds. A direct launch is never blocked
- * on a setup ANSWER — every answer proceeds; any failure (server unreachable,
- * needs-user-choice, a thrown error) is swallowed. A call that gets no answer
- * within its limit is not a failure: its `TimeoutError` reaches the gate.
+ * on a setup ANSWER — every answer proceeds (the gate op below maps this to
+ * "proceed"); any failure (server unreachable, needs-user-choice, a thrown
+ * error) is swallowed.
+ * A call that gets no answer within its limit is not a failure: its
+ * `TimeoutError` reaches the gate.
  */
-async function ensureTrackingConfiguredWatcher(romId: number): Promise<"proceed"> {
+async function ensureTrackingConfiguredWatcher(romId: number): Promise<void> {
   const trackingResult = await boundedOr(isSaveTrackingConfigured(romId), LOCAL_CALL_LIMIT_MS, (e) => {
     logError(`Watcher tracking check failed (assuming configured): ${e}`);
     return { configured: true };
   });
-  if (trackingResult.configured) return "proceed";
+  if (trackingResult.configured) return;
 
   const setupInfo = await boundedOr(getSaveSetupInfo(romId), SERVER_CALL_LIMIT_MS, (e) => {
     // Network/backend failure — never block a direct launch on setup.
     logError(`Watcher save-setup fetch failed (proceeding unconfigured): ${e}`);
     return null;
   });
-  if (setupInfo === null || isEndpointFailure(setupInfo)) return "proceed";
+  if (setupInfo === null || isEndpointFailure(setupInfo)) return;
 
   // Reuse the shared outcome handler with a no-op saves-tab dispatch and a
   // swallowed toast: the auto_confirm branch fires `confirmSlotChoice`; every
@@ -99,7 +101,6 @@ async function ensureTrackingConfiguredWatcher(romId: number): Promise<"proceed"
     rethrowTimeout(e);
     logError(`Watcher auto-adopt slot failed (proceeding): ${e}`);
   });
-  return "proceed";
 }
 
 /** Relaunch a previously-cancelled launch. Marks the appId as skipped FIRST so
@@ -148,24 +149,22 @@ const nothingToShow = (): void => undefined;
 /**
  * Run the shared launch gate for a cancelled start and act on its verdict. The
  * start is already stopped, so every branch either relaunches or leaves it
- * stopped; with no trigger of its own to reset, only a migration block has
- * anything to say. A gate throw fails open to `allow` so a gate bug never traps
- * the user's already-cancelled launch.
+ * stopped; with no trigger of its own to reset, of the hooks for a start that
+ * ends without a launch only the migration block's shows anything. The gate
+ * itself fails open to `allow` so a gate bug never traps the user's
+ * already-cancelled launch; an unexpected throw while acting on the verdict or
+ * relaunching is caught by the listener's own catch, which falls back to a bare relaunch.
  */
 async function runWatcherGate(start: CancelledStart, romId: number, prompts: LaunchPrompts): Promise<void> {
   const ops = makeLaunchGateOps(romId, {
     tag: WATCHER_TAG,
     toastSyncResult: false,
-    ensureTrackingConfigured: () => ensureTrackingConfiguredWatcher(romId),
-    checkCoreChange: () =>
-      confirmCoreChangeIfNeeded(
-        romId,
-        (oldLabel, newLabel) => prompts.confirmCoreChange(oldLabel, newLabel),
-        (e) => {
-          logError(`Watcher core-change check failed (assuming unchanged): ${e}`);
-        },
-      ),
-    confirmUncheckedStartingSource: () => prompts.confirmUncheckedSource(),
+    ensureTrackingConfigured: async (): Promise<"proceed"> => {
+      await ensureTrackingConfiguredWatcher(romId);
+      return "proceed";
+    },
+    confirmCoreChange: prompts.confirmCoreChange,
+    confirmUncheckedStartingSource: prompts.confirmUncheckedSource,
   });
   await runGateLoop(start.appId, romId, ops, {
     prompts,
@@ -180,10 +179,6 @@ async function runWatcherGate(start: CancelledStart, romId: number, prompts: Lau
     onConflictCancelled: nothingToShow,
     onRetry: nothingToShow,
     onMigrationBlocked: () => showToast(MIGRATION_TOAST_BODY),
-    onGateError: (e): GateVerdict => {
-      logError(`Watcher gate threw (failing open to allow): ${e}`);
-      return { decision: "allow" };
-    },
   });
 }
 
@@ -253,12 +248,8 @@ async function readStartRom(appId: number): Promise<{ romId: number; installed: 
   return { romId, installed: await isRomInstalled(appId, romId) };
 }
 
-/**
- * Gate every caught start of a RomM shortcut. `promptsForStart` is asked once
- * per start, as its gate begins, so every question one start puts is drawn by
- * the same surface.
- */
-export function registerLaunchInterceptor(promptsForStart: () => LaunchPrompts): void {
+export function registerLaunchInterceptor(prompts: LaunchPrompts | (() => LaunchPrompts)): void {
+  const getPrompts = typeof prompts === "function" ? prompts : () => prompts;
   SteamClient.Apps.RegisterForGameActionStart(
     (gameActionId: number, gameId: string, action: string, launchSource: number) => {
       if (action !== "LaunchApp") return;
@@ -342,7 +333,7 @@ export function registerLaunchInterceptor(promptsForStart: () => LaunchPrompts):
               return;
             }
 
-            await runWatcherGate(start, rom.romId, promptsForStart());
+            await runWatcherGate(start, rom.romId, getPrompts());
           } catch (e) {
             // An unexpected error must not trap the launch. Use the bare
             // relaunch (no re-confirm): the failure may be the re-confirm's own

@@ -279,9 +279,10 @@ locally with `mise run docs`.
   either direction; those are named because taking the constructor from the node costs a property read, so the question
   need not be answered. Take the constructor from the node — `el.ownerDocument.defaultView` — as `WidePage` and
   `ScrollRegion` do, or from the window the code was handed, as the desktop surface's navigation watcher does. **The
-  frontend suite cannot see the `instanceof` half**: two happy-dom windows answer it alike. A constructor taken from the
-  wrong window it CAN see — each happy-dom `Window` has its own, and a document's `defaultView` is its window — but not
-  over a document built with `createHTMLDocument`, whose `defaultView` is null.
+  frontend suite cannot see the `instanceof` half**: two happy-dom windows answer it alike. A `MutationObserver` taken
+  from the wrong window it CAN see — each happy-dom `Window` has its own, and a document's `defaultView` is its window —
+  but not a `ResizeObserver`, which every happy-dom `Window` shares (`new Window().ResizeObserver` is the same class
+  twice), and neither over a document built with `createHTMLDocument`, whose `defaultView` is null.
 - **The Python CI runs is not the Python a device runs** — what that makes of a change under `_vendor/` is
   [`.claude/rules/vendored-assets.md`](.claude/rules/vendored-assets.md)'s, which loads only once a file there is read.
 - **An empty collection in a resolver answer is a statement about PROVENANCE, never about need** — and Python spells it
@@ -1114,18 +1115,23 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   itself is device-only, and so is whether Steam honours that preference (on a tabbed page it lands on Steam's active
   tab instead). Prompt-only: `bigpicture/layout/WidePage.tsx` places entry focus through `pageEntryStop`
   (`utils/entryFocus.ts`), never `firstBodyStop`; `bigpicture/layout/ListDetail.tsx` puts the `ENTRY_STOP_ATTR` mark on
-  the `display: contents` wrapper around the selected row, never on the row; a wide page that opens on a non-first row
-  without `ListDetail` places the mark itself, the same way
+  the `display: contents` wrapper around the selected row, never on the row; and a wide page that opens on a non-first
+  row without `ListDetail` places the mark itself, the same way, and gives that row `preferredFocus` too, only while
+  `EntryPreferenceContext` holds
 - **Every change the desktop surface's navigation watcher makes to Steam's page goes through the restoration ledger, and
   is given back on leaving the page whenever the ledger holds anything — a pass that threw partway included** (dev build
   only) — test + prompt-only — `frontend/src/desktop/navigationWatcher.test.ts`, "every change it makes is given back":
-  the `style` attribute of every element on a page, recorded before the watcher starts, is what it was after several
-  passes and leaving the page, with both views handed and with none. Prompt-only: a write to anything but `style` — a
-  class, another attribute, a node moved — and a change to an element the test's page does not hold
+  the `style` attribute of every element on a page, recorded before the watcher starts, is what it was after passes from
+  Steam's mutations and from a change to the set of RomM shortcuts, a scroll and a resize, and leaving the page, with
+  both views handed and with none; and "gives back what a pass changed before it threw" for a pass that threw partway.
+  Prompt-only: a write to anything but `style` — a class, another attribute, a node moved — and a change to an element
+  the test's page does not hold
 - **No code under `frontend/src/desktop/` names one of Steam's minified class hashes** (dev build only) — check —
-  `frontend/eslint.config.js` (`no-restricted-syntax` over string literals and template parts, `NO_CLASS_HASHES`; test
-  files and data URIs left out), kept live by `frontend/src/eslintNoClassHashes.test.ts`. Unseen by it: a hash with no
-  digit in it, one shorter than twelve characters, one built at run time, and one inside a data URI
+  `frontend/eslint.config.js` (`no-restricted-syntax` over string literals, regex literals and template parts,
+  `NO_CLASS_HASHES`; test files and data URIs left out), kept live by `frontend/src/eslintNoClassHashes.test.ts`. Unseen
+  by it: a hash with no digit, no capital or no small letter in it, one shorter than twelve characters, one built at run
+  time, and one inside a data URI. This list is the one home of what the check misses; the config, the rules file and
+  the long form point here
 
 When a change applies a guard / sanitize / backup / grouping pattern, sweep for sibling sites of the same pattern — the
 register is what that sweep checks against.

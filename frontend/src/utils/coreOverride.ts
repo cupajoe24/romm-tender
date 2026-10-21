@@ -12,6 +12,8 @@ import {
 export interface GameCoreChangeParams {
   romId: number;
   coreLabel: string | null;
+  /** What the success toast calls the pinned emulator; the label where omitted. */
+  coreName?: string;
   leaseOwner: string;
   onSuccess?: () => Promise<void> | void;
   logTag?: string;
@@ -33,6 +35,7 @@ export interface GameCoreChangeResult {
 export async function executeGameCoreChange({
   romId,
   coreLabel,
+  coreName,
   leaseOwner,
   onSuccess,
   logTag = "Core selection",
@@ -70,7 +73,7 @@ export async function executeGameCoreChange({
         }
 
         // Confirmed (or uninstalled/unbound: nothing to confirm) → success.
-        showToast(isClear ? "Now following the system core" : `Core set to ${coreLabel}`);
+        showToast(isClear ? "Now following the system core" : `Core set to ${coreName ?? coreLabel}`);
         await onSuccess?.();
         return { success: true };
       },

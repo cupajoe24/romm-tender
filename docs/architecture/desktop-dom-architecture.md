@@ -92,20 +92,24 @@ all of it back:
 
 `ledger.restoreAll()` detaches the listeners, unmounts the roots and removes their hosts, then restores the recorded
 displays and styles, in that order; a step that throws is logged and the rest still run. It runs when the page leaves
-RomM shortcuts — whenever the ledger holds anything, not only once a page was adapted, so a pass that threw partway is
-given back too — when a pass tears down a `GameView` left from another game (below), when a view fails after it was
-drawn, and when the watcher detaches from the window. A callback registered with Steam can still fire after that, and
-the ledger cannot cancel what it never recorded: the watcher's popup callbacks, a view's render callback and the sticky
-play bar controller's updates each do nothing once the teardown before them has run.
+RomM shortcuts or moves to another RomM game — whenever the ledger holds anything, not only once a page was adapted, so
+a pass that threw partway is given back too — when a pass tears down a stale `GameView` (below), when a view fails to
+mount or fails after it was drawn, and when the watcher detaches from the window. A callback registered with Steam can
+still fire after that, and the ledger cannot cancel what it never recorded: the watcher's popup callbacks, a view's
+render callback and the sticky play bar controller's updates each do nothing once the teardown before them has run. The
+controller's own set-up is no exception: when its first update throws, it disconnects its `ResizeObserver` before the
+throw reaches the pass.
 
-A test holds the whole rule: it records the `style` attribute of every element on a page, runs several passes, leaves
-the page, and requires every attribute to be what it was (`frontend/src/desktop/navigationWatcher.test.ts`, "every
-change it makes is given back").
+A test holds the whole rule: it records the `style` attribute of every element on a page, runs passes from Steam's
+mutations and from a change to the set of RomM shortcuts, re-pins the play bar on a scroll and a resize, leaves the
+page, and requires every attribute to be what it was (`frontend/src/desktop/navigationWatcher.test.ts`, "every change it
+makes is given back"). That a pass which threw partway is given back is held by its own test, "gives back what a pass
+changed before it threw".
 
 ## The selector ladder (`frontend/src/desktop/watcher/elementSelectors.ts`)
 
 A class name in Steam's DOM is a webpack hash that a Steam update may change, so no selector names one, and ESLint fails
-a string under `frontend/src/desktop/` that holds a token shaped like one, a data URI's payload aside
+a string or regex literal under `frontend/src/desktop/` that holds a token shaped like one, a data URI's payload aside
 (`frontend/eslint.config.js`). The finders resolve through these rungs instead:
 
 | Rung         | What it matches                                                                                          | Example                                                                   |
@@ -122,10 +126,11 @@ the rungs it has, in its own order, and not every finder has all four. Three do 
 the one in the table (`Rung`).
 
 The module class is not one rung among equals. The class-name rung needs a readable part, and not every class has one:
-on a desktop client measured in German, the Play button's and the play bar's classes are two hashes and `Panel`, and the
-module class is the only rung that finds either (#2389). Text and ARIA labels are no rung at all, because they read
-differently in every language. `frontend/src/desktop/watcher/elementSelectors.moduleClasses.test.ts` holds the first
-rung against made-up hashed class maps, since the rest of the suite runs with those maps undefined.
+on a German-language desktop client, as the maintainer measured it (#2389), the Play button's and the play bar's classes
+are two hashes and `Panel`, and the module class is the only rung that finds either. Text and ARIA labels are no rung at
+all, because they read differently in every language.
+`frontend/src/desktop/watcher/elementSelectors.moduleClasses.test.ts` holds the first rung against made-up hashed class
+maps, since the rest of the suite runs with those maps undefined.
 
 ## Drawing a view
 
@@ -137,8 +142,9 @@ never asks.
 
 Steam's own part is hidden only once React has committed the view into its host, so a view that fails to draw leaves
 Steam's in place. A mount that fails — `createRoot` or `render` throwing, or the view throwing as it renders — is logged
-and remembered for that appId, and not tried again. One that fails after it was drawn has the next pass give Steam's
-page back first, and Steam's part stays from then on.
+and remembered for that appId, and not tried again, and the next pass gives Steam's page back first: an earlier mount of
+the same part, before Steam moved its Play button or the view broke, may have hidden Steam's, and it returns. Steam's
+part stays from then on.
 
 ## The pass order
 
@@ -147,19 +153,22 @@ Steam's duplicate sticky header arrive after the page's first render. An adaptat
 first seen, misses all of them. Until the canvases arrive, `findInflatedHeroWrapper` — which recognises the hero wrapper
 by the canvases inflating its `scrollHeight` — finds nothing, and the watcher keeps `overflow: visible` on what
 `findHeroWrapperFallback` answers instead: the panel's first element with `Hero` in its class name, else the panel's
-first child that does not hold the play bar.
+first child unless that child holds the play bar.
 
 So each pass (`pass()` in `frontend/src/desktop/navigationWatcher.ts`) runs in this order:
 
-1. **A stale `GameView` is torn down first.** One carrying another appId, or no longer in the insertion container, is
-   unmounted with everything the ledger holds. This comes before the adaptations because the teardown restores
-   everything the ledger holds: after them, it would undo them all.
-2. **The adaptations, on every pass**, in this order: hide the page's content sections (once a `gameView` is drawn);
+1. **Another game's page is a page left.** A pass on a different appId than the one before it gives Steam's page back
+   first, as leaving RomM shortcuts would. Where Steam keeps the same Play button and badges across the switch, what was
+   hidden for the last game would otherwise stay hidden when nothing is drawn for this one.
+2. **A stale `GameView` is torn down.** One carrying another appId, or no longer in the insertion container, is
+   unmounted with everything the ledger holds. Both of these come before the adaptations because they restore everything
+   the ledger holds: after them, they would undo them all.
+3. **The adaptations, on every pass**, in this order: hide the page's content sections (once a `gameView` is drawn);
    mount `playButton` beside Steam's Play button, and hide Steam's once it is drawn — remounted only when it is missing,
    detached, for another appId or moved; set up or refresh the sticky play bar controller, which also keeps the hero
    wrapper at `overflow: visible` (below); hide Steam's duplicate sticky header; hide the play bar's badges (once a
    `playButton` is drawn); push the right-hand controls to the right edge.
-3. **The mount guard.** If a `GameView` for this appId is already in place, or failed for it before, the pass ends here.
+4. **The mount guard.** If a `GameView` for this appId is already in place, or failed for it before, the pass ends here.
    Otherwise it mounts one right after the play bar.
 
 The adaptations run on every pass, before the mount guard, because Steam adds the canvases after `GameView` has mounted
@@ -171,7 +180,8 @@ most one pass a frame. Passes are triggered by:
 - **A `MutationObserver`** on the desktop window's `body`, for elements added or removed anywhere in its subtree.
 - **A change to the set of RomM shortcuts** (`onRomMAppIdsChanged`, `frontend/src/utils/rommAppIds.ts`), so a page
   opened before its shortcut was registered is adapted once it is.
-- **A view's first render**, which is what hides the Steam part it replaces.
+- **A view's first render**, which is what hides the Steam part it replaces, and **a view's failure**, which gives that
+  part back (below, "Drawing a view").
 - **Attaching to a window**, for the page already open in it.
 
 The sticky play bar controller (`frontend/src/desktop/watcher/stickyPlayBarController.ts`) also updates on scroll, on
@@ -192,6 +202,13 @@ transition once: attaching to and detaching from the desktop client's window, ad
 that found the panel, the play bar and the Play button — and giving the page back. It logs every failure with what it
 was doing: a window it could not attach to, a pass that threw (once for each path and error), a view that could not be
 drawn, a restore step that threw, and `createRoot` missing from Steam's modules.
+
+A RomM game page the finders never recognised is a warning too, logged once when the page is left and naming what was
+not found, the overview panel or the play section, and how long the page was open. It is the line to look for after a
+Steam update. It is not logged when a pass misses the page, because a pass that runs before Steam has drawn the page
+misses it too, and that miss is no failure. A page left before Steam drew it, as when clicking quickly through the
+library, was never recognised either, so it is reported too; the time it was open tells the two apart, since a page the
+finders cannot read goes unrecognised for as long as it is open.
 
 ## The hero's parallax
 

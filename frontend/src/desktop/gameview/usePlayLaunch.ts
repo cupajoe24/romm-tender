@@ -9,7 +9,6 @@ import { useRef } from "react";
 import { debugLog } from "../../api/backend";
 import { executeRomUninstall } from "../../utils/romUninstall";
 import { desktopLaunchPrompts, desktopStopGameDialog } from "./dialogs/desktopDialogs";
-import { confirmCoreChangeIfNeeded } from "../../utils/coreChange";
 import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
 import { resolveKnownConflicts } from "../../utils/saveConflictFlow";
 import { readGameRunning } from "../../utils/sessionManager";
@@ -150,8 +149,7 @@ export function usePlayLaunch({
               globalThis.dispatchEvent(new CustomEvent("romm_tab_switch", { detail: { tab: "saves" } }));
             },
           }),
-        checkCoreChange: () =>
-          confirmCoreChangeIfNeeded(romId, (oldLabel, newLabel) => prompts.confirmCoreChange(oldLabel, newLabel)),
+        confirmCoreChange: prompts.confirmCoreChange,
         confirmUncheckedStartingSource: prompts.confirmUncheckedSource,
       });
       await runGateLoop(appId, romId, ops, {

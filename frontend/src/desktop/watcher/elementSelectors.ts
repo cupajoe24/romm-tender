@@ -427,7 +427,7 @@ export function isRightControlsElement(el: HTMLElement): boolean {
 
 /**
  * Locate Steam's native play bar badges (Last Played, Playtime, Cloud Status, etc.) to hide.
- * Unlike the other finders it collects from every rung rather than stopping at the first.
+ * Like `findSteamContentSections`, it collects from every rung rather than stopping at the first.
  */
 export function findSteamPlayBarBadges(root: HTMLElement, nativePlayBtn?: HTMLElement | null): HTMLElement[] {
   const badges = new Set<HTMLElement>();
@@ -529,8 +529,8 @@ export function findSteamRightControls(root: HTMLElement): HTMLElement | null {
 }
 
 /**
- * The hero wrapper by its class name, else the panel's first child that does
- * not hold the play bar: what stands for the hero wrapper until Steam's
+ * The hero wrapper by its class name, else the panel's first child unless that
+ * child holds the play bar: what stands for the hero wrapper until Steam's
  * canvases inflate the real one and `findInflatedHeroWrapper` can find it.
  */
 export function findHeroWrapperFallback(steamPanel: HTMLElement, playBarTop: HTMLElement): HTMLElement | null {

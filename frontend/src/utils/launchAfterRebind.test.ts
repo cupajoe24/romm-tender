@@ -121,7 +121,7 @@ async function loadMapThenMove(move: () => Promise<void>): Promise<GameActionHan
   await move();
   await flush();
 
-  registerLaunchInterceptor(prompts);
+  registerLaunchInterceptor(() => prompts);
   const calls = vi.mocked(SteamClient.Apps.RegisterForGameActionStart).mock.calls;
   return calls[calls.length - 1]?.[0] as GameActionHandler;
 }

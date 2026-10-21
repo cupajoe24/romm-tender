@@ -53,15 +53,7 @@ import { DesktopNewSlotDialog } from "./dialogs/DesktopNewSlotDialog";
 import { DesktopCopySlotDialog } from "./dialogs/DesktopCopySlotDialog";
 import { DesktopDeleteSlotDialog } from "./dialogs/DesktopDeleteSlotDialog";
 import { desktopSaveConflictDialog } from "./dialogs/desktopDialogs";
-import type {
-  SaveSlotSummary,
-  SlotSaveFile,
-  SaveVersionEntry,
-  SyncConflict,
-  SlotDeleteInfo,
-  CopySaveToSlotStatus,
-  RollbackStatus,
-} from "../../types";
+import type { SaveSlotSummary, SlotSaveFile, SaveVersionEntry, SyncConflict, SlotDeleteInfo } from "../../types";
 
 export interface SaveManagementCardProps {
   appId: number;
@@ -442,7 +434,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     const { saveId } = copyModalData;
     setCopyModalData(null);
     try {
-      const result: CopySaveToSlotStatus = await copySaveToSlot(romId, saveId, target);
+      const result = await copySaveToSlot(romId, saveId, target);
       const feedback = copyToSlotFeedback(result, target);
       if (feedback === null) return;
       if (feedback.kind === "conflict") {
@@ -450,7 +442,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       } else {
         showToast(feedback.message);
       }
-      if (result.status === "ok") {
+      if (!isEndpointFailure(result) && result.status === "ok") {
         announceSaveSync(romId);
         await refreshSaveStatus(appId);
         await loadSlots();
@@ -466,7 +458,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
     if (!romId) return;
     setRestoringVersionId(version.id);
     try {
-      const result: RollbackStatus = await savesRollbackToVersion(romId, slotName, version.id);
+      const result = await savesRollbackToVersion(romId, slotName, version.id);
       const feedback = rollbackFeedback(result, version.updated_at);
       if (feedback === null) return;
       if (feedback.kind === "conflict") {
@@ -474,7 +466,7 @@ export const SaveManagementCard: FC<SaveManagementCardProps> = ({ appId, romId, 
       } else {
         showToast(feedback.message);
       }
-      if (result.status === "ok" || result.status === "put_failed") {
+      if (!isEndpointFailure(result) && (result.status === "ok" || result.status === "put_failed")) {
         announceSaveSync(romId);
         await refreshSaveStatus(appId);
         await loadSlots();

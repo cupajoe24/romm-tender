@@ -78,6 +78,25 @@ describe("DomRestorationLedger", () => {
       el.remove();
     });
 
+    it("logs an element whose styles throw on restore, and still restores the next one", () => {
+      const logError = vi.spyOn(backend, "logError").mockImplementation(() => {});
+      const broken = document.createElement("div");
+      const next = document.createElement("div");
+      document.body.append(broken, next);
+      ledger.style(broken, "z-index", "10");
+      ledger.style(next, "z-index", "10");
+      vi.spyOn(broken.style, "removeProperty").mockImplementation(() => {
+        throw new Error("style refused");
+      });
+
+      expect(() => ledger.restoreAll()).not.toThrow();
+
+      expect(next.style.zIndex).toBe("");
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("style refused"));
+      broken.remove();
+      next.remove();
+    });
+
     it("preserves earliest recorded value across multiple style calls", () => {
       const el = document.createElement("div");
       el.style.zIndex = "5";

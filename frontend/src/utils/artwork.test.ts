@@ -1,6 +1,29 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as backend from "../api/backend";
-import { applyArtwork, cancelArtworkApply, getGameIconUrl, isArtworkApplyInFlight } from "./artwork";
+import {
+  applyArtwork,
+  cancelArtworkApply,
+  fillEmptyArtwork,
+  getGameIconUrl,
+  isArtworkApplyInFlight,
+  setJobSlotArtwork,
+} from "./artwork";
+
+/** What `saveShortcutIcon` answers for an icon it wrote. */
+const SAVED_ICON: backend.SavedShortcutIcon = {
+  success: true,
+  icon_path: "/grid/5000_icon.png",
+  image_id: 31,
+  sha256: "sha-icon",
+  sgdb_id: 9999,
+};
+
+/** What `saveShortcutIcon` answers when it cannot write the icon. */
+const ICON_NOT_WRITTEN: backend.EndpointFailure = {
+  success: false,
+  reason: "icon_write_failed",
+  message: "Failed to write icon to Steam grid directory",
+};
 
 describe("applyArtwork", () => {
   beforeEach(() => {
@@ -263,6 +286,7 @@ describe("isArtworkApplyInFlight", () => {
         SetShortcutIcon: vi.fn(),
       },
     });
+    vi.mocked(backend.getSgdbSlotArtwork).mockResolvedValue({ status: "none" });
   });
 
   it("answers yes for an appId while its apply runs, and no for any other", async () => {
@@ -320,45 +344,26 @@ describe("getGameIconUrl", () => {
     vi.resetAllMocks();
   });
 
-  it("returns data URI for SGDB icon (asset type 4) and releases lease", async () => {
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({
-      base64: "ICON_PNG_BASE64",
-      prune_lease_token: "lease-icon-1",
-    });
-
-    const url = await getGameIconUrl(42);
-
-    expect(url).toBe("data:image/png;base64,ICON_PNG_BASE64");
-    expect(backend.getSgdbArtworkBase64).toHaveBeenCalledWith(42, 4);
-  });
-
-  it("falls back to RomM cover when SGDB icon is null", async () => {
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null });
+  it("returns the RomM cover as a data URI and never asks SteamGridDB", async () => {
     vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: "COVER_BASE64" });
 
     const url = await getGameIconUrl(42);
 
     expect(url).toBe("data:image/png;base64,COVER_BASE64");
-    expect(backend.getSgdbArtworkBase64).toHaveBeenCalledWith(42, 4);
     expect(backend.getArtworkBase64).toHaveBeenCalledWith(42);
+    expect(backend.getSgdbArtworkBase64).not.toHaveBeenCalled();
   });
 
-  it("returns null when both SGDB icon and RomM cover return null base64", async () => {
-    vi.mocked(backend.getSgdbArtworkBase64).mockResolvedValue({ base64: null });
+  it("returns null when RomM has no cover", async () => {
     vi.mocked(backend.getArtworkBase64).mockResolvedValue({ base64: null });
 
-    const url = await getGameIconUrl(42);
-
-    expect(url).toBeNull();
+    expect(await getGameIconUrl(42)).toBeNull();
   });
 
-  it("fails soft and returns null when calls reject", async () => {
-    vi.mocked(backend.getSgdbArtworkBase64).mockRejectedValue(new Error("network error"));
+  it("fails soft and returns null when the cover fetch rejects", async () => {
     vi.mocked(backend.getArtworkBase64).mockRejectedValue(new Error("network error"));
 
-    const url = await getGameIconUrl(42);
-
-    expect(url).toBeNull();
+    expect(await getGameIconUrl(42)).toBeNull();
   });
 });
 

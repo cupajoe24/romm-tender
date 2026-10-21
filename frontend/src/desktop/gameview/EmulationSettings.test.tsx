@@ -53,6 +53,8 @@ const baseDetail: GameDetailState = {
   emulators: [
     {
       label: "Mupen64Plus-Next",
+      labels: ["Mupen64Plus-Next"],
+      name: "mupen64plus_next",
       kind: "libretro",
       core_so: "mupen64plus_next",
       emulator: "mupen64plus_next",
@@ -62,6 +64,8 @@ const baseDetail: GameDetailState = {
     },
     {
       label: "ParaLLEl N64",
+      labels: ["ParaLLEl N64"],
+      name: "parallel_n64",
       kind: "libretro",
       core_so: "parallel_n64",
       emulator: "parallel_n64",
@@ -201,6 +205,8 @@ describe("EmulationSettings", () => {
         ...baseDetail.emulators,
         {
           label: "Needs Setup",
+          labels: ["Needs Setup"],
+          name: "needs_setup",
           kind: "standalone",
           core_so: null,
           emulator: "needs_setup",

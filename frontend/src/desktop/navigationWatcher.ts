@@ -45,6 +45,18 @@ type Part = keyof DesktopGamePage;
 
 const HOST_IDS: Record<Part, string> = { gameView: TENDER_SUBSTITUTE_ID, playButton: TENDER_PLAY_BUTTON_ID };
 
+/** Steam's page as the finders found it, or the part of it they could not find. */
+type FoundPage = { panel: Located; playSection: HTMLElement } | { missing: "overview panel" | "play section" };
+
+/** The RomM game page the watcher is on, from the first pass on its appId until the appId changes. */
+interface Visit {
+  appId: number;
+  startedAt: number;
+  recognised: boolean;
+  missing: string | null;
+  announced: boolean;
+}
+
 interface MainWindowBrowserManagerStub {
   m_lastLocation?: {
     pathname?: string;
@@ -88,7 +100,7 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
   const d = deskWin.document;
   const ledger = new DomRestorationLedger();
   let stickyController: StickyPlayBarController | null = null;
-  let activeAppId: number | null = null;
+  let visit: Visit | null = null;
   // `undefined` until looked up: the lookup walks Steam's module registry, and
   // its answer does not change within a JS context.
   let client: ReactClientModule | null | undefined;
@@ -111,7 +123,6 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
       stickyController = null;
     }
     ledger.restoreAll();
-    activeAppId = null;
 
     for (const id of Object.values(HOST_IDS)) d.getElementById(id)?.remove();
   }
@@ -137,20 +148,35 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
    * anything, not whether a page was entered, so a pass that threw partway is
    * given back too.
    */
-  function leavePage(): void {
+  function leavePage(left: number | null): void {
     const hostLeft = Object.values(HOST_IDS).some((id) => d.getElementById(id));
     if (!hostLeft && ledger.isEmpty()) return;
-    const left = activeAppId;
     unmountCurrent();
     logInfo(`desktop: left the game page of ${left ?? "a RomM shortcut"}, and gave Steam's page back`);
   }
 
-  /** Steam's overview panel and play section, or null while either is missing or the panel is detached. */
-  function findPage(): { panel: Located; playSection: HTMLElement } | null {
+  /**
+   * End the visit and give Steam's page back, reporting a page the finders
+   * never recognised (docs/architecture/desktop-dom-architecture.md, "What it logs").
+   */
+  function leaveVisit(): void {
+    const left = visit;
+    visit = null;
+    if (left && !left.recognised && left.missing) {
+      logWarn(
+        `desktop: left the game page of ${left.appId} after ${Date.now() - left.startedAt} ms ` +
+          `without recognising it: found no ${left.missing}`,
+      );
+    }
+    leavePage(left?.appId ?? null);
+  }
+
+  /** Steam's overview panel and play section, or which is missing; a detached panel counts as missing. */
+  function findPage(): FoundPage {
     const panel = locateOverviewPanel(d);
-    if (!panel?.element.parentElement) return null;
+    if (!panel?.element.parentElement) return { missing: "overview panel" };
     const playSection = findSteamPlaySection(panel.element) || findSteamPlaySection(d);
-    return playSection ? { panel, playSection } : null;
+    return playSection ? { panel, playSection } : { missing: "play section" };
   }
 
   /** The React client to mount with; `undefined` when nothing was handed over to mount, or none was found. */
@@ -189,8 +215,8 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
 
   /**
    * Render `view` into `host`. A mount that fails is remembered for its appId
-   * and not tried again; one that fails after React committed it has the next
-   * pass give Steam's page back first, so Steam's own part returns.
+   * and not tried again, and has the next pass give Steam's page back first, so
+   * Steam's own part returns where an earlier mount had hidden it.
    */
   function mountView(
     part: Part,
@@ -205,15 +231,11 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
     const failed = (e: unknown) => {
       failedMounts.add(key);
       logError(`desktop: could not draw the ${part} for ${appId}, so Steam's own stays: ${String(e)}`);
+      restoreRequested = true;
+      schedulePass();
     };
     try {
-      const root = roots.createRoot(host, {
-        onUncaughtError: (e) => {
-          failed(e);
-          restoreRequested = true;
-          schedulePass();
-        },
-      });
+      const root = roots.createRoot(host, { onUncaughtError: failed });
       ledger.recordRoot(root, host);
       const onRendered = () => {
         host.dataset.rendered = "true";
@@ -336,15 +358,20 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
       restoreRequested = false;
       unmountCurrent();
     }
-    const appId = currentAppId();
-    if (!appId || !isRomMAppId(appId)) {
-      leavePage();
-      return;
-    }
+    const id = currentAppId();
+    const appId = id && isRomMAppId(id) ? id : null;
+    // Another game's page is a page left, even where Steam keeps the same elements.
+    if (visit?.appId !== appId) leaveVisit();
+    if (appId === null) return;
+    visit ??= { appId, startedAt: Date.now(), recognised: false, missing: null, announced: false };
     ensurePulseStyles(d);
 
     const page = findPage();
-    if (!page) return;
+    if ("missing" in page) {
+      visit.missing = page.missing;
+      return;
+    }
+    visit.recognised = true;
     const roots = clientForThePage();
     const steamPanel = page.panel.element;
     const { playSection } = page;
@@ -357,8 +384,8 @@ function attachToDesktopWindow(page: DesktopGamePage, deskWin: Window): () => vo
     const substitute = currentGameView(appId, container);
 
     adaptPage(steamPanel, playSection, playBarTop, container, nativePlayBtn?.element ?? null, roots, appId);
-    if (activeAppId !== appId) {
-      activeAppId = appId;
+    if (!visit.announced) {
+      visit.announced = true;
       logInfo(
         `desktop: adapted the game page of ${appId}; found the panel by ${page.panel.rung}, ` +
           `the play bar by ${playBar.rung} and the Play button by ${nativePlayBtn?.rung ?? "no rung"}`,

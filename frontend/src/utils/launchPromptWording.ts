@@ -1,8 +1,8 @@
 /**
- * The words of the prompts a game start can raise — the emulator core changed,
- * RomM unreachable over unsynced changes, save sync unavailable — of the one a
- * version switch raises over unsynced saves, and of the one Stop raises over a
- * running game: every title, sentence and button label Tender writes for them.
+ * The words of five prompts: three a game start can raise — the emulator core
+ * changed, RomM unreachable over unsynced changes, save sync unavailable — the
+ * one a version switch raises over unsynced saves, and the one Stop raises over
+ * a running game. Every title, sentence and button label Tender writes for them.
  * One home, so every surface that draws one of these prompts asks the same
  * question the same way; the drawing itself stays with each surface.
  */
@@ -35,13 +35,13 @@ export const OFFLINE_DRIFT_START_LABEL = "Start Anyway";
 
 export const OFFLINE_DRIFT_RETRY_LABEL = "Retry connection";
 
-// ── Fallback launch: the pre-launch sync failed without surfacing a conflict ──
+// ── Fallback launch: the pre-launch sync failed without a conflict, or a step of the check got no answer ──
 
 export const FALLBACK_LAUNCH_TITLE = "Save Sync Unavailable";
 
 export const FALLBACK_LAUNCH_LABEL = "Launch Anyway";
 
-/** The failed sync's own message when it carries one, else a sentence of ours. */
+/** The message the verdict carries when it has one, else a sentence of ours. */
 export function fallbackLaunchDescription(message?: string): string {
   const reason = message?.trim();
   if (!reason) return "Couldn't sync saves with RomM server. Launch with local saves?";

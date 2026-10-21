@@ -184,6 +184,35 @@ describe("stickyPlayBarController", () => {
       }
     });
 
+    it("writes nothing back from a resize once its first pinning threw and the page was restored", () => {
+      const resize = mockResizeObserver();
+      try {
+        const scroller = document.createElement("div");
+        scroller.style.overflowY = "scroll";
+        document.body.appendChild(scroller);
+        const playBar = document.createElement("div");
+        scroller.appendChild(playBar);
+        scroller.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+        playBar.getBoundingClientRect = vi
+          .fn<() => DOMRect>()
+          .mockImplementationOnce(() => {
+            throw new Error("a measurement broke");
+          })
+          .mockReturnValue({ top: 100 } as DOMRect);
+
+        expect(() => createStickyPlayBarController(playBar, playBar, ledger)).toThrow("a measurement broke");
+        ledger.restoreAll();
+        resize.report();
+
+        expect(playBar.style.position).toBe("");
+        expect(playBar.style.backgroundColor).toBe("");
+        expect(resize.observed.size).toBe(0);
+        scroller.remove();
+      } finally {
+        resize.restore();
+      }
+    });
+
     it("sets no timer of its own", () => {
       const setTimeout = vi.spyOn(window, "setTimeout");
       const scroller = document.createElement("div");

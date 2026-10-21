@@ -1,6 +1,6 @@
 /**
- * The launch prompts drawn as Steam's gamepad modals — what a start asks
- * through when it is answered with a controller.
+ * The launch prompts drawn as Steam's gamepad modals — the set both launch
+ * paths ask through.
  */
 
 import type { LaunchPrompts } from "../utils/launchVerdict";

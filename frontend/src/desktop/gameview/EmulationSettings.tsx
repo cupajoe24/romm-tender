@@ -189,11 +189,10 @@ const EmulatorRow: FC<{
 /** Dot colour for one BIOS file row — mirrors the BiosTab logic. */
 function biosFileDotColor(file: BiosFileStatus): string {
   const verdict = file.satisfied === undefined ? file.downloaded : file.satisfied;
-  if (verdict === null) return "#d4a72c";
+  if (verdict === null) return "#8f98a0";
   if (verdict) return "#5ba32b";
   if (file.required_by_active) return "#d94126";
-  const requiredElsewhere = Object.values(file.cores ?? {}).some((c) => c.required);
-  return requiredElsewhere ? "#d4a72c" : "#8f98a0";
+  return "#8f98a0";
 }
 
 /** One BIOS file row. */

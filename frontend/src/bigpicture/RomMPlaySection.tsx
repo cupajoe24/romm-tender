@@ -33,6 +33,7 @@ import { useTriggerHandler } from "./emulatorStepping";
 import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
 import { applyArtwork, cancelArtworkApply } from "../utils/artwork";
 import { useAutoArtwork } from "../utils/autoArtwork";
+import { artworkApplyMessage } from "../utils/artworkApplyMessage";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
 import { getEventTarget } from "../utils/events";
@@ -43,6 +44,7 @@ import {
   getRomMetadata,
   isEndpointFailure,
   refreshCoverArtwork,
+  refreshSgdbArtwork,
   downloadAllFirmware,
   deleteLocalSaves,
   debugLog,
@@ -57,6 +59,7 @@ import {
   releasePruneLeasesByOwner,
 } from "../utils/pruneLease";
 import { executeGameCoreChange } from "../utils/coreOverride";
+import { emulatorName } from "../utils/emulatorEntries";
 import { useGamePlaytime } from "../utils/playtimeReconcile";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
 import { formatBytes } from "../utils/formatters";
@@ -149,6 +152,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   // Subscribe to version error — re-renders when global state changes
   const versionError = useVersionError();
   const migration = useMigrationStatus();
+  const onTrigger = useTriggerHandler();
 
   // Every field the game page's surfaces share — rom identity, install state,
   // save sync, BIOS, core selection — comes from the per-appId store, which owns
@@ -592,6 +596,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     await executeGameCoreChange({
       romId,
       coreLabel,
+      coreName: emulatorName(detail.emulators, coreLabel),
       leaseOwner: `game-detail:${appId}`,
       onSuccess: () => refreshCoreDisplay(platformSlug),
       logTag: "handleChangeGameCore",

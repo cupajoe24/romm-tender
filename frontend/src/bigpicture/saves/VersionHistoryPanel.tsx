@@ -113,7 +113,7 @@ export const VersionHistoryPanel: FC<VersionHistoryPanelProps> = ({
   const handleRestore = async (version: SaveVersionEntry) => {
     setRestoring(version.id);
     try {
-      const result: RollbackStatus = await savesRollbackToVersion(romId, slot, version.id);
+      const result = await savesRollbackToVersion(romId, slot, version.id);
       const feedback = rollbackFeedback(result, version.updated_at);
       if (feedback === null) return;
       if (feedback.kind === "conflict") {
@@ -124,7 +124,7 @@ export const VersionHistoryPanel: FC<VersionHistoryPanelProps> = ({
       // `put_failed` refreshes too: the local download succeeded and only the
       // server-side bump did not, so the switch is locally complete — it just
       // won't reach other devices yet.
-      if (result.status === "ok" || result.status === "put_failed") {
+      if (!isEndpointFailure(result) && (result.status === "ok" || result.status === "put_failed")) {
         setVersions(null);
         setOpen(false);
         onRestored();

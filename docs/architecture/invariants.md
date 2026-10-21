@@ -1759,17 +1759,26 @@ Format: **invariant** — tier — enforced by.
   the mark and that it moves with the selection, `WidePage.test.tsx` pins that the frame asks for the declared stop, and
   both use a **non-first** row deliberately. **The rule spans four modules and nothing joins them**:
   `utils/entryFocus.ts` owns `ENTRY_STOP_ATTR` and `pageEntryStop`, `bigpicture/layout/WidePage.tsx` places entry focus
-  through it rather than through `firstBodyStop`, and `bigpicture/layout/ListDetail.tsx` marks its selected row — plus
-  whatever page passes a starting selection at all, `SettingsPage` today. A fourth wide page that opens on a non-first
-  row and forgets the mark selects its first row instead, and every test still passes. **The end to end is unreachable
-  here**: happy-dom performs no layout and does not reproduce Steam's focus resolution, so what the suite pins is the
-  declaration and the finder, never the press. Only a controller confirms it. **What hid this for a whole review round
-  is the shape of the failure, not its size**: Main's notices name sections, and the one naming the FIRST section keeps
-  working, so a reader checking Open Connections sees the feature working while a jump into any later section lands on
-  Connections. A check that exercises the first row proves nothing about the rule. The mark sits on a
-  `display: contents` wrapper AROUND each row rather than on the row, and that is load-bearing rather than stylistic:
-  `pageEntryStop` calls `firstBodyStop(declared)`, which searches DESCENDANTS — a mark on the row itself finds no
-  candidate inside it, falls back to the first row, and ships the defect under a comment saying it does not
+  through it rather than through `firstBodyStop`, `bigpicture/layout/ListDetail.tsx` marks its selected row, and
+  `index.tsx` tells the frame whether a swap opened the page (`EntryFocusOnMountContext`) — plus whatever page passes a
+  starting selection at all, `SettingsPage` today. A fourth wide page that opens on a non-first row and forgets the mark
+  selects its first row instead, and every test still passes. **The end to end is unreachable here**: happy-dom performs
+  no layout and does not reproduce Steam's focus resolution, so what the suite pins is the declaration and the finder,
+  never the press. Only a controller confirms it. **What hid this for a whole review round is the shape of the failure,
+  not its size**: Main's notices name sections, and the one naming the FIRST section keeps working, so a reader checking
+  Open Connections sees the feature working while a jump into any later section lands on Connections. A check that
+  exercises the first row proves nothing about the rule. The mark sits on a `display: contents` wrapper AROUND each row
+  rather than on the row, and that is load-bearing rather than stylistic: `pageEntryStop` calls
+  `firstBodyStop(declared)`, which searches DESCENDANTS — a mark on the row itself finds no candidate inside it, falls
+  back to the first row, and ships the defect under a comment saying it does not. **The page the panel appears with is
+  opened by neither placer** — not the router and not the frame, because focus placed as the panel mounts would take the
+  reader off the Quick Access strip — so there the same row is meant to be reached through Steam's entry preference:
+  `ListDetail` gives the selected row's own `Focusable` `preferredFocus`, and the frame's body searches for it. That
+  holds on an untabbed page only: on a tabbed one Steam marks its own active tab the same way, at a shallower depth, and
+  entry lands there. The mark holds only until focus first enters the panel, because Steam's search for it runs ahead of
+  the child it remembers and would otherwise pull every later entry onto the row. Nothing joins that mark to
+  `ENTRY_STOP_ATTR` either, and whether Steam honours either is device-only. Detail: `docs/architecture/qam-panel.md`,
+  "Pages"
 - **Every change the desktop surface's navigation watcher makes to Steam's page goes through the restoration ledger, and
   is given back on leaving the page whenever the ledger holds anything — a pass that threw partway included** (dev build
   only) — test + prompt-only — the watcher runs a pass on every change Steam makes to a RomM game page, so a change that
@@ -1778,22 +1787,23 @@ Format: **invariant** — tier — enforced by.
   and sections hidden once the page is left, and a style written straight onto the play bar would stay on it. Neither
   shows in any one adaptation's test, because each of those checks its own element, so the rule is held by one test over
   the whole page: `frontend/src/desktop/navigationWatcher.test.ts`, "every change it makes is given back", records the
-  `style` attribute of every element before the watcher starts, runs several passes from each trigger, leaves the page,
-  and requires every attribute to match — once with both views handed and once with none. Leaving restores whenever the
-  ledger holds anything rather than once a page was entered, which is what gives back a pass that threw after the sticky
-  play bar was set up. What the test cannot see is a write to anything but `style` — a class, another attribute, a node
-  moved — and a change to an element its page does not hold; those are prompt-only. The rule's home is
-  `.claude/rules/desktop-dom.md`, and the mechanism `docs/architecture/desktop-dom-architecture.md`, "The restoration
-  ledger"
+  `style` attribute of every element before the watcher starts, runs passes from Steam's mutations and from a change to
+  the set of RomM shortcuts, has a scroll and a resize re-pin the play bar — each asserted to have reached its listener
+  — leaves the page, and requires every attribute to match — once with both views handed and once with none. Leaving
+  restores whenever the ledger holds anything rather than once a page was entered, which is what gives back a pass that
+  threw after the sticky play bar was set up; "gives back what a pass changed before it threw" holds that. What the test
+  cannot see is a write to anything but `style` — a class, another attribute, a node moved — and a change to an element
+  its page does not hold; those are prompt-only. The rule's home is `.claude/rules/desktop-dom.md`, and the mechanism
+  `docs/architecture/desktop-dom-architecture.md`, "The restoration ledger"
 - **No code under `frontend/src/desktop/` names one of Steam's minified class hashes** (dev build only) — check — a
   class hash is webpack's, and a Steam update may change it, so a selector that names one finds nothing after that
   update and the surface goes inert without an error. The finders resolve through the selector ladder instead
   (`docs/architecture/desktop-dom-architecture.md`, "The selector ladder"), whose first rung takes the exact class
   `@decky/ui` resolved from Steam's own modules at run time — the one place a hash may appear, because it was never
-  written down. `frontend/eslint.config.js` fails a string literal or template part under `frontend/src/desktop/` that
-  holds a token of twelve or more letters, digits, `_` and `-` with a digit, a capital and a small letter in it; test
-  files are left out, because a test builds Steam's page out of such classes. `frontend/src/eslintNoClassHashes.test.ts`
-  keeps the rule reporting, and holds that the block, which replaces the package-wide `no-restricted-syntax` options for
-  those files, still carries the rule that no name calls Tender a plugin. A data URI is left out, since its base64
-  payload is letters and digits throughout. Unseen by it: a hash with no digit in it, one shorter than twelve
-  characters, one built at run time, and one inside a data URI
+  written down. `frontend/eslint.config.js` fails a string literal, regex literal or template part under
+  `frontend/src/desktop/` that holds a token of twelve or more letters, digits, `_` and `-` with a digit, a capital and
+  a small letter in it; test files are left out, because a test builds Steam's page out of such classes.
+  `frontend/src/eslintNoClassHashes.test.ts` keeps the rule reporting, and holds that the block, which replaces the
+  package-wide `no-restricted-syntax` options for those files, still carries the rule that no name calls Tender a
+  plugin. A data URI is left out, since its base64 payload is letters and digits throughout. What it misses is listed at
+  the rule's entry in `CLAUDE.md`'s register, its one home

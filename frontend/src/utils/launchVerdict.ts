@@ -38,19 +38,20 @@ export interface LaunchPrompts {
  * What one launch path does around a verdict. Every settle callback is called
  * at most once per verdict and only on a branch that starts nothing.
  */
-export interface VerdictHooks {
+interface VerdictHooks {
   /** The core-change and unchecked-source questions are asked inside the gate, not here. */
   prompts: Pick<LaunchPrompts, "resolveConflicts" | "askOfflineDrift" | "confirmFallbackLaunch">;
   /**
-   * Start the game. Every approving branch ends here. `skipReconfirm` is set
-   * after a check that got no answer in time: the launch-options re-confirm asks
-   * the same backend, and its timeout would stop the start the user just chose.
+   * Start the game. Every approving branch ends here; `skipReconfirm` is set
+   * after a check that got no answer in time.
    */
   launch(options?: { skipReconfirm?: boolean }): Promise<void>;
   /**
-   * The start ended without a launch and without anything else to show: the user
-   * declined a setup, core-change, offline-drift or fallback prompt, or the gate
-   * blocked for a reason other than a pending migration.
+   * The start ended without a launch, and the trigger has nothing else to show:
+   * the gate aborted (the setup step stopped the start, or the user declined the
+   * core-change or unchecked-source question), the user declined the
+   * offline-drift or fallback prompt, or the gate blocked for a reason other
+   * than a pending migration.
    */
   onDeclined(): void;
   /** The user dismissed a save conflict, so the conflict still stands. */
@@ -83,9 +84,10 @@ export async function actOnGateVerdict(
         hooks.onMigrationBlocked();
         return "done";
       }
-      // No surface states a missing launch target at the moment of the press, so
-      // a silent bail would read as a dead button; a switched-off source has no
-      // surface at all, so the start says why.
+      // Nothing answers the press itself for a missing launch target (only the
+      // Info tab states it), so a silent bail would read as a dead button; a
+      // switched-off source is stated nowhere on the game page, so the start
+      // says why.
       if (verdict.reason === "no_launch_target") showToast(NO_LAUNCH_TARGET_TOAST_BODY);
       if (verdict.reason === "source_switched_off") showToast(startingSourceOffSentence(verdict.source));
       hooks.onDeclined();
@@ -123,36 +125,28 @@ export async function actOnGateVerdict(
   }
 }
 
-export interface GateLoopHooks extends VerdictHooks {
-  /**
-   * The verdict to act on when a gate run throws. Absent, the throw propagates to
-   * the caller — which is how a Play button resets its trigger.
-   */
-  onGateError?: (e: unknown) => GateVerdict;
-}
-
 /**
  * Run the gate for `appId` / `romId` and act on its verdict, running it again for
  * as long as the user keeps choosing "Retry" on the offline-drift prompt. Each
  * retry re-probes connectivity, so a server back online launches through the
  * normal path and one still away asks again.
+ *
+ * `runLaunchGate` fails open to `allow` on internal errors, so a gate error
+ * allows the launch. Any unexpected throw while acting on the verdict (a prompt
+ * or launch rejecting) propagates out to the caller.
  */
 export async function runGateLoop(
   appId: number,
   romId: number,
   ops: LaunchGateOps,
-  hooks: GateLoopHooks,
+  hooks: VerdictHooks,
 ): Promise<void> {
-  const gate = (): Promise<GateVerdict> => {
-    const run = runLaunchGate(appId, romId, ops);
-    return hooks.onGateError ? run.catch(hooks.onGateError) : run;
-  };
-  let verdict = await gate();
+  let verdict = await runLaunchGate(appId, romId, ops);
   // Each pass starts only after the user answered the previous verdict's prompt with "retry", so
   // the awaits are sequential by design. S9382 is raised on the two await lines, so their NOSONARs
   // must stay there; prettier-ignore stops Prettier from moving them into the bodies.
   // prettier-ignore
   while ((await actOnGateVerdict(verdict, romId, hooks)) === "retry") { // NOSONAR(typescript:S9382)
-    verdict = await gate(); // NOSONAR(typescript:S9382)
+    verdict = await runLaunchGate(appId, romId, ops); // NOSONAR(typescript:S9382)
   }
 }

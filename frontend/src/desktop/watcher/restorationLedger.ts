@@ -139,9 +139,10 @@ export class DomRestorationLedger {
 
   private restoreDisplays(): void {
     for (const [el, originalDisplay] of this.hiddenElements) {
-      if (el.isConnected) {
+      if (!el.isConnected) continue;
+      attempt("restore an element's display", () => {
         el.style.display = originalDisplay;
-      }
+      });
     }
     this.hiddenElements.clear();
   }
@@ -149,13 +150,15 @@ export class DomRestorationLedger {
   private restoreStyles(): void {
     for (const [el, propMap] of this.originalStyles) {
       if (!el.isConnected) continue;
-      for (const [prop, origVal] of propMap) {
-        if (origVal) {
-          el.style.setProperty(prop, origVal);
-        } else {
-          el.style.removeProperty(prop);
+      attempt("restore an element's styles", () => {
+        for (const [prop, origVal] of propMap) {
+          if (origVal) {
+            el.style.setProperty(prop, origVal);
+          } else {
+            el.style.removeProperty(prop);
+          }
         }
-      }
+      });
     }
     this.originalStyles.clear();
   }

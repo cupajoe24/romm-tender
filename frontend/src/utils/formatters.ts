@@ -141,6 +141,15 @@ export function joined(names: readonly string[], word = "and"): string {
   return `${names.slice(0, -1).join(", ")} ${word} ${last}`;
 }
 
+/** The last non-empty segment of a `/`-separated path, or "" where it has none: "bios" for "/a/bios/". */
+export function lastPathSegment(path: string): string {
+  // String code rather than `/\/+$/`, which backtracks super-linearly, or
+  // `findLast`, which ES2020 does not have.
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") end--;
+  return path.slice(path.lastIndexOf("/", end - 1) + 1, end);
+}
+
 /** "2025-02-14 15:45:38" -> "2025-02-14 15:45" */
 export function formatCardDate(dateStr: string): string {
   return dateStr.replace(/:\d{2}$/, "");
@@ -164,13 +173,4 @@ export function formatModalUnlockDate(dateStr: string): string {
     // fallback to compact string if parsing fails
   }
   return dateStr.replace(/:\d{2}$/, "");
-}
-
-/** The last non-empty segment of a `/`-separated path, or "" where it has none: "bios" for "/a/bios/". */
-export function lastPathSegment(path: string): string {
-  // String code rather than `/\/+$/`, which backtracks super-linearly, or
-  // `findLast`, which ES2020 does not have.
-  let end = path.length;
-  while (end > 0 && path[end - 1] === "/") end--;
-  return path.slice(path.lastIndexOf("/", end - 1) + 1, end);
 }
