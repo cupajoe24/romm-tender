@@ -23,8 +23,8 @@ import {
  * What a row's count slot says: a figure, `—` for a read that failed, or `null`
  * while the read is still in flight (which the slot draws as a spinner).
  *
- * A figure that costs a round trip or a backend scan reads `scan` until the
- * reader asks for it.
+ * A figure that costs a backend scan, which sends no request to RomM, reads
+ * `scan` until the reader asks for it.
  */
 export function rowCount(id: DataRowId, state: DataPageState): string | null {
   switch (id) {

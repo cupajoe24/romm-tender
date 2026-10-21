@@ -23,6 +23,7 @@ import {
   ROMM_ACCOUNT_LABEL,
   ROMM_HEADING,
   ROMM_URL_LABEL,
+  REMOVE_LABEL,
   SAVE_LABEL,
   SGDB_HEADING,
   SGDB_KEY_LABEL,
@@ -152,9 +153,16 @@ const SteamGridDBSection: FC<{ state: SettingsPageState; ask: AskDialog }> = ({ 
     <section style={SECTION_STYLE}>
       <SectionHeading title={SGDB_HEADING} />
       <Field label={SGDB_KEY_LABEL} description={sgdbKeyState(state.sgdbApiKey)}>
-        <DialogButton style={ROW_BUTTON_STYLE} onClick={editKey}>
-          {EDIT_LABEL}
-        </DialogButton>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <DialogButton style={ROW_BUTTON_STYLE} onClick={editKey}>
+            {EDIT_LABEL}
+          </DialogButton>
+          {state.sgdbApiKey && (
+            <DialogButton style={ROW_BUTTON_STYLE} onClick={() => detach(state.removeSgdbKey())}>
+              {REMOVE_LABEL}
+            </DialogButton>
+          )}
+        </div>
       </Field>
     </section>
   );

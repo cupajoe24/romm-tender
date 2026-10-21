@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import {
   GENERIC_SAVE_KEY_ERROR,
   GENERIC_VERIFY_ERROR,
+  REMOVE_KEY_FAILED,
   SGDB_KEY_HELP,
+  SgdbKeySaveRefused,
   sgdbKeyComplete,
   verifyThenSaveSgdbKey,
 } from "./sgdbApiKey";
@@ -47,9 +49,19 @@ describe("verifyThenSaveSgdbKey", () => {
     ).toBe(GENERIC_SAVE_KEY_ERROR);
   });
 
+  it("answers the backend's own message for a save it refused", async () => {
+    expect(
+      await verifyThenSaveSgdbKey("k", {
+        verify: () => Promise.resolve({ success: true, message: "" }),
+        save: () => Promise.reject(new SgdbKeySaveRefused("No header can carry that key")),
+      }),
+    ).toBe("No header can carry that key");
+  });
+
   it("words the two failures and the help", () => {
     expect(GENERIC_VERIFY_ERROR).toBe("Could not verify the key. Check your connection and try again.");
     expect(GENERIC_SAVE_KEY_ERROR).toBe("The key is valid, but saving it failed. Check your connection and try again.");
+    expect(REMOVE_KEY_FAILED).toBe("The SteamGridDB API key could not be removed");
     expect(SGDB_KEY_HELP).toBe(
       "Paste the key from your SteamGridDB profile (Preferences → API). It is checked against SteamGridDB before " +
         "it is saved.",

@@ -27,6 +27,7 @@ import {
   saveLogLevel,
   savePreferredRegion,
   saveServerUrl,
+  removeSgdbApiKey,
   saveSgdbApiKey,
   saveSteamInputSetting,
   setCollectionNamingMode,
@@ -41,10 +42,11 @@ import { AUTO_REGION, regionLabel } from "./preferredRegion";
 import { SYNC_ALL_FAILED_STATUS } from "./settingsWording";
 import { INVALID_URL_MESSAGE, signInToRomm, type SignInRequest, type SignInResult } from "./rommSignIn";
 import { isValidServerUrl, trimServerUrl } from "./serverUrl";
+import { REMOVE_KEY_FAILED, SgdbKeySaveRefused } from "./sgdbApiKey";
 import { showToast } from "./toast";
 import { useUpdateOutcomeState, type UpdateOutcomeState } from "./updateOutcomeStore";
+import { CHECK_OUTCOME_LINES, UPDATE_CHECK_FAILED } from "./updateAvailableView";
 import {
-  CHECK_OUTCOME_LINES,
   runUpdateCheckNow,
   setUpdateCheckSwitch,
   useUpdateNoticeState,
@@ -85,6 +87,7 @@ export interface SettingsPageState {
   signIn: (request: SignInRequest) => Promise<SignInResult>;
   signOut: () => void;
   saveSgdbKey: (value: string) => Promise<void>;
+  removeSgdbKey: () => Promise<void>;
 
   // Save Sync
   saveSyncSettings: SaveSyncSettings | null;
@@ -369,8 +372,19 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
   // an empty one, so a successful save means a configured key — reflect it as
   // the masked display.
   const handleSaveSgdbKey = async (value: string) => {
-    await saveSgdbApiKey(value);
+    const result = await saveSgdbApiKey(value);
+    if (!result.success) throw new SgdbKeySaveRefused(result.message);
     setSgdbApiKey("set");
+  };
+  const handleRemoveSgdbKey = async () => {
+    try {
+      const result = await removeSgdbApiKey();
+      if (result.success) setSgdbApiKey("");
+      else showToast(result.message);
+    } catch (e) {
+      logError(`Failed to remove the SteamGridDB API key: ${e}`);
+      showToast(REMOVE_KEY_FAILED);
+    }
   };
 
   // --- Save-sync default-slot handlers ---
@@ -447,7 +461,7 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
       }
     } catch (e) {
       logError(`Failed to check for updates: ${e}`);
-      setUpdateCheckResult("The check failed.");
+      setUpdateCheckResult(UPDATE_CHECK_FAILED);
     } finally {
       setCheckingForUpdate(false);
     }
@@ -514,6 +528,7 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
     signIn: handleSignIn,
     signOut: () => detach(handleSignOut()),
     saveSgdbKey: handleSaveSgdbKey,
+    removeSgdbKey: handleRemoveSgdbKey,
 
     saveSyncSettings,
     deviceInfo,

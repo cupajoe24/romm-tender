@@ -79,6 +79,7 @@ function makeSettingsState(over: Partial<SettingsPageState> = {}): SettingsPageS
     signIn: vi.fn(),
     signOut: vi.fn(),
     saveSgdbKey: vi.fn(),
+    removeSgdbKey: vi.fn(),
     saveSyncSettings: null,
     deviceInfo: null,
     syncing: false,

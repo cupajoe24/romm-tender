@@ -347,11 +347,12 @@ vi.mock("@decky/ui", () => {
       ),
     // The bare switch: `value` rather than `checked`, and no label of its own.
     // The same test ids as `ToggleField`'s, and `disabled` on the wrapper for
-    // the same reason, so a test presses either the same way.
+    // the same reason, so a test presses either the same way. `data-bare` is
+    // what tells a test the two apart.
     Toggle: (p: AnyProps & { value?: boolean; disabled?: boolean; onChange?: (v: boolean) => void }) =>
       createElement(
         "div",
-        { "data-testid": "toggle", "data-disabled": p.disabled ? "true" : undefined },
+        { "data-testid": "toggle", "data-bare": "true", "data-disabled": p.disabled ? "true" : undefined },
         createElement("input", {
           type: "checkbox",
           "data-testid": "toggle-input",

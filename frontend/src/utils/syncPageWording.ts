@@ -131,7 +131,7 @@ export function emptyPreviewSentence(s: SyncPreviewSummary, hasChanges: boolean)
   if (!hasChanges) return "Everything is up to date.";
   const covers = s.cover_refresh_count ?? 0;
   if (covers > 0) return `No shortcut changes — ${pluralize(covers, "cover update")}.`;
-  if ((s.restamp_platform_count ?? 0) > 0) return "No changes — finishing a previous sync.";
+  if ((s.restamp_platform_count ?? 0) > 0) return "No shortcut changes — recording what RomM has now.";
   return "No shortcut changes — there is still something to apply.";
 }
 

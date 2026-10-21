@@ -2,7 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { createElement, forwardRef } from "react";
-import { SgdbApiKeyModal, SgdbKeySaveRefused } from "./SgdbApiKeyModal";
+import { SgdbApiKeyModal } from "./SgdbApiKeyModal";
+import { SgdbKeySaveRefused } from "../../utils/sgdbApiKey";
 
 // Local @decky/ui mock (mirrors ConnectModal.test.tsx): ModalRoot passes its
 // children through (the modal owns its own footer buttons); DialogButton renders

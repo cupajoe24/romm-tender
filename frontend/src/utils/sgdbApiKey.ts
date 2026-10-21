@@ -14,7 +14,10 @@ export interface VerifyKeyResult {
 export interface SgdbKeySteps {
   /** Tests the entered key against SteamGridDB without persisting it. */
   verify: (key: string) => Promise<VerifyKeyResult>;
-  /** Persists the entered key. Called only after `verify` succeeds. */
+  /**
+   * Persists the entered key. Called only after `verify` succeeds; throws
+   * {@link SgdbKeySaveRefused} when the backend refuses the key.
+   */
   save: (key: string) => Promise<void>;
 }
 
@@ -28,6 +31,10 @@ export const SGDB_KEY_VERIFYING_LABEL = "Verifying…";
 
 export const GENERIC_VERIFY_ERROR = "Could not verify the key. Check your connection and try again.";
 export const GENERIC_SAVE_KEY_ERROR = "The key is valid, but saving it failed. Check your connection and try again.";
+export const REMOVE_KEY_FAILED = "The SteamGridDB API key could not be removed";
+
+/** What `save` throws when the backend refused the key; the prompt shows its message. */
+export class SgdbKeySaveRefused extends Error {}
 
 /** Whether *value* can be submitted: whitespace alone is not a key. */
 export const sgdbKeyComplete = (value: string): boolean => value.trim() !== "";
@@ -36,7 +43,7 @@ export const sgdbKeyComplete = (value: string): boolean => value.trim() !== "";
  * Verify *key*, then save it. Answers `null` once it is saved — the prompt
  * closes — and otherwise the message the prompt shows while it stays open. A
  * save that fails after the key verified says so rather than claiming the key
- * could not be verified.
+ * could not be verified, and a save the backend refused shows its message.
  */
 export async function verifyThenSaveSgdbKey(key: string, steps: SgdbKeySteps): Promise<string | null> {
   let check: VerifyKeyResult;
@@ -48,8 +55,8 @@ export async function verifyThenSaveSgdbKey(key: string, steps: SgdbKeySteps): P
   if (!check.success) return check.message;
   try {
     await steps.save(key);
-  } catch {
-    return GENERIC_SAVE_KEY_ERROR;
+  } catch (e) {
+    return e instanceof SgdbKeySaveRefused ? e.message : GENERIC_SAVE_KEY_ERROR;
   }
   return null;
 }

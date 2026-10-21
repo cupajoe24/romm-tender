@@ -29,14 +29,13 @@ export const formatBytes = formatBinaryBytes;
 
 /**
  * The backend's stage slugs in the words the user reads — one entry per
- * emit_progress call site in services/prune/executor.py, and no others.
+ * emit_progress call site in services/prune/, and no others.
  * An unknown stage falls back to its slug with underscores opened up.
  */
 export const STAGE_LABELS: Record<string, string> = {
   checking: "Checking with RomM",
   creating_recovery: "Backing up",
   recovery_sealed: "Backup complete",
-  repointing: "Updating the Steam shortcut",
   removing_shortcut: "Removing the Steam shortcut",
   removing: "Removing local data",
   removed: "Done",

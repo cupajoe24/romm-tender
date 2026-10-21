@@ -189,5 +189,6 @@ export function formatLastSeen(isoStr: string | null): string {
   if (diffMin < 60) return `${diffMin}m ago`;
   if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h ago`;
   const d = date.getDate();
-  return `${d} ${MONTH_NAMES[date.getMonth()]}`;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${d} ${months[date.getMonth()]}`;
 }

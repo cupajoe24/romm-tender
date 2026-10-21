@@ -35,7 +35,6 @@ describe("pruneWording", () => {
     expect(stageLabel("checking")).toBe("Checking with RomM");
     expect(stageLabel("creating_recovery")).toBe("Backing up");
     expect(stageLabel("recovery_sealed")).toBe("Backup complete");
-    expect(stageLabel("repointing")).toBe("Updating the Steam shortcut");
     expect(stageLabel("removing_shortcut")).toBe("Removing the Steam shortcut");
     expect(stageLabel("removing")).toBe("Removing local data");
     expect(stageLabel("removed")).toBe("Done");
@@ -69,10 +68,14 @@ describe("pruneWording", () => {
       rom_id: 1,
       name: "Game 1",
       fs_name: "Game 1.gba",
+      fs_name_no_ext: "Game 1",
       group_id: "g1",
       group_size: 1,
       bound_count: 0,
+      bound: false,
+      is_main_sibling: false,
       candidate: true,
+      gone_from_romm: true,
       platform_slug: "gba",
       installed: false,
       installed_bytes: null,
@@ -101,10 +104,14 @@ describe("pruneWording", () => {
       rom_id: 42,
       name: "Sonic",
       fs_name: "Sonic (USA).bin",
+      fs_name_no_ext: "Sonic (USA)",
       group_id: "g1",
       group_size: 1,
       bound_count: 0,
+      bound: false,
+      is_main_sibling: false,
       candidate: true,
+      gone_from_romm: true,
       platform_slug: "gen",
       installed: true,
       installed_bytes: 1024,

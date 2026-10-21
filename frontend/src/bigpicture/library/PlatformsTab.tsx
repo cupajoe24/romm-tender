@@ -194,16 +194,21 @@ export const PlatformsTab: FC<{ state: PlatformsPageState }> = ({ state }) => {
   // L2 and R2 step the shown platform's emulator selector wherever focus is on
   // this page, the list included.
   return (
-    <ListDetail
-      items={items}
-      listHeader={listHeader}
-      selectedId={state.selectedSlug}
-      onSelect={state.select}
-      renderDetail={(slug) => {
-        const row = slug === null ? undefined : state.rows.get(slug);
-        if (!row) return <div style={{ padding: "16px", color: "#8f98a0" }}>{PICK_A_PLATFORM}</div>;
-        return <PlatformDetail row={row} state={state} />;
-      }}
-    />
+    <EmulatorStepScope>
+      {(onButtonDown) => (
+        <ListDetail
+          items={items}
+          listHeader={listHeader}
+          selectedId={state.selectedSlug}
+          onSelect={state.select}
+          onButtonDown={onButtonDown}
+          renderDetail={(slug) => {
+            const row = slug === null ? undefined : state.rows.get(slug);
+            if (!row) return <div style={{ padding: "16px", color: "#8f98a0" }}>{PICK_A_PLATFORM}</div>;
+            return <PlatformDetail row={row} state={state} />;
+          }}
+        />
+      )}
+    </EmulatorStepScope>
   );
 };

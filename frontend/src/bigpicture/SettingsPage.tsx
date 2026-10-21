@@ -38,7 +38,6 @@ import { ROW_MARKER_GAP, ROW_MARKER_WIDTH, SELECTION_ACCENT } from "./layout/pan
 import { pendingEdits } from "./settings/TextInputModal";
 import { ConnectionSection } from "./settings/ConnectionSection";
 import { SteamGridDBSection } from "./settings/SteamGridDBSection";
-import { SgdbKeySaveRefused } from "./settings/SgdbApiKeyModal";
 import { SaveSyncSection } from "./settings/SaveSyncSection";
 import { RegisteredDevicesSection } from "./settings/RegisteredDevicesSection";
 import { ControllerSection } from "./settings/ControllerSection";
@@ -209,6 +208,7 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
               sgdbApiKey={state.sgdbApiKey}
               onVerifyKey={verifySgdbApiKey}
               onSaveKey={state.saveSgdbKey}
+              onRemoveKey={state.removeSgdbKey}
             />
           </>
         );

@@ -15,9 +15,9 @@
 import type { FirmwarePlatformExt, SystemCoreInfo } from "../types";
 import { fetchedAsRequired, isFetchable } from "./biosFetchable";
 import { biosFileDescription, biosFileNote } from "./biosFileNote";
-import { oneOfRowLine } from "./biosGroup";
+import { needWords } from "./biosGroup";
 import { biosHeldRatio } from "./biosHeldRatio";
-import { biosSummary } from "./biosSummary";
+import { biosSummary, saysNoBiosChosen } from "./biosSummary";
 import { emulatorDataReasonSentence } from "./emulatorSourceWording";
 import type { CoreAnswer, PlatformRow, PlatformsPageState } from "./usePlatformsPage";
 
@@ -141,7 +141,7 @@ export function rowVerdict(file: FirmwareRow): boolean | null {
  * required row, under its own words, and it is asked between the two above and
  * the required/not-required pair below: an unestablished verdict is still `?`,
  * and an unestablished NEED is still `unsure`, both tested first. Which region it
- * serves is the line under the row ({@link oneOfRowLine}).
+ * serves is the line under the row ({@link needWords}).
  *
  * The `Contents` cell reads the same `satisfied`, so the two columns are two
  * renderings of one field and cannot contradict each other.
@@ -277,7 +277,7 @@ export function declaredFolder(file: FirmwareRow): string | null {
  */
 export function biosRowText(file: FirmwareRow): { description: string | null; lines: string[] } {
   const { note, lines, fromLibrary } = biosFileNote(file);
-  const groupLine = file.one_of && !file.required_by_active ? [oneOfRowLine(file.one_of, rowVerdict(file))] : [];
+  const groupLine = file.one_of && !file.required_by_active ? [needWords(file)] : [];
   return {
     description: biosFileDescription(file) || null,
     lines: [...groupLine, ...(fromLibrary ? [] : [...(note ? [note] : []), ...lines])],
@@ -318,15 +318,14 @@ export function biosSectionView(firmware: FirmwarePlatformExt, serverOffline: bo
   const done = firmware.local_count ?? files.filter((f) => f.on_server && f.downloaded).length;
   const allDone = done === total;
 
-  const requiredWithheld = firmware.required_withheld ?? 0;
-  const systemImage = firmware.system_image ?? "not_demanded";
   // **No surface words the seven states itself** — `utils/biosSummary.ts`
   // holds them, and the section takes both halves of one answer: the short
   // `status` as the section's coloured note, where the title beside it says what
   // is being counted, and the `sentence` under it. The console's own demand
   // outranking the level's decline is decided in there too, which is what stops
   // this pane from reading that order differently from the game page's.
-  const { status, sentence } = biosSummary(firmware, files, firmware.bios_level ?? null);
+  const summary = biosSummary(firmware, files, firmware.bios_level ?? null);
+  const { status, sentence } = summary;
   // The narrowest of the declines: not one row on the platform was answered, so
   // the pane has nothing to point the reader at and says where a file can be put
   // instead. A withheld required row and an unsettled console demand are both
@@ -334,20 +333,16 @@ export function biosSectionView(firmware: FirmwarePlatformExt, serverOffline: bo
   // decides one extra LINE only — what the pane offers to fetch is a separate
   // question with a separate input, below.
   const nothingEstablished =
-    firmware.bios_level === "unknown" &&
-    systemImage !== "absent" &&
-    requiredWithheld === 0 &&
-    systemImage !== "unsettled";
+    firmware.bios_level === "unknown" && firmware.emulator_read === false && !saysNoBiosChosen(summary);
 
   // The download affordances key off what is missing AND fetchable, and read
-  // the VERDICT nowhere — not `bios_level`, not `required_withheld`, not
-  // `system_image`. They are two independent questions: what the RESOLVER could
-  // establish is the emulator's demand, what is FETCHABLE is what the RomM
-  // library holds, and neither answers the other. A required file the library
-  // does not hold leaves the platform not ready and still gives the user
-  // nothing to press here; a platform nothing could be read for still has a
-  // library behind it, and fetching from it is the one action that moves the
-  // platform along at all.
+  // the VERDICT nowhere — not `bios_level`, not `required_withheld`. They are two
+  // independent questions: what the RESOLVER could establish is the emulator's
+  // demand, what is FETCHABLE is what the RomM library holds, and neither
+  // answers the other. A required file the library does not hold leaves the
+  // platform not ready and still gives the user nothing to press here; a
+  // platform nothing could be read for still has a library behind it, and
+  // fetching from it is the one action that moves the platform along at all.
   //
   // The two further inputs below are of those same two kinds, and neither is a
   // readiness gate either: `fetch_for_required` is the launching emulator's own
@@ -601,10 +596,10 @@ export function coreClause(core: CoreAnswer): { clause: string | null; tone: Cor
 }
 
 /**
- * Which of the three ways to have no BIOS rows a platform without an answer is
+ * Which of the two ways to have no BIOS rows a platform without an answer is
  * in, or `null` where it has one.
  */
-export function biosAbsence(row: PlatformRow): "pending" | "failed" | "nothing" | null {
+export function biosAbsence(row: PlatformRow): "pending" | "failed" | null {
   if (row.firmware || row.firmwareState === "answered") return null;
   return row.firmwareState;
 }

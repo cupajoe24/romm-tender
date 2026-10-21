@@ -25,16 +25,7 @@
 import { type CSSProperties, type FC, type ReactNode, useEffect, useReducer, useRef, useState } from "react";
 
 import { checkForUpdateNow, getUpdateNotice, getUpdateOutcome, logError, type UpdateNotice } from "../api/backend";
-import { NOT_INSTALLED_PROGRAM } from "../bigpicture/settings/UpdatesSection";
-import {
-  type Block,
-  STEP_MARKS,
-  buttonLabel,
-  installButtonShown,
-  installStateUnread,
-  shownBlock,
-} from "../bigpicture/settings/UpdateInstallRows";
-import { type UpdateInstall, useUpdateInstall } from "../bigpicture/settings/useUpdateInstall";
+import { STEP_COLORS, renderNote } from "../bigpicture/settings/UpdateInstallRows";
 import { cardFrame } from "../bigpicture/UpdateCard";
 import { AMBER, AMBER_WASH, MUTED } from "../bigpicture/layout/pane";
 import { detach } from "../utils/detach";
@@ -44,12 +35,20 @@ import { UPDATE_RESULT_AFTER_RELOAD, strandedPanelSentence } from "../utils/stra
 import { useInstallerStarted } from "../utils/updateInstallStore";
 import {
   INSTALL_STATE_UNREAD,
+  STEP_MARKS,
+  STEP_TONES,
   WAITING_FOR,
+  buttonLabel,
+  installButtonShown,
+  installStateUnread,
   installSteps,
   pausedDownloadsHint,
+  shownBlock,
   waitReasonLines,
+  type Block,
 } from "../utils/updateInstallView";
-import { UPDATE_CHECK_FAILED, UPDATE_CHECK_UNREACHABLE } from "../utils/updateAvailableView";
+import { NOT_INSTALLED_PROGRAM, UPDATE_CHECK_FAILED, UPDATE_CHECK_UNREACHABLE } from "../utils/updateAvailableView";
+import { type UpdateInstall, useUpdateInstall } from "../utils/useUpdateInstall";
 import { failureFromWire, type RolledBackUpdate } from "../utils/updateOutcomeStore";
 import type { FallbackButtons } from "./fallbackButtons";
 
@@ -128,14 +127,14 @@ const InstallBlock: FC<{ block: Block }> = ({ block }) => (
       <div style={{ fontSize: "12px", paddingTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>
         {installSteps(block.at, block.failed).map(({ id, label, status }) => (
           <span key={id} data-testid={`fallback-step-${id}`} data-status={status}>
-            <span style={{ color: STEP_MARKS[status][1] }}>{STEP_MARKS[status][0]}</span> {label}
+            <span style={{ color: STEP_COLORS[STEP_TONES[status]] }}>{STEP_MARKS[status]}</span> {label}
           </span>
         ))}
       </div>
     )}
     {block.note && (
       <div data-testid="fallback-note" style={small}>
-        {block.note}
+        {renderNote(block.note)}
       </div>
     )}
   </div>

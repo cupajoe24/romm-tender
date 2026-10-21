@@ -279,4 +279,26 @@ describe("the SteamGridDB key", () => {
     expect(backend.saveSgdbApiKey).not.toHaveBeenCalled();
     expect(within(dialog("SteamGridDB API Key")).getByRole("alert")).toHaveTextContent("Invalid key");
   });
+
+  it("keeps the prompt open with the backend's message when it refuses to save a verified key", async () => {
+    vi.mocked(backend.verifySgdbApiKey).mockResolvedValue({ success: true, message: "" });
+    vi.mocked(backend.saveSgdbApiKey).mockResolvedValue({ success: false, message: "No header can carry that key" });
+    await renderTab();
+    const box = await openKey();
+    type(within(box).getByLabelText("API Key"), "k");
+    await submit(box);
+
+    expect(within(dialog("SteamGridDB API Key")).getByRole("alert")).toHaveTextContent("No header can carry that key");
+    expect(rowDescription("API Key")).toBe("Not configured");
+  });
+
+  it("offers Remove only while a key is stored, and removing it leaves the row unconfigured", async () => {
+    vi.mocked(backend.removeSgdbApiKey).mockResolvedValue({ success: true, message: "" });
+    await renderTab({ sgdb_api_key_masked: "••••" });
+    await press(button("Remove"));
+
+    expect(backend.removeSgdbApiKey).toHaveBeenCalledWith();
+    expect(rowDescription("API Key")).toBe("Not configured");
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
 });

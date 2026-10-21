@@ -12,7 +12,7 @@
  * nothing out, for Settings › Updates and the fallback page alike.
  */
 
-import { useUpdateNoticeState, type UpdateNoticeState } from "./updateNoticeStore";
+import { useUpdateNoticeState, type UpdateCheckOutcome, type UpdateNoticeState } from "./updateNoticeStore";
 import { failureTakesThePlaceOf, useUpdateOutcomeState, type UpdateOutcomeState } from "./updateOutcomeStore";
 import {
   stoppedAttemptTakesThePlaceOf,
@@ -25,6 +25,19 @@ export const UPDATE_CHECK_UNREACHABLE = "GitHub gave no usable answer. Try again
 
 /** What an asked-for check says where the call itself failed; the log names the error. */
 export const UPDATE_CHECK_FAILED = "The check failed.";
+
+/**
+ * What a Check now found, as the line under the button says it — only where
+ * the Available row above does not say it already, so a release found, or none
+ * newer, is no line. A check that a later switch press or a notice the backend
+ * pushed overtook reports nothing: its answer was never written, and the store
+ * holds the newer one.
+ */
+export const CHECK_OUTCOME_LINES: Readonly<Record<Exclude<UpdateCheckOutcome, "superseded">, string>> = {
+  found: "",
+  none: "",
+  unreachable: UPDATE_CHECK_UNREACHABLE,
+};
 
 /** The card's colour, which the dots are drawn in too. */
 export const UPDATE_AVAILABLE_COLOR = "#3d9df6";

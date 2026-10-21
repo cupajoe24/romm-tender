@@ -28,6 +28,8 @@ vi.mock("../../../utils/collections", () => ({
 
 const MGBA = {
   label: "mGBA",
+  labels: ["mGBA"],
+  name: "mGBA",
   kind: "libretro" as const,
   core_so: "mgba_libretro",
   emulator: "mgba_libretro.so",
@@ -35,7 +37,15 @@ const MGBA = {
   bakeable: true,
   reason: null,
 };
-const VBA = { ...MGBA, label: "VBA Next", core_so: "vba_next_libretro", emulator: "vba", is_default: false };
+const VBA = {
+  ...MGBA,
+  label: "VBA Next",
+  labels: ["VBA Next"],
+  name: "VBA Next",
+  core_so: "vba_next_libretro",
+  emulator: "vba",
+  is_default: false,
+};
 
 const platform = (over: Partial<PlatformSyncSetting> = {}): PlatformSyncSetting => ({
   id: 1,
@@ -122,6 +132,22 @@ async function openKind(id: string) {
   await press(within(screen.getByTestId(`kind-row-${id}`)).getAllByRole("button")[0] as HTMLElement);
 }
 
+const unreadPlatform = (slug: string): FirmwarePlatformExt =>
+  firmware({
+    platform_slug: slug,
+    files: [],
+    has_games: false,
+    bios_level: "unknown",
+    emulator_read: false,
+    locating: "unestablished",
+    required_count: 0,
+    required_downloaded: 0,
+    server_count: 0,
+    local_count: 0,
+    ratio_server_count: 0,
+    ratio_local_count: 0,
+  });
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(backend.getPlatforms).mockResolvedValue({
@@ -131,11 +157,10 @@ beforeEach(() => {
   vi.mocked(backend.getFirmwareStatus).mockResolvedValue({
     success: true,
     server_offline: false,
-    platforms: [{ platform_slug: "gba", has_games: true }],
   });
   vi.mocked(backend.getPlatformFirmwareStatus).mockImplementation(async (slug: string) => ({
     success: true,
-    platform: slug === "gba" ? firmware() : null,
+    platform: slug === "gba" ? firmware() : unreadPlatform(slug),
   }));
   vi.mocked(backend.getRegistryPlatforms).mockResolvedValue({
     platforms: [{ slug: "gba", name: "GBA", count: 9, reachable_count: 9 }],
@@ -209,7 +234,7 @@ describe("Platforms", () => {
     expect(screen.getByTestId("bios-legend")).toHaveTextContent("required, missing");
 
     await press(button("Download required (1)"));
-    expect(backend.downloadRequiredFirmware).toHaveBeenCalledWith("gba");
+    expect(backend.downloadRequiredFirmware).toHaveBeenCalledWith("gba", null);
   });
 
   it("opens the emulator menu from the core button", async () => {
@@ -250,7 +275,7 @@ describe("Platforms", () => {
     await renderTab();
     await openPlatform("Game Boy Advance");
     await press(button("Download", screen.getByTestId("bios-table")));
-    expect(backend.downloadPlatformFirmwareFile).toHaveBeenCalledWith("gba", "gba_bios.bin");
+    expect(backend.downloadPlatformFirmwareFile).toHaveBeenCalledWith("gba", "gba_bios.bin", null);
   });
 
   it("asks before deleting a downloaded file, and before deleting every one", async () => {
@@ -293,7 +318,10 @@ describe("Platforms", () => {
     await renderTab();
     await openPlatform("Atari 2600");
     expect(screen.getByTestId("platform-detail-atari2600")).toHaveTextContent(
-      "Nothing is known about this platform's BIOS files.",
+      "Nothing could be established about what the launching emulator needs",
+    );
+    expect(screen.getByTestId("platform-detail-atari2600")).toHaveTextContent(
+      "You can still put BIOS files in your BIOS folder by hand.",
     );
   });
 });

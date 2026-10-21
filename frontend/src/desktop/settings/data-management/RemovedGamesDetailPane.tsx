@@ -85,7 +85,6 @@ export const RemovedGamesDetailPane: FC<RemovedGamesDetailPaneProps> = ({ state,
   const [status, setStatus] = useState("");
   const [scanning, setScanning] = useState(false);
 
-  const [repoint, setRepoint] = useState(true);
   const [removeRows, setRemoveRows] = useState(true);
   const [removeDeadGames, setRemoveDeadGames] = useState(true);
   const [recovery, setRecovery] = useState(true);
@@ -142,7 +141,7 @@ export const RemovedGamesDetailPane: FC<RemovedGamesDetailPaneProps> = ({ state,
     destructiveConfirmed,
     insufficientSpace,
     unknownSelectedSize,
-    anyOptionChosen: repoint || removeRows || removeDeadGames,
+    anyOptionChosen: removeRows || removeDeadGames,
   });
 
   const pressBlocked = complete !== null || runInFlight;
@@ -269,7 +268,6 @@ export const RemovedGamesDetailPane: FC<RemovedGamesDetailPaneProps> = ({ state,
         startPrune({
           preview_id: reviewPreview.preview_id,
           confirmed: true,
-          repoint_shortcuts: repoint,
           remove_rows: removeRows,
           remove_fully_vanished: removeDeadGames,
           create_recovery_bundle: recovery,
@@ -452,15 +450,8 @@ export const RemovedGamesDetailPane: FC<RemovedGamesDetailPaneProps> = ({ state,
 
           <div style={{ marginTop: "12px" }}>
             <SettingsToggle
-              label="Repoint vanished shortcuts"
-              description="Each to its game's live default version, keeping the shortcut."
-              checked={repoint}
-              disabled={runInFlight}
-              onChange={setRepoint}
-            />
-            <SettingsToggle
               label="Remove gone versions"
-              description="The confirmed rows and their installed content, in games that still have a live version."
+              description="The confirmed rows and their installed content, in games that still have a live version — never the version a shortcut is on."
               checked={removeRows}
               disabled={runInFlight}
               onChange={setRemoveRows}

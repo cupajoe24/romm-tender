@@ -365,7 +365,7 @@ describe("the start-up check's coverage of what the panel imports", () => {
   });
 
   it("asks about desktop-only settings window components at feature cost", () => {
-    for (const name of ["SidebarNavigation", "DialogControlsSectionHeader", "Toggle", "Dropdown"]) {
+    for (const name of ["SidebarNavigation", "DialogControlsSectionHeader", "Dropdown"]) {
       const entry = STEAM_LOOKUPS.find((lookup) => lookup.name === name);
       expect(entry).toBeDefined();
       expect(entry?.absenceCost).toBe("feature");

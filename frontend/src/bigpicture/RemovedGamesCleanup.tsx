@@ -42,15 +42,11 @@ import {
   RESULT_LOST_MESSAGE,
   completionDescription,
   confirmBlockedReason,
-  confirmButtonLabel,
-  formatBytes,
   omittedWarnings,
   plural,
   removedInGroup,
   scanButtonDescription,
   stageLabel,
-  verdictFor,
-  versionLine,
 } from "../utils/pruneWording";
 import {
   finishedGroupsPercent,
@@ -60,17 +56,9 @@ import {
   stageInstalledSelections,
   PRUNE_ENDPOINT_TIMEOUT_MS,
 } from "../utils/pruneReview";
-import {
-  ButtonRow,
-  CELL_CLIP,
-  FLAT_BUTTON,
-  MUTED,
-  PaneTableHeader,
-  PaneTableRow,
-  SECONDARY_FONT,
-  type TableCell,
-  type TableRegister,
-} from "./layout/pane";
+import { CleanupList, formatBytes } from "./CleanupList";
+import { countCleanup, planCleanup, versionsDeletingFiles, type CleanupCounts } from "./cleanupPlan";
+import { ButtonRow, FLAT_BUTTON, MUTED, RED } from "./layout/pane";
 
 export { STAGE_LABELS } from "../utils/pruneWording";
 export { stageInstalledSelections } from "../utils/pruneReview";
@@ -126,134 +114,35 @@ const CleanupProgress: FC<{ progress: PruneProgress }> = ({ progress }) => (
  */
 const FinishedCleanupBar: FC = () => <ProgressBar nProgress={100} />;
 
-/** Game, Platform, Verdict, Installed, Keep a copy. */
-const CANDIDATE_COLUMNS = "minmax(0, 1fr) 64px 160px 64px 72px";
-
-/** The pane's register without its gutter: the dialog body is padded already. */
-const CANDIDATE_REGISTER: TableRegister = { rowPadding: "4px 0", headerPadding: "0 0 4px", rule: true };
-
-const SECONDARY_CELL: CSSProperties = { color: MUTED, fontSize: SECONDARY_FONT, fontVariantNumeric: "tabular-nums" };
-
-const ROW_WARNING: CSSProperties = { color: "#e5a43b", fontSize: SECONDARY_FONT };
-
-function installedCell(item: PrunePreviewItem): TableCell {
-  const style = { ...SECONDARY_CELL, textAlign: "right" } as const;
-  if (!item.installed) return { content: "—", title: "No ROM files on this device", style };
-  if (item.installed_bytes === null) return { content: "unknown", title: "Size unavailable", style };
-  return { content: formatBytes(item.installed_bytes), style };
+/** What the Confirm button says: pressed, then the run's current stage, then how many versions it removes. */
+function confirmButtonLabel(starting: boolean, progress: PruneProgress | null, versionsRemoved: number): string {
+  if (starting) return "Starting...";
+  if (progress) return `${stageLabel(progress.stage)}...`;
+  return `Remove ${versionsRemoved} ${plural(versionsRemoved, "version", "versions")}`;
 }
 
-const CandidateRow: FC<{
-  item: PrunePreviewItem;
-  included: boolean;
-  recovery: boolean;
-  runInFlight: boolean;
-  onInclude: (checked: boolean) => void;
-}> = ({ item, included, recovery, runInFlight, onInclude }) => {
-  const name = item.name || item.fs_name || `ROM ${item.rom_id}`;
-  const verdict = verdictFor(item);
-  const keepCopy: TableCell = item.installed
-    ? {
-        content: (
-          <ToggleField
-            checked={included}
-            disabled={runInFlight || !recovery}
-            bottomSeparator="none"
-            onChange={onInclude}
-          />
-        ),
-        title: "Include this version's installed ROM content in the recovery bundle",
-        // A control draws its focus ring outside its own box.
-        clip: false,
-      }
-    : { content: "—", style: { ...SECONDARY_CELL, textAlign: "right" } };
-  return (
-    <PaneTableRow
-      columns={CANDIDATE_COLUMNS}
-      register={CANDIDATE_REGISTER}
-      testId={`cleanup-row-${item.rom_id}`}
-      // An installed row's Keep-a-copy toggle is its stop already.
-      focusStop={!item.installed}
-      {...(item.candidate ? {} : { style: { opacity: 0.75 } })}
-      cells={[
-        {
-          content: name,
-          title: name,
-          ...(item.candidate ? { style: { fontWeight: 600 } } : {}),
-        },
-        { content: item.platform_slug, title: item.platform_slug, style: SECONDARY_CELL },
-        {
-          content: verdict.short,
-          title: verdict.full,
-          style: { fontSize: SECONDARY_FONT, color: item.candidate ? "#c7d5e0" : MUTED },
-        },
-        installedCell(item),
-        keepCopy,
-      ]}
-    >
-      <div style={{ ...SECONDARY_CELL, ...CELL_CLIP }} title={versionLine(item, name)}>
-        {versionLine(item, name)}
-      </div>
-      {item.warning && <div style={ROW_WARNING}>{item.warning}</div>}
-      {item.installed && (!recovery || !included) && (
-        <div style={ROW_WARNING}>Without a backup, the downloaded ROM file is deleted along with this version.</div>
-      )}
-    </PaneTableRow>
-  );
-};
-
-/**
- * The candidates, then — as a section of the same table — the other versions a
- * whole-game removal could still take. The backend sorts candidates first, so
- * the first non-candidate row is where that section starts.
- */
-const CandidateTable: FC<{
-  items: readonly PrunePreviewItem[];
-  includedContent: ReadonlySet<number>;
-  recovery: boolean;
-  runInFlight: boolean;
-  onInclude: (romId: number, checked: boolean) => void;
-}> = ({ items, includedContent, recovery, runInFlight, onInclude }) => (
-  <div data-testid="cleanup-table" style={{ marginTop: "14px" }}>
-    <PaneTableHeader
-      columns={CANDIDATE_COLUMNS}
-      register={CANDIDATE_REGISTER}
-      testId="cleanup-header"
-      cells={[
-        "Game",
-        "Platform",
-        "Verdict",
-        { content: "Installed", style: { textAlign: "right" } },
-        { content: "Keep a copy", style: { textAlign: "right" } },
-      ]}
-    />
-    {items.map((item, index) => (
-      <Fragment key={item.rom_id}>
-        {!item.candidate && (index === 0 || items[index - 1]!.candidate) && (
-          <div data-testid="cleanup-kept-section" style={{ margin: "12px 0 4px" }}>
-            <div style={{ fontWeight: 700 }}>Other versions of these games — still on RomM</div>
-            <div style={{ fontSize: SECONDARY_FONT, color: MUTED }}>
-              Still on RomM at your last sync. Each is removed only if the final check finds every version of its game
-              gone — then the whole game goes, Steam shortcut included.
-            </div>
-          </div>
-        )}
-        {/* Steam scrolls only far enough to reveal the focused control, so
-            reaching the last row brings up what sits under it — its own lines,
-            and the note after the table. */}
-        <div {...(index === items.length - 1 ? { onFocus: scrollNearestToBottom } : {})}>
-          <CandidateRow
-            item={item}
-            included={includedContent.has(item.rom_id)}
-            recovery={recovery}
-            runInFlight={runInFlight}
-            onInclude={(checked) => onInclude(item.rom_id, checked)}
-          />
-        </div>
-      </Fragment>
-    ))}
-  </div>
-);
+/** The summary's counts, in the order the dialog states them, each left out where it is zero. */
+function countLabels(counts: CleanupCounts): string[] {
+  const kept =
+    counts.keptForShortcut > 0
+      ? [
+          `${counts.keptForShortcut} ${plural(counts.keptForShortcut, "version kept because a shortcut is on it", "versions kept because a shortcut is on them")}`,
+        ]
+      : [];
+  if (counts.versionsRemoved === 0) return kept;
+  return [
+    `${counts.versionsRemoved} ${plural(counts.versionsRemoved, "version", "versions")} removed`,
+    ...(counts.gamesRemovedWithShortcut > 0
+      ? [
+          `${counts.gamesRemovedWithShortcut} ${plural(counts.gamesRemovedWithShortcut, "game removed with its shortcut", "games removed with their shortcut")}`,
+        ]
+      : []),
+    ...(counts.filesDeleted > 0
+      ? [`${counts.filesDeleted} downloaded ${plural(counts.filesDeleted, "file", "files")} deleted`]
+      : []),
+    ...kept,
+  ];
+}
 
 /** A run in flight: its caption and bar, and the Stop that ends it. */
 const CleanupRunProgress: FC<{ progress: PruneProgress; cancelling: boolean; onStop: () => void }> = ({

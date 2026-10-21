@@ -28,6 +28,8 @@ const file = (over: Partial<FirmwareRow>): FirmwareRow =>
 
 const option = (over: Partial<EmulatorOption>): EmulatorOption => ({
   label: "Core",
+  labels: ["Core"],
+  name: "Core",
   kind: "libretro",
   core_so: "core.so",
   emulator: "core",
@@ -134,10 +136,9 @@ describe("coreClause", () => {
 describe("biosAbsence", () => {
   const row = (over: Partial<PlatformRow>): PlatformRow => ({ firmware: null, ...over }) as PlatformRow;
 
-  it("names which of the three ways a platform has no rows, and none where it has an answer", () => {
+  it("names which of the two ways a platform has no rows, and none where it has an answer", () => {
     expect(biosAbsence(row({ firmwareState: "pending" }))).toBe("pending");
     expect(biosAbsence(row({ firmwareState: "failed" }))).toBe("failed");
-    expect(biosAbsence(row({ firmwareState: "nothing" }))).toBe("nothing");
     expect(biosAbsence(row({ firmwareState: "answered" }))).toBeNull();
   });
 });

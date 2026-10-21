@@ -13,6 +13,7 @@ import {
   DEFAULT_SAVE_SLOT_LABEL,
   DEVICE_LABEL,
   EDIT_LABEL,
+  REMOVE_LABEL,
   ENABLE_SAVE_SYNC_CONFIRM,
   ENABLE_SAVE_SYNC_DESCRIPTION,
   ENABLE_SAVE_SYNC_LABEL,
@@ -126,7 +127,7 @@ describe("Save Sync", () => {
 
 describe("Connections", () => {
   it("labels the row buttons", () => {
-    expect([EDIT_LABEL, SAVE_LABEL]).toEqual(["Edit", "Save"]);
+    expect([EDIT_LABEL, REMOVE_LABEL, SAVE_LABEL]).toEqual(["Edit", "Remove", "Save"]);
   });
 
   it("counts the custom headers, or says there are none", () => {

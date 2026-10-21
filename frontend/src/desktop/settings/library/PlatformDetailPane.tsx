@@ -148,12 +148,13 @@ function downloadLabel(row: PlatformRow, state: PlatformsPageState, id: string, 
   return showing === "failed" ? <span style={{ color: RED }}>{FAILED_LABEL}</span> : label;
 }
 
-const BiosFileRow: FC<PaneProps & { file: FirmwareRow; fetchable: ReadonlySet<string> }> = ({
+const BiosFileRow: FC<PaneProps & { file: FirmwareRow; fetchable: ReadonlySet<string>; emulator: string | null }> = ({
   row,
   state,
   ask,
   file,
   fetchable,
+  emulator,
 }) => {
   const mark = diskMark(file);
   const library = libraryMark(file);
@@ -167,7 +168,7 @@ const BiosFileRow: FC<PaneProps & { file: FirmwareRow; fetchable: ReadonlySet<st
       <DialogButton
         style={ROW_BUTTON_STYLE}
         disabled={busy}
-        onClick={() => state.downloadOne(row.slug, file.file_name)}
+        onClick={() => state.downloadOne(row.slug, file.file_name, emulator)}
       >
         {downloadLabel(row, state, file.file_name, DOWNLOAD_LABEL)}
       </DialogButton>
@@ -256,6 +257,7 @@ const BiosSection: FC<PaneProps & { firmware: FirmwarePlatformExt }> = ({ row, s
                 ask={ask}
                 file={file}
                 fetchable={view.fetchable}
+                emulator={firmware.active_core_label ?? null}
               />
             ))}
           </tbody>
@@ -275,7 +277,7 @@ const BiosSection: FC<PaneProps & { firmware: FirmwarePlatformExt }> = ({ row, s
         <DialogButton
           style={BUTTON_STYLE}
           disabled={!view.canDownloadRequired || busy}
-          onClick={() => state.downloadRequired(row.slug)}
+          onClick={() => state.downloadRequired(row.slug, firmware.active_core_label ?? null)}
         >
           {downloadLabel(row, state, "required", downloadRequiredLabel(view.requiredMissing))}
         </DialogButton>
