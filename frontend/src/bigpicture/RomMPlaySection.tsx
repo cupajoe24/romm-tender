@@ -31,33 +31,18 @@ import { VanishedVersionBanner } from "./VanishedVersionBanner";
 import { WarningCard } from "./WarningCard";
 import { useTriggerHandler } from "./emulatorStepping";
 import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
-import { applyArtwork, cancelArtworkApply } from "../utils/artwork";
+import { cancelArtworkApply } from "../utils/artwork";
 import { useAutoArtwork } from "../utils/autoArtwork";
-import { artworkApplyMessage } from "../utils/artworkApplyMessage";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
 import { getEventTarget } from "../utils/events";
-import {
-  testConnection,
-  probeReachability,
-  getSgdbResolution,
-  getRomMetadata,
-  isEndpointFailure,
-  refreshCoverArtwork,
-  refreshSgdbArtwork,
-  downloadAllFirmware,
-  deleteLocalSaves,
-  debugLog,
-} from "../api/backend";
+import { testConnection, probeReachability, downloadAllFirmware, deleteLocalSaves, debugLog } from "../api/backend";
 import { isStrandedPanelFailure } from "../api/host";
 import { executeManualSaveSync } from "../utils/manualSaveSync";
 import { executeRomUninstall } from "../utils/romUninstall";
-import {
-  capturePruneLeaseAdmission,
-  isPruneLeaseCancellation,
-  mountPruneLeaseOwner,
-  releasePruneLeasesByOwner,
-} from "../utils/pruneLease";
+import { executeRefreshArtwork } from "../utils/artworkRefresh";
+import { executeRefreshMetadata } from "../utils/metadataRefresh";
+import { mountPruneLeaseOwner, releasePruneLeasesByOwner } from "../utils/pruneLease";
 import { executeGameCoreChange } from "../utils/coreOverride";
 import { emulatorName } from "../utils/emulatorEntries";
 import { useGamePlaytime } from "../utils/playtimeReconcile";
@@ -142,7 +127,6 @@ import { registerConnectionHeartbeat } from "../utils/connectionHeartbeat";
 import { useMigrationStatus } from "../utils/migrationStore";
 import { useStrandedAnswer } from "../utils/strandedPanelStore";
 import { detach } from "../utils/detach";
-import type { WireReason } from "../types/reasons";
 import { announceSaveSync } from "../utils/saveSyncEvents";
 
 // S3776 is raised on the declaration line, so its NOSONAR must stay there. prettier-ignore stops
@@ -394,84 +378,23 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     }
     const romId = detail.romId;
     setActionPending("artwork");
-    const admission = capturePruneLeaseAdmission(`game-detail:${appId}`);
-    let coverFailure: string | null = null;
-    const say = (sgdbResult: string) => {
-      if (!coverFailure || coverFailure === sgdbResult) {
-        showToast(sgdbResult);
-        return;
-      }
-      showToast(`${sgdbResult.replace(/\.$/, "")}. The RomM cover could not be updated: ${coverFailure}`);
-    };
     try {
-      // Re-download the RomM cover, rename to {app_id}p.png, and patch
-      // cover_path on the registry row so the game info panel can render the
-      // refreshed image.
-      const coverResult = await refreshCoverArtwork(romId).catch(
-        (e): { success: boolean; reason?: WireReason | "exception"; message: string; cover_path?: string } => {
-          detach(debugLog(`refreshCoverArtwork rejected: ${e}`));
-          return { success: false, reason: "exception", message: "the request did not complete" };
-        },
-      );
-      if (coverResult.success) {
-        // Notify the game info panel so it can re-render the cover image.
-        globalThis.dispatchEvent(
-          new CustomEvent("romm_data_changed", {
-            detail: { type: "cover_refreshed", rom_id: romId },
-          }),
-        );
-      } else {
-        detach(debugLog(`refreshCoverArtwork failed: ${coverResult.reason} — ${coverResult.message}`));
-        coverFailure = coverResult.message;
-      }
-
-      const resolution = await getSgdbResolution(romId).catch((e): null => {
-        detach(debugLog(`getSgdbResolution rejected: ${e}`));
-        return null;
-      });
-      if (!resolution) {
-        say("Failed to refresh artwork");
-        return;
-      }
-      if (isEndpointFailure(resolution)) {
-        say(resolution.message);
-        return;
-      }
-
-      switch (resolution.decision) {
-        case "no_api_key":
-          say("Set a SteamGridDB API key in Settings first");
-          break;
-        case "resolved": {
-          const refreshed = await refreshSgdbArtwork(romId, resolution.sgdb_id);
-          if (isEndpointFailure(refreshed)) {
-            say(refreshed.message);
-            break;
-          }
-          say(artworkApplyMessage(await applyArtwork(romId, appId)));
-          break;
-        }
-        case "needs_pick":
-          if (coverFailure) showToast(`The RomM cover could not be updated: ${coverFailure}`);
+      await executeRefreshArtwork({
+        romId,
+        appId,
+        leaseOwner: `game-detail:${appId}`,
+        onNeedsPick: (candidates) => {
           showModal(
             <SgdbGamePickerModalContent
               romId={romId}
               appId={appId}
               romName={detail.romName}
-              candidates={resolution.candidates}
+              candidates={candidates}
               onApplied={() => {}}
             />,
           );
-          break;
-      }
-    } catch (e) {
-      // Leaving the game page cancels the artwork continuation mid-apply — that is
-      // teardown, not a refresh failure, so it must not toast at the next surface.
-      if (isPruneLeaseCancellation(e, admission)) {
-        detach(debugLog(`handleRefreshArtwork: continuation was cancelled: ${e}`));
-        return;
-      }
-      say("Failed to refresh artwork");
+        },
+      });
     } finally {
       setActionPending(null);
     }
@@ -481,13 +404,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     if (actionPending || !detail.romId) return;
     setActionPending("metadata");
     try {
-      await getRomMetadata(detail.romId);
-      showToast("Metadata refreshed");
-      globalThis.dispatchEvent(
-        new CustomEvent("romm_data_changed", { detail: { type: "metadata", rom_id: detail.romId } }),
-      );
-    } catch {
-      showToast("Failed to refresh metadata");
+      await executeRefreshMetadata(detail.romId);
     } finally {
       setActionPending(null);
     }
