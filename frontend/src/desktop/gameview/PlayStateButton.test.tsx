@@ -58,7 +58,9 @@ describe("PlayStateButton", () => {
     expect(launchBtn).toBeDisabled();
   });
 
-  it("renders menu with Uninstall option when showMenu is true", () => {
+  it("renders menu with Refresh Artwork, Refresh Metadata, and Uninstall options in order with standard grey colors", () => {
+    const onRefreshArtwork = vi.fn();
+    const onRefreshMetadata = vi.fn();
     const onUninstall = vi.fn();
     const { container } = render(
       <PlayStateButton
@@ -66,6 +68,8 @@ describe("PlayStateButton", () => {
         showMenu={true}
         onPlay={vi.fn()}
         onToggleMenu={vi.fn()}
+        onRefreshArtwork={onRefreshArtwork}
+        onRefreshMetadata={onRefreshMetadata}
         onUninstall={onUninstall}
       />,
     );
@@ -73,9 +77,32 @@ describe("PlayStateButton", () => {
     const group = container.querySelector(".tender-desktop-play-btn-group");
     expect(group).toHaveStyle({ zIndex: "1000" });
 
-    const uninstallBtn = screen.getByText("Uninstall");
-    expect(uninstallBtn).toBeInTheDocument();
-    fireEvent.click(uninstallBtn);
+    const menu = container.querySelector(".tender-desktop-play-menu")!;
+    expect(menu).toBeInTheDocument();
+
+    const menuButtons = menu.querySelectorAll("button");
+    expect(menuButtons).toHaveLength(3);
+
+    // Verify ordering: Refresh Artwork, Refresh Metadata, Uninstall
+    expect(menuButtons[0]).toHaveTextContent("Refresh Artwork");
+    expect(menuButtons[1]).toHaveTextContent("Refresh Metadata");
+    expect(menuButtons[2]).toHaveTextContent("Uninstall");
+
+    // Standard grey color (#c7d5e0) on refresh items
+    expect(menuButtons[0]).toHaveStyle({ color: "#c7d5e0" });
+    expect(menuButtons[1]).toHaveStyle({ color: "#c7d5e0" });
+
+    // Destructive red on uninstall
+    expect(menuButtons[2]).toHaveStyle({ color: "#ff6b6b" });
+
+    // Click triggers
+    fireEvent.click(menuButtons[0]!);
+    expect(onRefreshArtwork).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(menuButtons[1]!);
+    expect(onRefreshMetadata).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(menuButtons[2]!);
     expect(onUninstall).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,7 +5,7 @@
  * toggle opening the action menu (e.g. Uninstall).
  */
 
-import type { FC } from "react";
+import type { CSSProperties, FC } from "react";
 import { BUTTON_GROUP_STYLE, BUTTON_BASE_STYLE, SIDE_ACTION_STYLE } from "./styles";
 
 export interface PlayStateButtonProps {
@@ -13,14 +13,33 @@ export interface PlayStateButtonProps {
   showMenu: boolean;
   onPlay: () => void;
   onToggleMenu: () => void;
+  onRefreshArtwork?: () => void;
+  onRefreshMetadata?: () => void;
   onUninstall: () => void;
 }
+
+const MENU_ITEM_BASE_STYLE: CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "8px 16px",
+  textAlign: "left",
+  background: "transparent",
+  border: "none",
+  color: "#c7d5e0",
+  fontSize: "13px",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+};
 
 export const PlayStateButton: FC<PlayStateButtonProps> = ({
   effectiveState,
   showMenu,
   onPlay,
   onToggleMenu,
+  onRefreshArtwork,
+  onRefreshMetadata,
   onUninstall,
 }) => {
   let playText = "PLAY";
@@ -95,20 +114,35 @@ export const PlayStateButton: FC<PlayStateButtonProps> = ({
         >
           <button
             type="button"
+            className="tender-desktop-menu-item-refresh-artwork"
+            style={MENU_ITEM_BASE_STYLE}
+            onClick={onRefreshArtwork}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="1.5" y="1.5" width="9" height="9" rx="1" />
+              <circle cx="4" cy="4" r="1" fill="currentColor" stroke="none" />
+              <path d="M2 9.5L5 6.5L7.5 9M6.5 8L8 6.5L10.5 9" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Refresh Artwork
+          </button>
+          <button
+            type="button"
+            className="tender-desktop-menu-item-refresh-metadata"
+            style={MENU_ITEM_BASE_STYLE}
+            onClick={onRefreshMetadata}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M2.5 1.5H7.5L9.5 3.5V10.5H2.5V1.5Z" strokeLinejoin="round" />
+              <path d="M4.5 5.5H7.5M4.5 7.5H7.5" strokeLinecap="round" />
+            </svg>
+            Refresh Metadata
+          </button>
+          <button
+            type="button"
             className="tender-desktop-menu-item-uninstall"
             style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "8px 16px",
-              textAlign: "left",
-              background: "transparent",
-              border: "none",
+              ...MENU_ITEM_BASE_STYLE,
               color: "#ff6b6b",
-              fontSize: "13px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
             }}
             onClick={onUninstall}
           >

@@ -251,6 +251,9 @@ export function ensurePulseStyles(doc?: Document | null) {
       background: rgba(255, 255, 255, 0.08) !important;
       color: #ffffff !important;
     }
+    .tender-desktop-play-menu button:hover,
+    .tender-desktop-menu-item-refresh-artwork:hover,
+    .tender-desktop-menu-item-refresh-metadata:hover,
     .tender-desktop-menu-item-uninstall:hover {
       background: rgba(255, 255, 255, 0.08) !important;
     }

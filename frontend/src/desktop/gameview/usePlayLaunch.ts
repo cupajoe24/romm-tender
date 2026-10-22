@@ -8,6 +8,8 @@
 import { useRef } from "react";
 import { debugLog } from "../../api/backend";
 import { executeRomUninstall } from "../../utils/romUninstall";
+import { executeRefreshArtwork } from "../../utils/artworkRefresh";
+import { executeRefreshMetadata } from "../../utils/metadataRefresh";
 import { desktopLaunchPrompts, desktopStopGameDialog } from "./dialogs/desktopDialogs";
 import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
 import { resolveKnownConflicts } from "../../utils/saveConflictFlow";
@@ -53,6 +55,8 @@ export interface UsePlayLaunchResult {
   handleResolveConflictClick: () => Promise<void>;
   handleStopClick: () => Promise<void>;
   handleUninstallClick: () => Promise<void>;
+  handleRefreshArtworkClick: () => Promise<void>;
+  handleRefreshMetadataClick: () => Promise<void>;
   launchGame: () => void;
 }
 
@@ -212,11 +216,30 @@ export function usePlayLaunch({
     }
   };
 
+  const handleRefreshArtworkClick = async () => {
+    if (!romId) return;
+    setShowMenu?.(false);
+    await executeRefreshArtwork({
+      romId,
+      appId,
+      leaseOwner,
+      tag: "DesktopPlayButton",
+    });
+  };
+
+  const handleRefreshMetadataClick = async () => {
+    if (!romId) return;
+    setShowMenu?.(false);
+    await executeRefreshMetadata(romId);
+  };
+
   return {
     handlePlayClick,
     handleResolveConflictClick,
     handleStopClick,
     handleUninstallClick,
+    handleRefreshArtworkClick,
+    handleRefreshMetadataClick,
     launchGame,
   };
 }

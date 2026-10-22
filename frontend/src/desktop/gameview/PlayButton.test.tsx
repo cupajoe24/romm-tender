@@ -127,6 +127,14 @@ const BACKEND_STUBS = vi.hoisted(() => ({
   isSaveTrackingConfigured: vi.fn().mockResolvedValue({ configured: true }),
   checkCoreChange: vi.fn().mockResolvedValue({ changed: false }),
   checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, rom_id: 100 }),
+  refreshCoverArtwork: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
+  getSgdbResolution: vi.fn().mockResolvedValue({ decision: "resolved", sgdb_id: 42 }),
+  refreshSgdbArtwork: vi.fn().mockResolvedValue({ success: true }),
+  getRomMetadata: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("../../utils/artwork", () => ({
+  applyArtwork: vi.fn().mockResolvedValue(4),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -352,6 +360,9 @@ describe("PlayButton", () => {
     expect(styleEl?.textContent).toContain("LastPlayed");
     expect(styleEl?.textContent).toContain("RightControls");
     expect(styleEl?.textContent).toContain("margin-left: auto");
+    expect(styleEl?.textContent).toContain(".tender-desktop-menu-item-refresh-artwork:hover");
+    expect(styleEl?.textContent).toContain(".tender-desktop-menu-item-refresh-metadata:hover");
+    expect(styleEl?.textContent).toContain(".tender-desktop-menu-item-uninstall:hover");
 
     // Calling it again is a no-op
     ensurePulseStyles(customDoc);
@@ -827,6 +838,74 @@ describe("PlayButton", () => {
       expect(backend.removeRom).toHaveBeenCalledWith(100);
       expect(steamShortcuts.setLaunchOptionsConfirmed).toHaveBeenCalledWith(123, "");
       expect(toast.showToast).toHaveBeenCalledWith("Super Mario World uninstalled");
+    });
+  });
+
+  it("opens drop-down menu and triggers refresh artwork", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      hasSaves: false,
+      isSharedRom: false,
+      sharedWith: null,
+      loading: false,
+      error: null,
+    } as unknown as GameDetailState);
+
+    render(<PlayButton appId={123} />);
+
+    const menuToggle = screen.getByRole("button", { name: /game options/i });
+    fireEvent.click(menuToggle);
+
+    const refreshArtworkBtn = screen.getByRole("button", { name: /refresh artwork/i });
+    expect(refreshArtworkBtn).toBeInTheDocument();
+
+    fireEvent.click(refreshArtworkBtn);
+
+    await waitFor(() => {
+      expect(backend.refreshCoverArtwork).toHaveBeenCalledWith(100);
+      expect(backend.getSgdbResolution).toHaveBeenCalledWith(100);
+      expect(backend.refreshSgdbArtwork).toHaveBeenCalledWith(100, 42);
+      expect(toast.showToast).toHaveBeenCalledWith("Artwork refreshed (4/4 images applied)");
+    });
+  });
+
+  it("opens drop-down menu and triggers refresh metadata", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      hasSaves: false,
+      isSharedRom: false,
+      sharedWith: null,
+      loading: false,
+      error: null,
+    } as unknown as GameDetailState);
+
+    render(<PlayButton appId={123} />);
+
+    const menuToggle = screen.getByRole("button", { name: /game options/i });
+    fireEvent.click(menuToggle);
+
+    const refreshMetadataBtn = screen.getByRole("button", { name: /refresh metadata/i });
+    expect(refreshMetadataBtn).toBeInTheDocument();
+
+    fireEvent.click(refreshMetadataBtn);
+
+    await waitFor(() => {
+      expect(backend.getRomMetadata).toHaveBeenCalledWith(100);
+      expect(toast.showToast).toHaveBeenCalledWith("Metadata refreshed");
     });
   });
 

@@ -448,8 +448,14 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     };
   }, [appId, romId]);
 
-  // Launch gate orchestration hook
-  const { handlePlayClick, handleResolveConflictClick, handleStopClick, handleUninstallClick } = usePlayLaunch({
+  const {
+    handlePlayClick,
+    handleResolveConflictClick,
+    handleStopClick,
+    handleUninstallClick,
+    handleRefreshArtworkClick,
+    handleRefreshMetadataClick,
+  } = usePlayLaunch({
     appId,
     romId,
     romName: detail.romName,
@@ -600,6 +606,12 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             void handlePlayClick();
           }}
           onToggleMenu={() => setShowMenu((prev) => !prev)}
+          onRefreshArtwork={() => {
+            void handleRefreshArtworkClick();
+          }}
+          onRefreshMetadata={() => {
+            void handleRefreshMetadataClick();
+          }}
           onUninstall={() => {
             void handleUninstallClick();
           }}
