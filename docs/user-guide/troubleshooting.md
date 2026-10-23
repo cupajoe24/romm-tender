@@ -313,6 +313,34 @@ journalctl --user -u romm-tender-update
 Then press **Try again**. A download that failed is often just the network; a checksum that did not match again, or an
 installer that stops each time, is worth reporting together with that output.
 
+## RomM Won't Connect
+
+### Connection shows "Remove login from RomM URL"
+
+**Symptom**: The **Connection** row on Tender's main QAM panel says _Remove login from RomM URL_, and a sync or download
+fails with an unexpected error, or as server unreachable. Signing in says, in the sign-in window, "Your saved RomM URL
+holds a user name and password, which Tender cannot sign in through. Remove them from the RomM URL, then sign in to RomM
+under RomM Account; a login for a proxy in front of RomM goes into Custom headers."
+
+**Explanation**: The stored RomM URL carries a user name and password (`https://user:password@host`). Tender cannot sign
+in through the address, and no request to it reaches RomM.
+
+**Fix**: In [Settings › Connections](configuration.md#connection-settings), tap **Edit** next to **RomM URL** and enter
+the address without the user name and password. If that login was for RomM, the Connection row says _Connected_ again
+once the token you are signed in with is accepted; otherwise tap **Sign in** (or **Sign in again**) under **RomM
+Account**. If it was for a proxy in front of RomM, enter it under
+[Custom headers](configuration.md#custom-headers-for-an-authenticating-proxy) instead.
+
+### Connection shows "Not connected" after "Your saved RomM login cannot be used"
+
+**Symptom**: The **Connection** row says _Not connected_, and a sync, download or game page says "Your saved RomM login
+cannot be used. Sign in again to continue."
+
+**Explanation**: The stored token holds a character no request can carry, such as a line break. Only a hand-edited
+settings file holds one.
+
+**Fix**: Tap **Sign in again** under **RomM Account** in [Settings › Connections](configuration.md#connection-settings).
+
 ## Games Won't Launch
 
 ### "RomM Sync" is still installed
@@ -519,9 +547,10 @@ screen reload themselves on the spot — no need to leave and re-open the page.
 
 Only a genuine connection failure marks Tender offline. If RomM replies that it no longer has the thing being asked
 about — most often because the game was deleted and re-added on the server, which gives it a brand-new id, or because
-the RomM database was reset and this device's registration disappeared with it — that is the server _answering_, so the
-**RomM offline** badge stays clear and the surface tells you what's missing instead. If you see such a message while the
-badge is clear, the fix is on the RomM side (re-sync the library, or re-check the game), not with your network.
+the RomM database was reset and this device's registration disappeared with it (Tender re-registers this device first,
+so this rarely shows) — that is the server _answering_, so the **RomM offline** badge stays clear and the surface tells
+you what's missing instead. If you see such a message while the badge is clear, the fix is on the RomM side (re-sync the
+library, or re-check the game), not with your network.
 
 A slow answer isn't a failure either. The check a game page runs when it opens can take a while on a busy server or over
 a remote connection; while it's still outstanding the page simply keeps waiting, and the **RomM offline** badge appears
@@ -529,12 +558,14 @@ only once something actually reports the server as unreachable. A page that take
 same thing as a page that found RomM missing.
 
 When the missing thing is this device's own registration — the RomM database was wiped or restored and the id this
-device was issued no longer exists — you don't have to do anything. Both when Tender's panel loads (installing an update
-counts: the panel is loaded again after one) and before every save-sync (before a game launches, after it exits, or a
-manual sync), Tender first checks that this device's id still exists on the server; the moment it finds the id is gone
-it registers this device afresh and carries on under the new id. A new entry shows up in RomM's device list; the old,
-dead one can be ignored. Play time that was recorded but not yet uploaded — sessions played while RomM was away — is
-carried over to the new registration, so it still lands on the server under this device rather than being stranded.
+device was issued no longer exists — you don't have to do anything. When you sign in, when Tender's panel loads
+(installing an update counts: the panel is loaded again after one), and before everything that asks RomM about this
+game's saves (a sync before a game launches, after it exits or by hand, the saves status, the previous versions, a copy
+into another slot, a restore, resolving a conflict, a slot switch, listing or deleting a slot's saves, the save-slot
+setup), Tender first checks that this device's id still exists on the server; the moment it finds the id is gone it
+registers this device afresh and carries on under the new id. A new entry shows up in RomM's device list; the old, dead
+one can be ignored. Play time that was recorded but not yet uploaded — sessions played while RomM was away — is carried
+over to the new registration, so it still lands on the server under this device rather than being stranded.
 
 The first-time save-slot setup screen is the clearest example. If RomM can't find the save data that setup needs, it
 pauses with "RomM couldn't find the save data for this setup" rather than the "server is not reachable" message, and the
@@ -542,14 +573,27 @@ offline badge stays clear. Setup deliberately stops there instead of picking a s
 view of what's on the server, and choosing a slot on that basis could overwrite real saves on the first sync. Re-check
 the game in RomM (a server database reset re-registers this device automatically — see above), then tap **Retry**.
 
+### "This device could not be registered with RomM"
+
+**Symptom**: the Saves tab's sync line reads "Device not registered with RomM", the save-slot setup pauses with "This
+device could not be registered with RomM", the previous versions show the same message, resolving a conflict says "This
+device could not be registered with RomM — conflict left unresolved", or a sync, copy, restore or slot switch fails with
+"Device not registered with RomM"; the **RomM offline** badge stays clear.
+
+Tender registers this device with RomM before it asks about a game's saves, and here RomM answered without registering
+it — or a proxy in front of RomM answered in its place, or Tender could not send your saved login. Tender listed nothing
+from RomM, and no save was synced. The usual cause is a token without the `devices.write` scope (see
+[Required scopes](configuration.md#required-scopes)); sign in again with a token that has it. If a proxy sits in front
+of RomM, check that it lets `/api/devices` through. Then tap **Retry**, or open the game page again.
+
 ### Save file not found
 
 **Symptom**: The game detail page shows save status but no save file is being synced.
 
 **Fix**: What syncs is not one file type. For each game, Tender asks the emulator that will launch it which files its
 save consists of, and syncs only those. Where that answer is something Tender cannot carry — a card many games share, a
-save inside the game file, a name built from the game's own identity, or nothing established — save sync does nothing
-for that game rather than guessing.
+save inside the game file, a name built from the game's own identity, a save folder that depends on the folder the game
+is started from, or nothing established — save sync does nothing for that game rather than guessing.
 [When save sync does nothing, and why](save-sync-support-matrix.md#when-save-sync-does-nothing-and-why) explains each
 case, and the [save sync support matrix](save-sync-support-matrix.md) shows how each system usually lands.
 
@@ -636,17 +680,19 @@ stores one when it asked SteamGridDB and found the game there. What a game witho
 3. Or set it by hand: edit the game in RomM and enter its **SteamGridDB ID**.
 
 Once RomM has the id, the next sync brings it over, and the background artwork job then gives the game its SteamGridDB
-wide grid and logo where it has none yet, and its SteamGridDB icon in place of Tender's logo; the hero comes when the
-game's page is opened. To have them at once, tap **Refresh Artwork** on the game's page: it asks RomM for the id,
-downloads that game's hero banner, logo, wide grid and icon anew and applies them, replacing an image you picked in the
-picker below too, where SteamGridDB has such an image for that game. Opening the game's page for the first time in a
-session, once a sync has brought the id over from RomM, sets the hero banner, logo, wide grid and icon only where the
-game has none yet (Tender's logo counts as no icon), so a picked image stays there until you tap **Refresh Artwork** or
-switch the game to another version.
+wide grid, logo and — where it has none — cover, and its SteamGridDB icon in place of Tender's logo; the hero comes when
+the game's page is opened. **Refresh Artwork** stays greyed out until the game has a SteamGridDB game, so for a game
+without one it is that next sync that brings RomM's id over; from then on **Refresh Artwork** asks RomM for the id,
+downloads Tender's pick anew for every image on automatic and applies it, while an image you chose in the ARTWORK tab
+and one set in Steam stay. Opening the game's page for the first time in a session, once a sync has brought the id over
+from RomM, sets the hero banner, logo, wide grid, icon and cover only where the game has none yet (Tender's logo counts
+as no icon).
 
-For a game SteamGridDB lists under another name, or not at all, a scan may find nothing. **Refresh Artwork** then opens
-a picker where you search SteamGridDB by name and apply a match. If a game genuinely has no artwork uploaded to
-SteamGridDB, those slots fall back to Steam's defaults — you can contribute artwork there to help the community.
+For a game SteamGridDB lists under another name, or not at all, a scan may find nothing. The game's **ARTWORK** tab then
+offers **Choose game…**, where you search SteamGridDB by name and apply a match; Tender remembers it until RomM has an
+id of its own for the game ([The ARTWORK tab](managing-games.md#the-artwork-tab)). If a game genuinely has no artwork
+uploaded to SteamGridDB, those slots fall back to Steam's defaults — you can contribute artwork there to help the
+community.
 
 ### SteamGridDB refused the API key
 
@@ -668,9 +714,12 @@ the first time you open that game's detail page, scroll it back into view, or th
 is already on disk; Steam just hasn't re-rendered the tile yet.
 
 **Fix**: If a tile stays blank after that, open the game's detail page and tap **Refresh Artwork** in the Tender panel.
-This downloads the cover from RomM again and the SteamGridDB images anew. **Refresh Metadata** changes no artwork: it
-shows the metadata Tender stored at the last sync again and asks RomM nothing. (Hero banners, logos, and wide grid
-images additionally need a [SteamGridDB API key](configuration.md#steamgriddb-api-key) — see above.)
+This downloads the cover from RomM again and the SteamGridDB images anew, for the images on automatic. For a game
+without a SteamGridDB game it is greyed out; there the next sync brings the cover, or setting the cover back to
+**Automatic** in the game's [ARTWORK tab](managing-games.md#the-artwork-tab) reloads it at once — the cover's slot
+offers **Automatic** without a SteamGridDB game or key too. **Refresh Metadata** changes no artwork: it shows the
+metadata Tender stored at the last sync again and asks RomM nothing. (Hero banners, logos, and wide grid images
+additionally need a [SteamGridDB API key](configuration.md#steamgriddb-api-key) — see above.)
 
 ## Shortcuts Appear on Other Devices
 
@@ -700,6 +749,13 @@ reachable, try cancelling and restarting the download from the game detail page.
 **Fix**: Open the **Downloads** page from the QAM to see error details. Common causes include insufficient disk space,
 network interruption, or the ROM being unavailable on the server. Failed downloads can be retried from the game detail
 page.
+
+### Download failed with "Not enough space to unpack"
+
+**Fix**: The game arrived as a zip that Tender unpacks, and its contents do not fit beside it. Free space on the drive
+the game goes to and press **Download** again: the zip is kept, so the retry unpacks it without downloading it again —
+unless Tender has restarted in between, which clears the kept zip. See
+[Managing Games](managing-games.md#multi-disc-and-multi-file-games) for what is unpacked.
 
 ### Download refused before it starts
 
@@ -749,8 +805,9 @@ check also verifies the same server/user namespace captured by the preview. Canc
 those actions. This reciprocal block prevents newly downloaded content or recovered state from appearing after recovery
 was captured and then being removed by finalization.
 
-Recovery bundles are under `~/romm-tender-recovery/bundles/`. Older bundles sealed under
-`~/decky-romm-sync-recovery/bundles/` stay where they are — nothing moves them, and both folders are yours to keep or
+Recovery bundles are under `recovery/bundles/` in Tender's folder — `~/Tender/recovery/bundles/` unless you chose
+another place under **Settings › Tender folder**. Older bundles sealed under `~/romm-tender-recovery/bundles/` or
+`~/decky-romm-sync-recovery/bundles/` stay where they are — nothing moves them, and those folders are yours to keep or
 delete. A directory appears there only after every required copy and checksum succeeds, directory durability succeeds
 where supported, and the staging directory is atomically sealed. A post-rename durability failure preserves the
 directory with a `.durability-uncertain` suffix instead of making it look successfully sealed. Before the Steam action
@@ -845,8 +902,8 @@ Tender shows extra warnings if RetroDECK is not whitelisted, since removing it w
 
 ### Recovery bundles
 
-The row counts the snapshots the cleanup sealed under `~/romm-tender-recovery/bundles/`, and states the disk they take.
-Below that total the pane lists each bundle with the game it holds, the day (UTC) it was sealed as its folder name
+The row counts the snapshots the cleanup sealed under `recovery/bundles/` in Tender's folder, and states the disk they
+take. Below that total the pane lists each bundle with the game it holds, the day (UTC) it was sealed as its folder name
 carries it, and its size, newest first. The game is spelled the way the bundle's folder spells it — `Shenmue-II` for
 Shenmue II — so it matches what you see in a file manager. A folder whose name is not in the shape Tender writes — one
 you renamed, or one ending `.durability-uncertain` because its seal could not be confirmed — is listed under its folder
@@ -854,8 +911,9 @@ name, with no day, at the bottom. **Nothing on this page removes one** — they 
 file manager. What a bundle holds is under
 [Cleaning up versions removed from RomM](managing-games.md#cleaning-up-versions-removed-from-romm).
 
-The count covers that folder only. Bundles an older version sealed under `~/decky-romm-sync-recovery/bundles/` are still
-on your disk and are **not** counted here, so a device carrying those has more than this row reports.
+The count covers that folder only. Bundles an older version sealed under `~/romm-tender-recovery/bundles/` or
+`~/decky-romm-sync-recovery/bundles/` are still on your disk and are **not** counted here, so a device carrying those
+has more than this row reports.
 
 ### Per-platform removals moved
 

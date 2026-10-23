@@ -1,4 +1,4 @@
-"""In-memory ``UnitOfWork`` composing the thirteen fake repositories, for service tests.
+"""In-memory ``UnitOfWork`` composing the sixteen fake repositories, for service tests.
 
 Mirrors the real UoW's context-manager shape — a clean ``__exit__`` commits and
 flips ``committed``; an exceptional one truly rolls back (discards every write
@@ -30,10 +30,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from fakes.fake_answered_save_directory_repository import FakeAnsweredSaveDirectoryRepository
+from fakes.fake_artwork_slot_choice_repository import FakeArtworkSlotChoiceRepository
+from fakes.fake_artwork_slot_handover_repository import FakeArtworkSlotHandoverRepository
 from fakes.fake_artwork_slot_outcome_repository import FakeArtworkSlotOutcomeRepository
 from fakes.fake_bios_file_repository import FakeBiosFileRepository
 from fakes.fake_collection_sync_state_repository import FakeCollectionSyncStateRepository
 from fakes.fake_firmware_cache_repository import FakeFirmwareCacheRepository
+from fakes.fake_firmware_store_repository import FakeFirmwareLinkRepository, FakeFirmwareStoreRepository
 from fakes.fake_kv_config_repository import FakeKvConfigRepository
 from fakes.fake_platform_sync_state_repository import FakePlatformSyncStateRepository
 from fakes.fake_playtime_repository import FakePlaytimeRepository
@@ -48,10 +51,13 @@ if TYPE_CHECKING:
 
     from domain.answered_save_directory import AnsweredSaveDirectory
     from domain.artwork_slot import ArtworkSlot
+    from domain.artwork_slot_choice import ArtworkSlotChoice
+    from domain.artwork_slot_handover import ArtworkSlotHandover
     from domain.artwork_slot_outcome import ArtworkSlotOutcome
     from domain.bios_file import BiosFile
     from domain.collection_sync_state import CollectionSyncState
     from domain.firmware_cache import FirmwareCacheEntry
+    from domain.firmware_store import FirmwareLink, StoredFirmware
     from domain.platform_sync_state import PlatformSyncState
     from domain.playtime import Playtime
     from domain.rom import Rom
@@ -72,8 +78,12 @@ class _Snapshot:
     rom_save_sync_states: dict[int, RomSaveSyncState]
     answered_save_directories: dict[int, AnsweredSaveDirectory]
     artwork_slot_outcomes: dict[int, dict[ArtworkSlot, ArtworkSlotOutcome]]
+    artwork_slot_choices: dict[int, dict[ArtworkSlot, ArtworkSlotChoice]]
+    artwork_slot_handovers: dict[int, dict[ArtworkSlot, ArtworkSlotHandover]]
     bios_files: dict[tuple[str, str], BiosFile]
     firmware_cache: dict[tuple[str, str], FirmwareCacheEntry]
+    firmware_store: dict[tuple[str, str], StoredFirmware]
+    firmware_links: dict[str, FirmwareLink]
     sync_runs: dict[str, SyncRun]
     platform_sync_state: dict[str, PlatformSyncState]
     collection_sync_state: dict[tuple[str, str], CollectionSyncState]
@@ -81,12 +91,13 @@ class _Snapshot:
 
 
 class FakeUnitOfWork:
-    """In-memory unit of work over thirteen fake repositories with commit/rollback flags."""
+    """In-memory unit of work over seventeen fake repositories with commit/rollback flags."""
 
     # Child repos whose aggregate carries a ``rom_id`` foreign key onto ``roms``
     # (schema: rom_installs / rom_metadata / rom_playtime / rom_save_sync_states +
     # rom_save_files, the last two backing the one ``rom_save_sync_states`` repo,
-    # answered_save_directories and artwork_slot_outcomes).
+    # answered_save_directories, artwork_slot_outcomes, artwork_slot_choices and
+    # artwork_slot_handovers).
     # Each is keyed by ``rom_id``, so ``repo._snapshot().keys()`` are the FK
     # values the commit check validates against ``roms``. Adding a new per-rom
     # vertical means adding its repo attr name here — nothing else.
@@ -97,6 +108,8 @@ class FakeUnitOfWork:
         "rom_save_sync_states",
         "answered_save_directories",
         "artwork_slot_outcomes",
+        "artwork_slot_choices",
+        "artwork_slot_handovers",
     )
 
     def __init__(self) -> None:
@@ -107,8 +120,12 @@ class FakeUnitOfWork:
         self.rom_save_sync_states = FakeRomSaveSyncStateRepository()
         self.answered_save_directories = FakeAnsweredSaveDirectoryRepository()
         self.artwork_slot_outcomes = FakeArtworkSlotOutcomeRepository()
+        self.artwork_slot_choices = FakeArtworkSlotChoiceRepository()
+        self.artwork_slot_handovers = FakeArtworkSlotHandoverRepository()
         self.bios_files = FakeBiosFileRepository()
         self.firmware_cache = FakeFirmwareCacheRepository()
+        self.firmware_store = FakeFirmwareStoreRepository()
+        self.firmware_links = FakeFirmwareLinkRepository()
         self.sync_runs = FakeSyncRunRepository()
         self.platform_sync_state = FakePlatformSyncStateRepository()
         self.collection_sync_state = FakeCollectionSyncStateRepository()
@@ -142,8 +159,12 @@ class FakeUnitOfWork:
             rom_save_sync_states=self.rom_save_sync_states._snapshot(),
             answered_save_directories=self.answered_save_directories._snapshot(),
             artwork_slot_outcomes=self.artwork_slot_outcomes._snapshot(),
+            artwork_slot_choices=self.artwork_slot_choices._snapshot(),
+            artwork_slot_handovers=self.artwork_slot_handovers._snapshot(),
             bios_files=self.bios_files._snapshot(),
             firmware_cache=self.firmware_cache._snapshot(),
+            firmware_store=self.firmware_store._snapshot(),
+            firmware_links=self.firmware_links._snapshot(),
             sync_runs=self.sync_runs._snapshot(),
             platform_sync_state=self.platform_sync_state._snapshot(),
             collection_sync_state=self.collection_sync_state._snapshot(),
@@ -189,8 +210,12 @@ class FakeUnitOfWork:
         self.rom_save_sync_states._restore(snapshot.rom_save_sync_states)
         self.answered_save_directories._restore(snapshot.answered_save_directories)
         self.artwork_slot_outcomes._restore(snapshot.artwork_slot_outcomes)
+        self.artwork_slot_choices._restore(snapshot.artwork_slot_choices)
+        self.artwork_slot_handovers._restore(snapshot.artwork_slot_handovers)
         self.bios_files._restore(snapshot.bios_files)
         self.firmware_cache._restore(snapshot.firmware_cache)
+        self.firmware_store._restore(snapshot.firmware_store)
+        self.firmware_links._restore(snapshot.firmware_links)
         self.sync_runs._restore(snapshot.sync_runs)
         self.platform_sync_state._restore(snapshot.platform_sync_state)
         self.collection_sync_state._restore(snapshot.collection_sync_state)
@@ -226,6 +251,8 @@ class FakeUnitOfWork:
             self.rom_save_sync_states.delete(rom_id)
             self.answered_save_directories.delete(rom_id)
             self.artwork_slot_outcomes.delete(rom_id)
+            self.artwork_slot_choices.delete(rom_id)
+            self.artwork_slot_handovers.delete(rom_id)
 
 
 class FakeUnitOfWorkFactory:

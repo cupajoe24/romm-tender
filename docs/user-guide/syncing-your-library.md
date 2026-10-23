@@ -105,14 +105,18 @@ time** line, shown as "up to X min".
 
 Cover changes count too: if you replaced a game's cover on the server but nothing else changed, the page reads "No
 shortcut changes — N cover updates" in place of the table and still offers **Apply Sync** — applying refreshes those
-tiles without touching the shortcuts. A platform Tender has to read in full again although none of its shortcuts change
-reads "No shortcut changes — recording what RomM has now." and offers **Apply Sync** as well: applying records what RomM
-serves on that platform, so the next sync can skip it again. You see it once after the update that introduced this
-check, while every platform is read in full one time; after a game was hidden or deleted in RomM; after a game was
-changed in RomM in a way none of its shortcuts shows, such as a metadata edit or a rescan, since the last sync or
-shortly before it; and after a sync that stopped before it finished. With **Skip preview** on there is no preview to
-show it in: the sync records what RomM has now by itself. Only when there is truly nothing to do does the page read
-"Everything is up to date."
+tiles without touching the shortcuts. A cover you set yourself in Steam, and one you chose from SteamGridDB in the
+game's **ARTWORK** tab, is left as it is and not counted, and a sync does not bring the server's new cover later on its
+own: setting the cover back to **Automatic** in the ARTWORK tab loads it — the cover's slot offers that even without a
+SteamGridDB game or key — after asking before it replaces a cover set in Steam
+([The ARTWORK tab](managing-games.md#the-artwork-tab)). A platform or a collection Tender has to read in full again
+although none of its shortcuts change reads "No shortcut changes — recording what RomM has now." and offers **Apply
+Sync** as well: applying records what RomM serves on that platform or in that collection, so the next sync can skip it
+again. You see it once after an update that introduced this check, while every platform or collection is read in full
+one time; after a game was hidden or deleted in RomM; after a game was changed in RomM in a way none of its shortcuts
+shows, such as a metadata edit or a rescan, since the last sync or shortly before it; and after a sync that stopped
+before it finished. With **Skip preview** on there is no preview to show it in: the sync records what RomM has now by
+itself. Only when there is truly nothing to do does the page read "Everything is up to date."
 
 A preview stays good for **30 minutes**, and it belongs to Tender rather than to the page you are looking at: you can
 leave for the settings or a submenu, come back, and the same preview is still there with **Apply Sync** ready. That
@@ -127,12 +131,13 @@ That starting estimate is **skip-aware**: when the run is planned, Tender alread
 since their last sync and expects to skip them wholesale, so they don't inflate the number — an incremental re-sync of
 an unchanged library reads seconds, not the minutes a full first import would take. The prediction is only an estimate
 (the actual skip is decided per platform, and per collection, as the run reaches it), so a wrong guess can make the
-readout run long or short for a moment, but it never changes what the sync actually does. Collections are skipped the
-same way a platform is: if a collection's membership hasn't changed and none of its games did either, Tender skips it
-without re-listing its contents — so a large, collection-heavy library re-syncs quickly. That holds for **Franchises**
-and **IGDB collections** too. When Tender does not skip a collection, it asks RomM only for the collection's games on
-platforms you don't sync, since your enabled platforms already brought in the rest. Another user's shared smart
-collection is the exception and is read in full, because which games it holds can depend on who is asking.
+readout run long or short for a moment, but it never changes what the sync actually does. Collections are skipped by the
+same rules as a platform: if RomM still lists the same games in a collection and none of them changed since shortly
+before the last sync started reading it, Tender skips it without re-listing its contents — so a large, collection-heavy
+library re-syncs quickly. That holds for **Franchises** and **IGDB collections** too. When Tender does not skip a
+collection, it asks RomM only for the collection's games on platforms you don't sync, since your enabled platforms
+already brought in the rest. Another user's shared smart collection is the exception and is read in full, because which
+games it holds can depend on who is asking.
 
 The estimate also knows the **difference between adding a game and updating one**. Creating a shortcut is roughly three
 times the work of refreshing one that already exists, and it also has to pull down a cover; updating an existing
@@ -454,25 +459,28 @@ Steam collections, holding the games the sync puts in them.
 
 Each synced game gets up to five types of artwork:
 
-| Type                  | Source      | Where It Appears                |
-| --------------------- | ----------- | ------------------------------- |
-| Portrait Grid (cover) | RomM        | Library grid tiles, collections |
-| Hero Banner           | SteamGridDB | Game detail page background     |
-| Logo                  | SteamGridDB | Title overlay on hero banner    |
-| Wide Grid             | SteamGridDB | Recent games shelf, list view   |
-| Icon                  | SteamGridDB | Taskbar, small UI elements      |
+| Type                  | Source                                                          | Where It Appears                |
+| --------------------- | --------------------------------------------------------------- | ------------------------------- |
+| Portrait Grid (cover) | RomM — SteamGridDB until RomM's arrives, or where you chose one | Library grid tiles, collections |
+| Hero Banner           | SteamGridDB                                                     | Game detail page background     |
+| Logo                  | SteamGridDB                                                     | Title overlay on hero banner    |
+| Wide Grid             | SteamGridDB                                                     | Recent games shelf, list view   |
+| Icon                  | SteamGridDB                                                     | Taskbar, small UI elements      |
 
-Cover art is always applied from RomM. The other four types require a
-[SteamGridDB API key](configuration.md#steamgriddb-api-key); games without a SteamGridDB match show Steam's default
-placeholders for hero, logo and wide grid, and Tender's logo as their icon.
+Cover art is applied from RomM, unless you chose a cover from SteamGridDB in the game's
+[ARTWORK tab](managing-games.md#the-artwork-tab). A game without a cover — usually one RomM has no cover for — gets
+Tender's pick from SteamGridDB's covers, and once RomM has a cover for it, the next sync sets RomM's cover in its place
+at once and its preview counts it among the cover updates; a cover you chose or set in Steam stays. The SteamGridDB
+images and that cover require a [SteamGridDB API key](configuration.md#steamgriddb-api-key); games without a SteamGridDB
+match show Steam's default placeholders for hero, logo and wide grid, and Tender's logo as their icon.
 
-Icons, wide grids and logos arrive in the background, without opening each game: after every sync and when Tender
-starts, every game Tender manages gets the ones it has none of yet, a few games at a time. The icon and the wide grid
-come first, game by game, so a new game shows in the desktop client's library list and in Big Picture's search with its
-images; the logos follow, since a logo shows only on the game's page. A game the sync has just added shows an empty spot
-in the desktop client's library list until its icon arrives. Without a SteamGridDB API key nothing is fetched, and a
-game the sync adds keeps Steam's default icon instead. When Steam's memory is nearly full the background job stops, and
-goes on after Steam restarts or after the next sync.
+Icons, wide grids, logos and missing covers arrive in the background, without opening each game: after every sync and
+when Tender starts, every game Tender manages gets the ones it has none of yet, a few games at a time. The icon, the
+wide grid and such a cover come first, game by game, so a new game shows in the desktop client's library list, the
+library grid and Big Picture's search with its images; the logos follow, since a logo shows only on the game's page. A
+game the sync has just added shows an empty spot in the desktop client's library list until its icon arrives. Without a
+SteamGridDB API key nothing is fetched, and a game the sync adds keeps Steam's default icon instead. When Steam's memory
+is nearly full the background job stops, and goes on after Steam restarts or after the next sync.
 
 The background job leaves an image you set yourself alone. When SteamGridDB has no icon for a game, the game shows
 Tender's logo as its icon, and the job and opening the game's page ask again after a week, or at once when a sync brings
@@ -482,15 +490,20 @@ Artwork** asks at once. Opening the game's page asks by the same rules as the ba
 you set yourself alone. A game that had no icon at all before shows its first one after Steam restarts, which switching
 between Game Mode and Desktop Mode does.
 
-The hero banner is set the first time a game's page is opened in a session, and so are an icon, a logo and a wide grid
-the background job has not set yet; each only where the game has none (Tender's logo counts as no icon): an image you
-set yourself, in Steam's own artwork options or with another tool, stays, until you switch the game to another version,
-which replaces all four. When SteamGridDB has no icon, logo or wide grid for a game, or Steam does not accept the image,
-neither the background job nor opening the page asks again for a week, or until the game's SteamGridDB match changes.
+The hero banner is set the first time a game's page is opened in a session, and so are an icon, a logo, a wide grid and
+a cover the background job has not set yet; each only where the game has none (Tender's logo counts as no icon): an
+image you set yourself, in Steam's own artwork options or with another tool, stays, until you switch the game to another
+version, which replaces the hero banner, icon, logo and wide grid with that version's and sets that version's own cover
+— an image you chose for that version comes back with it. When SteamGridDB has no icon, logo, wide grid or cover for a
+game, or Steam does not accept an icon, logo or wide grid, neither the background job nor opening the page asks again
+for a week, or until the game's SteamGridDB match changes; a cover Steam did not accept is asked for again at once.
 
-You can refresh artwork for any individual game from its
-[game detail page](managing-games.md#refreshing-artwork-and-metadata); that downloads every image anew and replaces it,
-one you set yourself included.
+Opening a game's page also keeps the images Tender picked from SteamGridDB current, at most once a week per game, and
+says which ones it replaced ([Refreshing Artwork and Metadata](managing-games.md#refreshing-artwork-and-metadata)).
+
+You can refresh artwork for any individual game from its game detail page; that reloads RomM's cover and downloads
+Tender's pick anew for every image on automatic, while an image you chose and one set in Steam stay
+([Refresh Artwork](managing-games.md#refresh-artwork)).
 
 ## Re-Syncing
 

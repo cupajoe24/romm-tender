@@ -34,6 +34,7 @@ import {
   invalidateCachedGameDetail,
   isEndpointFailure,
   logError,
+  updateBiosLinks,
 } from "../api/backend";
 import { getRomMetadataShared } from "../api/sharedReads";
 import type { DownloadCompleteEvent, SaveStatus, SaveSyncDisplay } from "../types";
@@ -224,7 +225,7 @@ function openEntry(appId: number): Entry {
   };
   _entries.set(appId, entry);
   entry.detachListeners = attachListeners(appId, entry);
-  detach(loadDetail(appId, entry));
+  detach(loadDetail(appId, entry).then(() => updateLinksOnOpen(appId, entry)));
   return entry;
 }
 
@@ -359,12 +360,10 @@ async function loadDetail(appId: number, entry: Entry): Promise<void> {
       refreshAchievementsInBackground(romId, cancelled, writeForRom);
     }
 
-    // Folded whether or not the detail reports a requirement: an absent
-    // `bios_status` is the backend answering "this version's core needs none",
-    // and only an unconditional fold can take a shown requirement back (#1690).
-    // A detail derived while the firmware cache was cold carries no answer at
-    // all and is refused here instead (#1693) — the `bios` stale field below
-    // then brings the live one.
+    // A cached detail carries no BIOS answer (`BiosAnswer` in
+    // `api/backend.ts`), so `extractBiosInfo` refuses it here and the `bios`
+    // stale field below brings the live one. Every answer it does project is
+    // folded, the one that clears a shown requirement included.
     const cachedBios = extractBiosInfo(cached);
     if (cachedBios) write((prev) => ({ ...prev, ...cachedBios }));
 
@@ -515,6 +514,24 @@ export function noteSaveSyncDisplay(appId: number, romId: number, display: SaveS
   }));
 }
 
+/**
+ * Bring the game's platform's BIOS links up to date once the page stands — its
+ * own call after the first load, never part of it — and read the BIOS answer
+ * again where that placed or removed a link. Downloads nothing. A refusal or a
+ * failed call leaves the page as it is: what the page shows is still the
+ * resolver's reading of the machine.
+ */
+async function updateLinksOnOpen(appId: number, entry: Entry): Promise<void> {
+  const { romId, platformSlug } = entry.state;
+  if (!romId || !platformSlug || _entries.get(appId) !== entry) return;
+  try {
+    const result = await updateBiosLinks(platformSlug, romId);
+    if (result.success && result.placed + result.removed > 0) await refreshBiosStatus(appId);
+  } catch (e) {
+    detach(debugLog(`gameDetailStore: BIOS link update error: ${e}`));
+  }
+}
+
 /** Re-read the BIOS answer after a firmware download. Leaves what is shown
  *  alone when the read fails, when it reports no BIOS need, or when a version
  *  switch re-keyed the entry while the read was open. Downloading firmware
@@ -553,10 +570,18 @@ export async function refreshCoreAndBios(appId: number): Promise<void> {
   const romId = entry?.state.romId;
   if (!entry || !romId) return;
   const generation = entry.generation;
-  const [coreInfo, refreshed] = await Promise.all([
-    getPlatformCoreInfo(romId),
-    getBiosStatus(romId).catch(() => UNKNOWN_BIOS_STATUS),
-  ]);
+  const core = getPlatformCoreInfo(romId);
+  // The new emulator wants its files at its own places: its links are placed
+  // from the store before the requirement is read again, and nothing is
+  // downloaded.
+  if (entry.state.platformSlug) {
+    try {
+      await updateBiosLinks(entry.state.platformSlug, romId);
+    } catch (e) {
+      detach(debugLog(`gameDetailStore: BIOS link update error: ${e}`));
+    }
+  }
+  const [coreInfo, refreshed] = await Promise.all([core, getBiosStatus(romId).catch(() => UNKNOWN_BIOS_STATUS)]);
   const biosInfo = extractBiosInfo(refreshed);
   writerForRom(
     entry,

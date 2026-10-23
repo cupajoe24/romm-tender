@@ -52,6 +52,8 @@ class Rom:
     cover_source: str | None = None
     igdb_id: int | None = None
     sgdb_id: int | None = None
+    chosen_sgdb_id: int | None = None
+    artwork_checked_at: float | None = None
     ra_id: int | None = None
     emulator_override: str | None = None
     selected_disc: str | None = None
@@ -200,6 +202,26 @@ class Rom:
     def assign_sgdb_id(self, sgdb_id: int) -> None:
         """Stamp the resolved SteamGridDB id."""
         self.sgdb_id = sgdb_id
+
+    def choose_sgdb_game(self, sgdb_id: int) -> None:
+        """Record the SteamGridDB game the user chose for this ROM.
+
+        Kept beside ``sgdb_id``, RomM's id, which wins where both exist
+        (:func:`domain.sgdb_artwork.effective_sgdb_id`); written only through
+        ``set_chosen_sgdb_id``.
+        """
+        self.chosen_sgdb_id = sgdb_id
+
+    def begin_artwork_check(self, at: float) -> None:
+        """Record that a check of this ROM's automatic artwork against SteamGridDB started at *at* (epoch seconds).
+
+        Written only through ``set_artwork_checked_at``; the sync never writes it.
+        """
+        self.artwork_checked_at = at
+
+    def withdraw_artwork_check(self, previous: float | None) -> None:
+        """Take back a check SteamGridDB did not answer in full: the time goes back to *previous*, the one before it."""
+        self.artwork_checked_at = previous
 
     def assign_ra_id(self, ra_id: int) -> None:
         """Stamp the resolved RetroAchievements id."""

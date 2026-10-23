@@ -14,8 +14,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 from lib.romm_paging import LIST_PAGE_SIZE
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Collection, Sequence
 
+    from domain.live_device_id import LiveDeviceId
     from domain.update_release import LatestRelease
     from lib.steam_input_apply import SteamInputApply
     from models.cover import CoverRevalidation
@@ -32,6 +33,8 @@ class SteamConfigStore(Protocol):
 
     def grid_dir(self) -> str | None: ...
     def grid_file_names(self) -> frozenset[str] | None: ...
+    def read_grid_file(self, name: str) -> bytes: ...
+    def grid_file_stamps(self, names: Collection[str]) -> dict[str, str]: ...
     def read_shortcuts(self) -> dict[str, Any]: ...
     def read_shortcut_exes(self) -> dict[int, str] | None: ...
     def read_shortcut_launch_options(self) -> dict[int, str] | None: ...
@@ -85,17 +88,10 @@ class RommDeviceApi(Protocol):
 class RommFirmwareApi(Protocol):
     """RomM firmware/BIOS API surface."""
 
-    def list_firmware(self) -> list[dict[str, Any]]:
-        """Fetch all available firmware/BIOS files from the server.
+    def list_platforms(self) -> list[dict[str, Any]]:
+        """Fetch every platform with the firmware files RomM holds for it.
 
-        Returns a list of firmware dicts from /api/firmware.
-        """
-        ...
-
-    def get_firmware(self, firmware_id: int) -> dict[str, Any]:
-        """Fetch metadata for a single firmware file.
-
-        Returns firmware dict from /api/firmware/{firmware_id}.
+        Returns /api/platforms, each platform carrying its files as ``firmware``.
         """
         ...
 
@@ -332,10 +328,14 @@ class RommSaveApi(Protocol):
         self,
         rom_id: int,
         *,
-        device_id: str | None = None,
+        device_id: LiveDeviceId,
         slot: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return saves for ``rom_id``; ``device_id`` enriches with device_syncs and ``slot`` filters."""
+        """Return saves for ``rom_id``, with this device's ``device_syncs``; ``slot`` filters.
+
+        Takes only the id ``SyncEngine.live_device_id`` answers, so no listing
+        goes out with a stored id or none.
+        """
         ...
 
     def upload_save(
@@ -553,7 +553,9 @@ class SteamGridDbApi(Protocol):
     ``request`` and ``verify_api_key`` raise ``lib.errors.SgdbApiError`` on
     every failure to reach SteamGridDB or to read its answer: ``status_code`` is
     the HTTP status of a non-2xx answer (401/403 for a key it refuses), and
-    ``None`` where there is none.
+    ``None`` where there is none. A key no HTTP header can carry
+    (``domain.header_value``) raises ``lib.errors.SgdbKeyUnsendableError``, an
+    ``SgdbApiError`` with no status, before any request is made.
     """
 
     def request(self, path: str) -> dict[str, Any] | None:

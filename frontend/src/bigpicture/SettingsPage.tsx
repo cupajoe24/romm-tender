@@ -10,7 +10,7 @@
  * Structure and vocabulary: `docs/architecture/qam-panel.md`, section Settings.
  */
 
-import { useState, useEffect, FC, type ReactNode } from "react";
+import { useState, useEffect, useRef, FC, type ReactNode } from "react";
 import { ConfirmModal, Field, showModal } from "@decky/ui";
 import { showToast } from "../utils/toast";
 import {
@@ -70,8 +70,8 @@ import { trimServerUrl, isValidServerUrl } from "../utils/serverUrl";
 import { WidePage } from "./layout/WidePage";
 import { ListDetail, type ListDetailItem } from "./layout/ListDetail";
 import { ROW_MARKER_GAP, ROW_MARKER_WIDTH, SELECTION_ACCENT } from "./layout/pane";
-import { pendingEdits } from "./settings/TextInputModal";
 import { ConnectionSection } from "./settings/ConnectionSection";
+import { SAVE_FAILED } from "./settings/helpers";
 import { SteamGridDBSection } from "./settings/SteamGridDBSection";
 import { SgdbKeySaveRefused } from "./settings/SgdbApiKeyModal";
 import { SaveSyncSection } from "./settings/SaveSyncSection";
@@ -81,6 +81,9 @@ import { AdvancedSection } from "./settings/AdvancedSection";
 import { InterfaceSection } from "./settings/InterfaceSection";
 import { UpdatesSection } from "./settings/UpdatesSection";
 import { EmulatorSourcesSection } from "./settings/EmulatorSourcesSection";
+import { TenderFolderSection } from "./settings/TenderFolderSection";
+import { useTenderFolder } from "./useTenderFolder";
+import { TENDER_FOLDER_SECTION } from "../utils/tenderFolderWording";
 import { WithUpdateDot } from "./UpdateDot";
 import { LibrarySection, AUTO_REGION, DEFAULT_REGION_LABEL } from "./settings/LibrarySection";
 import { showPreferredRegionModal } from "./settings/PreferredRegionModal";
@@ -97,10 +100,10 @@ interface SettingsPageProps {
 }
 
 // Messages the connect handlers return to the ConnectModal (which surfaces them
-// inline) when the sign-in can't even be attempted or the endpoint call throws. The
-// URL guard message mirrors the one the URL editor already shows.
+// inline) when the sign-in can't even be attempted or the endpoint call throws.
 const INVALID_URL_MESSAGE = "Enter a valid http:// or https:// server URL";
 const GENERIC_SIGN_IN_ERROR = "Sign-in failed. Check your connection and try again.";
+const NO_STATUS = { text: "", warns: false } as const;
 
 // What the list calls each section. The ids and their order are the navigation
 // module's, so a section reachable by a jump is a section the list shows.
@@ -110,6 +113,7 @@ const SECTION_LABELS: Record<SettingsSection, string> = {
   controller: "Controller",
   "steam-library": "Steam Library",
   "emulator-sources": "Emulator sources",
+  "tender-folder": TENDER_FOLDER_SECTION,
   updates: "Updates",
   interface: "Interface",
   advanced: "Advanced",
@@ -136,8 +140,16 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
   const [selectedSection, setSelectedSection] = useState<SettingsSection>(section ?? SETTINGS_SECTIONS[0]);
   // Connection state
   const [url, setUrl] = useState("");
+  // The SSL flag the backend holds, which the switch goes back to when it
+  // refuses a save; null until the settings have loaded.
+  const storedSsl = useRef<boolean | null>(null);
   const [hasToken, setHasToken] = useState(false);
-  const [status, setStatus] = useState("");
+  // `warns` marks a refusal or a failure: ConnectionSection's `statusWarns`.
+  const [statusLine, setStatusLine] = useState<{ text: string; warns: boolean }>(NO_STATUS);
+  const setStatus = (text: string, warns = false) => setStatusLine({ text, warns });
+  // What the SSL switch's save last put on the status line, the one message an
+  // accepted save may clear: the line also carries what loading and signing in said.
+  const saveStatus = useRef<string | null>(null);
   const [allowInsecureSsl, setAllowInsecureSsl] = useState(false);
   // Names only — a configured header's value is a proxy credential the backend
   // never sends back (#1822).
@@ -190,13 +202,25 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
   // Emulator sources: `undefined` until the listing answers, `null` where it failed.
   const [emulatorSources, setEmulatorSources] = useState<EmulatorSourcesListing | null | undefined>(undefined);
   const [sourcesBusy, setSourcesBusy] = useState(false);
+  const tenderFolder = useTenderFolder();
 
   useEffect(() => {
     getSettings()
       .then((s) => {
-        // Apply any pending edits that survived a remount, fall back to backend values
-        setUrl(pendingEdits.url ?? s.romm_url);
+        storedSsl.current = s.romm_allow_insecure_ssl;
+        setUrl(s.romm_url);
         setHasToken(s.has_token);
+        // While signed in, whether save sync is on or off: the play-session
+        // upload sends the device id too.
+        if (s.has_token) {
+          ensureDeviceRegistered()
+            .then((result) => {
+              if (result.success) {
+                setDeviceInfo({ device_id: result.device_id, device_name: result.device_name });
+              }
+            })
+            .catch(() => {});
+        }
         setAllowInsecureSsl(s.romm_allow_insecure_ssl);
         setCustomHeaderNames(s.romm_custom_header_names ?? []);
         setSgdbApiKey(s.sgdb_api_key_masked);
@@ -209,7 +233,7 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
       })
       .catch((e) => {
         logError(`Failed to load settings: ${e}`);
-        setStatus("Failed to load settings");
+        setStatus("Failed to load settings", true);
       });
 
     // Distinct regions in the locally synced library — the non-anchor options
@@ -223,13 +247,6 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
       .then((settings) => {
         setSaveSyncSettings(settings);
         if (settings.save_sync_enabled) {
-          ensureDeviceRegistered()
-            .then((result) => {
-              if (result.success) {
-                setDeviceInfo({ device_id: result.device_id, device_name: result.device_name });
-              }
-            })
-            .catch(() => {});
           loadDevices();
         }
       })
@@ -336,23 +353,32 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
   const saveSyncEnabled = saveSyncSettings?.save_sync_enabled ?? false;
 
   // --- Connection handlers wired into ConnectionSection ---
-  const handleUrlChange = async (value: string) => {
+  const showSaveStatus = (message: string) => {
+    saveStatus.current = message;
+    setStatus(message, true);
+  };
+  const clearSaveStatus = () => {
+    const shown = saveStatus.current;
+    saveStatus.current = null;
+    if (shown !== null) setStatusLine((current) => (current.text === shown ? NO_STATUS : current));
+  };
+  // RommUrlModal shows a refusal or a failure itself and closes on a stored
+  // URL, so the answer is handed straight back to it; only an accepted save
+  // reaches the page's state.
+  const handleSaveUrl = async (value: string): Promise<{ success: boolean; message: string }> => {
     const trimmed = trimServerUrl(value);
-    setUrl(trimmed);
+    const sentSsl = allowInsecureSsl;
     try {
-      if (!isValidServerUrl(trimmed)) {
-        setStatus(INVALID_URL_MESSAGE);
-        return;
+      const result = await saveServerUrl(trimmed, sentSsl);
+      if (result.success) {
+        storedSsl.current = sentSsl;
+        setUrl(trimmed);
+        setAllowInsecureSsl(sentSsl);
+        clearSaveStatus();
       }
-      await saveServerUrl(trimmed, allowInsecureSsl);
+      return result;
     } catch {
-      setStatus("Failed to save settings");
-    } finally {
-      // The pending value exists to carry an edit across the remount closing
-      // the modal can cause, not to outlive the attempt: left behind, a value
-      // the backend refused is what every later open of the page shows in the
-      // field, over the URL actually saved (#1020).
-      delete pendingEdits.url;
+      return { success: false, message: SAVE_FAILED };
     }
   };
   // The modal owns closing (on success) and error display (on failure), so the
@@ -370,11 +396,23 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
     return result;
   };
   const handleAllowInsecureSslChange = (val: boolean) => {
+    const before = allowInsecureSsl;
     setAllowInsecureSsl(val);
     // Auto-save the URL with the new SSL setting
-    saveServerUrl(url, val).catch(() => {
-      setStatus("Failed to save settings");
-    });
+    saveServerUrl(url, val)
+      .then((result) => {
+        if (result.success) {
+          storedSsl.current = val;
+          setAllowInsecureSsl(val);
+          clearSaveStatus();
+          return;
+        }
+        setAllowInsecureSsl(storedSsl.current ?? before);
+        showSaveStatus(result.message);
+      })
+      .catch(() => {
+        showSaveStatus(SAVE_FAILED);
+      });
   };
   // The connect handlers return their result to the ConnectModal, which owns
   // closing (on success) and error display (on failure). The bottom status line
@@ -432,12 +470,12 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
     setStatus("");
     try {
       const result = await signOut();
-      setStatus(result.message);
+      setStatus(result.message, !result.success);
       if (result.success) {
         setHasToken(false);
       }
     } catch {
-      setStatus("Sign-out failed");
+      setStatus("Sign-out failed", true);
     }
   };
 
@@ -648,11 +686,10 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
               url={url}
               hasToken={hasToken}
               allowInsecureSsl={allowInsecureSsl}
-              status={status}
+              status={statusLine.text}
+              statusWarns={statusLine.warns}
               customHeaderNames={customHeaderNames}
-              onUrlChange={(value) => {
-                detach(handleUrlChange(value));
-              }}
+              onSaveUrl={handleSaveUrl}
               onSaveCustomHeaders={handleSaveCustomHeaders}
               onConnect={handleConnect}
               onConnectToken={handleConnectToken}
@@ -735,6 +772,8 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
             }}
           />
         );
+      case "tender-folder":
+        return <TenderFolderSection folder={tenderFolder} />;
       case "updates":
         return (
           <UpdatesSection

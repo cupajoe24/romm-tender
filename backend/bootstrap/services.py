@@ -31,6 +31,7 @@ from services.disc_launch_resolver import DiscLaunchResolver, DiscLaunchResolver
 from services.downloads import DownloadService, DownloadServiceConfig
 from services.emulator_sources import EmulatorSourcesService, EmulatorSourcesServiceConfig
 from services.firmware import FirmwareService, FirmwareServiceConfig
+from services.firmware.store import FirmwareStore, FirmwareStoreConfig
 from services.game_detail import GameDetailService, GameDetailServiceConfig
 from services.game_process import GameProcessService, GameProcessServiceConfig
 from services.leftover_tmp_cleanup import LeftoverTmpCleanupService, LeftoverTmpCleanupServiceConfig
@@ -54,6 +55,7 @@ from services.shortcut_relocation import ShortcutRelocationService, ShortcutRelo
 from services.shortcut_removal import ShortcutRemovalService, ShortcutRemovalServiceConfig
 from services.startup_healing import StartupHealingService, StartupHealingServiceConfig
 from services.steamgrid import SteamGridService, SteamGridServiceConfig
+from services.tender_folder import TenderFolderService, TenderFolderServiceConfig
 from services.update_check import UpdateCheckService, UpdateCheckServiceConfig
 from services.update_install import UpdateInstallService, UpdateInstallServiceConfig
 from services.update_outcome import UpdateOutcomeService, UpdateOutcomeServiceConfig
@@ -65,6 +67,7 @@ if TYPE_CHECKING:
 
     from domain.app_directories import AppDirectories
     from domain.update_release import UpdateSource
+    from lib.errors import Refused
     from models.shortcut_launcher import ShortcutLauncher
     from services.protocols import (
         InstalledRomRemoverFn,
@@ -138,6 +141,7 @@ class ServicesBundle:
     settings_service: SettingsService
     core_service: CoreService
     emulator_sources_service: EmulatorSourcesService
+    tender_folder_service: TenderFolderService
     disc_service: DiscService
     version_switch_service: VersionSwitchService
     connection_service: ConnectionService
@@ -193,18 +197,70 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
     )
     # The conflict rules a use case checks at its entry, built beside the
     # prune conflicts so any service can be handed them. The update install,
-    # migration and sync services that answer the other three rules are built
-    # later.
+    # folder, migration and sync services that answer the other four rules are
+    # built later.
     update_in_progress_binding: LateBinding[bool] = LateBinding("update_in_progress")
+    folder_unreachable_binding: LateBinding[Refused | None] = LateBinding("folder_unreachable")
     migration_pending_binding: LateBinding[bool] = LateBinding("migration_pending")
     sync_in_flight_binding: LateBinding[bool] = LateBinding("sync_in_flight")
     renderer_above_ceiling_binding: LateBinding[RendererAboveCeilingFn] = LateBinding("renderer_above_ceiling")
     conflict_rules = ConflictRuleSet(
         prune_conflicts=prune_conflicts,
         update_in_progress=update_in_progress_binding.get,
+        folder_unreachable=folder_unreachable_binding.get,
         migration_pending=migration_pending_binding.get,
         sync_in_flight=sync_in_flight_binding.get,
     )
+
+    # The system a RomM platform is in an emulator source, which every reader of
+    # a platform's system asks — the download, the emulator choice, the BIOS
+    # answers and the saves — so they all ask the same question.
+    platform_systems = PlatformSystemService(
+        config=PlatformSystemServiceConfig(
+            uow_factory=cfg.callbacks.uow_factory,
+            romm_api=cfg.adapters.romm_api,
+            source_platform_systems=cfg.adapters.source_platform_systems,
+            logger=cfg.runtime.logger,
+            log_debug=cfg.callbacks.log_debug,
+        ),
+    )
+
+    # The firmware store records files under Tender's folder, which asks it
+    # what is recorded there, while every write into the store goes through
+    # the folder made ready for it — so the store is built first and reaches
+    # the folder service through this binding.
+    prepare_folder_binding: LateBinding[str] = LateBinding("prepare_folder")
+    firmware_store = FirmwareStore(
+        config=FirmwareStoreConfig(
+            romm_api=cfg.adapters.romm_api,
+            firmware_file_store=cfg.adapters.firmware_file_store,
+            platform_firmware_resolver=cfg.adapters.platform_firmware_resolver,
+            platform_systems=platform_systems,
+            prepare_folder=prepare_folder_binding.get,
+            uow_factory=cfg.callbacks.uow_factory,
+            clock=cfg.runtime.clock,
+            data_dir=cfg.directories.data_dir,
+            logger=cfg.runtime.logger,
+        )
+    )
+
+    # Every store that records something under Tender's folder joins this tuple.
+    tender_folder_service = TenderFolderService(
+        config=TenderFolderServiceConfig(
+            store=cfg.adapters.tender_folder,
+            sources=cfg.adapters.emulator_sources,
+            records=(firmware_store,),
+            settings=cfg.stores.settings,
+            settings_persister=cfg.callbacks.settings_persister,
+            uow_factory=cfg.callbacks.uow_factory,
+            uuid_gen=cfg.runtime.uuid_gen,
+            conflict_rules=conflict_rules,
+            loop=cfg.runtime.loop,
+            log_debug=cfg.callbacks.log_debug,
+        ),
+    )
+    folder_unreachable_binding.set(tender_folder_service.unreachable_refusal)
+    prepare_folder_binding.set(tender_folder_service.do_prepare_for_write)
 
     # Forward-reference bindings for producers constructed later in this
     # function. Consumers receive ``binding.get`` (a bound method); the
@@ -233,19 +289,6 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
     # (no service deps) so every per-game-core read consumer — migration, saves,
     # game-detail, cores — draws from the SAME seam and the read-path core never
     # diverges from the launched core.
-    # The system a RomM platform is in an emulator source, which every reader of
-    # a platform's system asks — the download, the emulator choice, the BIOS
-    # answers and the saves — so they all ask the same question.
-    platform_systems = PlatformSystemService(
-        config=PlatformSystemServiceConfig(
-            uow_factory=cfg.callbacks.uow_factory,
-            romm_api=cfg.adapters.romm_api,
-            source_platform_systems=cfg.adapters.source_platform_systems,
-            logger=cfg.runtime.logger,
-            log_debug=cfg.callbacks.log_debug,
-        ),
-    )
-
     active_core_resolver = ActiveCoreResolver(
         config=ActiveCoreResolverConfig(
             uow_factory=cfg.callbacks.uow_factory,
@@ -386,6 +429,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             conflict_rules=conflict_rules,
             downscale_icon=cfg.adapters.downscale_icon,
             clock=cfg.runtime.clock,
+            cover=artwork_service,
         ),
     )
 
@@ -515,6 +559,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             logger=cfg.runtime.logger,
             download_file_store=cfg.adapters.download_file_store,
             retrodeck_folders=cfg.callbacks.retrodeck_folders,
+            tender_folder=cfg.adapters.tender_folder,
         ),
     )
 
@@ -543,8 +588,9 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             logger=cfg.runtime.logger,
             clock=cfg.runtime.clock,
             firmware_file_store=cfg.adapters.firmware_file_store,
-            firmware_resolver=cfg.adapters.firmware_resolver,
             platform_firmware_resolver=cfg.adapters.platform_firmware_resolver,
+            firmware_identifier=cfg.adapters.firmware_identifier,
+            store=firmware_store,
             retrodeck_folders=cfg.callbacks.retrodeck_folders,
             core_info=cfg.adapters.core_info_provider,
             platform_systems=platform_systems,
@@ -552,6 +598,8 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             active_core=active_core_resolver,
             uow_factory=cfg.callbacks.uow_factory,
             conflict_rules=conflict_rules,
+            settings=cfg.stores.settings,
+            settings_persister=cfg.callbacks.settings_persister,
         ),
     )
 
@@ -638,6 +686,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             logger=cfg.runtime.logger,
             min_required_version=cfg.min_required_version,
             forget_device=save_sync_service.forget_device,
+            register_device=save_sync_service.ensure_device_registered,
             clear_playtime_scope_notice=playtime_service.clear_scope_notice,
             conflict_rules=conflict_rules,
         ),
@@ -675,10 +724,11 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
     )
 
     # Built after SaveService + ConnectionService: the version-switch
-    # save-stranding gate draws drift from SaveService.check_local_drift and
-    # reachability from ConnectionService.probe_reachability, and re-bakes a
-    # switched-onto install via the relaunch resolver. The active-download guard
-    # reads DownloadService's in-progress set (built earlier — no LateBinding) (#1298).
+    # save-stranding gate reads the stranding verdict of
+    # SaveService.check_local_drift and reachability from
+    # ConnectionService.probe_reachability, and re-bakes a switched-onto install
+    # via the relaunch resolver. The active-download guard reads
+    # DownloadService's in-progress set (built earlier — no LateBinding).
     version_switch_service = VersionSwitchService(
         config=VersionSwitchServiceConfig(
             loop=cfg.runtime.loop,
@@ -742,6 +792,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             uow_factory=cfg.callbacks.uow_factory,
             romm_api=cfg.adapters.romm_api,
             recovery_store=cfg.adapters.recovery_store,
+            prepare_folder=tender_folder_service.do_prepare_for_write,
             prune_artifacts=cfg.adapters.prune_artifacts,
             steam_recovery=cfg.adapters.steam_recovery,
             retrodeck_folders=cfg.callbacks.retrodeck_folders,
@@ -855,6 +906,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
         settings_service=settings_service,
         core_service=core_service,
         emulator_sources_service=emulator_sources_service,
+        tender_folder_service=tender_folder_service,
         disc_service=disc_service,
         version_switch_service=version_switch_service,
         connection_service=connection_service,

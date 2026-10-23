@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from adapters.adoption_move import AdoptionMoveAdapter
 from adapters.asyncio_sleeper import AsyncioSleeper
 from adapters.atlas_catalogue import AtlasCatalogueAdapter
-from adapters.atlas_firmware import AtlasFirmwareAdapter, AtlasPlatformFirmwareAdapter
+from adapters.atlas_firmware import AtlasFirmwareAdapter, AtlasFirmwareIdentifier, AtlasPlatformFirmwareAdapter
 from adapters.atlas_platforms import AtlasPlatformSystemsAdapter
 from adapters.atlas_saves import AtlasSaveLocationAdapter, describe_core_probe_interpreter
 from adapters.atlas_zstd import register_zstd_codec
@@ -64,6 +64,7 @@ from adapters.steam_recovery import SteamRecoveryAdapter
 from adapters.steamgriddb import SteamGridDbAdapter
 from adapters.system_clock import SystemClock
 from adapters.system_uuid_gen import SystemUuidGen
+from adapters.tender_folder import TenderFolderAdapter
 from adapters.transient_unit import SystemdRunAdapter
 from adapters.update_attempt import UpdateAttemptFileAdapter
 from adapters.update_failure import UpdateFailureFileAdapter
@@ -93,6 +94,7 @@ if TYPE_CHECKING:
         EmulatorSourcesReader,
         EventEmitter,
         FirmwareFileStore,
+        FirmwareIdentityProvider,
         FirmwarePlatformResolver,
         FirmwareResolver,
         GameProcessControl,
@@ -129,6 +131,7 @@ if TYPE_CHECKING:
         SystemKnownFn,
         SystemM3uSupportFn,
         SystemSupportedExtensionsFn,
+        TenderFolderStore,
         TenderLogoFn,
         TransientUnitControl,
         UnitOfWorkFactory,
@@ -169,6 +172,7 @@ class AdapterBundle:
     firmware_file_store: FirmwareFileStore
     firmware_resolver: FirmwareResolver
     platform_firmware_resolver: FirmwarePlatformResolver
+    firmware_identifier: FirmwareIdentityProvider
     migration_file_store: MigrationFileStore
     rom_file_store: RomFileStore
     save_file_store: SaveFileStore
@@ -183,6 +187,7 @@ class AdapterBundle:
     game_process: GameProcessControl
     resolve_upload_conflict: ResolveUploadConflictFn
     compute_sync_action: ComputeSyncActionFn
+    tender_folder: TenderFolderStore
     recovery_store: RecoveryBundleStore
     # The same object as ``recovery_store``, offered under the narrower
     # question: a consumer that only describes the bundles must not be able
@@ -316,7 +321,7 @@ def bootstrap(
         by the entry point, like ``directories``.
     user_home:
         The user's home directory, for RetroDECK and Steam path lookups and for
-        the recovery root.
+        the default place of Tender's folder.
     logger:
         The configured root logger.
 
@@ -408,15 +413,12 @@ def bootstrap(
     # ``RendererGcAdapter`` also speaks HTTP, to Steam's own debugger on
     # localhost, and takes no UA. Bot Fight Mode on Cloudflare
     # blocks the default ``Python-urllib`` UA before requests reach self-hosted
-    # RomM (#249). Both halves come from ``domain/identity.py``, and so does the
-    # recovery root built out of the same name below: a literal spelled here
-    # would be a second spelling of the package, free to drift away from it.
+    # RomM (#249). Both halves come from ``domain/identity.py``: a literal
+    # spelled here would be a second spelling of the package, free to drift
+    # away from it.
     user_agent = f"{PACKAGE_NAME}/{VERSION}"
-    recovery_store = RecoveryBundleAdapter(
-        user_home=user_home,
-        package_name=PACKAGE_NAME,
-        version=VERSION,
-    )
+    tender_folder = TenderFolderAdapter(settings=settings, user_home=user_home)
+    recovery_store = RecoveryBundleAdapter(folder=tender_folder.folder, version=VERSION)
     # The CACHE root: this adapter's whole subject is ``covers/`` and
     # ``artwork/``, which live there and not under the data root.
     prune_artifacts = PruneArtifactAdapter(cache_dir=directories.cache_dir)
@@ -479,6 +481,7 @@ def bootstrap(
     retrodeck_folders = RetroDeckFoldersAdapter(sources=emulator_sources, log_debug=debug_logger)
     firmware_resolver = AtlasFirmwareAdapter(sources=emulator_sources, log_debug=debug_logger)
     platform_firmware_resolver = AtlasPlatformFirmwareAdapter(sources=emulator_sources, log_debug=debug_logger)
+    firmware_identifier = AtlasFirmwareIdentifier(sources=emulator_sources, log_debug=debug_logger)
     emulator_catalogue = AtlasCatalogueAdapter(
         sources=emulator_sources,
         emulator_installed=es_find_rules.command_emulator_installed,
@@ -499,6 +502,7 @@ def bootstrap(
         firmware_file_store=firmware_file_store,
         firmware_resolver=firmware_resolver,
         platform_firmware_resolver=platform_firmware_resolver,
+        firmware_identifier=firmware_identifier,
         migration_file_store=migration_file_store,
         rom_file_store=rom_file_store,
         save_file_store=save_file_store,
@@ -513,6 +517,7 @@ def bootstrap(
         game_process=game_process,
         resolve_upload_conflict=gavel,
         compute_sync_action=gavel.compute_sync_action,
+        tender_folder=tender_folder,
         recovery_store=recovery_store,
         recovery_inventory=recovery_store,
         prune_artifacts=prune_artifacts,

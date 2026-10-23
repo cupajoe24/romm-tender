@@ -38,7 +38,7 @@ area:sync:
 area:downloads:
   - changed-files:
       - any-glob-to-any-file:
-          - 'backend/services/downloads.py'
+          - 'backend/services/downloads/**'
           - 'backend/adapters/download_file.py'
 
 area:firmware:
@@ -47,7 +47,7 @@ area:firmware:
           - 'backend/services/firmware/**'
           - 'backend/adapters/firmware_file.py'
           - 'backend/adapters/atlas_firmware.py'
-          - 'backend/domain/firmware_paths.py'
+          - 'backend/domain/firmware_platforms.py'
           - 'backend/domain/firmware_wants.py'
           - 'backend/domain/bios_status.py'
 
@@ -55,7 +55,7 @@ area:artwork:
   - changed-files:
       - any-glob-to-any-file:
           - 'backend/services/steamgrid.py'
-          - 'backend/services/artwork.py'
+          - 'backend/services/artwork/**'
           - 'backend/adapters/cover_art_file_store.py'
           - 'backend/adapters/sgdb_artwork_cache.py'
           - 'backend/adapters/steamgriddb.py'

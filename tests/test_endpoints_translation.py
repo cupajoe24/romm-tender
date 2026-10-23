@@ -22,7 +22,7 @@ import socket
 import urllib.error
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from _factories import (
@@ -36,6 +36,7 @@ from fakes.fake_active_core_resolver import FakeActiveCoreResolver
 from fakes.fake_adoption_move import FakeAdoptionMoveStore
 from fakes.fake_core_info_provider import FakeCoreInfoProvider
 from fakes.fake_cover_art_file_store import FakeCoverArtFileStore
+from fakes.fake_cover_slot_reader import FakeCoverSlotReader
 from fakes.fake_disc_resolver import FakeDiscResolver
 from fakes.fake_download_file_store import FakeDownloadFileStore
 from fakes.fake_emulator_sources import FakeEmulatorSources
@@ -105,6 +106,7 @@ from services.connection import ConnectionService, ConnectionServiceConfig
 from services.cores import CoreService, CoreServiceConfig
 from services.downloads import DownloadService, DownloadServiceConfig
 from services.firmware import FirmwareService, FirmwareServiceConfig
+from services.firmware.store import FirmwareStore, FirmwareStoreConfig
 from services.game_process import GameProcessService, GameProcessServiceConfig
 from services.library import LibraryService, LibraryServiceConfig
 from services.migration import MigrationService, MigrationServiceConfig
@@ -614,6 +616,7 @@ def _dispatcher_over_connection(romm_api: MagicMock, settings: dict[str, Any], p
             logger=LOGGER,
             min_required_version=(5, 3, 0),
             forget_device=MagicMock(),
+            register_device=AsyncMock(),
             clear_playtime_scope_notice=MagicMock(),
             conflict_rules=_make_conflict_rules(),
         )
@@ -794,7 +797,7 @@ class TestTheConflictResolutionOnTheWire:
     async def test_a_romm_error_listing_the_servers_saves_answers_classify_errors_verdict(self, tmp_path):
         svc, fake = _a_shown_conflict(tmp_path)
         failure = RommServerError("bad gateway", status_code=502)
-        fake.fail_on_next(failure)
+        fake.fail_next_list_saves(failure)
 
         message = json.loads(
             await _dispatcher_over_saves(svc).dispatch(
@@ -1174,7 +1177,7 @@ class TestTheSlotRefusalsOnTheWire:
 
             fake.delete_server_saves = failing_delete  # type: ignore[method-assign]
         else:
-            fake.fail_on_next(failure)
+            fake.fail_next_list_saves(failure)
 
         message = json.loads(await _dispatcher_over_saves(svc).dispatch(1, route_name, [42, "save1"]))
 
@@ -1267,6 +1270,7 @@ def _dispatcher_over_cleanup(uow_factory: Any, events: FakeEventSink) -> tuple[C
             uow_factory=uow_factory,
             romm_api=MagicMock(),
             recovery_store=MagicMock(),
+            prepare_folder=MagicMock(),
             prune_artifacts=MagicMock(),
             steam_recovery=MagicMock(),
             retrodeck_folders=FakeRetroDeckFolders(),
@@ -1366,6 +1370,7 @@ def _dispatcher_over_firmware(
     romm_api: FakeRommApi, store: FakeFirmwareFileStore, uow: FakeUnitOfWork
 ) -> CallDispatcher:
     """The real dispatcher over ``Endpoints`` whose firmware use cases are the real ``FirmwareService`` over fakes."""
+    resolver = FakeFirmwareResolver()
     service = FirmwareService(
         config=FirmwareServiceConfig(
             romm_api=romm_api,
@@ -1373,8 +1378,21 @@ def _dispatcher_over_firmware(
             logger=LOGGER,
             clock=FakeClock(),
             firmware_file_store=store,
-            firmware_resolver=FakeFirmwareResolver(),
-            platform_firmware_resolver=FakeFirmwareResolver(),
+            platform_firmware_resolver=resolver,
+            firmware_identifier=lambda md5: None,
+            store=FirmwareStore(
+                config=FirmwareStoreConfig(
+                    romm_api=romm_api,
+                    firmware_file_store=store,
+                    platform_firmware_resolver=resolver,
+                    platform_systems=FakePlatformSystems(),
+                    prepare_folder=lambda: "/tender",
+                    uow_factory=FakeUnitOfWorkFactory(uow),
+                    clock=FakeClock(),
+                    data_dir="/data",
+                    logger=LOGGER,
+                )
+            ),
             retrodeck_folders=FakeRetroDeckFolders(bios="/retrodeck/bios"),
             core_info=FakeCoreInfoProvider(),
             platform_systems=FakePlatformSystems(),
@@ -1382,6 +1400,8 @@ def _dispatcher_over_firmware(
             active_core=FakeActiveCoreResolver(),
             uow_factory=FakeUnitOfWorkFactory(uow),
             conflict_rules=_make_conflict_rules(),
+            settings={},
+            settings_persister=FakeSettingsPersister(),
         )
     )
     endpoints = Endpoints(_make_application(_make_services_bundle(firmware_service=service)), HostStatus())
@@ -1428,9 +1448,7 @@ class TestTheFirmwareAnswersOnTheWire:
         ]
         dispatcher = _dispatcher_over_firmware(romm_api, FakeFirmwareFileStore(), FakeUnitOfWork())
 
-        message = json.loads(
-            await dispatcher.dispatch(1, "download_platform_firmware_file", ["n64", "dc_boot.bin", None])
-        )
+        message = json.loads(await dispatcher.dispatch(1, "download_platform_firmware_file", ["n64", "dc_boot.bin"]))
 
         assert message["type"] == TYPE_REPLY
         assert message["result"] == {
@@ -1441,7 +1459,7 @@ class TestTheFirmwareAnswersOnTheWire:
 
     async def test_a_romm_error_reading_the_library_answers_its_classified_reason(self):
         romm_api = FakeRommApi()
-        romm_api.list_firmware_side_effect = RommConnectionError("connection refused")
+        romm_api.list_platforms_side_effect = RommConnectionError("connection refused")
         dispatcher = _dispatcher_over_firmware(romm_api, FakeFirmwareFileStore(), FakeUnitOfWork())
 
         message = json.loads(await dispatcher.dispatch(1, "download_all_firmware", ["dc", None]))
@@ -1591,6 +1609,7 @@ def _dispatcher_over_steamgrid(api_key: str = "sgdb-key", uow: FakeUnitOfWork | 
             conflict_rules=_make_conflict_rules(),
             downscale_icon=lambda data: data,
             clock=FakeClock(),
+            cover=FakeCoverSlotReader(),
         )
     )
     endpoints = Endpoints(_make_application(_make_services_bundle(sgdb_service=service)), HostStatus())

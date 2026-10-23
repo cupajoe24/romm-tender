@@ -37,8 +37,9 @@ from domain.cover_refresh import _strip_cover_ts
 from fakes._romm_save_semantics import (
     check_add_save_conflict,
     compute_is_current,
+    device_syncs_answer,
+    order_sync_rows,
     tag_filename,
-    with_absent_device_placeholder,
 )
 from lib.errors import RommSyncDisabledError, RommUnprocessableEntityError
 from lib.romm_paging import LIST_PAGE_SIZE
@@ -140,8 +141,6 @@ class FakeRommApi:
         self._fail_on_next: Exception | None = None
         self.heartbeat_side_effect: Exception | None = None
         self.list_platforms_side_effect: Exception | None = None
-        self.list_firmware_side_effect: Exception | None = None
-        self.get_firmware_side_effect: Exception | None = None
         self.download_firmware_side_effect: Exception | None = None
         self.get_rom_side_effect: Exception | None = None
         self.get_rom_simple_side_effect: Exception | None = None
@@ -158,6 +157,9 @@ class FakeRommApi:
         self.list_smart_collections_side_effect: Exception | None = None
         self.list_roms_by_collection_side_effect: Exception | None = None
         self.list_collection_roms_updated_after_side_effect: Exception | None = None
+        # An answer the collection skip probe returns as it is, in place of the
+        # one built from ``roms`` — set it to send a malformed answer.
+        self.list_collection_roms_updated_after_answer: Any = None
         self.list_roms_by_virtual_collection_side_effect: Exception | None = None
         self.list_roms_by_smart_collection_side_effect: Exception | None = None
         self.download_rom_content_side_effect: Exception | None = None
@@ -271,9 +273,33 @@ class FakeRommApi:
     # ------------------------------------------------------------------
 
     def list_platforms(self) -> list[dict[str, Any]]:
+        """Every seeded platform, carrying as ``firmware`` the ``firmware_files`` its ``id`` is the ``platform_id`` of.
+
+        RomM's ``/api/platforms`` answers each platform with its firmware
+        inline; a platform no seeded file belongs to is answered as seeded.
+        """
         self._log("list_platforms")
         self._check_fail(self.list_platforms_side_effect)
-        return [dict(p) for p in self.platforms]
+        return [self._with_firmware(p) for p in self.platforms]
+
+    def _with_firmware(self, platform: dict[str, Any]) -> dict[str, Any]:
+        files = [dict(f) for f in self.firmware_files if f.get("platform_id") == platform.get("id")]
+        if not files:
+            return dict(platform)
+        return {**platform, "firmware": [*platform.get("firmware", []), *files]}
+
+    def seed_firmware(self, platform_slug: str, *files: dict[str, Any]) -> None:
+        """Seed *files* as firmware of the platform *platform_slug*, adding that platform where none is seeded.
+
+        Each file gets the platform's ``id`` as its ``platform_id``, the way
+        RomM states a firmware file's platform.
+        """
+        platform = next((p for p in self.platforms if p.get("slug") == platform_slug), None)
+        if platform is None:
+            platform_id = max((p.get("id", 0) for p in self.platforms), default=0) + 1
+            platform = {"id": platform_id, "slug": platform_slug, "fs_slug": platform_slug, "name": platform_slug}
+            self.platforms.append(platform)
+        self.firmware_files.extend({**f, "platform_id": platform["id"]} for f in files)
 
     # ------------------------------------------------------------------
     # RommRomReader
@@ -382,6 +408,8 @@ class FakeRommApi:
             {"limit": limit, "offset": offset},
         )
         self._check_fail(self.list_collection_roms_updated_after_side_effect)
+        if self.list_collection_roms_updated_after_answer is not None:
+            return self.list_collection_roms_updated_after_answer
         membership_key = {"smart": "smart_collection_ids", "virtual": "virtual_collection_ids"}.get(
             kind, "collection_ids"
         )
@@ -515,19 +543,6 @@ class FakeRommApi:
     # RommFirmwareApi
     # ------------------------------------------------------------------
 
-    def list_firmware(self) -> list[dict[str, Any]]:
-        self._log("list_firmware")
-        self._check_fail(self.list_firmware_side_effect)
-        return [dict(f) for f in self.firmware_files]
-
-    def get_firmware(self, firmware_id: int) -> dict[str, Any]:
-        self._log("get_firmware", (firmware_id,))
-        self._check_fail(self.get_firmware_side_effect)
-        for fw in self.firmware_files:
-            if fw.get("id") == firmware_id:
-                return dict(fw)
-        return {"id": firmware_id}
-
     def download_firmware(self, firmware_id: int, filename: str, dest: str) -> None:
         self._log("download_firmware", (firmware_id, filename, dest))
         self._check_fail(self.download_firmware_side_effect)
@@ -652,13 +667,12 @@ class FakeRommApi:
         saves = [dict(s) for s in self.saves.values() if s.get("rom_id") == rom_id]
         if slot is not None:
             saves = [s for s in saves if s.get("slot") == slot]
-        if device_id:
-            # ``device_id`` enriches with device_syncs (like the real server).
-            # An explicit ``device_syncs`` seeded on the save wins; else compute
-            # it per-device from the ledger (never a blanket True).
-            for s in saves:
-                if "device_syncs" not in s:
-                    s["device_syncs"] = self._device_syncs_for(s)
+        # An explicit ``device_syncs`` seeded on the save stands for its stored
+        # sync rows; else they come from the ledger. Either way RomM builds its
+        # answer from them and writes no row.
+        for s in saves:
+            rows = s["device_syncs"] if "device_syncs" in s else self._device_syncs_for(s)
+            s["device_syncs"] = self._device_syncs_answer(s, rows, device_id)
         return saves
 
     def upload_save(
@@ -700,33 +714,42 @@ class FakeRommApi:
             entry["emulator"] = emulator
             return dict(entry)
 
-        # add_save content-dedup early-return (saves.py:253-267): a named-slot
-        # ``overwrite=false`` POST whose content matches an existing slot save
-        # returns that save BEFORE the DeviceSaveSync upsert, so the uploading
-        # device reads is_current=false and the confirm ack stays load-bearing.
-        if self._dedup_next_upload_save_id is not None and slot is not None and not overwrite:
-            dedup_id = self._dedup_next_upload_save_id
-            self._dedup_next_upload_save_id = None
-            existing = self.saves.get(dedup_id)
-            if existing is not None:
-                response = dict(existing)
-                response["device_syncs"] = with_absent_device_placeholder(self._device_syncs_for(existing), device_id)
-                return response
-
-        # POST path. On a slot POST the real server refuses (409) to stack onto
-        # a slot this device hasn't synced, and tags the stored filename so
-        # versions never collide. The gate runs BEFORE any mutation and lets
-        # ``RommConflictError`` propagate uncaught, exactly like the adapter.
-        stored_filename = filename
+        # On a slot POST the real server first refuses (409) to stack onto a
+        # slot this device hasn't synced — before its content dedup below, as
+        # RomM 5.3.0's ``add_save`` orders them. The gate runs BEFORE any
+        # mutation and lets ``RommConflictError`` propagate uncaught, exactly
+        # like the adapter.
         if slot is not None:
-            slot_saves = [s for s in self.saves.values() if s.get("rom_id") == rom_id and s.get("slot") == slot]
             check_add_save_conflict(
                 device_id=device_id,
                 slot=slot,
                 overwrite=overwrite,
-                slot_saves=slot_saves,
+                slot_saves=[s for s in self.saves.values() if s.get("rom_id") == rom_id and s.get("slot") == slot],
                 sync_ledger=self._device_sync_ledger,
             )
+
+        # add_save content-dedup early-return (RomM 5.3.0): a named-slot
+        # ``overwrite=false`` POST whose content matches an existing slot save
+        # returns that save BEFORE the DeviceSaveSync upsert, and only a save in
+        # the POST's own slot. With a device id the gate above has passed, so this
+        # device is current on the slot's latest save; on an older save the answer
+        # reads what its row there says (current only for a version it synced
+        # that nobody changed since, else a stale row or RomM's placeholder).
+        if self._dedup_next_upload_save_id is not None and slot is not None and not overwrite:
+            dedup_id = self._dedup_next_upload_save_id
+            self._dedup_next_upload_save_id = None
+            existing = self.saves.get(dedup_id)
+            if existing is not None and existing.get("rom_id") == rom_id and existing.get("slot") == slot:
+                response = dict(existing)
+                response["device_syncs"] = self._device_syncs_answer(
+                    existing, self._device_syncs_for(existing), device_id
+                )
+                return response
+
+        # POST path. A slot POST tags the stored filename so versions never
+        # collide.
+        stored_filename = filename
+        if slot is not None:
             stored_filename = tag_filename(filename, stamp.strftime("%Y-%m-%d_%H-%M-%S"))
 
         new_save_id = self._next_save_id
@@ -747,7 +770,7 @@ class FakeRommApi:
         # here and the sync engine skips it (#1458).
         self._record_device_sync(new_save_id, device_id)
         response = dict(entry)
-        response["device_syncs"] = self._device_syncs_for(entry)
+        response["device_syncs"] = self._device_syncs_answer(entry, self._device_syncs_for(entry), device_id)
         return response
 
     def download_save(self, save_id: int, dest_path: str) -> None:
@@ -890,7 +913,8 @@ class FakeRommApi:
         Drives ``list_saves``' per-device ``device_syncs`` / ``is_current`` and
         the add_save 409 gate directly, mirroring a server DeviceSaveSync row.
         Model a *stale* device with a ``last_synced_at`` older than the save's
-        ``updated_at``; model a *never-synced* device by omitting the call.
+        ``updated_at``. Omitting the call leaves the device without a row, which
+        ``list_saves`` answers with RomM's placeholder when that device asks.
         """
         self._device_sync_ledger[(device_id, save_id)] = last_synced_at
 
@@ -899,9 +923,13 @@ class FakeRommApi:
 
         The next named-slot ``overwrite=false`` POST returns *save_id* (as if the
         uploaded content matched it) BEFORE any DeviceSaveSync upsert — no new save
-        row, no ledger write — with the uploading device reported ``is_current=false``.
-        Mirrors saves.py:253-267 so a test can exercise the dedup path where the
-        post-upload confirm ack is the only writer of our sync row (#1458).
+        row, no ledger write. *save_id* must be in the POST's slot: RomM matches
+        content only there, and a save elsewhere leaves the POST to create a new
+        version. With a device id RomM's slot gate answers first, so the device
+        must be current on the slot's latest save for the dedup to be reached;
+        the answer reads it current on that save, and on an older one whatever
+        its row there says (or RomM's placeholder). Mirrors RomM 5.3.0's
+        ``add_save``.
 
         *save_id* need not be the slot head: arm an OLDER save while a newer,
         different head is present to model the dedup-to-non-head shape — the POST
@@ -928,8 +956,8 @@ class FakeRommApi:
         Models the foreign-origin case: a save the local (querying) device has
         never synced. ``uploaded_by`` is recorded as current on it via the sync
         ledger; the local device gets no ledger entry, so its ``list_saves``
-        shows no ``is_current`` for it and an ``overwrite=false`` POST into the
-        slot 409s. Returns a copy of the seeded save dict.
+        shows RomM's not-current placeholder for it and an ``overwrite=false``
+        POST into the slot 409s. Returns a copy of the seeded save dict.
         """
         if save_id is None:
             save_id = self._next_save_id
@@ -974,12 +1002,29 @@ class FakeRommApi:
         """
         save_id = save.get("id")
         updated_at = save.get("updated_at", "")
-        return [
+        rows = [
             {
                 "device_id": d_id,
-                "is_current": compute_is_current(last_synced_at, updated_at),
+                "device_name": self._device_name(d_id),
                 "last_synced_at": last_synced_at,
+                "is_untracked": False,
+                "is_current": compute_is_current(last_synced_at, updated_at),
             }
             for (d_id, s_id), last_synced_at in self._device_sync_ledger.items()
             if s_id == save_id
         ]
+        return order_sync_rows(rows)
+
+    def _device_syncs_answer(
+        self, save: dict[str, Any], rows: list[dict[str, Any]], device_id: str | None
+    ) -> list[dict[str, Any]]:
+        return device_syncs_answer(
+            rows,
+            device_id=device_id,
+            device_name=self._device_name(device_id),
+            save_updated_at=save.get("updated_at", ""),
+        )
+
+    def _device_name(self, device_id: str | None) -> str | None:
+        """The registered name of *device_id*; None for an id this fake never registered."""
+        return next((d.get("name") for d in self.devices if str(d.get("id")) == str(device_id)), None)

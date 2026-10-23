@@ -6,14 +6,19 @@ ROMs into fingerprint-changed covers (re-download + in-session tile refresh)
 and NULL-fingerprint candidates (the pre-fingerprint upgrade path, whose
 adopt-vs-download fork needs a cache-file existence check the caller performs).
 Both the apply-path invalidation pass and the preview's cover-work count run
-this kernel, so the number the preview shows is by construction the set the
-apply pass refreshes. Pure compute — no I/O, no state; anything that reads the
-DB, checks files, or downloads belongs in the calling service.
+this kernel, and then leave out the covers set in Steam by the same read, so
+the number the preview shows is the set the apply pass refreshes while Steam's
+grid directory does not change between the two. Pure compute — no I/O, no
+state; anything that reads the DB, checks files, or downloads belongs in the
+calling service.
 """
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 
 class CoverRefreshScan(NamedTuple):
@@ -45,10 +50,12 @@ def _strip_cover_ts(source: str) -> str:
     """Return *source* with its ``ts`` query parameter removed.
 
     Splits off the query string and drops the ``ts=…`` cache-buster RomM embeds
-    (the value that a server-side rescan re-stamps without touching the file),
-    preserving any other query parameters and their order. Pure string algebra —
-    no URL parsing library — so it stays dependency-free and never rewrites the
-    path portion (the compare is exact-string equality).
+    (which scans move it without touching the file:
+    docs/architecture/backend-architecture.md, "Conditional-request
+    revalidation on a ts-only change"), preserving any other query parameters
+    and their order. Pure string algebra — no URL parsing library — so it stays
+    dependency-free and never rewrites the path portion (the compare is
+    exact-string equality).
     """
     base, sep, query = source.partition("?")
     if not sep:
@@ -63,7 +70,7 @@ def cover_ts_only_change(stored_source: str | None, fresh_source: str | None) ->
     The revalidation trigger's pure part: both sources are present, they differ
     (a fingerprint change was already detected), and stripping the ``ts`` query
     parameter from each yields equal, non-empty bases — i.e. the same underlying
-    asset path with only the rescan-restamped timestamp differing. A path change
+    asset path with only the ``ts`` timestamp differing. A path change
     beyond ``ts`` (a different rom path, or a ``url_cover``↔``path_cover`` switch
     from #1450) is NOT ts-only and must take the regular download path.
     """
@@ -76,6 +83,7 @@ def cover_ts_only_change(stored_source: str | None, fresh_source: str | None) ->
 def scan_cover_refresh_candidates(
     all_roms: list[dict[str, Any]],
     registry: dict[str, dict[str, Any]],
+    steamgriddb_covers: Collection[int] = (),
 ) -> CoverRefreshScan:
     """Split *all_roms* against *registry* fingerprints into changed / NULL buckets.
 
@@ -84,6 +92,11 @@ def scan_cover_refresh_candidates(
     ``id``, no registry entry (unbound rows are never projected), or an
     unchanged fingerprint is skipped. Order follows *all_roms*; a duplicate
     ``rom_id`` is counted once (first occurrence wins).
+
+    *steamgriddb_covers* are the ROMs whose cover is Tender's pick from
+    SteamGridDB, given while RomM had none: each that has a fresh cover is
+    changed whatever its fingerprint, since RomM's cover takes its place
+    (#2381 D24).
     """
     changed: list[tuple[int, int, str]] = []
     null_fingerprint: list[tuple[int, str]] = []
@@ -100,6 +113,9 @@ def scan_cover_refresh_candidates(
         if entry is None or entry.get("app_id") is None:
             continue
         stored = entry.get("cover_source")
+        if rom_id in steamgriddb_covers:
+            changed.append((rom_id, int(entry["app_id"]), fresh))
+            continue
         if stored == fresh:
             continue
         if stored is None:
@@ -107,19 +123,3 @@ def scan_cover_refresh_candidates(
             continue
         changed.append((rom_id, int(entry["app_id"]), fresh))
     return CoverRefreshScan(changed=changed, null_fingerprint=null_fingerprint)
-
-
-def count_cover_refreshes(
-    all_roms: list[dict[str, Any]],
-    registry: dict[str, dict[str, Any]],
-) -> int:
-    """Count the bound ROMs whose server cover changed — the preview's cover-work number.
-
-    Exactly ``len(scan_cover_refresh_candidates(...).changed)``: the same
-    predicate the apply-path invalidation pass refreshes by, so the preview's
-    count and the run's refresh set can never diverge. NULL-fingerprint rows
-    are not counted — their adopt-vs-download fork depends on a cache-file
-    check the preview must not perform (the preview is side-effect-free and
-    the adopt is invisible to the user).
-    """
-    return len(scan_cover_refresh_candidates(all_roms, registry).changed)

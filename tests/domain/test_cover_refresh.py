@@ -2,7 +2,6 @@
 
 from domain.cover_refresh import (
     _strip_cover_ts,
-    count_cover_refreshes,
     cover_ts_only_change,
     fresh_cover_source,
     scan_cover_refresh_candidates,
@@ -120,24 +119,33 @@ class TestScanCoverRefreshCandidates:
         assert scan.changed == [(10, 1010, _NEW)]
 
 
-class TestCountCoverRefreshes:
-    def test_counts_only_the_changed_bucket(self):
-        roms = [
-            {"id": 1, "path_cover_large": "/a.png?ts=new"},  # changed → counted
-            {"id": 2, "path_cover_large": "/b.png?ts=new"},  # NULL fingerprint → not counted
-            {"id": 3, "path_cover_large": "/c.png?ts=same"},  # unchanged → not counted
-            {"id": 4, "path_cover_large": "/d.png?ts=new"},  # unbound (no entry) → not counted
-        ]
-        registry = {
-            "1": _bound(1001, "/a.png?ts=old"),
-            "2": _bound(1002, None),
-            "3": _bound(1003, "/c.png?ts=same"),
-        }
-        assert count_cover_refreshes(roms, registry) == 1
+class TestASteamGridDbCoverRomMNowHasACoverFor:
+    """D24: a cover Tender picked from SteamGridDB is replaced by RomM's once RomM has one, its fingerprint aside."""
 
-    def test_empty_inputs_count_zero(self):
-        assert count_cover_refreshes([], {}) == 0
-        assert count_cover_refreshes([{"id": 1, "path_cover_large": _NEW}], {}) == 0
+    def test_an_unknown_fingerprint_lands_in_changed(self):
+        scan = scan_cover_refresh_candidates([{"id": 10, "path_cover_large": _NEW}], {"10": _bound(1010, None)}, {10})
+
+        assert scan == ([(10, 1010, _NEW)], [])
+
+    def test_an_unchanged_fingerprint_lands_in_changed(self):
+        scan = scan_cover_refresh_candidates([{"id": 10, "path_cover_large": _NEW}], {"10": _bound(1010, _NEW)}, {10})
+
+        assert scan == ([(10, 1010, _NEW)], [])
+
+    def test_a_changed_fingerprint_lands_in_changed_once(self):
+        scan = scan_cover_refresh_candidates([{"id": 10, "path_cover_large": _NEW}], {"10": _bound(1010, _OLD)}, {10})
+
+        assert scan.changed == [(10, 1010, _NEW)]
+
+    def test_while_romm_has_no_cover_it_stays(self):
+        scan = scan_cover_refresh_candidates([{"id": 10}], {"10": _bound(1010, None)}, {10})
+
+        assert scan == ([], [])
+
+    def test_an_unbound_rom_is_skipped(self):
+        scan = scan_cover_refresh_candidates([{"id": 10, "path_cover_large": _NEW}], {}, {10})
+
+        assert scan == ([], [])
 
 
 class TestStripCoverTs:

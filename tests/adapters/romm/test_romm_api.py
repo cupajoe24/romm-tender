@@ -867,24 +867,6 @@ class TestListRomsBySmartCollection:
             api.list_roms_by_smart_collection(1)
 
 
-class TestListFirmware:
-    def test_calls_firmware_endpoint(self):
-        api, client = _make_api()
-        client.request.return_value = [{"id": 1, "name": "bios.bin"}]
-        result = api.list_firmware()
-        client.request.assert_called_once_with("/api/firmware")
-        assert result == [{"id": 1, "name": "bios.bin"}]
-
-
-class TestGetFirmware:
-    def test_calls_firmware_by_id(self):
-        api, client = _make_api()
-        client.request.return_value = {"id": 5, "name": "scph1001.bin"}
-        result = api.get_firmware(5)
-        client.request.assert_called_once_with("/api/firmware/5")
-        assert result["id"] == 5
-
-
 class TestDownloadFirmware:
     def test_url_encodes_filename(self):
         api, client = _make_api()

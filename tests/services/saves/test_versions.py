@@ -7,7 +7,7 @@ from fakes.fake_save_location_reader import FakeSaveLocationReader
 
 from domain.rom_save_sync_state import RomSaveSyncState
 from domain.save_answer import save_shape_message, unestablished_answer
-from lib.errors import DeviceWriteError, RommNotFoundError, RommRateLimitedError
+from lib.errors import DeviceWriteError, RommNotFoundError, RommRateLimitedError, RommTimeoutError
 from tests.services.saves._helpers import (
     _create_save,
     _enable_sync_with_device,
@@ -213,7 +213,7 @@ class TestListFileVersions:
         """
         svc, fake = make_service(tmp_path)
 
-        fake.fail_on_next(OSError("network error"))
+        fake.fail_next_list_saves(OSError("network error"))
 
         result = await svc.list_file_versions(42, "default", "pokemon.srm")
 
@@ -230,7 +230,7 @@ class TestListFileVersions:
         """RomM rate-limiting the listing answered — the panel names that, never an outage."""
         svc, fake = make_service(tmp_path)
 
-        fake.fail_on_next(RommRateLimitedError("Rate limited"))
+        fake.fail_next_list_saves(RommRateLimitedError("Rate limited"))
 
         result = await svc.list_file_versions(42, "default", "pokemon.srm")
 
@@ -247,7 +247,7 @@ class TestListFileVersions:
         """
         svc, fake = make_service(tmp_path)
 
-        fake.fail_on_next(RommNotFoundError("HTTP 404: Not Found"))
+        fake.fail_next_list_saves(RommNotFoundError("HTTP 404: Not Found"))
 
         result = await svc.list_file_versions(42, "default", "pokemon.srm")
 
@@ -262,6 +262,7 @@ class TestListFileVersions:
     async def test_result_shape(self, tmp_path):
         """Each entry contains the required fields: id, updated_at, file_size_bytes, device_syncs."""
         svc, fake = make_service(tmp_path)
+        _set_device_id(svc, "abc")
 
         fake.saves[100] = _server_save(save_id=100, rom_id=42, slot="default", updated_at="2026-03-10T10:00:00Z")
         fake.saves[50] = {
@@ -273,7 +274,13 @@ class TestListFileVersions:
             "updated_at": "2026-03-01T10:00:00Z",
             "file_size_bytes": 2048,
             "device_syncs": [
-                {"device_id": "abc", "device_name": "steamdeck", "is_current": True, "last_synced_at": None}
+                {
+                    "device_id": "abc",
+                    "device_name": "steamdeck",
+                    "last_synced_at": "2026-03-01T10:00:00Z",
+                    "is_untracked": False,
+                    "is_current": True,
+                }
             ],
             "slot": "default",
             "download_path": "/saves/pokemon.srm",
@@ -494,7 +501,7 @@ class TestRollbackToVersion:
         # A genuinely-synced local file: the baseline is the real on-disk md5, so the
         # pre-flight matrix treats local as unchanged (the placeholder "h" no longer
         # matches under the realistic fake). Tracked save 999 is gone from the server;
-        # the pre-flight POST 409s on the newer slot head and the backstop downloads it.
+        # this device has no sync row on the slot head, so the pre-flight downloads it.
         _create_save(tmp_path)
         local_hash = _file_md5(str(tmp_path / "saves" / "gba" / "pokemon.srm"))
         self._setup_state(svc, tmp_path, tracked_id=999, last_sync_hash=local_hash)
@@ -635,7 +642,7 @@ class TestRollbackToVersion:
 
         _install_rom(svc, tmp_path)
         _enable_sync_with_device(svc)
-        fake.fail_on_next(Exception("network error"))
+        fake.fail_next_list_saves(Exception("network error"))
 
         result = await svc.rollback_to_version(42, "default", 50)
 
@@ -918,6 +925,23 @@ class TestRollbackToVersion:
             "message": "it could not be written on this device (No space left on device)",
         }
         assert not any(call[0] == "upload_save" for call in fake.call_log)
+
+    @pytest.mark.asyncio
+    async def test_a_restore_whose_download_breaks_off_leaves_no_tmp(self, tmp_path):
+        svc, fake = make_service(tmp_path)
+        save_path = _create_save(tmp_path, content=b"current bytes")
+        self._setup_state(svc, tmp_path, tracked_id=100, last_sync_hash=_file_md5(str(save_path)))
+        fake.saves[100] = self._tracked_save(100)
+        fake.saves[50] = _server_save(save_id=50, rom_id=42, slot="default", updated_at="2026-02-01T10:00:00Z")
+        failure = RommTimeoutError("read timed out")
+        fake.break_download_on(50, failure)
+
+        with pytest.raises(RommTimeoutError) as caught:
+            await svc.rollback_to_version(42, "default", 50)
+
+        assert caught.value is failure
+        assert not (save_path.parent / "pokemon.srm.tmp").exists()
+        assert save_path.read_bytes() == b"current bytes"
 
     @pytest.mark.asyncio
     async def test_rollback_ignores_confirm_download_failure(self, tmp_path):

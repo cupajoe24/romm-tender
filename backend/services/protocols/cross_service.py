@@ -141,6 +141,14 @@ class DownloadTargetGateFn(Protocol):
     decision already taken, and the file the user declined must not refuse the
     transfer they started.
 
+    *folder_path* is the second path a download claims when the ROM is served
+    in both shapes (``domain/served_shape.py``) — a single zip that may be
+    unpacked claims the file it arrives as at *checked_path* and the folder it
+    would become here — and ``None`` otherwise. *confirmed_paths* lists each
+    path whose dialog the user answered with replace. Which occupied paths
+    *replace* covers — and so which are refused with ``TargetOccupied`` instead —
+    is ``replace_covers``'s (``domain/served_shape.py``).
+
     *page_saw_candidate* is not an answer but a report — what the game page told
     the user before they pressed. The search's last check is a backstop over it,
     which is what makes the button's promise keepable: the page and the search
@@ -163,6 +171,8 @@ class DownloadTargetGateFn(Protocol):
         candidate_path: str | None = None,
         collision_choice: str | None = None,
         page_saw_candidate: bool = False,
+        folder_path: str | None = None,
+        confirmed_paths: list[str] | None = None,
     ) -> PartialFailure | None: ...
 
 
@@ -362,16 +372,17 @@ class RomLaunchPathReader(Protocol):
 
 
 class SaveDriftProbeFn(Protocol):
-    """Local-save drift probe consumed by VersionSwitchService and PruneService.
+    """Local-save check consumed by VersionSwitchService and PruneService.
 
     The composition root satisfies this with ``SaveService.check_local_drift``.
-    Reports whether the ROM's local save files diverge from their persisted sync
-    baseline (a purely-local content-hash read) — the signal that a change to the
-    ROM's shortcut would strand un-uploaded save changes: a version switch moving
-    it off a downloaded version, or a removed-game cleanup removing the whole
-    game. Returns the
-    ``{"drifted": bool, "rom_id": int}`` shape and never raises (the check
-    collapses any internal error to not-drifted).
+    It reads the ROM's save files against their recorded syncs without asking
+    the server, after following a moved save directory under the ROM's
+    ``rom_lock``. Its ``stranding`` field
+    (``domain/save_stranding.py::stranding_verdict``) says whether a change to
+    the ROM's shortcut would strand saves that exist nowhere else: a version
+    switch moving it off a downloaded version, or a removed-game cleanup
+    removing the whole game. Returns
+    ``{"rom_id", "drifted", "only_here", "stranding"}`` and never raises.
     """
 
     async def __call__(self, rom_id: int) -> dict[str, Any]: ...
@@ -519,9 +530,33 @@ class ArtworkManager(Protocol):
         label: str = "",
     ) -> list[dict[str, int]]: ...
 
+    async def count_cover_refreshes(
+        self, all_roms: list[dict[str, Any]], registry: dict[str, dict[str, Any]]
+    ) -> int: ...
+
     def finalize_cover_path(self, grid: str | None, cover_path: str, app_id: int, rom_id_str: str) -> str: ...
 
     def remove_artwork_files(self, grid: str, rom_id: str | int, entry: ShortcutRegistryEntry) -> None: ...
+
+
+class CoverSlotReader(Protocol):
+    """The cover slot as the game page's ARTWORK tab needs it from the cover's owner.
+
+    Implemented by ``ArtworkService``, which owns the RomM cover, its cache and
+    its grid copy; consumed by ``SteamGridService`` for the cover's row and for
+    setting the cover back to automatic.
+    """
+
+    def is_cover_set_in_steam(self, rom_id: int, app_id: int) -> bool:
+        """Whether *app_id*'s cover in Steam's grid directory is not Tender's cover for *rom_id* (sync, reads files)."""
+        ...
+
+    async def refresh_cover_unchecked(self, rom_id: int) -> dict[str, Any]:
+        """Reload *rom_id*'s RomM cover into the cache and the grid copy, without the caller's conflict rules.
+
+        Refuses as ``ArtworkService.refresh_cover`` does.
+        """
+        ...
 
 
 class ArtworkRemover(Protocol):
@@ -553,14 +588,17 @@ class SessionPlaytimeRecorder(Protocol):
 class SessionPostExitSync(Protocol):
     """Post-exit save sync consumed by SessionLifecycleService.
 
-    The composition root satisfies this with ``SaveService``'s
-    ``post_exit_sync``. Returned shape carries ``success`` / ``synced`` /
+    The composition root satisfies this with ``SaveService``.
+    ``post_exit_sync``'s returned shape carries ``success`` / ``synced`` /
     ``uploaded`` / ``downloaded`` / ``conflicts`` / ``message``. A refusal is
     raised as ``Refused``, with an ``offline`` detail when the server could
-    not be reached, and a RomM error propagates.
+    not be reached, and a RomM error propagates. ``syncs_after_exit`` answers
+    whether the settings let a game's exit be followed by a sync.
     """
 
     async def post_exit_sync(self, rom_id: int) -> dict[str, Any]: ...
+
+    def syncs_after_exit(self) -> bool: ...
 
 
 class SessionAchievementSync(Protocol):
@@ -741,10 +779,24 @@ class DeviceForgetFn(Protocol):
     ConnectionService invokes it on a successful sign-in whose origin differs
     from the previous token's origin: the registered device id is bound to the
     origin it was minted against, so a server switch must drop it (negotiate
-    hard-404s a foreign device id) and let the next sync re-register.
+    hard-404s a foreign device id), and the sign-in then registers this device
+    against the new server (``DeviceRegisterFn``).
     """
 
     def __call__(self) -> None: ...
+
+
+class DeviceRegisterFn(Protocol):
+    """Device registration consumed by ConnectionService.
+
+    The composition root satisfies this with
+    ``SaveService.ensure_device_registered``. ConnectionService awaits it after
+    every successful sign-in, whether save sync is on or off, so the device id
+    the play-session upload and the save operations send exists from the
+    sign-in on; whatever it raises is the sign-in's to log, never to fail on.
+    """
+
+    async def __call__(self) -> dict[str, Any]: ...
 
 
 class PlaytimeScopeNoticeClearFn(Protocol):
@@ -785,7 +837,8 @@ class ShortcutArtworkSource(Protocol):
         page uses. ``READY`` once the cache holds it; ``NONE``, recorded, when
         SteamGridDB has no candidate or does not know the game, or the ROM has
         no SteamGridDB id stored (no request then); a 429 ``RATE_LIMITED``; a
-        401 or 403 ``KEY_REFUSED``; anything else ``FAILED``, unrecorded.
+        401 or 403, or a stored key no HTTP header can carry, ``KEY_REFUSED``;
+        anything else ``FAILED``, unrecorded.
         Synchronous — callers on the loop offload it.
         """
         ...
@@ -860,3 +913,30 @@ class IconPlaceholderPathFn(Protocol):
     """The placeholder icon a sync gives each shortcut it mints; ``None`` where there is none to give."""
 
     async def __call__(self) -> str | None: ...
+
+
+class TenderFolderRecordReader(Protocol):
+    """What one store has recorded under Tender's folders — the question each store answers for itself.
+
+    A record is something the store keeps a path of, in the folder Tender
+    gave it: a download, a firmware file, a save. A recovery bundle is not
+    one. ``recorded_folders`` answers every Tender folder the store holds a
+    record under, as the folder path it was given; ``forget_records_under``
+    forgets every record under *folder* and deletes no file — the firmware
+    store also removes its links into a file it forgets, except one under a
+    root the resolver only assumed or whose source's roots could not be
+    asked, which stays with its record forgotten. Both are called
+    from a worker thread, and ``recorded_folders`` also from the event loop,
+    by the folder rule (GLOSSARY.md → Conflict rules), so it answers from one
+    short query.
+    """
+
+    def recorded_folders(self) -> frozenset[str]: ...
+
+    def forget_records_under(self, folder: str) -> None: ...
+
+
+class PrepareTenderFolderFn(Protocol):
+    """Tender's folder made ready for one write, created where it is missing; refuses ``folder_unreachable``."""
+
+    def __call__(self) -> str: ...

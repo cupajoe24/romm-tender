@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractContextManager
 
+    from domain.firmware_places import PlaceLook
     from domain.prune import BundleReadmeContext
+    from domain.tender_folder import Drive, TenderPlace
     from domain.update_install import UpdateAttemptRecord
     from domain.update_outcome import UpdateFailure
     from models.adoption import ArchiveMemberInfo, ExistingContent, MoveOutcome, TopLevelEntry, TopLevelName
@@ -153,6 +155,10 @@ class CoverArtFileStore(Protocol):
 
     def read_bytes(self, path: str) -> bytes:
         """Return the contents of *path* as raw bytes."""
+        ...
+
+    def file_size(self, path: str) -> int:
+        """Return the size of the file *path* in bytes, links followed."""
         ...
 
     def write_text_atomic(self, path: str, content: str) -> None:
@@ -339,6 +345,8 @@ class DownloadFileStore(Protocol):
         dest_dir: str,
         safe_root: str,
         progress_callback: Callable[[int, int], None] | None = None,
+        strip_prefix: str = "",
+        single_zip: bool = False,
     ) -> None:
         """Extract *archive_path* into *dest_dir* with ZIP-slip protection.
 
@@ -346,6 +354,12 @@ class DownloadFileStore(Protocol):
         rejected. Implementations resolve both *dest_dir* and *safe_root*
         via ``os.path.realpath`` and verify that every member resolves
         within *safe_root* before extracting.
+
+        *strip_prefix* is the one folder a zip wraps its whole content in
+        (``wrapper_prefix``) and *single_zip* reads the archive as a user's
+        single zip rather than RomM's own; each member lands where
+        ``unpacked_name`` (``domain/served_shape.py``) places it for the two,
+        and the slip check runs on that name, where the member actually lands.
 
         When *progress_callback* is supplied it is invoked with
         ``(extracted, total)`` uncompressed byte counts as members stream
@@ -426,12 +440,13 @@ class AdoptionMoveStore(Protocol):
 class FirmwareFileStore(Protocol):
     """Filesystem seam for firmware/BIOS file operations.
 
-    Owns the raw POSIX calls FirmwareService uses to manage firmware
-    downloads under the RetroDECK BIOS directory: existence probes,
-    atomic temp-file lifecycle, parent-directory creation, MD5 hashing
-    of downloaded payloads, and BIOS registry JSON reads. Path
-    construction, registry lookups, and download orchestration remain a
-    service concern; this Protocol exposes only the I/O seams.
+    Owns the raw POSIX calls FirmwareService uses to manage Tender's firmware
+    store and its links: existence probes, atomic temp-file lifecycle,
+    parent-directory creation, MD5 hashing of downloaded payloads, looking at
+    a place without following a link there, placing and removing a link, and
+    moving a replaced file aside. Path construction, which link goes where,
+    and download orchestration remain a service concern; this Protocol
+    exposes only the I/O seams.
 
     Implementations are synchronous — services that call from an async
     context offload via ``loop.run_in_executor``.
@@ -459,6 +474,27 @@ class FirmwareFileStore(Protocol):
 
     def read_bytes(self, path: str) -> bytes:
         """Return the contents of *path* as raw bytes."""
+        ...
+
+    def look(self, path: str) -> PlaceLook:
+        """What lies at *path* itself, a link not followed, and whether the folder it lies in is there."""
+        ...
+
+    def symlink(self, target: str, place: str) -> None:
+        """Create a symlink at *place* naming *target*; raises ``FileExistsError`` where anything lies there."""
+        ...
+
+    def remove_link(self, place: str) -> None:
+        """Remove the symlink at *place*; a place that holds no symlink is left as it is."""
+        ...
+
+    def move_aside(self, src: str, dst: str) -> None:
+        """Move the file or link at *src* to *dst*, creating *dst*'s folders; a link moves as itself.
+
+        Never over anything: raises ``FileExistsError`` where something lies at
+        *dst*. Whenever it raises, *src* is where it was — and where removing
+        *src* is what failed, the file stands at *dst* too.
+        """
         ...
 
 
@@ -812,6 +848,34 @@ class RecoveryBundleInventoryReader(Protocol):
     def bundle_inventory(self) -> RecoveryBundleInventory:
         """Return the bundle count, their summed bytes and each bundle, empty where no root exists."""
         ...
+
+
+class TenderFolderStore(Protocol):
+    """Tender's folder on disk: its place as the settings name it, its state, and the drives a place may lie on.
+
+    ``condition`` answers why the place's folder cannot be used now —
+    ``drive_not_mounted``, ``folder_missing`` or ``folder_not_writable`` — or
+    ``None``. ``create_folder`` creates the place and the folder as needed,
+    writes the id file into a folder it created and answers whether it did;
+    it raises ``OSError`` where it cannot. ``remove_if_only_id`` removes a
+    folder that holds nothing but its id file. ``drives`` lists the writable
+    drives mounted under ``drives_root``.
+    """
+
+    def home(self) -> str: ...
+    def drives_root(self) -> str: ...
+    def place(self) -> TenderPlace: ...
+    def condition(self, place: TenderPlace) -> str | None: ...
+    def is_mount(self, path: str) -> bool: ...
+    def resolved(self, path: str) -> str: ...
+    def deepest_existing(self, path: str) -> str: ...
+    def mount_point_of(self, path: str) -> str: ...
+    def writable(self, folder: str) -> bool: ...
+    def create_folder(self, place: str, folder: str, folder_id: str) -> bool: ...
+    def remove_if_only_id(self, folder: str) -> bool: ...
+    def drives(self) -> tuple[Drive, ...]: ...
+    def free_bytes(self, path: str) -> int: ...
+    def drive_kind(self, mount_point: str) -> str: ...
 
 
 class PruneArtifactStore(Protocol):

@@ -253,6 +253,28 @@ class Endpoints:
     async def move_emulator_source(self, kind, direction):
         return await self._services.emulator_sources_service.move_emulator_source(kind, direction)
 
+    # ── Tender's folder delegation to TenderFolderService ──────────────
+
+    @route
+    async def get_tender_folder(self):
+        return await self._services.tender_folder_service.get_tender_folder()
+
+    @route
+    async def check_tender_place(self, path):
+        return await self._services.tender_folder_service.check_tender_place(path)
+
+    @route
+    async def choose_tender_place(self, path):
+        return await self._services.tender_folder_service.choose_tender_place(path)
+
+    @route
+    async def use_recorded_tender_folder(self, folder):
+        return await self._services.tender_folder_service.use_recorded_tender_folder(folder)
+
+    @route
+    async def forget_tender_folder_records(self, folder):
+        return await self._services.tender_folder_service.forget_tender_folder_records(folder)
+
     # ── Disc picker delegation to DiscService ──────────────
 
     @route
@@ -327,8 +349,22 @@ class Endpoints:
         return await self._services.firmware_service.download_required_firmware(platform_slug, emulator)
 
     @route
-    async def download_platform_firmware_file(self, platform_slug, file_name, emulator):
-        return await self._services.firmware_service.download_platform_firmware_file(platform_slug, file_name, emulator)
+    async def download_platform_firmware_file(self, platform_slug, file_name, firmware_id=None):
+        return await self._services.firmware_service.download_platform_firmware_file(
+            platform_slug, file_name, firmware_id
+        )
+
+    @route
+    async def update_bios_links(self, platform_slug, rom_id):
+        return await self._services.firmware_service.update_bios_links(platform_slug, rom_id)
+
+    @route
+    async def replace_bios_file(self, platform_slug, place):
+        return await self._services.firmware_service.replace_bios_file(platform_slug, place)
+
+    @route
+    async def identify_library_firmware(self, md5):
+        return await self._services.firmware_service.identify_library_firmware(md5)
 
     @route
     async def check_platform_bios(self, platform_slug):
@@ -347,10 +383,6 @@ class Endpoints:
     @route
     async def delete_bios_file(self, platform_slug, file_name):
         return await self._services.firmware_service.delete_bios_file(platform_slug, file_name)
-
-    @route
-    async def delete_bios_folder(self, platform_slug, folder_path):
-        return await self._services.firmware_service.delete_bios_folder(platform_slug, folder_path)
 
     # ── Sync delegation to LibraryService ─────────────────────
 
@@ -530,20 +562,30 @@ class Endpoints:
 
     @route
     async def start_download(
-        self, rom_id, replace_existing=False, candidate_path=None, collision_choice=None, page_saw_candidate=False
+        self,
+        rom_id,
+        replace_existing=False,
+        candidate_path=None,
+        collision_choice=None,
+        page_saw_candidate=False,
+        confirmed_paths=None,
     ):
         """Start a download, refusing when this game is already on the device.
 
         ``candidate_path`` names the file the adopt dialog was showing when the
         user chose Download over it: with ``replace_existing`` it is removed and
         its saves carried to the canonical name, which is what that dialog's
-        second confirmation promises. ``collision_choice`` answers the save
-        collision that carry can raise. ``page_saw_candidate`` reports what the
-        game page told the user, so a page that found a copy can never end in a
-        silent download.
+        second confirmation promises — except for a game served as a folder or
+        as a single zip that may be unpacked, whose launch file, and so the name
+        its saves need, is not known before the download. ``collision_choice``
+        answers the save collision that carry can raise. ``page_saw_candidate``
+        reports what the game page told the user, so a page that found a copy
+        can never end in a silent download. ``confirmed_paths`` lists the
+        occupied paths whose dialogs the user answered with Replace, for a game
+        that claims two.
         """
         return await self._services.download_service.start_download(
-            rom_id, replace_existing, candidate_path, collision_choice, page_saw_candidate
+            rom_id, replace_existing, candidate_path, collision_choice, page_saw_candidate, confirmed_paths
         )
 
     @route
@@ -778,6 +820,30 @@ class Endpoints:
     @route
     async def refresh_sgdb_artwork(self, rom_id, sgdb_id):
         return await self._services.sgdb_service.refresh_sgdb_artwork(rom_id, sgdb_id)
+
+    @route
+    async def get_artwork_game(self, rom_id):
+        return await self._services.sgdb_service.get_artwork_game(rom_id)
+
+    @route
+    async def get_artwork_slots(self, rom_id, app_id):
+        return await self._services.sgdb_service.get_artwork_slots(rom_id, app_id)
+
+    @route
+    async def get_artwork_slot_candidates(self, rom_id, slot, page=0):
+        return await self._services.sgdb_service.get_artwork_slot_candidates(rom_id, slot, page)
+
+    @route
+    async def choose_artwork_slot_image(self, rom_id, slot, image_id):
+        return await self._services.sgdb_service.choose_artwork_slot_image(rom_id, slot, image_id)
+
+    @route
+    async def set_artwork_slot_automatic(self, rom_id, slot):
+        return await self._services.sgdb_service.set_artwork_slot_automatic(rom_id, slot)
+
+    @route
+    async def keep_artwork_current(self, rom_id):
+        return await self._services.sgdb_service.keep_artwork_current(rom_id)
 
     # ── Metadata delegation to MetadataService ────────────────
 

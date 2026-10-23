@@ -210,6 +210,9 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "get_platform_core_info",
     "get_system_core_info",
     "count_platform_saves",
+    # What the resolver knows a library file's content as: a read of its tables
+    # and nothing on the machine.
+    "identify_library_firmware",
     # Settings → Emulator sources: the listing and the launch check's read of
     # the switch ask the resolver, and the switch and the move write only the
     # sources' order and switches in settings.json, never a RetroDECK path.
@@ -217,6 +220,13 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "check_start_source",
     "set_emulator_source_enabled",
     "move_emulator_source",
+    # Tender's folder lies outside RetroDECK's tree, and a choice of its place
+    # is judged against the resolver's answers rather than against a RetroDECK
+    # path; nothing here reads or writes one.
+    "get_tender_folder",
+    "check_tender_place",
+    "choose_tender_place",
+    "use_recorded_tender_folder",
     # Read-only disc-picker state query (the pin-write select_disc names the rule).
     "get_disc_selection",
     # Read-only version-picker state query (the binding-move switch_version names the rule).
@@ -317,6 +327,11 @@ _MIGRATION_RULE_WHITELIST: set[str] = {
     "search_sgdb_games",
     "apply_sgdb_game_id",
     "refresh_sgdb_artwork",
+    "get_artwork_game",
+    "get_artwork_slots",
+    "get_artwork_slot_candidates",
+    "choose_artwork_slot_image",
+    "keep_artwork_current",
     # Metadata cache reads.
     "get_rom_metadata",
     "get_metadata_cache_page",

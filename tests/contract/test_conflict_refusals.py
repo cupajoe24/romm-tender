@@ -1,23 +1,27 @@
 """What an endpoint answers while a conflict rule it names holds, and which rule answers first.
 
-Five conditions refuse an endpoint before it does anything: an update being
-installed (``blocked_by_update``), a pending RetroDECK migration
+Six conditions refuse an endpoint before it does anything: an update being
+installed (``blocked_by_update``), Tender's folder unreachable
+(``folder_unreachable``), a pending RetroDECK migration
 (``blocked_by_migration``), a library sync in flight (``sync_active``), a
 removed-game cleanup holding its run claim (``prune_active``), and — for
 ``start_prune`` alone — another local-data operation still running or holding a
 lease (``operation_active``). Where more than one applies, they are asked in the
-order exclusive start, update, migration, sync, prune active.
+order exclusive start, update, folder, migration, sync, prune active. The
+firmware endpoints that write into Tender's firmware store or link into it name
+the folder rule; ``FOLDER`` lists them.
 
-Every test here but the nine at the bottom drives ``harness.endpoints.<endpoint>``
+Every test here but the eleven at the bottom drives ``harness.endpoints.<endpoint>``
 with frontend-shaped arguments and reads the answer, so it holds wherever the
-rules are enforced. Five of those nine, the ``test_*_names_every_endpoint_*``
+rules are enforced. Six of those eleven, the ``test_*_names_every_endpoint_*``
 tests, read where each rule is declared instead, to keep each list from falling
 behind an endpoint that gains or loses a rule: the ``hold("<endpoint>", …)`` or
 ``hold_start("<endpoint>", …)`` call at the entry of the use case it calls
 (``tests/_conflict_rules.py``). Three more read the source the same way to keep
 the update rule wherever the migration rule is — at every call site, and at
 every direct migration check outside the rules — and nowhere else without it
-but the sites ``UPDATE_ONLY`` pins. The last,
+but the sites ``UPDATE_ONLY`` pins, and one guards that read against finding
+nothing. The last,
 ``test_every_endpoint_with_a_rule_has_its_arguments``, reads only the lists.
 Outside this module, ``tests/test_endpoints.py``'s ``TestMigrationRuleCoverage``
 reads the migration rule the same way.
@@ -77,6 +81,8 @@ _ARGS: dict[str, tuple[Any, ...]] = {
     "adopt_existing_rom": (41, None, None),
     "apply_sgdb_game_id": (41, 7),
     "apply_steam_input_setting": (),
+    "choose_artwork_slot_image": (41, "logo", 12),
+    "choose_tender_place": (None,),
     "cleanup_orphaned_grid_images": ([], False),
     "clear_game_core": (41,),
     "clear_sync_cache": (),
@@ -86,17 +92,20 @@ _ARGS: dict[str, tuple[Any, ...]] = {
     "connect_with_token": ("https://server.example", "token", False),
     "copy_save_to_slot": (41, 7, "default"),
     "delete_bios_file": ("n64", "pifdata.bin"),
-    "delete_bios_folder": ("n64", "bios"),
     "delete_local_saves": (41,),
     "delete_platform_bios": ("n64",),
     "delete_platform_saves": ("n64",),
     "delete_slot": (41, "default"),
     "download_all_firmware": ("n64", None),
-    "download_platform_firmware_file": ("n64", "pifdata.bin", None),
+    "download_platform_firmware_file": ("n64", "pifdata.bin"),
     "download_required_firmware": ("n64", None),
     "fetch_cover_base64": (41,),
     "finalize_game_session": (41,),
     "forget_download": (41,),
+    "forget_tender_folder_records": ("/run/media/deck/SD/Tender",),
+    "get_artwork_game": (41,),
+    "get_artwork_slot_candidates": (41, "logo", 0),
+    "get_artwork_slots": (41, _APP_ID),
     "get_installed_relaunch_options": (),
     "get_prune_preview": (_PRUNE_PREVIEW_REQUEST,),
     "get_rom_relaunch_options": (41,),
@@ -105,6 +114,7 @@ _ARGS: dict[str, tuple[Any, ...]] = {
     "get_sgdb_artwork_base64": (41, 0),
     "get_sgdb_resolution": (41,),
     "get_sgdb_slot_artwork": (41, _APP_ID, "grid"),
+    "keep_artwork_current": (41,),
     "migrate_retrodeck_files": (None,),
     "pre_launch_sync": (41,),
     "reconcile_playtime": (41,),
@@ -116,6 +126,7 @@ _ARGS: dict[str, tuple[Any, ...]] = {
     "remove_all_shortcuts": (),
     "remove_platform_shortcuts": ("n64",),
     "remove_rom": (41,),
+    "replace_bios_file": ("n64", "/retrodeck/bios/pifdata.bin"),
     "report_removal_results": ([], None),
     "report_sgdb_slot_artwork": (41, "grid", "set", 7, 12, "ab"),
     "report_unit_results": ({}, "run", "unit", 0),
@@ -130,6 +141,7 @@ _ARGS: dict[str, tuple[Any, ...]] = {
     "saves_rollback_to_version": (41, "default", 7),
     "select_disc": (41, None),
     "set_all_platforms_sync": (True,),
+    "set_artwork_slot_automatic": (41, "logo"),
     "set_game_core": (41, "core"),
     "set_system_core": ("n64", ""),
     "sign_out": (),
@@ -144,13 +156,17 @@ _ARGS: dict[str, tuple[Any, ...]] = {
     "sync_rom_saves": (41,),
     "test_connection": (),
     "uninstall_all_roms": (),
+    "update_bios_links": ("n64", None),
     "update_save_sync_settings": (_SAVE_SYNC_SETTINGS,),
+    "use_recorded_tender_folder": ("/run/media/deck/SD/Tender",),
 }
 
 PRUNE_ACTIVE = (
     "adopt_existing_rom",
     "apply_sgdb_game_id",
     "apply_steam_input_setting",
+    "choose_artwork_slot_image",
+    "choose_tender_place",
     "cleanup_orphaned_grid_images",
     "clear_game_core",
     "clear_sync_cache",
@@ -165,6 +181,10 @@ PRUNE_ACTIVE = (
     "fetch_cover_base64",
     "finalize_game_session",
     "forget_download",
+    "forget_tender_folder_records",
+    "get_artwork_game",
+    "get_artwork_slot_candidates",
+    "get_artwork_slots",
     "get_installed_relaunch_options",
     "get_rom_relaunch_options",
     "get_save_slots",
@@ -172,6 +192,7 @@ PRUNE_ACTIVE = (
     "get_sgdb_artwork_base64",
     "get_sgdb_resolution",
     "get_sgdb_slot_artwork",
+    "keep_artwork_current",
     "migrate_retrodeck_files",
     "pre_launch_sync",
     "reconcile_playtime",
@@ -193,6 +214,7 @@ PRUNE_ACTIVE = (
     "save_shortcut_icon",
     "saves_rollback_to_version",
     "select_disc",
+    "set_artwork_slot_automatic",
     "set_game_core",
     "set_system_core",
     "sign_out",
@@ -206,6 +228,7 @@ PRUNE_ACTIVE = (
     "sync_rom_saves",
     "test_connection",
     "uninstall_all_roms",
+    "use_recorded_tender_folder",
 )
 
 MIGRATION = (
@@ -216,7 +239,6 @@ MIGRATION = (
     "confirm_slot_choice",
     "copy_save_to_slot",
     "delete_bios_file",
-    "delete_bios_folder",
     "delete_local_saves",
     "delete_platform_bios",
     "delete_platform_saves",
@@ -225,12 +247,14 @@ MIGRATION = (
     "download_platform_firmware_file",
     "download_required_firmware",
     "forget_download",
+    "forget_tender_folder_records",
     "get_prune_preview",
     "pre_launch_sync",
     "refresh_cover_artwork",
     "remove_all_shortcuts",
     "remove_platform_shortcuts",
     "remove_rom",
+    "replace_bios_file",
     "resolve_sync_conflict",
     "resume_download",
     "save_collection_sync",
@@ -239,6 +263,7 @@ MIGRATION = (
     "saves_rollback_to_version",
     "select_disc",
     "set_all_platforms_sync",
+    "set_artwork_slot_automatic",
     "set_game_core",
     "set_system_core",
     "start_download",
@@ -251,6 +276,7 @@ MIGRATION = (
     "sync_preview",
     "sync_rom_saves",
     "uninstall_all_roms",
+    "update_bios_links",
     "update_save_sync_settings",
 )
 
@@ -264,6 +290,16 @@ SYNC_ACTIVE = (
 )
 
 EXCLUSIVE_START = ("start_prune",)
+
+FOLDER = (
+    "delete_bios_file",
+    "delete_platform_bios",
+    "download_all_firmware",
+    "download_platform_firmware_file",
+    "download_required_firmware",
+    "replace_bios_file",
+    "update_bios_links",
+)
 
 # Refused while an update is being installed, beside every endpoint a pending
 # migration refuses: work that would start after the press. The migration
@@ -537,6 +573,14 @@ def test_the_read_behind_the_direct_check_sees_the_checks_it_is_about():
     }
 
 
+def test_the_folder_matrix_names_every_endpoint_with_the_rule():
+    """Holds ``FOLDER`` equal to the endpoints whose use case's ``hold`` or ``hold_start`` names the folder rule.
+
+    Reads where the rule is declared, not behaviour.
+    """
+    assert set(FOLDER) == endpoints_with_rule("folder")
+
+
 def test_the_sync_active_matrix_names_every_endpoint_with_the_rule():
     """Holds ``SYNC_ACTIVE`` equal to the endpoints whose use case's ``hold`` or ``hold_start`` names the sync rule.
 
@@ -554,4 +598,4 @@ def test_the_exclusive_start_names_every_endpoint_that_takes_it():
 
 
 def test_every_endpoint_with_a_rule_has_its_arguments():
-    assert set(_ARGS) == set(PRUNE_ACTIVE) | set(MIGRATION) | set(SYNC_ACTIVE) | set(EXCLUSIVE_START)
+    assert set(_ARGS) == set(PRUNE_ACTIVE) | set(MIGRATION) | set(SYNC_ACTIVE) | set(EXCLUSIVE_START) | set(FOLDER)

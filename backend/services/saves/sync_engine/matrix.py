@@ -25,14 +25,14 @@ from domain.rom_save_sync_state import FileSyncState, RomSaveSyncState
 from domain.save_backup import BACKUP_DIR_NAME, backup_name, select_backups_to_prune
 from domain.save_slot import filter_saves_to_slot
 from domain.sync_action import Conflict, Download, Skip, SyncAction, Upload
-from lib.errors import DeviceNotRegisteredError, DeviceWriteError, RommApiError, RommConflictError, classify_error
+from lib.errors import DeviceWriteError, RommApiError, RommConflictError, classify_error
 from services.saves._helpers import local_save_target
-from services.saves._messages import DEVICE_NOT_REGISTERED
 
 if TYPE_CHECKING:
     import logging
     from collections.abc import Iterator
 
+    from domain.live_device_id import LiveDeviceId
     from domain.save_answer import SaveAnswer
     from services.protocols import (
         Clock,
@@ -128,7 +128,7 @@ class RomDispatchContext:
 
     rom_id: int
     save_state: RomSaveSyncState
-    device_id: str | None
+    device_id: LiveDeviceId
     rom_name: str
     save_names: tuple[str, ...]
     saves_dir: str
@@ -282,32 +282,40 @@ class MatrixExecutor:
         saves_dir: str,
         filename: str,
         save_state: RomSaveSyncState,
-        device_id: str | None,
+        device_id: LiveDeviceId,
         system: str,
         default_slot: str | None = None,
     ) -> None:
         """Download a save file from server. Backs up existing local file first.
 
-        Mutates *save_state* in memory (per-file baseline); the operation entry
-        owns the surrounding write Unit of Work.
+        The content lands in ``<filename>.tmp`` and replaces the local file only
+        once complete; any failure up to that replacement tries to remove the
+        ``.tmp`` (a removal that fails is not reported) and raises the
+        download's own failure. Mutates *save_state* in memory (per-file baseline); the
+        operation entry owns the surrounding write Unit of Work.
         """
         local_path = os.path.join(saves_dir, filename)
         self._save_file_store.make_dirs(saves_dir)
         tmp_path = local_path + ".tmp"
 
-        self._retry.with_retry(
-            lambda: self._romm_api.download_save_content(
-                server_save["id"],
-                tmp_path,
-                device_id=device_id,
-                optimistic=True,
-            ),
-        )
+        try:
+            self._retry.with_retry(
+                lambda: self._romm_api.download_save_content(
+                    server_save["id"],
+                    tmp_path,
+                    device_id=device_id,
+                    optimistic=True,
+                ),
+            )
 
-        # Back up the existing local save before the download overwrites it.
-        self.quarantine_local_file(saves_dir, filename)
+            # Back up the existing local save before the download overwrites it.
+            self.quarantine_local_file(saves_dir, filename)
 
-        self._save_file_store.rename(tmp_path, local_path)
+            self._save_file_store.rename(tmp_path, local_path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                self._save_file_store.remove_file(tmp_path)
+            raise
         self.update_file_sync_state(save_state, filename, server_save, local_path, system, default_slot=default_slot)
         self._log_debug(f"Downloaded save: {filename}")
 
@@ -352,9 +360,9 @@ class MatrixExecutor:
     def _resolve_upload_slot(save_state: RomSaveSyncState, default_slot: str | None = None) -> str | None:
         """The slot field to send with an upload; ``None`` only for an explicit-legacy save.
 
-        Reached only once :meth:`do_upload_save` has confirmed a registered
-        ``device_id`` (a missing one refuses the upload outright, #1478), so the
-        slot resolves purely from the aggregate's slot state. A named
+        An upload always carries a live ``device_id`` (``do_upload_save`` takes
+        a :class:`LiveDeviceId`), so the slot resolves purely from the
+        aggregate's slot state. A named
         ``active_slot`` uploads to that slot; an ``active_slot`` of ``None`` is
         ambiguous and is disambiguated by the ``slots`` map (the same signal
         :meth:`update_file_sync_state` uses to seed the active slot):
@@ -373,23 +381,18 @@ class MatrixExecutor:
             return None
         return default_slot or "autosave"
 
-    def _confirm_upload_sync(self, response: dict[str, Any], device_id: str | None) -> None:
+    def _confirm_upload_sync(self, response: dict[str, Any], device_id: LiveDeviceId) -> None:
         """Ack the uploaded save on the server's DeviceSaveSync row, unless redundant.
 
-        ``add_save`` (POST) and ``update_save`` (PUT) both upsert this device's
-        DeviceSaveSync row (``synced_at = updated_at``) on every supported RomM
-        version and serialize it into the response's ``device_syncs`` — so the
-        ack is redundant on the normal upload path and is skipped when *response*
-        already shows this device ``is_current`` (one fewer round-trip per
-        uploaded file, #1458). The one path that still needs it is ``add_save``'s
-        content-dedup early-return: a named-slot ``overwrite=false`` POST whose
-        content matches an existing save returns *before* the upsert, reporting
-        ``is_current=false``, so the ack is the only writer of our sync row there.
-        Fail-open — any non-current / missing / unexpected response confirms.
-        Non-fatal: a failed ack is debug-logged and swallowed.
+        Skipped when *response* already shows this device ``is_current`` (#1458);
+        otherwise sent. When RomM's answers make the ack redundant and when it is
+        the only writer of the row: docs/architecture/save-file-sync-architecture.md,
+        "POST and PUT both upsert the calling device's sync row". Fail-open — any
+        non-current / missing / unexpected response confirms. Non-fatal: a failed
+        ack is debug-logged and swallowed.
         """
         upload_id = response.get("id")
-        if not device_id or not upload_id:
+        if not upload_id:
             return
         if _upload_response_proves_current(response, device_id):
             self._log_debug(f"confirm_download after upload skipped for save {upload_id} (already current)")
@@ -405,7 +408,7 @@ class MatrixExecutor:
         file_path: str,
         filename: str,
         save_state: RomSaveSyncState,
-        device_id: str | None,
+        device_id: LiveDeviceId,
         system: str,
         core_so: str | None,
         server_save: dict[str, Any] | None = None,
@@ -429,23 +432,14 @@ class MatrixExecutor:
         race (ADR-0017).
 
         *planned_group* is the automatic POST path's pre-upload ``list_saves``
-        snapshot for this file (``None`` for the PUT / explicit-action callers,
-        who never dedup): when the POST response deduped to a pre-existing
+        snapshot for this file; every other caller passes ``None``, and the guard
+        is inert for it. When the POST response deduped to a pre-existing
         non-head save (:func:`_dedup_returned_non_head`, #1482), this raises
         ``RommConflictError`` BEFORE any baseline / own-upload / confirm write so
         the same 409 backstop that catches a write-time stale-current race
         surfaces the true state — no false "synced", no currency stamped on the
         non-head response.
-
-        A missing *device_id* refuses the upload outright, raising
-        :class:`DeviceNotRegisteredError` (which states why) before any server
-        call. The raise reaches every caller's error funnel (the sync dispatch's
-        per-file errors, rollback / version-switch surfaced failures) so the
-        file is reported rather than uploaded without its device.
         """
-        if not device_id:
-            raise DeviceNotRegisteredError(DEVICE_NOT_REGISTERED)
-
         save_id = server_save.get("id") if server_save else None
         emulator = build_emulator_tag(core_so)
 
@@ -504,15 +498,11 @@ class MatrixExecutor:
         self,
         e: Exception,
         filename: str,
-        saves_dir: str,
         errors: list[str],
     ) -> None:
-        """Handle an unexpected exception by recording an error and cleaning up temp files."""
+        """Handle an unexpected exception by recording an error."""
         _code, _msg = classify_error(e)
         errors.append(f"{filename}: {_msg}")
-        tmp = os.path.join(saves_dir, filename + ".tmp")
-        with contextlib.suppress(OSError):
-            self._save_file_store.remove_file(tmp)
 
     def _build_local_input(self, local_path: str, filename: str) -> dict[str, Any]:
         """Build the dict shape consumed by ``compute_sync_action``."""
@@ -763,21 +753,13 @@ class MatrixExecutor:
                     self.build_sync_conflict_entry(ctx.rom_id, filename, action.server_save, local_path, local_hash)
                 )
                 return None
-        except DeviceNotRegisteredError:
-            # Precondition refusal, not a transfer error: surface the same
-            # device-not-registered message the automatic pre-flight uses so the
-            # per-file error reads consistently (#1478). No slug field exists on a
-            # per-file sync error (the list is message-only); the keep_local
-            # resolve path refuses with the ``device_not_registered`` reason.
-            self._logger.warning(f"_dispatch_sync_action({ctx.rom_id}): {filename}: {DEVICE_NOT_REGISTERED}")
-            sink.errors.append(f"{filename}: {DEVICE_NOT_REGISTERED}")
         except RommApiError as e:
             _code, _msg = classify_error(e)
             self._logger.warning(f"_dispatch_sync_action({ctx.rom_id}): {filename} failed: {_msg}")
             sink.errors.append(f"{filename}: {_msg}")
         except Exception as e:
             self._logger.warning(f"_dispatch_sync_action({ctx.rom_id}): {filename} unexpected error: {e}")
-            self._handle_unexpected_error(e, filename, ctx.saves_dir, sink.errors)
+            self._handle_unexpected_error(e, filename, sink.errors)
         return None
 
     def adopt_baseline_hash(self, save_state: RomSaveSyncState, filename: str, local_hash: str) -> None:
@@ -913,7 +895,7 @@ class MatrixExecutor:
         self,
         rom_id: int,
         save_state: RomSaveSyncState,
-        device_id: str | None,
+        device_id: LiveDeviceId,
         core_so: str | None,
         default_slot: str | None = None,
         autocleanup_limit: int | None = None,
@@ -1056,8 +1038,7 @@ def _dedup_returned_non_head(response: dict[str, Any], planned_group: list[dict[
     evaluated): the response is a member of that snapshot (an existing save, not
     a freshly minted version whose id is absent from it) that is not the newest
     save in it. Benign — today's baseline write stands — for an empty planned
-    slot (no head to bypass, e.g. an empty-slot race whose only signal is the
-    dedup response itself), a freshly created version, or the head coming back.
+    slot (no head to bypass), a freshly created version, or the head coming back.
     """
     response_id = response.get("id")
     if response_id is None or not planned_group:
@@ -1070,11 +1051,6 @@ def _dedup_returned_non_head(response: dict[str, Any], planned_group: list[dict[
 def _upload_response_proves_current(response: dict[str, Any], device_id: str) -> bool:
     """Whether *response* proves *device_id* already holds the current save.
 
-    RomM's ``add_save`` / ``update_save`` upsert the uploading device's
-    DeviceSaveSync row (``synced_at = updated_at``) and serialize it into the
-    response's ``device_syncs`` with ``is_current=true`` — except ``add_save``'s
-    content-dedup early-return, which returns the pre-existing save (its stale
-    row, or a synthesized ``is_current=false`` placeholder) *before* the upsert.
     Reads the same ``device_syncs`` shape ``domain.sync_action`` reads. Fail-open:
     only an entry for *device_id* whose ``is_current`` is exactly ``True`` counts;
     any missing / non-list / otherwise-unexpected shape returns ``False`` so the

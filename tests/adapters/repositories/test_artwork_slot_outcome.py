@@ -47,6 +47,13 @@ class TestRoundTrip:
 
         assert uow.artwork_slot_outcomes.get(5, ArtworkSlot.LOGO) == record
 
+    def test_the_hero_reads_back_equal(self, uow: SqliteUnitOfWork):
+        _seed_rom(uow, 5)
+
+        uow.artwork_slot_outcomes.save(_set(slot=ArtworkSlot.HERO))
+
+        assert uow.artwork_slot_outcomes.get(5, ArtworkSlot.HERO) == _set(slot=ArtworkSlot.HERO)
+
     def test_each_slot_has_its_own_row(self, uow: SqliteUnitOfWork):
         _seed_rom(uow, 5)
         uow.artwork_slot_outcomes.save(_set(slot=ArtworkSlot.WIDE_GRID))
@@ -75,6 +82,19 @@ class TestDeletingAGamesRows:
 
         assert uow.artwork_slot_outcomes.get(5, ArtworkSlot.WIDE_GRID) is None
         assert uow.artwork_slot_outcomes.get(5, ArtworkSlot.LOGO) is None
+        assert uow.artwork_slot_outcomes.get(6, ArtworkSlot.LOGO) == _set(6, ArtworkSlot.LOGO)
+
+    def test_delete_slot_drops_that_slot_of_that_rom_only(self, uow: SqliteUnitOfWork):
+        _seed_rom(uow, 5)
+        _seed_rom(uow, 6)
+        uow.artwork_slot_outcomes.save(_set(5, ArtworkSlot.WIDE_GRID))
+        uow.artwork_slot_outcomes.save(_set(5, ArtworkSlot.LOGO))
+        uow.artwork_slot_outcomes.save(_set(6, ArtworkSlot.LOGO))
+
+        uow.artwork_slot_outcomes.delete_slot(5, ArtworkSlot.LOGO)
+
+        assert uow.artwork_slot_outcomes.get(5, ArtworkSlot.LOGO) is None
+        assert uow.artwork_slot_outcomes.get(5, ArtworkSlot.WIDE_GRID) == _set(5, ArtworkSlot.WIDE_GRID)
         assert uow.artwork_slot_outcomes.get(6, ArtworkSlot.LOGO) == _set(6, ArtworkSlot.LOGO)
 
     def test_the_rows_go_with_their_rom(self, db: str):
@@ -111,12 +131,12 @@ class TestTheSchemaHoldsTheShape:
         finally:
             conn.close()
 
-    def test_the_hero_has_no_row(self, db: str):
+    def test_an_unknown_slot_has_no_row(self, db: str):
         with SqliteUnitOfWork(db) as uow:
             _seed_rom(uow, 5)
         conn = sqlite3.connect(db)
         try:
             with pytest.raises(sqlite3.IntegrityError):
-                conn.execute("INSERT INTO artwork_slot_outcomes VALUES (5, 'hero', 'none', 7, 1.0, NULL, NULL)")
+                conn.execute("INSERT INTO artwork_slot_outcomes VALUES (5, 'banner', 'none', 7, 1.0, NULL, NULL)")
         finally:
             conn.close()

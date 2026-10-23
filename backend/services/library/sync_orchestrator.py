@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from domain.collection_label import steam_collection_key
-from domain.cover_refresh import count_cover_refreshes
+from domain.collection_skip import apply_stamps
 from domain.session_budget import post_run_advisory, session_memory_delta
 from domain.shortcut_data import build_shortcuts_data
 from domain.sibling_group import compute_component_group_keys
@@ -295,6 +295,7 @@ class SyncOrchestrator:
             synced_rom_ids: set[int] = set()
             skipped_rom_ids: set[int] = set()
             full_fetched_platforms: dict[str, list[dict[str, Any]]] = {}
+            restamp_collections: set[tuple[str, str]] = set()
 
             total_units = len(work_queue)
             for unit_index, unit in enumerate(work_queue, 1):
@@ -315,6 +316,7 @@ class SyncOrchestrator:
                     collection_memberships,
                     skipped_rom_ids=skipped_rom_ids,
                     full_fetched_platforms=full_fetched_platforms,
+                    restamp_collections=restamp_collections,
                     progress_step=unit_index,
                     progress_total_steps=total_units,
                 )
@@ -408,15 +410,14 @@ class SyncOrchestrator:
             kept_platform_names = {kept_names.get(row.platform_slug, row.platform_slug) for row in kept}
             disabled_count = count_disabled_platform_removals(stale, registry, platform_name_set)
             # Cover-only work (#1386): count the bound fetched ROMs whose server
-            # cover fingerprint changed, with the SAME kernel the apply-path
-            # invalidation pass refreshes by — an in-memory compare of the fetch
-            # against the registry projection already read above (no extra DB
-            # pass, no downloads; the preview stays side-effect-free). Runs over
-            # the raw union (platform + collection units alike), not the collapsed
+            # cover fingerprint changed and whose cover is not set in Steam, by
+            # the SAME rule the apply-path invalidation pass refreshes by (what
+            # it reads: ArtworkService.count_cover_refreshes). Runs over the
+            # raw union (platform + collection units alike), not the collapsed
             # delta: covers are per-ROM, cover-blind classify_roms (ADR-0025)
             # stays untouched, and without this an empty shortcut delta would
             # short-circuit the apply and strand a changed cover forever.
-            cover_refresh_count = count_cover_refreshes(all_roms, registry)
+            cover_refresh_count = await self._cover_preparer.count_cover_refreshes(all_roms, registry)
 
             # Post-preview session-budget prognosis (#1383): warn up front when the
             # planned work would walk the renderer heap past the budget ceiling. The
@@ -457,13 +458,16 @@ class SyncOrchestrator:
                     # of short-circuiting on "no changes". Additive: old consumers
                     # ignore it.
                     "cover_refresh_count": cover_refresh_count,
-                    # Enabled platforms lacking a completion stamp (#1416) — a
-                    # late-ack-recovered platform is complete but unstamped. Its
-                    # apply is a 0-delta empty final chunk that re-writes the
-                    # stamp and records a fresh SyncRun, so a restamp-only preview
-                    # must still offer Apply instead of short-circuiting on "no
-                    # changes". Additive: old consumers ignore it.
+                    # Enabled platforms whose skip only a fresh stamp can restore
+                    # (#1416, #743), and the collections the gate refused for a
+                    # reason a fresh stamp settles whose apply will stamp them
+                    # (#2477 D3). Each one's apply is a 0-delta empty final chunk
+                    # that re-writes the stamp and records a fresh SyncRun, so a
+                    # restamp-only preview must still offer Apply instead of
+                    # short-circuiting on "no changes". Additive: old consumers
+                    # ignore them.
                     "restamp_platform_count": restamp_platform_count,
+                    "restamp_collection_count": len(restamp_collections),
                     # Scope of the run (#29): how many platforms / collections this
                     # sync spans, shown as an always-on informational line
                     # independent of the change diffs.
@@ -536,6 +540,7 @@ class SyncOrchestrator:
         *,
         skipped_rom_ids: set[int],
         full_fetched_platforms: dict[str, list[dict[str, Any]]],
+        restamp_collections: set[tuple[str, str]],
         progress_step: int = 0,
         progress_total_steps: int = 0,
     ) -> None:
@@ -550,7 +555,10 @@ class SyncOrchestrator:
         collection alike — the units the apply will skip. A platform unit the
         fetcher did not skip lands in ``full_fetched_platforms`` under its slug,
         so the restamp count can judge its stamp against what the fetch returned.
-        Mutates the passed-in accumulators in place. ``progress_step`` /
+        A collection unit lands in ``restamp_collections`` under its membership
+        key when the fetcher reports its skip refused for a reason a fresh stamp
+        settles and the apply will stamp it (``domain/collection_skip.apply_stamps``,
+        #2477 D3). Mutates the passed-in accumulators in place. ``progress_step`` /
         ``progress_total_steps`` thread the unit's coarse position into the
         fetcher's per-page ``fetching`` frames (on top of the per-unit frame
         the preview loop already emits).
@@ -565,7 +573,7 @@ class SyncOrchestrator:
             if not skipped and unit.slug:
                 full_fetched_platforms[unit.slug] = unit_roms
         else:
-            unit_roms, all_collection_rom_ids, skipped = await self._collection_fetcher.fetch_collection_unit(
+            unit_roms, all_collection_rom_ids, skipped, settles = await self._collection_fetcher.fetch_collection_unit(
                 unit, synced_rom_ids, progress_step=progress_step, progress_total_steps=progress_total_steps
             )
             if all_collection_rom_ids:
@@ -575,6 +583,8 @@ class SyncOrchestrator:
                     kind=str(unit.collection_kind),
                     virtual_type=unit.virtual_type,
                 )
+            if settles and apply_stamps(unit.collection_kind, unit.collection_updated_at, all_collection_rom_ids):
+                restamp_collections.add(_collection_membership_key(unit))
         all_roms.extend(unit_roms)
         if skipped:
             skipped_rom_ids.update(rom["id"] for rom in unit_roms)
@@ -1038,15 +1048,13 @@ class SyncOrchestrator:
             total_steps=total_units,
         )
 
-        # Fetch this unit's ROMs. Platform units may incremental-skip;
-        # collection units always paginate (collection membership is
-        # the source of truth, no per-collection "last_sync" gate today).
-        # The unit's coarse step/total is threaded so the fetcher's per-page
-        # ``fetching`` frames keep the bar's position.
-        # A platform's fetch start, read before the skip check so it is never
+        # Fetch this unit's ROMs; either kind may incremental-skip. The unit's
+        # coarse step/total is threaded so the fetcher's per-page ``fetching``
+        # frames keep the bar's position.
+        # The unit's fetch start, read before the skip check so it is never
         # later than the walk's first page; the final chunk's stamp records it
-        # as the next skip's reference (#743 D1).
-        fetch_started_at = self._clock.now().isoformat() if unit.type == "platform" else None
+        # as the next skip's reference (#743 D1, #2477 D2).
+        fetch_started_at = self._clock.now().isoformat()
         if unit.type == "platform":
             unit_roms, skipped = await self._sync_platform_unit(
                 unit,
@@ -1189,8 +1197,10 @@ class SyncOrchestrator:
         # chunk's commit UoW. A fetch that failed raised before here (fetch failure ≠
         # apply started) and a cancel during fetch/artwork returned at a guard
         # above with the old stamp intact, so an unstarted apply keeps it. A
-        # skipped platform returned before this point and keeps its stamp. Only
-        # platform units carry a skip gate, so only they are stamped/cleared.
+        # skipped platform returned before this point and keeps its stamp. A
+        # collection's stamp is not cleared here: its final chunk replaces it,
+        # and the flows that unbind or delete one of its members delete it
+        # (docs/architecture/backend-architecture.md, "Incremental skip").
         # A dedicated short write UoW (not folded into the first chunk's commit)
         # so the clear is unconditional at apply start — even a first-chunk
         # heartbeat-timeout, whose late ack commits without the stamp, leaves no
@@ -1270,7 +1280,7 @@ class SyncOrchestrator:
         ``synced_rom_ids``. ``progress_step`` / ``progress_total_steps`` thread
         the unit's coarse position into the fetcher's per-page ``fetching`` frames.
         """
-        unit_roms, all_collection_rom_ids, skipped = await self._collection_fetcher.fetch_collection_unit(
+        unit_roms, all_collection_rom_ids, skipped, _ = await self._collection_fetcher.fetch_collection_unit(
             unit, synced_rom_ids, progress_step=progress_step, progress_total_steps=progress_total_steps
         )
         if all_collection_rom_ids:

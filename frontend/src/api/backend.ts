@@ -17,7 +17,11 @@ import type {
   RegistryPlatform,
   FirmwareStatus,
   PlatformFirmwareStatus,
+  BiosKeptLink,
+  BiosLinkResult,
+  BiosReplaceResult,
   FirmwareDownloadResult,
+  FirmwareIdentification,
   BiosLevel,
   EmulatorAnswer,
   OneOfGroupVerdict,
@@ -50,6 +54,11 @@ import type {
   MigrationStatus,
   MigrationResult,
   EmulatorSourcesListing,
+  TenderFolderForgetRefusal,
+  TenderFolderRefusal,
+  TenderFolderState,
+  TenderPlaceAsks,
+  TenderPlaceRefusal,
   EmulatorSourceDirection,
   StartSourceCheck,
   RollbackStatus,
@@ -143,19 +152,22 @@ export function isRenameCollisions(value: object): value is RenameCollisionsResu
  * same keys, inside a cached game detail — so one projection
  * (`utils/playSection.extractBiosInfo`) reads both.
  *
- * An absent `bios_status` means the launching emulator needs no BIOS and clears
- * a shown requirement (#1690). `bios_status_unknown` marks the payload that
- * carries no answer at all — a cached game detail, which never carries one
- * whatever the caches hold; a live check that raised; or one that ran and could
- * not ask the platform's emulators — and it ships the identical absent
- * `bios_status`, so the flag is the only thing keeping a failed check from
- * taking a missing-BIOS warning off the page (#1693).
+ * Which payloads are answers is stated here and nowhere else in the frontend:
  *
- * The last of those three IS an answer, and `bios_level` is what says so: a
- * check that ran and could not establish the requirement ships `"unknown"`,
- * where one that raised ships none. A consumer that renders the unknown state
- * needs the pair; one that only defends a shown requirement needs the flag
- * alone (#1660).
+ * - Every answer the check established ships `bios_status`, the answer that the
+ *   launching emulator needs no BIOS included (`needs_bios: false`, level
+ *   `"ok"`) — it clears a shown requirement and is drawn on the game page's BIOS
+ *   tab like any other answer.
+ * - `bios_status_unknown` with level `"unknown"` and no status is an answer
+ *   too: a check that ran and could not establish the requirement.
+ * - Every other payload is no answer: `bios_status_unknown` with no level (a
+ *   cached game detail, which never carries one, or a live check that raised),
+ *   and a payload with neither a status nor the flag (a ROM that is gone or has
+ *   no platform). No consumer reads one as an answer, so a failed check never
+ *   takes a missing-BIOS warning off the page.
+ *
+ * The backend's statement of the same contract is `get_bios_status` in
+ * `backend/services/game_detail.py`.
  */
 export interface BiosAnswer {
   bios_status?:
@@ -171,6 +183,7 @@ export interface BiosAnswer {
         required_downloaded?: number;
         required_withheld?: number;
         one_of_groups?: OneOfGroupVerdict[];
+        active_core_label?: string | null;
         cached_at?: number;
         files?: BiosFileStatus[];
       } & EmulatorAnswer)
@@ -320,9 +333,14 @@ export const getSyncRuns = endpoint<[], SyncRunsAnswer>("get_sync_runs");
  * `pageSawCandidate` is not an answer but a report — whether the game page told
  * this user a copy was on the device. The backend's last check is a backstop
  * over it, so a page that found a copy can never end in a silent download.
+ *
+ * `confirmedPaths` lists every `target_occupied` path whose dialog the user
+ * answered with Replace. A game served as a single zip can be in the way at two
+ * paths — the zip and the folder it is unpacked into; what the backend removes
+ * for which list is its `replace_covers` (`backend/domain/served_shape.py`).
  */
 export const startDownload = endpoint<
-  [number, boolean, string | null, CollisionChoice | null, boolean],
+  [number, boolean, string | null, CollisionChoice | null, boolean, (string[] | null)?],
   | BackendResult
   | TargetOccupiedResult
   | CandidatesFoundResult
@@ -359,7 +377,26 @@ export const resumeDownload = endpoint<[number], BackendResult | TargetOccupiedR
 export const getDownloadQueue = endpoint<[], { downloads: DownloadItem[] }>("get_download_queue");
 export const clearCompletedDownloads = endpoint<[], { success: boolean; cleared: number }>("clear_completed_downloads");
 export const getInstalledRom = endpoint<[number], InstalledRom | null>("get_installed_rom");
-export const checkLocalDrift = endpoint<[number], { drifted: boolean; rom_id: number }>("check_local_drift");
+/**
+ * Whether a version's local saves would be left behind by moving its shortcut
+ * off it; the rule is `backend/domain/save_stranding.py`'s.
+ */
+export type SaveStranding = "none" | "unsynced" | "unchecked";
+
+/**
+ * The local-save check, answered without asking the server: `drifted` (a save
+ * changed since its last recorded sync) and `only_here` (a save with no
+ * recorded sync) reported apart, and `stranding`, the one answer the version
+ * switch, the removed-game cleanup and the Saves tab's reminder read. Which
+ * field the offline launch reads is `docs/architecture/save-file-sync-architecture.md`'s.
+ */
+export interface LocalDriftAnswer {
+  rom_id: number;
+  drifted: boolean;
+  only_here: boolean;
+  stranding: SaveStranding;
+}
+export const checkLocalDrift = endpoint<[number], LocalDriftAnswer>("check_local_drift");
 export type RelaunchOptionsResult =
   | { success: true; app_id: number; launch_options: string; prune_lease_token: string }
   | { success: false; reason: WireReason; message: string }
@@ -489,9 +526,10 @@ export const getArtworkBase64 = endpoint<[number], { base64: string | null }>("g
 // cover, read error — returns { base64: null } silently; it never re-downloads a
 // cached cover.
 export const fetchCoverBase64 = endpoint<[number], { base64: string | null }>("fetch_cover_base64");
+/** Reload RomM's cover; a success carries the `sgdb_artwork` lease the frontend hands the cover to Steam under. */
 export const refreshCoverArtwork = endpoint<
   [number],
-  { success: boolean; reason?: WireReason; message: string; cover_path?: string }
+  { success: boolean; reason?: WireReason; message: string; cover_path?: string; prune_lease_token?: string }
 >("refresh_cover_artwork");
 // Orphaned grid-image cleanup (Data Management › Grid images). Args: the frontend's full scan of
 // live non-Steam shortcut appIds (the keep-set — RomM-owned AND foreign) and a
@@ -511,9 +549,9 @@ export const cleanupOrphanedGridImages = endpoint<
 >("cleanup_orphaned_grid_images");
 /**
  * One SteamGridDB hero, logo or wide grid for a ROM, from the artwork cache
- * first. A wide grid or logo also carries SteamGridDB's image id, the hash of
- * its bytes and the ROM's SteamGridDB id, which `reportSgdbSlotArtwork` records
- * once Steam has taken it or refused it. The icon (asset type 4) is refused:
+ * first. An image also carries SteamGridDB's image id, the hash of its bytes
+ * and the ROM's SteamGridDB id, which `reportSgdbSlotArtwork` records once
+ * Steam has taken it or refused it. The icon (asset type 4) is refused:
  * it is fetched through `getSgdbSlotArtwork` and written by `saveShortcutIcon`.
  */
 export const getSgdbArtworkBase64 = endpoint<
@@ -525,22 +563,26 @@ export const getSgdbArtworkBase64 = endpoint<
       image_id?: number;
       sha256?: string;
       sgdb_id?: number | null;
+      /** Asset type 0 only: whether the user chose a cover — `true` without an image is one that cannot be served now. */
+      chosen?: boolean;
     }
   | EndpointFailure
 >("get_sgdb_artwork_base64");
 
-/** An artwork slot the game page fills only while it is empty: the wide grid, the logo, the hero or the icon. */
-export type SgdbArtworkSlot = "grid" | "logo" | "hero" | "icon";
+/**
+ * An artwork slot the game page fills only while it is empty: the wide grid, the logo, the hero, the icon, or the
+ * cover (why the cover too: docs/architecture/steam-non-steam-shortcuts.md, "The cover where RomM has none").
+ */
+export type SgdbArtworkSlot = "grid" | "logo" | "hero" | "icon" | "cover";
 
 /** What the backend answers for one empty slot: the image to set, or why there is none to set. */
 export type SgdbSlotArtwork =
   | {
       status: "image";
       base64: string;
-      /** SteamGridDB's image id; `null` for the hero, whose outcome is not recorded. */
-      image_id: number | null;
+      image_id: number;
       sha256: string;
-      /** The ROM's SteamGridDB id; `null` for an image a manual pick left in the cache of a ROM with none stored. */
+      /** The SteamGridDB game the image was found under; `null` for one the cache holds for a ROM with no game. */
       sgdb_id: number | null;
       prune_lease_token?: string;
     }
@@ -559,11 +601,11 @@ export const getSgdbSlotArtwork = endpoint<
 >("get_sgdb_slot_artwork");
 
 /**
- * Report what Steam made of a wide grid or logo the fetch served (`SetCustomArtworkForApp`), or of an icon the
- * backend wrote (`SetShortcutIcon`), passing what the backend answered back.
+ * Report what Steam made of a wide grid, logo or hero the fetch served (`SetCustomArtworkForApp`), of an icon the
+ * backend wrote (`SetShortcutIcon`), or of a cover chosen from SteamGridDB, passing what the backend answered back.
  */
 export const reportSgdbSlotArtwork = endpoint<
-  [number, "grid" | "logo" | "icon", "set" | "refused", number | null, number | null, string | null],
+  [number, SgdbArtworkSlot, "set" | "refused", number | null, number | null, string | null],
   { success: boolean }
 >("report_sgdb_slot_artwork");
 
@@ -594,6 +636,115 @@ export const applySgdbGameId = endpoint<[number, number], { success: true } | En
 export const refreshSgdbArtwork = endpoint<[number, number], { success: true } | EndpointFailure>(
   "refresh_sgdb_artwork",
 );
+/** One of the five slots the game page's ARTWORK tab lists. */
+export type ArtworkTabSlot = "cover" | "grid" | "hero" | "logo" | "icon";
+
+/** Who decides a slot's image: Tender's rule, the user's choice, or an image set through Steam. */
+export type ArtworkSlotState = "automatic" | "chosen" | "set_in_steam";
+
+/**
+ * Where a slot's image comes from: RomM (the cover on automatic), the user's choice, Tender's pick, Steam's own
+ * "Set custom artwork", or — with no image — a SteamGridDB game still to choose, nothing on SteamGridDB, or not set yet.
+ */
+export type ArtworkSlotSource = "romm" | "chosen" | "tender" | "steam" | "needs_game" | "none" | "empty";
+
+export interface ArtworkSlotRow {
+  slot: ArtworkTabSlot;
+  state: ArtworkSlotState;
+  source: ArtworkSlotSource;
+  /** The SteamGridDB image the slot shows, where Tender knows it. */
+  image_id: number | null;
+  /** The user chose an image for the slot — also where it now reads set in Steam over that choice. */
+  has_choice: boolean;
+  /** Moves whenever a file filling the slot in Steam's grid folder changes; empty where none fills it. */
+  signature: string;
+}
+
+/** The ARTWORK tab: the ROM's SteamGridDB game — RomM's, the user's choice, or none — and its five slots. */
+export interface ArtworkSlots {
+  success: true;
+  has_api_key: boolean;
+  game: { sgdb_id: number | null; source: "romm" | "chosen" | null; name: string | null };
+  slots: ArtworkSlotRow[];
+}
+
+export const getArtworkSlots = endpoint<[number, number], ArtworkSlots | EndpointFailure>("get_artwork_slots");
+
+/** RomM's SteamGridDB game took the place of the user's: the slots whose chosen image went back to automatic. */
+export interface SupersededGame {
+  /** RomM's game's name on SteamGridDB, where it could be asked. */
+  name: string | null;
+  slots: ArtworkTabSlot[];
+}
+
+/** The game the artwork comes from, as the game page asks on every visit; no name is asked for it. */
+export interface ArtworkGame {
+  success: true;
+  has_api_key: boolean;
+  game: { sgdb_id: number | null; source: "romm" | "chosen" | null; name: null };
+  /** Set once, where RomM's id has just replaced the game the user chose (#2381 D17). */
+  superseded: SupersededGame | null;
+}
+
+export const getArtworkGame = endpoint<[number], ArtworkGame | EndpointFailure>("get_artwork_game");
+
+/** One SteamGridDB candidate in the picker; its thumbnail loads straight from SteamGridDB. */
+export interface ArtworkCandidate {
+  image_id: number;
+  thumb: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface ArtworkCandidatePage {
+  success: true;
+  candidates: ArtworkCandidate[];
+  has_more: boolean;
+  /** On page 0, the candidate Tender's own rule takes; `null` for the cover and on later pages. */
+  tenders_pick: number | null;
+}
+
+export const getArtworkSlotCandidates = endpoint<
+  [number, ArtworkTabSlot, number],
+  ArtworkCandidatePage | EndpointFailure
+>("get_artwork_slot_candidates");
+
+/**
+ * What choosing a slot's image, or setting it back to automatic, answers: the image to set through
+ * `SetCustomArtworkForApp`, `ready` for the icon `saveShortcutIcon` writes, `cover` for the RomM cover reloaded for
+ * `getArtworkBase64` to serve, or `none` where SteamGridDB has nothing for an automatic slot.
+ */
+export type ArtworkSlotImage =
+  | {
+      status: "image";
+      base64: string;
+      image_id: number;
+      sha256: string;
+      sgdb_id: number | null;
+      prune_lease_token: string;
+    }
+  | { status: "ready"; image_id: number; sgdb_id: number | null; prune_lease_token: string }
+  | { status: "cover"; prune_lease_token: string }
+  | { status: "none" };
+
+export const chooseArtworkSlotImage = endpoint<[number, ArtworkTabSlot, number], ArtworkSlotImage | EndpointFailure>(
+  "choose_artwork_slot_image",
+);
+export const setArtworkSlotAutomatic = endpoint<[number, ArtworkTabSlot], ArtworkSlotImage | EndpointFailure>(
+  "set_artwork_slot_automatic",
+);
+
+/**
+ * What a page visit's check of the automatic artwork found (#2381 D5): `replaced` names the slots whose image Tender's
+ * rule now picks instead of the one shown, each in the artwork cache for `getSgdbSlotArtwork` to serve with `replace`.
+ * `unanswered` is a check SteamGridDB left a slot unanswered in, which the next visit makes again.
+ */
+export interface ArtworkKeptCurrent {
+  status: "checked" | "unanswered" | "not_due" | "no_api_key" | "no_sgdb_game" | "not_synced";
+  replaced: ArtworkTabSlot[];
+}
+
+export const keepArtworkCurrent = endpoint<[number], ArtworkKeptCurrent | EndpointFailure>("keep_artwork_current");
 export const reportUnitResults = endpoint<
   [Record<string, number>, string, number | string, number],
   { success: boolean; count: number; ignored?: boolean }
@@ -645,23 +796,38 @@ export const applySteamInputSetting = endpoint<[], { success: boolean; message: 
 export const getFirmwareStatus = endpoint<[], FirmwareStatus>("get_firmware_status");
 export const getPlatformFirmwareStatus = endpoint<[string], PlatformFirmwareStatus>("get_platform_firmware_status");
 // The ROM is the game whose page started the download, whose install record names
-// the system its files are placed for; `null` from the platform page.
+// the system its files are linked for; `null` from the platform page.
 export const downloadAllFirmware = endpoint<[string, number | null], FirmwareDownloadResult | EndpointFailure>(
   "download_all_firmware",
 );
-// The emulator is the identity the page shows — the files land where IT opens
-// them; `null` places them for the platform's own pick.
+// The emulator is the identity the page shows — the files fetched are what IT
+// requires; `null` asks for the platform's own pick. Every file is linked for
+// every emulator that asks for it and is not stated not installed.
 export const downloadRequiredFirmware = endpoint<[string, string | null], FirmwareDownloadResult | EndpointFailure>(
   "download_required_firmware",
 );
-// One row's Download button (#164). Addressed by file name within the platform,
-// like the two bulk downloads — never by RomM's firmware id, which the status
-// row may have been holding since before the listing moved on. The emulator is
-// the one the page shows, as for `downloadRequiredFirmware`.
+// One row's Download button. Addressed by the file's name in RomM and by the id of
+// the library file the row shows, so two files of one name fetch the one shown; an
+// id the listing no longer holds under that name falls back to the name alone. The
+// file lands in the platform's store folder and is linked for every emulator that
+// wants it and is not stated not installed, whichever the page shows.
 export const downloadPlatformFirmwareFile = endpoint<
-  [string, string, string | null],
+  [string, string, number | null],
   FirmwareDownloadResult | EndpointFailure
 >("download_platform_firmware_file");
+// Brings a platform's links up to date in every enabled source and downloads
+// nothing; the ROM is the game whose page asked, whose install record names the
+// system, `null` from the platform page. Asked after the page is shown, and after
+// an emulator switch.
+export const updateBiosLinks = endpoint<[string, number | null], BiosLinkResult | EndpointFailure>("update_bios_links");
+// "Replace…" on a row: the file at the place goes to the backup folder and
+// Tender's copy is linked there. Addressed by the place the row named.
+export const replaceBiosFile = endpoint<[string, string], BiosReplaceResult | EndpointFailure>("replace_bios_file");
+// What the resolver knows a library file's content as, by its MD5 — slow for
+// each file, so asked one row at a time after the page is shown.
+export const identifyLibraryFirmware = endpoint<[string], FirmwareIdentification | EndpointFailure>(
+  "identify_library_firmware",
+);
 export const checkPlatformBios = endpoint<[string], BiosStatus>("check_platform_bios");
 export const getBiosStatus = endpoint<[number], BiosAnswer>("get_bios_status");
 /**
@@ -743,6 +909,27 @@ export const moveEmulatorSource = endpoint<
   [string, EmulatorSourceDirection],
   EmulatorSourcesListing | EmulatorSourceRefusal
 >("move_emulator_source");
+
+/** Tender's folder: its place, its state, the folders recorded elsewhere and the drives a place may lie on. */
+export const getTenderFolder = endpoint<[], TenderFolderState>("get_tender_folder");
+
+/** What to ask before a typed place is chosen, or why it may not be. */
+export const checkTenderPlace = endpoint<[string], TenderPlaceAsks | TenderPlaceRefusal>("check_tender_place");
+
+/** Make a place Tender's folder's place — `null` for the internal default; answers the state as it now stands. */
+export const chooseTenderPlace = endpoint<[string | null], TenderFolderState | TenderPlaceRefusal>(
+  "choose_tender_place",
+);
+
+/** Go back to a folder something is recorded under as the place; nothing is copied. */
+export const switchToRecordedTenderFolder = endpoint<[string], TenderFolderState | TenderFolderRefusal>(
+  "use_recorded_tender_folder",
+);
+
+/** Have every store forget what it recorded under a folder; no file is touched. */
+export const forgetTenderFolderRecords = endpoint<[string], TenderFolderState | TenderFolderForgetRefusal>(
+  "forget_tender_folder_records",
+);
 
 /** One launchable disc image within a multi-disc ROM's install directory. */
 export interface Disc {
@@ -865,16 +1052,19 @@ export interface SwitchVersionSuccess {
 }
 
 /**
- * Soft-block: switching away from a downloaded version whose local saves have
- * unsynced changes (#1298). `server_reachable` decides which confirm modal to
- * show (T4 reachable offers "Sync now & switch", T5 offline does not);
- * `unsynced_rom_id` / `unsynced_version_name` name the version that would be
- * stranded. The user resolves it with the `allow_stranded` override.
+ * Soft-block: switching away from a downloaded version whose local saves would
+ * be stranded. `stranding` says whether they are unsynced or could not be
+ * checked; `server_reachable` is one of the two facts, with whether the
+ * version being left is gone from RomM, that decide whether the confirm offers
+ * "Sync now & switch"; `unsynced_rom_id` / `unsynced_version_name` name the
+ * version that would be stranded. The user resolves it with the
+ * `allow_stranded` override.
  */
 export interface SwitchVersionUnsyncedSaves {
   success: false;
   reason: WireReasonSubset<"unsynced_saves">;
   message: string;
+  stranding: Exclude<SaveStranding, "none">;
   server_reachable: boolean;
   unsynced_rom_id: number;
   unsynced_version_name: string;
@@ -1616,19 +1806,15 @@ export const countPlatformSaves = endpoint<[string], { count: number }>("count_p
 // A delete that could not remove every file fails with `delete_incomplete` and
 // carries how many it did remove; every other failure carries no count.
 export type BiosDeleteResult =
-  { success: true; deleted_count: number; message: string } | (EndpointFailure & { deleted_count?: number });
+  | { success: true; deleted_count: number; message: string; kept?: BiosKeptLink[] }
+  | (EndpointFailure & { deleted_count?: number });
 export const deletePlatformBios = endpoint<[string], BiosDeleteResult>("delete_platform_bios");
 /** One row's Delete button — the per-file twin of `deletePlatformBios`, sharing
- *  its authorisation rather than restating it. Addressed by file name, and a
- *  name Tender holds no download record for removes nothing: the record is
- *  the only evidence we placed the file, and it is the record's own path that is
- *  unlinked. Offer it only where the row says `deletable`. */
+ *  its authorisation rather than restating it. Addressed by the file's name in
+ *  RomM (`delete_name`): the store file and every link of Tender's to it go, or
+ *  an older download at the path its record holds. A name Tender holds nothing
+ *  under removes nothing. Offer it only where the row says `deletable`. */
 export const deleteBiosFile = endpoint<[string, string], BiosDeleteResult>("delete_bios_file");
-/** A declared folder's Delete button. The folder has no name a download record
- *  could carry, so the files inside it are matched by being written underneath
- *  it — a filter over the platform's own records, which narrows and can never
- *  widen. The folder itself is never removed; the emulator lists it. */
-export const deleteBiosFolder = endpoint<[string, string], BiosDeleteResult>("delete_bios_folder");
 
 // Save version history endpoints
 export const savesListFileVersions = endpoint<[number, string, string], ListFileVersionsResult>(

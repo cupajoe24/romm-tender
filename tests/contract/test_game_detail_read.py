@@ -13,6 +13,7 @@ import os
 
 import pytest
 
+from domain.platform_system import PLATFORM_IDS_KEY, PlatformIds, encode_platform_ids
 from domain.rom import Rom
 from domain.version_metadata import VersionMetadata
 
@@ -117,9 +118,10 @@ async def test_cached_game_detail_unknown_app_id_is_not_found(harness):
 
 
 # ── The BIOS answer both reads ship (#1693) ──────────────────────────────────
-# An absent ``bios_status`` means "the active core needs no BIOS" and clears a
-# shown requirement (#1690); ``bios_status_unknown`` marks the payload that has
-# no answer at all, which must not. Both endpoints are pinned in both directions.
+# Every answer the check established ships ``bios_status``, the one that no BIOS
+# is needed included; ``bios_status_unknown`` with no level marks the payload
+# that has no answer at all, which must not clear a shown requirement. The
+# contract's home is ``get_bios_status``'s docstring.
 # The harness has no emulator installation, so every answer here is the one a
 # machine that cannot state its own scope gives.
 
@@ -162,7 +164,11 @@ async def test_bios_status_unreachable_server_is_unknown(harness):
     so the level is the only thing that tells them apart.
     """
     _seed_versioned_rom(harness, platform_slug="psvita")
-    harness.romm.list_firmware_side_effect = RuntimeError("offline")
+    # The platform's ids were kept by an earlier reading, so only the firmware
+    # listing, which comes off the same platform list, meets the offline server.
+    with harness.uow_factory() as uow:
+        uow.kv_config.set(PLATFORM_IDS_KEY, encode_platform_ids({"psvita": PlatformIds()}))
+    harness.romm.list_platforms_side_effect = RuntimeError("offline")
 
     result = await harness.endpoints.get_bios_status(42)
 

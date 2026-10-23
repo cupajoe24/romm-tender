@@ -6,10 +6,11 @@ import * as backend from "../api/backend";
 import * as artwork from "../utils/artwork";
 import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
 
-// applyArtwork is mocked so the modal's apply path is observable without
+// applyAutomaticArtwork is mocked so the modal's apply path is observable without
 // reaching into SteamClient / getSgdbArtworkBase64 plumbing.
 vi.mock("../utils/artwork", () => ({
-  applyArtwork: vi.fn(),
+  applyAutomaticArtwork: vi.fn(),
+  applySteamGridDbCover: vi.fn(),
 }));
 
 // Find a <button> whose text content contains `text`.
@@ -29,7 +30,8 @@ const flushAsync = () =>
 describe("SgdbGamePickerModal", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(artwork.applyArtwork).mockResolvedValue(4);
+    vi.mocked(artwork.applyAutomaticArtwork).mockResolvedValue(4);
+    vi.mocked(artwork.applySteamGridDbCover).mockResolvedValue(false);
     vi.mocked(backend.applySgdbGameId).mockResolvedValue({ success: true });
     vi.mocked(backend.searchSgdbGames).mockResolvedValue({ success: true, games: [] });
     vi.mocked(backend.debugLog).mockResolvedValue(undefined);
@@ -58,9 +60,52 @@ describe("SgdbGamePickerModal", () => {
       });
       await flushAsync();
       expect(vi.mocked(backend.applySgdbGameId)).toHaveBeenCalledWith(88, 1);
-      expect(vi.mocked(artwork.applyArtwork)).toHaveBeenCalledWith(88, 6000);
+      expect(vi.mocked(artwork.applyAutomaticArtwork)).toHaveBeenCalledWith(88, 6000);
       expect(onApplied).toHaveBeenCalledWith(4);
       expect(closeModal).toHaveBeenCalledTimes(1);
+    });
+
+    it("hands Steam the SteamGridDB cover Tender picked under the new game (#2381 D12, D27)", async () => {
+      const { container } = render(
+        createElement(SgdbGamePickerModalContent, {
+          romId: 88,
+          appId: 6000,
+          romName: "Mario",
+          candidates: [{ id: 1, name: "Super Mario", release_year: 1985, thumb_url: "https://x/m.png" }],
+          onApplied: vi.fn(),
+          closeModal: vi.fn(),
+        }),
+      );
+      await act(async () => {
+        fireEvent.click(buttonContaining(container, "Super Mario"));
+      });
+      await flushAsync();
+      expect(vi.mocked(artwork.applySteamGridDbCover)).toHaveBeenCalledWith(88, 6000);
+      const [slots] = vi.mocked(artwork.applyAutomaticArtwork).mock.invocationCallOrder;
+      const [cover] = vi.mocked(artwork.applySteamGridDbCover).mock.invocationCallOrder;
+      expect(slots).toBeLessThan(cover ?? 0);
+    });
+
+    it("says before a change that the images the user chose go back to automatic", () => {
+      const { container } = render(
+        createElement(SgdbGamePickerModalContent, {
+          romId: 88,
+          appId: 6000,
+          romName: "Mario",
+          discardsChoices: true,
+          onApplied: vi.fn(),
+        }),
+      );
+      expect(container.textContent).toContain(
+        "Changing the game sets every image you chose for this game back to automatic; an image set through Steam stays.",
+      );
+    });
+
+    it("says nothing of the kind without such images", () => {
+      const { container } = render(
+        createElement(SgdbGamePickerModalContent, { romId: 88, appId: 6000, romName: "Mario", onApplied: vi.fn() }),
+      );
+      expect(container.textContent).not.toContain("back to automatic");
     });
 
     it("shows the 'why shown' explanation under the rom name", () => {
@@ -290,7 +335,7 @@ describe("SgdbGamePickerModal", () => {
       return { ...ui, onApplied, closeModal };
     }
 
-    it("a refused applySgdbGameId toasts the refusal's message, no applyArtwork, no close", async () => {
+    it("a refused applySgdbGameId toasts the refusal's message, no applyAutomaticArtwork, no close", async () => {
       const message = "A removed-game cleanup is in progress; wait for it to finish before changing local game data.";
       vi.mocked(backend.applySgdbGameId).mockResolvedValue({ success: false, reason: "prune_active", message });
       const { container, onApplied, closeModal } = renderCandidate();
@@ -299,7 +344,7 @@ describe("SgdbGamePickerModal", () => {
       });
       await flushAsync();
       expect(vi.mocked(toaster.toast)).toHaveBeenCalledWith(expect.objectContaining({ body: message }));
-      expect(vi.mocked(artwork.applyArtwork)).not.toHaveBeenCalled();
+      expect(vi.mocked(artwork.applyAutomaticArtwork)).not.toHaveBeenCalled();
       expect(onApplied).not.toHaveBeenCalled();
       expect(closeModal).not.toHaveBeenCalled();
     });
@@ -317,8 +362,8 @@ describe("SgdbGamePickerModal", () => {
       expect(vi.mocked(backend.debugLog)).toHaveBeenCalledWith(expect.stringContaining("applySgdbGameId rejected"));
     });
 
-    it("applyArtwork returning -1 → key toast", async () => {
-      vi.mocked(artwork.applyArtwork).mockResolvedValue(-1);
+    it("applyAutomaticArtwork returning -1 → key toast", async () => {
+      vi.mocked(artwork.applyAutomaticArtwork).mockResolvedValue(-1);
       const { container } = renderCandidate();
       await act(async () => {
         fireEvent.click(buttonContaining(container, "Super Mario"));
@@ -329,8 +374,8 @@ describe("SgdbGamePickerModal", () => {
       );
     });
 
-    it("applyArtwork returning 0 → 'No artwork available for this game'", async () => {
-      vi.mocked(artwork.applyArtwork).mockResolvedValue(0);
+    it("applyAutomaticArtwork returning 0 → 'No artwork available for this game'", async () => {
+      vi.mocked(artwork.applyAutomaticArtwork).mockResolvedValue(0);
       const { container } = renderCandidate();
       await act(async () => {
         fireEvent.click(buttonContaining(container, "Super Mario"));
@@ -341,8 +386,8 @@ describe("SgdbGamePickerModal", () => {
       );
     });
 
-    it("applyArtwork rejection → treated as 0 applied + debugLogs (non-vacuous catch)", async () => {
-      vi.mocked(artwork.applyArtwork).mockRejectedValue(new Error("io"));
+    it("applyAutomaticArtwork rejection → treated as 0 applied + debugLogs (non-vacuous catch)", async () => {
+      vi.mocked(artwork.applyAutomaticArtwork).mockRejectedValue(new Error("io"));
       const { container, onApplied } = renderCandidate();
       await act(async () => {
         fireEvent.click(buttonContaining(container, "Super Mario"));
@@ -351,7 +396,9 @@ describe("SgdbGamePickerModal", () => {
       expect(vi.mocked(toaster.toast)).toHaveBeenCalledWith(
         expect.objectContaining({ body: "No artwork available for this game" }),
       );
-      expect(vi.mocked(backend.debugLog)).toHaveBeenCalledWith(expect.stringContaining("applyArtwork rejected"));
+      expect(vi.mocked(backend.debugLog)).toHaveBeenCalledWith(
+        expect.stringContaining("applyAutomaticArtwork rejected"),
+      );
       expect(onApplied).toHaveBeenCalledWith(0);
     });
   });

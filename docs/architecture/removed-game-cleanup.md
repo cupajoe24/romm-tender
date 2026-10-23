@@ -218,9 +218,9 @@ service takes the start's reservation through the rules' `hold_start`, before it
 rules. Before that it stops the shortcut artwork job (`stop_for_cleanup`), waiting for an icon being written or a batch
 being handed over, so nothing it writes into the grid directory or hands over lands once the start has reserved; no run
 of the job starts until a start that begins no run, or the run's end, resumes it (`resume_after_cleanup`). The job's
-batch lease is held by the frontend while it sets the batch's icons, wide grids and logos, so a start pressed then is
-refused, naming "setting shortcut artwork" ([Shortcut artwork](steam-non-steam-shortcuts.md#shortcut-artwork)). The
-reservation lasts from the moment `hold_start` takes it until the start returns; the run claim, from the moment the
+batch lease is held by the frontend while it sets the batch's icons, wide grids, covers and logos, so a start pressed
+then is refused, naming "setting shortcut artwork" ([Shortcut artwork](steam-non-steam-shortcuts.md#shortcut-artwork)).
+The reservation lasts from the moment `hold_start` takes it until the start returns; the run claim, from the moment the
 revalidated preview becomes a run until that run ends — in the run's own `finally`, or, for a run task cancelled before
 it first ran, in the task's done callback. The run is registered before the reservation is given back, so the two
 overlap and a conflicting endpoint finds no gap between them.
@@ -418,12 +418,16 @@ recovery off requires a separate acknowledgement toggle before the run can start
 ROM, and the selected size against every deleted file's and the free space, and blocks confirmation when space is
 insufficient.
 
-The root is `~/<package-name>-recovery`, with the package name taken from `PACKAGE_NAME` (`domain/identity.py`) and
-path-sanitized (today: `~/romm-tender-recovery`). Reading free space must not create that layout — a read-only preview
-stats the nearest existing parent, and the directories appear only when a bundle is actually written. The root's own
-`README.txt`, which explains what the folder is, is written by the same layout-creating step for the same reason: the
-only moment the root is known to be wanted is the one that creates it. It is best-effort, because a bundle must never
-fail to seal over its folder's signpost.
+The root is `recovery/` inside Tender's folder (`adapters/recovery_bundle.py`, `RECOVERY_FOLDER_NAME`), asked at every
+call, so it follows the place **Settings › Tender folder** names; bundles an older version sealed under
+`~/romm-tender-recovery/` are left where they are and not counted. The folder itself is never created by the bundle
+adapter: before each seal the cleanup has the folder's owner make it ready (`TenderFolderService.do_prepare_for_write`),
+which creates a missing folder with its id file, or refuses with `folder_unreachable` where its drive is gone or it
+cannot be written — that group then fails with `recovery_failed` and the reason, and nothing of it is removed. Reading
+free space must not create that layout — a read-only preview stats the nearest existing parent, and the directories
+appear only when a bundle is actually written. The root's own `README.txt`, which explains what the folder is, is
+written by the same layout-creating step for the same reason: the only moment the root is known to be wanted is the one
+that creates it. It is best-effort, because a bundle must never fail to seal over its folder's signpost.
 
 A bundle records the complete pre-cascade state in lossless JSON: the ROM aggregate, install and metadata state,
 save-sync baselines and files, playtime including pending sessions, completion stamps, Tender's cache files, and
@@ -443,11 +447,11 @@ shapes.
   id; the name is bounded and path-sanitized, and the seal refuses to overwrite an existing directory regardless. The
   folder name is not a rename — it is the `bundle_id` the seal is written with, so `SEAL.json`'s basename binding holds
   by construction.
-- **`README.txt`** — a generated index: every ROM id with its name, file name, platform and role in the run (removed, or
-  kept and recorded for context); every `files/NNNNNN` blob with its artifact kind in plain words, its size, and the
-  absolute path it must be copied back to; playtime in whole units beside the game's name; and step-by-step manual
-  restore instructions starting with the checksum verification. It is rendered **inside** the seal, because the blob
-  mapping it indexes only exists once the artifacts have been copied.
+- **`README.txt`** — a generated index: every ROM id with its name, file name, platform and role in the run (removed);
+  every `files/NNNNNN` blob with its artifact kind in plain words, its size, and the absolute path it must be copied
+  back to; playtime in whole units beside the game's name; and step-by-step manual restore instructions starting with
+  the checksum verification. It is rendered **inside** the seal, because the blob mapping it indexes only exists once
+  the artifacts have been copied.
 - **`playtime.txt`** — keeps its exact machine-readable fields, with the game's name beside each ROM id.
 
 For a fully vanished game whose shortcut will be removed, an enabled bundle also captures Steam artwork and per-app
@@ -475,8 +479,10 @@ cleanup to move.
 Save **states** are entirely untouched and remain unsupported. Extending save-state support must extend this recovery
 contract before purge is allowed to remove state files.
 
-A whole game whose bound version has unsynced saves is removed only once its recovery bundle sealed. With recovery
-disabled or failed, the group is skipped instead.
+A whole game whose bound version has unsynced saves — the local-save check's stranding verdict
+([Save File Sync Architecture](save-file-sync-architecture.md#the-local-save-check)) — is removed only once its recovery
+bundle sealed. With recovery disabled or failed, the group is skipped instead. Where no bundle was chosen and the check
+could not read, the skip's message says that Tender couldn't check whether the saves have been synced.
 
 ## Steam-side outcomes
 

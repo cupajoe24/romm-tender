@@ -151,16 +151,17 @@ Format: **invariant** — tier — enforced by.
   starts after the press is cut short where it stands: a download leaves a partial file the next start removes, a save
   sync leaves a run half done, a file move leaves a record naming where the files no longer are. The press checks that
   no work of this process is in flight — each kind the panel names, and every claim held on the prune conflicts but
-  those of endpoints that only read, or write a cache they can build again (`READ_ONLY_CLAIMS`, which a restart cuts
-  nothing short of), which covers every other endpoint that names the prune rule and every lease a frontend still holds;
-  this rule keeps anything new from starting behind that check, and a use case that names both rules asks the update
-  rule again once its operation is registered, so a press that came while it waited to register cannot slip in between.
-  The migration rule already names every endpoint that touches local game data, so the update rule rides on it rather
-  than keeping a list of its own, and it is asked first because an update in progress is the answer the user can do
-  nothing about but wait. The migration itself names no migration rule — it is what that rule waits for — yet starting
-  it is new work, so it names the update rule alone; `UPDATE_ONLY` in `tests/contract/test_conflict_refusals.py` pins it
-  as the one such site (`test_the_update_rule_stands_without_the_migration_rule_only_where_pinned`). Source readers hold
-  the two together: `tests/_conflict_rules.py::call_sites_with_rule` compares the `hold` / `hold_start` calls one by one
+  those of endpoints that only read, or write nothing a restart can cut short (`READ_ONLY_CLAIMS` in
+  `domain/update_install.py`, whose comment is the one list of the writes they may make), which covers every other
+  endpoint that names the prune rule and every lease a frontend still holds; this rule keeps anything new from starting
+  behind that check, and a use case that names both rules asks the update rule again once its operation is registered,
+  so a press that came while it waited to register cannot slip in between. The migration rule already names every
+  endpoint that touches local game data, so the update rule rides on it rather than keeping a list of its own, and it is
+  asked first because an update in progress is the answer the user can do nothing about but wait. The migration itself
+  names no migration rule — it is what that rule waits for — yet starting it is new work, so it names the update rule
+  alone; `UPDATE_ONLY` in `tests/contract/test_conflict_refusals.py` pins it as the one such site
+  (`test_the_update_rule_stands_without_the_migration_rule_only_where_pinned`). Source readers hold the two together:
+  `tests/_conflict_rules.py::call_sites_with_rule` compares the `hold` / `hold_start` calls one by one
   (`test_every_call_site_naming_the_migration_rule_names_the_update_rule`), and
   `functions_checking_migration_without_update` finds any function under `backend/services/` that reads the migration
   check directly without also reading the update one, and finds none
@@ -223,6 +224,33 @@ Format: **invariant** — tier — enforced by.
   same class, parses `bootstrap/adapters.py` and fails unless `DB_FILENAME` is a string literal, so
   `f"{PACKAGE_NAME}.db"`, which reproduces today's value exactly, fails too. The rule is also stated at `APP_DIR_NAME`
   and at `DB_FILENAME` themselves, because a diff that folds either opens neither the docstring nor this file
+- **Tender's folder is unreachable only while a store has recorded something under it; only its owner creates it, with
+  its id file; and every write into it is made ready through `TenderFolderService.do_prepare_for_write`** — test +
+  prompt-only — the folder (`domain/tender_folder.py`, `services/tender_folder.py`) lies on a drive that can be taken
+  out, and the two ways of being wrong about that cost differently. Calling a folder with nothing recorded under it
+  unreachable would put a notice on Main and pause work for a drive the user has simply not inserted yet, so the
+  condition counts only where a store answers that it recorded something there (`TenderFolderRecordReader`); with
+  nothing recorded, a missing folder is created again by the next write. Writing into a place without asking would land
+  on the internal drive under an empty mount folder, or fail half-way, so every write goes through
+  `do_prepare_for_write`, which creates a missing folder only where nothing is recorded under it and refuses
+  `folder_unreachable` where the drive is gone (told by the stored mount point) or the folder cannot be written.
+  Creating the folder is the owner's alone because the owner writes `.tender-folder` into `Tender/` whenever it creates
+  it, holding the id it keeps in `kv_config`: the recovery bundle adapter opens the folder it is handed and never
+  creates it (`tests/adapters/test_recovery_bundle.py::test_a_seal_never_creates_tenders_folder`), and the cleanup asks
+  the owner before each seal
+  (`tests/services/prune/test_service.py::test_a_bundle_on_a_folder_that_cannot_be_reached_fails_its_group_with_the_reason`).
+  `tests/services/test_tender_folder.py` pins the rest: `TestTheState` (unreachable only with records, for each of the
+  three conditions), `TestCreatingTheFolder` (start, id file, a drive that is gone, a recorded folder),
+  `TestPreparingAWrite` and `TestTheFolderRule`. The firmware store is the first store that records something under the
+  folder: `FirmwareStore` answers `TenderFolderRecordReader` off its `firmware_store` rows, forgets its records under a
+  folder by removing Tender's links to those files — except one under a root the resolver only assumed or whose source's
+  roots could not be asked — and deleting no file, and every firmware use case that writes into the store or links into
+  it names the folder rule (`tests/services/test_firmware_store.py::TestTendersFolderRecords` and `::TestFolderRule`).
+  That it makes every write ready through `do_prepare_for_write` is prompt-only: its tests hand it a stub in that
+  function's place. Prompt-only: a new store that writes there must call `do_prepare_for_write` first, answer
+  `TenderFolderRecordReader` and join the `records` tuple in `bootstrap/services.py`, and a use case that touches the
+  folder's files names the folder rule (`folder=True`); a recovery bundle is never a record — Tender lists bundles from
+  the folder and keeps no record of them
 - **No name in the code calls Tender a plugin; a third-party name that must keep the word is excepted by name, whole,
   with its reason** — check — Tender stopped being a Decky Loader plugin when the backend began hosting itself, and a
   name that still says "plugin" teaches its reader the old model: that something loads Tender and owns its life cycle,
@@ -339,7 +367,7 @@ Format: **invariant** — tier — enforced by.
   RetroDECK folder asks `RetroDeckFolders` and raises the refusal it answers with
 - **A module declared read-only calls no repository write — `services/library/local_library_reader.py` to start** —
   check — `scripts/check_read_only_module.py` (AST over the declared file's own calls, matching the two-attribute
-  `<...>.<repo>.<method>` shape against the thirteen repositories the UoW exposes). Read or write is decided **by the
+  `<...>.<repo>.<method>` shape against the sixteen repositories the UoW exposes). Read or write is decided **by the
   name's shape** — `get` / `get_*` / `iter_*` / `count` plus the explicitly listed reads — and
   `tests/scripts/test_check_read_only_module.py` re-derives every method name from `services/protocols/repositories.py`
   and pins its classification, so a new repository method fails there until it is classified. **The two directions are
@@ -366,8 +394,8 @@ Format: **invariant** — tier — enforced by.
   behavioural test would have to provoke one at a time, but a frame assembled by a helper it cannot follow, or emitted
   through an aliased callable, slips past it; its own scope tests pin the producers and the root it reaches, so a
   narrowing fails rather than shrinking the rule in silence. Frame producers are not confined to `services/library/`:
-  `services/artwork.py` emits through an injected `emit_progress`). The QAM panel derives "a run is in flight" from
-  `running` and keys the run's end — the status line, the live-ETA teardown, Main's stats re-read, the Sync page's
+  `services/artwork/service.py` emits through an injected `emit_progress`). The QAM panel derives "a run is in flight"
+  from `running` and keys the run's end — the status line, the live-ETA teardown, Main's stats re-read, the Sync page's
   three, the failure toast, and the Sync page's failure line — on the stage, so a stopping frame with a non-terminal
   stage would collapse the in-progress rows while ending nothing. The panel cannot defend against it: a bare
   `running: false` is exactly what the Sync page's own retraction of an optimistic start looks like. Since #1814 the
@@ -470,6 +498,49 @@ Format: **invariant** — tier — enforced by.
   Apply that leaves the next sync fetching in full, or offers none to a platform the gate will keep refusing. **What
   nothing checks**: the test clock does not move across the skip request, so a clock read after it passes every test
   above; and `TestProbeVerdict` and `TestRestampDue` pin each decider alone, so nothing holds them to one comparison
+- **A collection's completion stamp records what the collection skip compares RomM's answers with, and the preview's
+  re-stamp count is that skip's own refusal: the checksum is over exactly the `rom_ids` the collection listing carried
+  (`WorkUnit.member_rom_ids`, in `ChunkDispatcher._build_final_collection_stamp`), never the stamp's `member_rom_ids`;
+  `fetch_started_at` is Tender's clock read before the unit's skip check (`SyncOrchestrator`), for a collection unit as
+  for a platform one; the margin is the platform skip's, applied when the stamp is read
+  (`domain/platform_skip.py::skip_reference`); no `rom_count` is compared; and a collection is counted in
+  `restamp_collection_count` exactly when the preview's gate refused it for a reason a fresh stamp settles
+  (`domain/collection_skip.py::CollectionSkip.restamp_settles`, never for a probe that raised or could not be read) and
+  the apply will stamp it — it has members, and `recorded_updated_at` answers, which
+  `domain/collection_skip.py::apply_stamps` decides for the count and for the final chunk's stamp alike** — test +
+  prompt-only — the fetch start by
+  `tests/services/library/test_sync_orchestrator.py::TestOnlyAFreshCollectionStampRestoresTheSkip::test_a_member_edited_while_the_run_applied_is_fetched_in_full_next_sync`
+  (an edit between the fetch's start and the run's end is seen next sync) and
+  `tests/services/library/test_collection_fetcher.py::TestTryCollectionIncrementalSkip::test_the_probe_s_reference_is_the_fetch_start_less_the_margin`;
+  the listing's checksum by
+  `tests/services/library/test_chunk_dispatcher.py::TestFinalChunkCollectionStamp::test_the_final_chunk_s_stamp_records_the_fetch_start_and_the_listing_s_checksum`,
+  over a unit applied in more than one chunk, and end to end by
+  `TestOnlyAFreshCollectionStampRestoresTheSkip::test_an_own_smart_collection_whose_walk_returns_more_than_its_listing_is_skipped_once_stamped`;
+  no count by `TestTryCollectionIncrementalSkip::test_the_listing_s_rom_count_is_not_compared`; the count by
+  `TestOnlyAFreshCollectionStampRestoresTheSkip::test_a_stamp_without_a_fetch_start_is_fetched_in_full_once_then_skipped`
+  (counted, re-stamped by the Apply, then skipped and no longer counted) and
+  `::test_an_empty_collection_and_one_without_updated_at_are_not_counted`; a refusal no fresh stamp settles left out by
+  `::test_a_collection_whose_probe_failed_is_fetched_in_full_and_not_counted` and, per refusal,
+  `tests/services/library/test_collection_fetcher.py::TestWhetherAFreshStampSettlesTheRefusal` and
+  `tests/domain/test_collection_skip.py::TestWhetherAFreshStampSettlesTheRefusal`; and that a stamp the apply writes
+  matches the listing it was written from by
+  `TestFinalChunkCollectionStamp::test_the_stamp_it_writes_matches_the_listing_it_was_written_from`, and that the writer
+  refuses what `apply_stamps` refuses by `::test_a_collection_handed_no_members_is_not_stamped`. The rule spans five
+  modules: the orchestrator reads the clock and counts, the dispatcher writes the stamp, the collection fetcher judges,
+  and `domain/collection_skip.py` with `domain/platform_skip.py` hold the comparisons and the margin. Why the checksum
+  covers the listing rather than the visible id set the platform's covers is in
+  [Backend Architecture](backend-architecture.md#libraryservice-decomposition-serviceslibrary), "Incremental skip"; do
+  not restate it here. **Each wrong turn is silent.** A checksum over the stamp's `member_rom_ids` holds the ids a walk
+  answered beyond the listing, so an own smart collection whose walk answers more never matches and is fetched in full,
+  and offered the re-stamp Apply, on every sync. A collection unit whose fetch start is not read records none, so its
+  stamp never skips. A count that judges the stamp a second time instead of reading the gate's answer can disagree with
+  it: the preview offers an Apply that leaves the next sync fetching in full, or none to a collection the gate keeps
+  refusing. A count of every refusal offers an Apply for a probe that raised or could not be read, which a fresh stamp
+  does not settle, so a probe that keeps failing offers it on every sync. A count and a stamp writer that stop sharing
+  `apply_stamps` disagree in one of two directions: a writer looser than the count stamps a collection the count never
+  asked for, and a writer stricter than the count leaves the Apply offered with nothing written, so the offer comes back
+  on every sync. **What nothing checks**: the test clock does not move across the probe, so a clock read after it passes
+  every test above; and nothing but review keeps the count on the gate's own answer
 - **Where the library sync or the version picker's default resolves a representative, neither RomM's main-sibling leg
   nor the ranking picks a member RomM holds no file for (`has_file_on_disk` false) while one with a file remains; the
   sync's installed and existing-binding legs keep such a member; a bound member without a file that is not installed is
@@ -593,38 +664,45 @@ Format: **invariant** — tier — enforced by.
   colour is the resolver's verdict, which weighs that file too, and no count's (the colour entry below);
   `services/firmware/status.py::_bios_aggregates` scopes `server_count` / `local_count` to `on_server` rows, and the
   stated pair `ratio_server_count` / `ratio_local_count` further to those with a verdict; the download buttons'
-  condition is `isFetchable` (`frontend/src/utils/biosFetchable.ts`), called from
+  condition is `isFetchable` (`frontend/src/utils/biosFetchable.ts`), which reads the row's `library` — the RomM file
+  that fills it, by content or, where the resolver's identity is an archive or names no checksum, by name, wherever RomM
+  files it — its `store_file`, its `link` and its `place_refusal`, called from
   `frontend/src/bigpicture/library/PlatformDetail.tsx` — and since #1815 the per-row Download button reads the same
   filtered set, so a fourth reader of the axis now exists in that one file. A fifth reads it in the same file for the
   On-disk cell's second mark (`⊘`), and that one is display alone: it neither counts nor gates, which is what keeps it
-  out of all three folds below. **A sixth reader is the game page's BIOS tab** (`BiosTab.tsx`'s `rowBelongsOnThisPage`),
-  and it is display alone in the same sense: it decides whether a row gets a LINE — a file no page can fetch, that the
-  shown emulator does not require and whose verdict is not met, is nothing that page can act on — and gates no count and
-  offers no action, so it belongs to none of the three folds below either. It is asked about whichever emulator the page
-  shows. What holds the two surfaces together is that they call one predicate rather than spelling the three clauses
-  twice: a second copy would let the game page point at a download button the platform page does not offer, or leave off
-  a row it does. What must NOT be shared is the game page's rule around it — required for this launch, an option of the
-  emulator's one-of group, present, fetchable, or unjudged — which is that page's alone; the platform detail has no such
-  rule, and a shared "visibility" module would invent a notion only one surface has. Each fold has its own quiet
-  failure: drop the row from the required counts and a sentence reads "all in place" under a red verdict; add it to the
-  ratio and a SNES page reports `0 / 26 files, 26 missing` for twenty-six optional files no core wants; add it to the
-  buttons and the page offers a download that cannot succeed. `on_server` is the one field all three read; the row's
-  `id: None` is an honest absence with no consumer at all, so nothing breaks if it is filled in and nothing is guarded
-  by leaving it empty
-- **No download lands in a place the resolver could not look at (`firmware-path-inaccessible`)** — test + prompt-only —
-  a download there could overwrite a file nobody could see, which is the backup-or-confirm rule's concern, and a place
-  the resolver cannot read is usually one the emulator cannot read either (#2190). The row's verdict is withheld, grey,
-  and its sentence names the place ("Tender could not look into bios/kronos/, so whether saturn_bios.bin is there is not
-  known"). The backend reads it in one place, `FirmwarePlacement.place_unreadable`, from three:
-  `domain/firmware_groups.py::fetched_as_required` (so `Download required` neither counts nor fetches it),
-  `services/firmware/downloads.py::_download_firmware_batch` (`Download all` passes it over) and
-  `download_platform_firmware_file` (refused with `place_unreadable`); the frontend's fourth `isFetchable` clause reads
-  the same caveat code, so neither page points at the row as something to download. Pinned by
-  `tests/domain/test_firmware_groups.py`, `tests/services/test_firmware.py::TestAPlaceThatCouldNotBeLookedAt` and
-  `TestDownloadRequiredFirmware`, `frontend/src/utils/biosFetchable.test.ts` and `PlatformsTab.test.tsx`; the resolver's
-  spelling of the code by `tests/adapters/test_atlas_firmware.py::TestVocabularyConformance`. Unseen: a new download
-  path that does not ask the property, and the frontend's copy of the code, which nothing holds equal to the backend's.
-  Once the place is readable again, the verdict and the download follow by themselves
+  out of all three folds below. **A sixth reader is the game page's BIOS tab** (`frontend/src/bigpicture/BiosTab.tsx`,
+  through `frontend/src/utils/biosGamePageRows.ts`'s `rowBelongsOnThisPage`), and it is display alone in the same sense:
+  it decides whether a row gets a LINE — a file no page can fetch, that the shown emulator does not require, that is no
+  option of its one-of group, whose verdict is not met and that offers no Replace…, is nothing that page can act on —
+  and gates no count and offers no action, so it belongs to none of the three folds below either. It is asked about
+  whichever emulator the page shows. What holds the two surfaces together is that they call one predicate,
+  `isFetchable`, rather than spelling its clauses twice: a second copy would let the game page point at a download
+  button the platform page does not offer, or leave off a row it does. What must NOT be shared is the game page's rule
+  around it — required for this launch, an option of the emulator's one-of group, present, fetchable, unjudged, or
+  offering Replace… (`replace_offered`) — which is that page's alone; the platform detail has no such rule, and a shared
+  "visibility" module would invent a notion only one surface has. Each fold has its own quiet failure: drop the row from
+  the required counts and a sentence reads "all in place" under a red verdict; add it to the ratio and a SNES page
+  reports `0 / 26 files, 26 missing` for twenty-six optional files no core wants; add it to the buttons and the page
+  offers a download that cannot succeed. The counts and the ratio read `on_server`, the buttons read `library`
+  (`on_server` only on a payload that states no `library`); the row's `id: None` is an honest absence with no consumer
+  at all, so nothing breaks if it is filled in and nothing is guarded by leaving it empty
+- **No link is placed at a place the resolver could not look at (`firmware-path-inaccessible`)** — test + prompt-only —
+  nobody could see what lies there, so a link could not be judged against it, and a place the resolver cannot read is
+  usually one the emulator cannot read either (#2190). The row's verdict is withheld, grey, and its sentence names the
+  place ("Tender could not look into bios/kronos/, so whether saturn_bios.bin is there is not known"). The backend reads
+  it as one property, `FirmwarePlacement.place_unreadable`, and four callers ask it:
+  `domain/firmware_groups.py::fetched_as_required` (so `Download required` neither counts nor fetches it), and
+  `domain/firmware_places.py::place_refusal`, which the link update (`services/firmware/store.py`), the rows
+  (`services/firmware/rows.py`) and "Replace…" (`services/firmware/replacement.py`) call and whose `unreadable` refusal
+  none of them passes; the frontend's `isFetchable` reads the same caveat code and that refusal, so neither page points
+  at the row as something to download. A download itself lands in Tender's firmware store, never at the place, so the
+  place's reading decides only the link. Pinned by `tests/domain/test_firmware_places.py`,
+  `tests/domain/test_firmware_groups.py`,
+  `tests/services/test_firmware.py::TestAPlaceThatCouldNotBeLookedAt::test_a_download_places_no_link_there`,
+  `frontend/src/utils/biosFetchable.test.ts`; the resolver's spelling of the code by
+  `tests/adapters/test_atlas_firmware.py::TestVocabularyConformance`. Unseen: a new path that places a link without
+  `place_refusal`, and the frontend's copy of the code, which nothing holds equal to the backend's. Once the place is
+  readable again, the verdict and the link follow by themselves
 - **No BIOS answer outlives the page that asked for it** — test + prompt-only —
   `tests/services/test_game_detail.py::TestGetCachedGameDetailCarriesNoBiosAnswer` and the two contract cases in
   `tests/contract/test_game_detail_read.py`. `get_cached_game_detail` carries none and says so (`bios_status_unknown`,
@@ -877,34 +955,36 @@ Format: **invariant** — tier — enforced by.
   settle. **Listing them changes nothing at their call sites**: each service reaches its reading through
   `run_in_executor` as a bound method, which is this checker's documented blind spot, so the entries are a statement of
   the rule rather than an enforcement of it. They are also not the store's only real I/O — `grid_dir()` is called from
-  `services/artwork.py` (six sites), `services/shortcut_removal.py` and `services/library/reporter.py`,
-  `set_steam_input_config()` from `services/settings.py`, `services/shortcut_removal.py` and
-  `services/library/reporter.py`, `write_shortcut_icon()` from `services/steamgrid.py`, and `ensure_grid_file()` from
-  `services/shortcut_artwork.py` — those are unlisted, and their being unlisted is a gap, not a judgement),
-  `.read_shortcut_icons` (the same whole-file parse, for the shortcut artwork job's worklist, called plainly, so its
-  entry is enforced), `.grid_file_names` (lists Steam's grid directory to answer which artwork slots a shortcut has),
-  the shortcut artwork job's reading of Steam's renderer memory before each batch (`_renderer_above_ceiling`, with
-  `LibraryService.renderer_above_ceiling` beside it: a `/proc` read, and at or above `GC_SKIP_BELOW_KB` a garbage
-  collection over Steam's debugger, bounded at about 5 s, and a second read), `FirmwarePlatformResolver` (reads what one
-  system's emulators want WITH content verification: it opens each candidate in a declared folder and reads it the way
-  the emulator does — 59-173 ms per system on the reference machine at emu-atlas 0.22) and its whole-machine sibling
-  `FirmwareResolver`, the save answer — `resolve_save_answer` and the saves package's own `save_answer` wrapper, a full
-  read of the machine per ROM (the first ask about a core also runs that core's probe) — the savestate question put to
-  the same catalogue entry (`resolve_savestate_location`) and the seam's detection question (`installation_detected`,
-  which detects the emulator sources afresh and reads the answering one's health), the two path resolvers —
-  `MigrationFileStore.realpath` (one walk per stored RetroDECK-home marker, a directory that may sit on the SD card the
-  marker is pending a migration away from) and `ResolvedPathFn` (the same walk, but on **both** sides of a comparison,
-  so a call site costs what the rows it checks cost, not what it checks them against) — and every `RetroDeckFolders`
-  question: `download_folder`, `bios_download_folder`, `rom_root`, `rom_folders`, `bios_folder`, `saves_root` and
-  `move_roots`, each a fresh reading of the emulator sources and a question to the resolver, which reads RetroDECK's
-  settings file and ES-DE's, and a `realpath` of the answer — together with the services' own wrappers around them
-  (`_rom_folder`, `_rom_folders`, `_resolve_target`, `_platform_dir`, `_saves_root`, `download_root`, `status_root`),
-  which are what the services call. The firmware timing is the only entry a cost was measured for; every other one is
-  listed from reading its implementation. One other real I/O seam was weighed and kept out — the reason is in the
-  script's docstring, and it is not an exemption; nor is it an inventory of what else touches the disk. **"It's only a
-  read" is the reasoning this rule exists to refuse**: `SqliteUnitOfWork.__enter__` issues `BEGIN IMMEDIATE`, so even a
-  read-only UoW takes the write lock. The database is in WAL, so readers are unaffected — but every other **writer**
-  waits on the lock for up to `busy_timeout=5000` and fails with `SQLITE_BUSY` if it is still held then, and
+  `services/artwork/` (seven sites), `services/steamgrid/` (`service.py` and `_slots.py`),
+  `services/shortcut_removal.py` and `services/library/reporter.py`, `set_steam_input_config()` from
+  `services/settings.py`, `services/shortcut_removal.py` and `services/library/reporter.py`, `write_shortcut_icon()`
+  from `services/steamgrid/service.py`, and `ensure_grid_file()` from `services/shortcut_artwork.py` — those are
+  unlisted, and their being unlisted is a gap, not a judgement), `.read_shortcut_icons` (the same whole-file parse, for
+  the shortcut artwork job's worklist, called plainly, so its entry is enforced), `.grid_file_names` (lists Steam's grid
+  directory to answer which artwork slots a shortcut has), `.read_grid_file` (reads one grid file whole, for the ARTWORK
+  tab to hash a slot's image; reached as a bound method, so listed rather than enforced), `.grid_file_stamps` (stats the
+  files filling the ARTWORK tab's slots, for each thumbnail's signature), the shortcut artwork job's reading of Steam's
+  renderer memory before each batch (`_renderer_above_ceiling`, with `LibraryService.renderer_above_ceiling` beside it:
+  a `/proc` read, and at or above `GC_SKIP_BELOW_KB` a garbage collection over Steam's debugger, bounded at about 5 s,
+  and a second read), `FirmwarePlatformResolver` (reads what one system's emulators want WITH content verification: it
+  opens each candidate in a declared folder and reads it the way the emulator does — 59-173 ms per system on the
+  reference machine at emu-atlas 0.22) and its whole-machine sibling `FirmwareResolver`, the save answer —
+  `resolve_save_answer` and the saves package's own `save_answer` wrapper, a full read of the machine per ROM (the first
+  ask about a core also runs that core's probe) — the savestate question put to the same catalogue entry
+  (`resolve_savestate_location`) and the seam's detection question (`installation_detected`, which detects the emulator
+  sources afresh and reads the answering one's health), the two path resolvers — `MigrationFileStore.realpath` (one walk
+  per stored RetroDECK-home marker, a directory that may sit on the SD card the marker is pending a migration away from)
+  and `ResolvedPathFn` (the same walk, but on **both** sides of a comparison, so a call site costs what the rows it
+  checks cost, not what it checks them against) — and every `RetroDeckFolders` question: `download_folder`, `rom_root`,
+  `rom_folders`, `bios_folder`, `saves_root` and `move_roots`, each a fresh reading of the emulator sources and a
+  question to the resolver, which reads RetroDECK's settings file and ES-DE's, and a `realpath` of the answer — together
+  with the services' own wrappers around them (`_rom_folder`, `_rom_folders`, `_resolve_target`, `_platform_dir`,
+  `_saves_root`), which are what the services call. The firmware timing is the only entry a cost was measured for; every
+  other one is listed from reading its implementation. One other real I/O seam was weighed and kept out — the reason is
+  in the script's docstring, and it is not an exemption; nor is it an inventory of what else touches the disk. **"It's
+  only a read" is the reasoning this rule exists to refuse**: `SqliteUnitOfWork.__enter__` issues `BEGIN IMMEDIATE`, so
+  even a read-only UoW takes the write lock. The database is in WAL, so readers are unaffected — but every other
+  **writer** waits on the lock for up to `busy_timeout=5000` and fails with `SQLITE_BUSY` if it is still held then, and
   `FakeUnitOfWork` shares no connection, so no unit test notices. Six call sites had drifted across the rule before
   anything looked (#1779), for the reason the check exists: nothing at a call site reveals that an injected seam touches
   the disk. **The rule and the gate come from reading code — no measurement of how long any of those transactions
@@ -951,11 +1031,10 @@ Format: **invariant** — tier — enforced by.
 - **Services never call clocks / sleep / uuid / random directly (inject the Protocol)** — check —
   `scripts/check_cosmic_call_bans.sh`
 - **No module in `services/`, `bootstrap/`, `adapters/`, `domain/`, `lib/` or `models/` crosses the ~1000-LOC
-  decomposition threshold, and the ones already over it may not grow** — check — `scripts/check_module_size.py` (the
-  modules that predate the gate are grandfathered at their exact size. A ceiling goes up only for a change that adds no
-  code — a rename, a reformat — and only with the reason recorded at its `ALLOWLIST` entry; a raise taken silently has
-  retired the gate. Entries only ever come out, when the module drops back under the threshold. `main.py`, `_vendor/`,
-  `tests/`, `scripts/` and `frontend/src/` are out of scope, each for a reason recorded at `SCOPE_DIRS`)
+  decomposition threshold** — check — `scripts/check_module_size.py` (no module is grandfathered any more: every one
+  that predated the gate has dropped back under the threshold and left its `ALLOWLIST`, to which nothing is ever added.
+  `main.py`, `_vendor/`, `tests/`, `scripts/` and `frontend/src/` are out of scope, each for a reason recorded at
+  `SCOPE_DIRS`)
 - **Service-independence contract list stays complete** — check — `scripts/check_service_independence_contract.py`
 - **Layer import direction (services ↛ adapters, adapters ↛ services, …)** — check — `.importlinter` (`lint-imports`)
 - **Frontend direction: `frontend/src/utils/` and `frontend/src/api/` never import either surface
@@ -1205,54 +1284,53 @@ Format: **invariant** — tier — enforced by.
   oldest version it can be updated from directly
 - **Server-supplied path components pass `safe_join` (`lib/path_safety.py`)** — test + prompt-only — traversal tests per
   path builder; new call sites are prompt-only
-- **A firmware row's verdict is the resolver's wherever an emulator declared the file, and its presence the resolver's
-  wherever it placed the file under this root; Tender's own filesystem probe covers only three leftovers** — prompt-only
-  — `domain/bios_status.py::_row_verdict` (the verdict) and `services/firmware/demand.py::FirmwareDemand.is_downloaded`
-  (presence) are the two crossing points and state the boundary. The verdict is the resolver's per-file verdict over the
-  launching emulator's own requirement ([#2190](https://github.com/danielcopper/romm-tender/issues/2190) D3): a wrong
-  image is there and not met, a file it could not compare is there and withheld, and a place it could not look at is
-  withheld, never missing. Presence is `downloaded`, which the download affordances read: the probe answers it for a
-  library file with no placement in the platform's catalogue (no emulator the resolver read declares it — that row is no
-  requirement of anything, so its verdict IS that presence), for a placement whose location Tender cannot honour, and
-  for the already-there check before a download (the batch and the per-row fetch). Where no BIOS download may land —
-  anything that refuses one, so that `FirmwareDemand.status_root` answers `None` — the probe looks nowhere, and a row
-  only it could answer has its verdict withheld rather than read as absent (#2244 D11). Everything else reads the
-  resolver's `present`, which follows symlinks Tender would have to re-implement — the PS2 folder is one directory
-  reached through two spellings. `present is None` leaves `downloaded` false and the row's verdict withheld, and the
+- **A file requirement's verdict and presence are the resolver's wherever the row has a place; Tender's own look at a
+  place answers whose link lies there, whether its name is free, whether its folder exists — and, for a file of a folder
+  declaration, whether a file lies there** — prompt-only — `domain/bios_status.py::_row_verdict` (the verdict) and
+  `services/firmware/rows.py` (presence) are the crossing points. The verdict is the resolver's per-file verdict over
+  the launching emulator's own requirement ([#2190](https://github.com/danielcopper/romm-tender/issues/2190) D3): a
+  wrong image is there and not met, a file it could not compare is there and withheld, and a place it could not look at
+  is withheld, never missing. Presence is the resolver's `present` at the place, read the way the emulator reaches it —
+  through a link of Tender's to the store file behind it, which the resolver judges by its bytes (emu-atlas#578) — so
+  Tender re-implements no symlink walk. A library row has no place, no verdict, and its `downloaded` is whether this
+  platform's store holds it. Tender's own look (`FirmwareFileStore.look`, no link followed) decides the link's state,
+  and the row's answer in one case only: a row for one file of a folder declaration (`_folder_rows`), which the resolver
+  answers per file only where it makes a statement about that file. There presence is the look's `lexists`, and the
+  verdict is the statement — or, where the resolver made none, not in place when nothing lies there and not established
+  when something does. `present is None` leaves `downloaded` false and the row's verdict withheld, and the
   `RomM library files` ratio counts only the rows whose verdict was established (`ratio_server_count` /
   `ratio_local_count`): there a withheld row would read as a file missing
   ([#2285](https://github.com/danielcopper/romm-tender/issues/2285) D3). **Nothing enforces either crossing point.** A
-  fourth status builder calling `_firmware_file_store.exists(dest)` directly would go green, and its rows would silently
-  answer from the weaker source; one reading `downloaded` as the verdict would read a wrong image as met.
-  `services/firmware/status.py` holds that store itself, for `_stamp_deletable`'s records-still-on-disk probe, so the
-  wrong probe is one line away from every row builder that should be asking `FirmwareDemand`. A withheld verdict is not
-  an absence — its cause is read off the row's caveat codes and, for a declared FILE, off its `checked` (GLOSSARY.md →
-  Byte reading), never off the verdict itself. Three of that vocabulary's eight values sit behind one withheld verdict
-  and are three different statements: a file the emulator READ and does not recognise was checked, so wording it "could
-  not be checked" is untrue; `refused` is not withheld at all, arriving with the verdict already `false`. Nothing checks
-  that a consumer keeps them apart — `checked` is a plain string on the row beside a `satisfied` that reads like its
-  summary
+  row builder deciding presence by `look(place).lexists` would go green and read a link to a missing store file as
+  present; one reading `downloaded` as the verdict would read a wrong image as met. A withheld verdict is not an absence
+  — its cause is read off the row's caveat codes and, for a declared FILE, off its `checked` (GLOSSARY.md → Byte
+  reading), never off the verdict itself. Three of that vocabulary's nine values sit behind one withheld verdict and are
+  three different statements: a file the emulator READ and does not recognise was checked, so wording it "could not be
+  checked" is untrue; `refused` is not withheld at all, arriving with the verdict already `false`. Nothing checks that a
+  consumer keeps them apart — `checked` is a plain string on the row beside a `satisfied` that reads like its summary
 - **A firmware row's verdict is `BiosFileEntry.satisfied` — the resolver's per-file verdict at the place the launching
-  emulator opens it, never presence — and for a folder declaration it is what the folder HOLDS** — test + prompt-only —
-  `tests/services/test_firmware.py::TestAFolderRequirementIsAnsweredByItsContents` pins all three folder answers
-  end-to-end and `::TestTheRowsVerdictIsTheResolvers` a file's (a wrong or refused image not met, one it could not
-  compare and a place it could not look at withheld), `tests/domain/test_firmware_wants.py` pins the fold the service
-  asks through, and `tests/adapters/test_atlas_firmware.py` pins each folder answer and which codes those rows carry.
-  The rule spans three modules and no diff-scoped review sees it whole: the adapter carries `declared_kind` and the
-  folder verdict — settled in the same verified per-platform reading the rest of the row comes from, so there is no
-  second question to keep in step — `domain/bios_status.py::_row_verdict` decides the row's answer, and both frontend
-  surfaces colour and word the row off it. **Nothing mechanical joins those three**, which is what a consumer reading
-  `downloaded` for a folder row breaks — an `if row.downloaded` beside the verdict, a count that spends presence as
-  readiness. RetroDECK links LRPS2's `pcsx2/bios` onto the BIOS root, so such a consumer reports "All required ready"
-  over a PS2 install with no BIOS file at all; that was the state before #1807 declined the verdict, and this cut
-  replaced the declining with a real answer, so the same field access brings it straight back. The same holds for the
-  third value: a required row answered `None` keeps the resolver's verdict open, and folding it into `False` claims an
-  absence nothing established. `declared_kind` carries a second rule with **no check at all**: a folder declaration is
-  never offered as a download — the emulator lists that name, so there is no file to fetch into it. Three places refuse
-  it today (`PlatformDetail.tsx`'s fetchable filter, `FirmwareDownloader._download_firmware_batch`, and
-  `FirmwareDownloader.download_platform_firmware_file`, which answers one named file and so refuses with a reason where
-  the batch simply passes the row over); `FirmwareDownloader.download_firmware(firmware_id)` still does not. It is the
-  DECLARATION's kind, so it survives an absent folder, which is exactly the case a presence check would let through
+  emulator opens it, never presence — and a folder declaration is one row per file of it the resolver makes a statement
+  about or recognises in the library (#2191 D26), each with the verdict over that file, the folder's own verdict
+  counting once as one requirement; where that leaves no row, one row stands for the folder with the folder's verdict
+  and the codes the resolver states over it (D28)** — test + prompt-only —
+  `tests/services/test_firmware_store.py::TestAFolderTheEmulatorLists` pins the per-file rows end-to-end,
+  `tests/services/test_firmware.py::TestAFolderRequirementIsAnsweredByItsContents` the folder's own row (D28),
+  `tests/domain/test_firmware_wants.py` the fold the service asks through, and
+  `tests/adapters/test_atlas_firmware.py::TestWhatAFolderDeclarationHolds` each file's verdict as the resolver states it
+  (an image the emulator's own test accepts met; a file its reads disagree on, or whose read did not come back,
+  withheld; a file it rejected named only where the folder holds no image, and not met)
+  ([#2191](https://github.com/danielcopper/romm-tender/issues/2191) D26). The rule spans three modules and no
+  diff-scoped review sees it whole: the adapter carries the folder's verdict and each file's, settled in the same
+  verified per-platform reading the rest of the row comes from; `services/firmware/rows.py` builds a row per file the
+  folder takes — each library file the packaged table recognises for the folder, and each other file a statement names;
+  a file the resolver passes over because a valid image lies beside it gets no row — marks none of them required, stands
+  one row for the folder where that leaves none (`_empty_folder_row`), and hands the folder's own verdict to the counts
+  as one requirement (`count_required`'s `folders`); and both frontend surfaces colour and word each row off its own
+  verdict. **Nothing mechanical joins those three**, which is what a consumer reading `downloaded` for a folder breaks:
+  RetroDECK links LRPS2's `pcsx2/bios` onto the BIOS root, so the folder is always there, and reading its presence as
+  readiness reports "All required ready" over a PS2 install with no BIOS file at all. The same holds for the third
+  value: a required row answered `None` keeps the resolver's verdict open, and folding it into `False` claims an absence
+  nothing established
 - **Every BIOS colour is the resolver's verdict for the launching emulator (`requirements_met`), never a count of rows;
   the exceptions are a one-of group whose verdict is open because of the disc's region alone (the platform page's amber)
   and, on a game's page, the image serving the game's own region (`game_region_level`) — each read off the resolver's
@@ -1304,28 +1382,31 @@ Format: **invariant** — tier — enforced by.
   `::TestThePlayRowTokenCountsPlainFilesOnly` what the token says beside one; `tests/services/test_firmware.py`
   (`TestAOneOfGroupIsOneRequirement`, the group cases of `TestOnePlatformOneEmulator` and `TestOneRomOneEmulator`, and
   `TestDownloadRequiredFirmware`'s group cases) pins it end to end, the ROM's own region, and that the button's count
-  and the download are one set; the frontend halves are `frontend/src/utils/biosSummary.test.ts`, `biosGroup.test.ts`,
-  `BiosTab.test.tsx` and `library/PlatformsTab.test.tsx`. The rule spans the adapter
-  (`adapters/atlas_firmware.py::_wants` and `_groups`), two domain modules (`domain/firmware_groups.py` judges,
-  `domain/bios_status.py` counts), the service (`services/firmware/status.py`, `downloads.py`, `game_detail.py` passing
-  the ROM's regions), five frontend modules (`utils/biosSummary.ts`, `utils/biosGroup.ts`, `utils/biosFetchable.ts`,
-  `bigpicture/BiosTab.tsx`, `bigpicture/library/PlatformDetail.tsx`) and the two type modules they share
-  (`types/firmware.ts`, `api/backend.ts`), and nothing joins them. **Prompt-only**: no consumer reads an option's `need`
-  as its row's `required` — `required` comes off an emulator's plain declarations alone; a group's verdict is never
-  folded into a colour on the wire — the state is one of four words and the frontend picks the colour; `unknown` is
-  never read as `met` or as `unmet`; the level a group reaches is the resolver's verdict, a partly covered group
-  reaching the platform page's amber only under the region rule (the colour entry above); `Download required`'s count
-  and the download it starts both come from `fetch_for_required` (`domain/firmware_groups.py::fetched_as_required`) and
-  never from a second rule; and nothing in the judging knows a console, an emulator or a region by name — a group the
-  resolver states for a console nobody has worded must be judged, counted and fetched with no code change, its regions
-  printed in the resolver's own spelling where no name exists. The region sets the verdict reads beside the options come
-  from the entry's own caveats, and which ones — and which one must never be read as unchecked — is
-  `adapters/atlas_firmware.py::_UNCHECKED_REGION_CODES`'s. A region whose every name the resolver refused arrives with
-  neither an option nor such a caveat: the resolver names it, with every other region the group carries no option for,
-  only under `unstated` on the group's `core-mode-unestablished` caveat, and that field is the one it is read off
-  (`adapters/atlas_firmware.py::_unstated_regions`; `TestOneOfGroups` pins it read from that statement alone and spelled
-  as the resolver spells it, `tests/domain/test_firmware_groups.py::TestARegionTheGroupStatesNothingFor` that it is
-  unchecked and named, `TestTheRegionDecides` that it keeps the platform off amber)
+  and the download are one set; the frontend halves are `frontend/src/utils/biosSummary.test.ts`,
+  `frontend/src/utils/biosGroup.test.ts`, `frontend/src/utils/biosGamePageRows.test.ts`,
+  `frontend/src/bigpicture/BiosTab.test.tsx` and `frontend/src/bigpicture/library/PlatformsTab.test.tsx`. The rule spans
+  the adapter (`adapters/atlas_firmware.py::_wants` and `_groups`), two domain modules (`domain/firmware_groups.py`
+  judges, `domain/bios_status.py` counts), the service (`services/firmware/status.py`, `downloads.py`, `game_detail.py`
+  passing the ROM's regions), six frontend modules (`frontend/src/utils/biosSummary.ts`,
+  `frontend/src/utils/biosGroup.ts`, `frontend/src/utils/biosFetchable.ts`, `frontend/src/utils/biosGamePageRows.ts`,
+  `frontend/src/bigpicture/BiosTab.tsx`, `frontend/src/bigpicture/library/PlatformDetail.tsx`) and the two type modules
+  they share (`frontend/src/types/firmware.ts`, `frontend/src/api/backend.ts`), and nothing joins them. **Prompt-only**:
+  no consumer reads an option's `need` as its row's `required` — `required` comes off an emulator's plain declarations
+  alone; a group's verdict is never folded into a colour on the wire — the state is one of four words and the frontend
+  picks the colour; `unknown` is never read as `met` or as `unmet`; the level a group reaches is the resolver's verdict,
+  a partly covered group reaching the platform page's amber only under the region rule (the colour entry above);
+  `Download required`'s count and the download it starts both come from `fetch_for_required`
+  (`domain/firmware_groups.py::fetched_as_required`) and never from a second rule; and nothing in the judging knows a
+  console, an emulator or a region by name — a group the resolver states for a console nobody has worded must be judged,
+  counted and fetched with no code change, its regions printed in the resolver's own spelling where no name exists. The
+  region sets the verdict reads beside the options come from the entry's own caveats, and which ones — and which one
+  must never be read as unchecked — is `adapters/atlas_firmware.py::_UNCHECKED_REGION_CODES`'s. A region whose every
+  name the resolver refused arrives with neither an option nor such a caveat: the resolver names it, with every other
+  region the group carries no option for, only under `unstated` on the group's `core-mode-unestablished` caveat, and
+  that field is the one it is read off (`adapters/atlas_firmware.py::_unstated_regions`; `TestOneOfGroups` pins it read
+  from that statement alone and spelled as the resolver spells it,
+  `tests/domain/test_firmware_groups.py::TestARegionTheGroupStatesNothingFor` that it is unchecked and named,
+  `TestTheRegionDecides` that it keeps the platform off amber)
 - **Which emulator a set of answers is about is ONE pick per scope — a platform's, and a ROM's — and every answer in
   that scope is a projection of it** — test + prompt-only —
   `tests/services/test_firmware.py::TestOnePlatformOneEmulator` asserts the two surfaces AGREE across every way a
@@ -1340,28 +1421,28 @@ Format: **invariant** — tier — enforced by.
   precedence `ActiveCoreResolver` applies minus the per-game layer. Two call sites read it today:
   `FirmwareStatusReader._platform_emulator` (which serves BOTH the per-platform answer's `active_core` /
   `active_core_label` and `check_platform_bios`'s `launching_emulator=None` fallback) and
-  `FirmwareDownloader._platform_emulator_identity` (which also answers a game's "Download BIOS" where the game resolves
-  to no emulator). The platform's core read (`CoreService.get_system_core_info`) is not one of them: its
-  `active_core_label` is the bake pick alone (`resolve_platform_label`), and agrees with the BIOS pick wherever a
-  bakeable emulator exists. **Nothing joins them**, and a fourth resolution is exactly what this entry is about: the
-  pane displayed a just-picked PCSX ReARMed and judged the platform by the libretro system default beside it, so one
-  PlayStation read `ok` on the game page and `missing` on the pane. `.label` and `.emulator` must come off ONE call —
-  two calls agree by coincidence, which is what the old pair did until an override was set. **One seam now carries the
-  pick rather than a projection of it**: `BiosChecker` takes a `LaunchingEmulator` (`domain/emulator_commands.py` —
-  `emulator` and `label`, both read-only), so the per-game caller hands over the whole resolution and
-  `check_platform_bios` reads both projections off that one value. A mismatched pair is not representable there, which
-  is why the answer may state its own `active_core_label`: it is the label half of the pick those very counts were
-  filtered by (`TestTheAnswerNamesTheEmulatorItJudgedBy`, which hands the check two picks differing only in label and
-  holds the label to moving while the judgment does not). That covers this seam and no other — the remaining sites still
-  pair by discipline. The game page's BIOS headline names the emulator by the answer's launching entry in
-  `emulator_tabs` — every label its identity goes by (#2190 D28, D38) — and by `active_core_label` only where no entry
-  is the launching emulator's (`launchingName` in `frontend/src/utils/biosSummary.ts`). **The key is the emulator
-  IDENTITY, not `.core_so`** (#1821): the identity names a standalone pick as readily as a libretro one, where `core_so`
-  is `None` for every standalone emulator, and a pick with no identity is answered as not established (#2190 D26).
-  Reaching for `.core_so` here again would turn every standalone pick into that answer silently, because the field is
-  still there and still right for the picker payload beside it. `CoreInfoProvider.get_active_core` — the "first libretro
-  entry, bakeable or not" reading these sites used — has no production caller left. **The ROM scope is the same rule one
-  layer in, over a different pair of modules**: the game page is assembled by two services that each ask
+  `FirmwareDownloader._platform_emulator_identity` (the emulator `Download required` fetches for where the page names
+  none). The platform's core read (`CoreService.get_system_core_info`) is not one of them: its `active_core_label` is
+  the bake pick alone (`resolve_platform_label`), and agrees with the BIOS pick wherever a bakeable emulator exists.
+  **Nothing joins them**, and a fourth resolution is exactly what this entry is about: the pane displayed a just-picked
+  PCSX ReARMed and judged the platform by the libretro system default beside it, so one PlayStation read `ok` on the
+  game page and `missing` on the pane. `.label` and `.emulator` must come off ONE call — two calls agree by coincidence,
+  which is what the old pair did until an override was set. **One seam now carries the pick rather than a projection of
+  it**: `BiosChecker` takes a `LaunchingEmulator` (`domain/emulator_commands.py` — `emulator` and `label`, both
+  read-only), so the per-game caller hands over the whole resolution and `check_platform_bios` reads both projections
+  off that one value. A mismatched pair is not representable there, which is why the answer may state its own
+  `active_core_label`: it is the label half of the pick those very counts were filtered by
+  (`TestTheAnswerNamesTheEmulatorItJudgedBy`, which hands the check two picks differing only in label and holds the
+  label to moving while the judgment does not). That covers this seam and no other — the remaining sites still pair by
+  discipline. The game page's BIOS headline names the emulator by the answer's launching entry in `emulator_tabs` —
+  every label its identity goes by (#2190 D28, D38) — and by `active_core_label` only where no entry is the launching
+  emulator's (`launchingName` in `frontend/src/utils/biosSummary.ts`). **The key is the emulator IDENTITY, not
+  `.core_so`** (#1821): the identity names a standalone pick as readily as a libretro one, where `core_so` is `None` for
+  every standalone emulator, and a pick with no identity is answered as not established (#2190 D26). Reaching for
+  `.core_so` here again would turn every standalone pick into that answer silently, because the field is still there and
+  still right for the picker payload beside it. `CoreInfoProvider.get_active_core` — the "first libretro entry, bakeable
+  or not" reading these sites used — has no production caller left. **The ROM scope is the same rule one layer in, over
+  a different pair of modules**: the game page is assembled by two services that each ask
   `ActiveCoreReader.active_emulator_for_rom` for themselves — `services/cores.py::get_platform_core_info` names the pick
   in the picker, `services/game_detail.py::get_bios_status` scopes the BIOS question to it — and
   `::TestOneRomOneEmulator` asserts they agree across every way a ROM arrives at an emulator (nothing pinned, the
@@ -1371,30 +1452,28 @@ Format: **invariant** — tier — enforced by.
   send the BIOS rows back to the platform's own, which is the platform-scoped defect above, per ROM. The one-of groups
   an answer judges are that same pick's too (`FirmwareCatalogue.groups_for(identity)`), and both classes hold the group
   verdicts in their agreement (`_emulator_dependent`), so a second resolution feeding the groups would show as a
-  disagreement there rather than as a group judged for another emulator. So are the rows and where a download lands
+  disagreement there rather than as a group judged for another emulator. So are the rows
   ([#2190](https://github.com/danielcopper/romm-tender/issues/2190) D2, D9):
   `FirmwareCatalogue.placements_for(identity)` answers each file name with the launching emulator's own requirement —
   its place, its presence, its verdict — wherever it declares that name, so with YabaSanshiro picked for Saturn the row
-  and the download are `saturn_bios.bin` directly under the BIOS root whatever lies under Kronos's `kronos/`
-  (`tests/services/test_firmware.py::TestEachEmulatorsOwnPlace`). A game page's "Download BIOS" places for that game's
-  own pick (`download_all_firmware` with a `rom_id` asks `active_emulator_for_rom`), so a game set to Kronos on a
-  YabaSanshiro platform gets `kronos/saturn_bios.bin` (`::test_a_game_page_download_places_for_the_games_own_pick`).
-  Every OTHER emulator the resolver answered for is an entry of its own (`emulator_tabs`, `::TestOneEntryPerEmulator`),
-  its rows that emulator's own requirements, which the BIOS tables' emulator selector shows; choosing one never changes
-  the level, the header's counts or the badge. What it does change on the platform page is where a download lands:
-  `Download required` and a row's own download carry the shown emulator's identity (`emulator`, `None` for the pick) and
-  place for THAT emulator — with Kronos shown, `saturn_bios.bin` goes to `kronos/` on a YabaSanshiro platform
-  (`::test_download_required_fetches_for_the_shown_emulator`,
-  `::test_the_per_row_download_fetches_for_the_shown_emulator`) — and an identity the answer holds no verdict for is
-  refused with `emulator_unknown`, because `placements_for` would answer it with the first declarer's place
-  (`::test_an_emulator_the_answer_does_not_hold_is_refused`). `Download all` places for the platform's pick. A reader
-  keying a launch's rows on `by_file_name()` instead would read the first declarer's place and verdict wherever two
-  emulators declare one name at different places — Saturn green under YabaSanshiro over a file only under `kronos/`.
-  **What the ROM sibling cannot pin is the fixture's own default**: `FakeCoreInfoProvider.get_default_emulator` builds
-  its invocation from the `active_core` tuple, which carries no identity, so a test on the bare fake resolves an
-  unpinned ROM to a `None` where the live adapter resolves it to an emulator — `_DeclaredDefaultCoreInfo` in that file
-  renders the declared default the way `AtlasCatalogueAdapter` does, and every other fixture on the bare fake still
-  exercises the weaker resolution
+  is `saturn_bios.bin` directly under the BIOS root whatever lies under Kronos's `kronos/`
+  (`tests/services/test_firmware.py::TestEachEmulatorsOwnPlace`). Every OTHER emulator the resolver answered for is an
+  entry of its own (`emulator_tabs`, `::TestOneEntryPerEmulator`), its rows that emulator's own requirements, which the
+  BIOS tables' emulator selector shows; choosing one never changes the level, the header's counts or the badge. What it
+  does change on the platform page is what `Download required` fetches: it carries the shown emulator's identity
+  (`emulator`, `None` for the pick) and fetches what THAT emulator requires
+  (`::test_download_required_fetches_for_the_shown_emulator`), and an identity the answer holds no verdict for is
+  refused with `emulator_unknown`, because `placements_for` would answer it with the first declarer's requirement
+  (`::test_an_emulator_the_answer_does_not_hold_is_refused`). Where a download is linked follows no pick: every
+  download, a game page's "Download BIOS" and a row's own included, lands in the platform's store folder and is linked
+  wherever an emulator of the platform opens the file ([#2191](https://github.com/danielcopper/romm-tender/issues/2191)
+  D3, `::test_a_game_page_download_links_the_file_for_every_emulator_of_the_platform`). A reader keying a launch's rows
+  on `by_file_name()` instead would read the first declarer's place and verdict wherever two emulators declare one name
+  at different places — Saturn green under YabaSanshiro over a file only under `kronos/`. **What the ROM sibling cannot
+  pin is the fixture's own default**: `FakeCoreInfoProvider.get_default_emulator` builds its invocation from the
+  `active_core` tuple, which carries no identity, so a test on the bare fake resolves an unpinned ROM to a `None` where
+  the live adapter resolves it to an emulator — `_DeclaredDefaultCoreInfo` in that file renders the declared default the
+  way `AtlasCatalogueAdapter` does, and every other fixture on the bare fake still exercises the weaker resolution
 - **A platform's BIOS answer is asked for one platform at a time, and a row that has not got one yet is never rendered
   as a row nothing could be established for** — test + prompt-only —
   `frontend/src/bigpicture/library/PlatformsTab.test.tsx` pins the five parts that can be seen from a test: the two
@@ -1422,16 +1501,15 @@ Format: **invariant** — tier — enforced by.
 - **The whole-machine firmware inventory is never asked with content verification, and the per-platform reading is never
   asked without it** — prompt-only — `firmware_inventory()` (`FirmwareResolver`, `AtlasFirmwareAdapter`) is asked
   unverified: `verify=True` there sweeps every unclaimed file under the BIOS root plus each declared file the packaged
-  identity table covers at a matching size, and its two callers — the home migration's untracked-BIOS sweep and
-  `download_firmware(firmware_id)` — need only where a file GOES. `firmware_for_system(<system>)`
-  (`FirmwarePlatformResolver`, `AtlasPlatformFirmwareAdapter`) is asked WITH it, and that half is the one a reader is
-  likely to "optimise": drop the flag and two answers go silent rather than loud — a packaged card that identifies its
-  image by content names no file at all (DuckStation comes back `declaration="packaged"` with an empty list and no
-  system recording), and every folder declaration's verdict falls to `None`, which takes each platform holding one to
-  `unknown`. Measured on the reference machine at emu-atlas 0.22, the median of five runs each: 59-173 ms per system
-  verified, against 172 ms for one unverified whole-machine sweep — the per-system read performs no unclaimed sweep at
-  all, which is what bounds it. Nothing detects either direction: `verify` is one keyword argument on each call and
-  every test stays green
+  identity table covers at a matching size, and its one caller — the home migration's untracked-BIOS sweep — needs only
+  where a file LIES. `firmware_for_system(<system>)` (`FirmwarePlatformResolver`, `AtlasPlatformFirmwareAdapter`) is
+  asked WITH it, and that half is the one a reader is likely to "optimise": drop the flag and two answers go silent
+  rather than loud — a packaged card that identifies its image by content names no file at all (DuckStation comes back
+  `declaration="packaged"` with an empty list and no system recording), and every folder declaration's verdict falls to
+  `None`, which takes each platform holding one to `unknown`. Measured on the reference machine at emu-atlas 0.22, the
+  median of five runs each: 59-173 ms per system verified, against 172 ms for one unverified whole-machine sweep — the
+  per-system read performs no unclaimed sweep at all, which is what bounds it. Nothing detects either direction:
+  `verify` is one keyword argument on each call and every test stays green
 - **No sentinel objects on the wire — explicit JSON-representable tagged values only** — prompt-only — no sentinel
   survives on the wire today (`NO_MIGRATION` retired with #1004, legacy `slot:null` confirmation with #1276), so the
   rule now guards reintroduction; nothing mechanical detects a new one
@@ -1445,21 +1523,35 @@ Format: **invariant** — tier — enforced by.
   The adopt dialog's **replace** exit is the second such case, and it does **not** rest on that justification: the
   premise is that the content is the user's own — a different rip, a patch, a romhack — which is exactly what the server
   cannot hand back. What carries it instead is that the user is shown both sides, offered a content check, and chooses
-  between two named outcomes behind a second confirmation ([ADR-0028](../adr/0028-adopted-install-is-an-install.md)).
-  That reasoning covers the **ROM** only: an adoption's Overwrite also replaces save and savestate files, and those take
-  the **backup** leg through the same `MatrixExecutor.quarantine_local_file` — every argument ADR-0028 gives for not
-  quarantining a ROM (gigabytes, no sensible retention, re-fetchable from RomM) inverts for a save, and a savestate is
-  synced nowhere at all. It is the first caller to hand that funnel a directory outside the saves root: it takes the
-  directory it is given, so a savestate's backup lands in `<states>/.romm-backup/`. Following a moved save directory
-  (`services/saves/save_directory.py`) takes the same **backup** leg on a collision — detail:
-  [Following a Moved Save Directory](save-file-sync-architecture.md#following-a-moved-save-directory). The installer
-  replaces the user's database and settings on two paths, and they are held to the rule differently. A **rollback by
-  hand** (`install.sh --rollback`) takes the **backup** leg: it stops the unit and copies the database files and
-  `settings.json` it is about to replace into `rollback-backup/` under the data root — put in place over the previous
-  copy the same way as the update's backup, and never touched by an update — and a copy that cannot be made refuses the
-  rollback with nothing changed. No prompt: the copy is what makes asking unnecessary. The **automatic rollback** of an
-  update whose new version did not answer makes no such copy, because all it discards is what that version wrote while
-  the installer waited for it, and that version was never seen to answer. Both are pinned in
+  between two named outcomes behind a second confirmation ([ADR-0028](../adr/0028-adopted-install-is-an-install.md)). A
+  choice in the game page's ARTWORK tab over an image set in Steam is the third: Steam's copy of the image the user set
+  is cleared before Tender's goes in, and that copy may exist nowhere else, so the picker asks once more — Replace or
+  Cancel — and Cancel changes nothing ([#2381](https://github.com/danielcopper/romm-tender/issues/2381) D13;
+  `frontend/src/bigpicture/ArtworkPickerModal.test.tsx`, "asks once more before it replaces an image set in Steam, and
+  answers to replace it" and "Cancel on the second question replaces nothing"). The icon is not asked about: Tender
+  repoints the shortcut and the file the user set stays where it was. That reasoning about the adopt dialog covers the
+  **ROM** only: an adoption's Overwrite also replaces save and savestate files, and those take the **backup** leg
+  through the same `MatrixExecutor.quarantine_local_file` — every argument ADR-0028 gives for not quarantining a ROM
+  (gigabytes, no sensible retention, re-fetchable from RomM) inverts for a save, and a savestate is synced nowhere at
+  all. It is the first caller to hand that funnel a directory outside the saves root: it takes the directory it is
+  given, so a savestate's backup lands in `<states>/.romm-backup/`. A BIOS file at an emulator's place is changed only
+  by a "Replace…" the user confirmed on its row. It takes the **backup** leg too, by a path of its own rather than that
+  funnel: once Tender's copy has passed RomM's checksum, the file moves to
+  `<data>/backups/bios/<date and time>/<its original absolute path>`, where it stays until the user deletes it. Where
+  the link then cannot be placed, it moves back only while its place is still free, never over anything that lies there
+  by then, and stays in the backup folder otherwise ([#2191](https://github.com/danielcopper/romm-tender/issues/2191)
+  D5, D17, D33, D34). The backup leg is also taken by a file lying in the firmware store without a record of Tender's
+  whose checksum is not RomM's, before a download takes its name (D25). Both go through `FirmwareStore.do_back_up` and
+  are pinned by `tests/services/test_firmware_store.py` (`TestReplacingAWrongFile`, `TestAStoreFileWithoutARecord`).
+  Following a moved save directory (`services/saves/save_directory.py`) takes the same **backup** leg on a collision —
+  detail: [Following a Moved Save Directory](save-file-sync-architecture.md#following-a-moved-save-directory). The
+  installer replaces the user's database and settings on two paths, and they are held to the rule differently. A
+  **rollback by hand** (`install.sh --rollback`) takes the **backup** leg: it stops the unit and copies the database
+  files and `settings.json` it is about to replace into `rollback-backup/` under the data root — put in place over the
+  previous copy the same way as the update's backup, and never touched by an update — and a copy that cannot be made
+  refuses the rollback with nothing changed. No prompt: the copy is what makes asking unnecessary. The **automatic
+  rollback** of an update whose new version did not answer makes no such copy, because all it discards is what that
+  version wrote while the installer waited for it, and that version was never seen to answer. Both are pinned in
   `tests/scripts/test_install_sh.py` (`TestRollingBackByHand`, and
   `TestAnUpdateThatDoesNotStart::test_it_keeps_no_copy_of_what_the_failed_version_wrote`); what an update and a rollback
   do, in order: [Running an installed one](../contributing/development.md#running-an-installed-one). A settings file
@@ -1477,49 +1569,120 @@ Format: **invariant** — tier — enforced by.
   `tests/services/test_startup_healing.py::TestReportMissingInstalls` and `tests/contract/test_missing_download.py` for
   the start-up step and the forget; that the list of paths is complete is prompt-only — nothing fails when a new path
   that deletes `rom_installs` rows is not one the user starts
-- **A BIOS file is deleted only where a `downloaded_bios` record names it under one of the platform's firmware slugs,
-  and only at the path that record holds** — test + prompt-only —
-  `tests/services/test_firmware.py::TestDeletePlatformBios` and `::TestDeleteOneBiosFile` pin every direction
-  end-to-end: an emulator-shipped file survives, a hand-placed file under a server file's name survives, our own
-  download is still removed once RomM no longer holds it, a download whose placement has since moved is unlinked where
-  it was written rather than where the placement now points, and a per-row delete takes only the record it names. What
-  makes the destructive-op rule (the `backup-or-confirm` entry) concrete for BIOS files is that authority to delete
-  comes from having placed the file, and the record is the only evidence of that, because `BiosFile.mark_downloaded` is
-  written in the download path and nowhere else. So the records are the delete's whole input: it iterates them, not a
-  status listing, which is also what keeps a download RomM has since dropped deletable instead of gated behind a file
-  list that no longer names it. The authorisations a reader reaches for instead are wrong in opposite directions.
-  `downloaded` is `os.path.exists` and nothing more: authorise on it and the platform-wide delete destroys firmware
-  RetroDECK ships with its own components, which no RomM library holds and nothing here can fetch back — it did exactly
-  that to `<bios>/dolphin-emu/Sys/codehandler.bin` on a real device. `on_server` describes what the library holds _now_,
-  not who wrote the file: authorise on it and a file dropped from RomM after we downloaded it is stranded on disk with
-  nothing in the UI able to remove it. The PATH has its own version of the same trap: a status row's `local_path` is
-  recomputed from today's placement, so for a file fetched before an emu-atlas bump moved it the name still matches our
-  record while the path names whatever now occupies the new destination — RetroDECK's own `codehandler.bin`, in the case
-  that motivated this. The count the UI offers is bound to the same set: `deletable_count` on the
-  `get_platform_firmware_status` payload is records-still-on-disk, counted as distinct paths, because `local_count` is
-  the library's progress ratio and is wrong in both directions — it hid the button entirely for a platform whose
-  downloads had all left the library. **Since #1815 the same field is stamped per ROW** (`_stamp_deletable`), and the
-  frontend authorises a destructive action on it: a row's Delete is offered where `deletable_count` is non-zero and
-  nowhere else, and a folder row's counts the distinct files our records name underneath it, because a folder is never a
-  download but what we put inside one is still ours — and two records naming one path are one unlink, the platform
-  count's own rule read one layer in. That is a wire field a page reads to decide whether to offer a delete, so deriving
-  it from `downloaded` — the same substitution as below, one layer out — puts the button on `codehandler.bin`;
-  `TestGetFirmwareStatusDeletableCount` pins the row's answer for a file Tender did not place. **Three buttons now reach
-  one removal loop** (`PlatformBiosDeleter._delete_recorded_io`, under a record predicate per button): a second copy of
+- **A BIOS file is deleted only where Tender holds a record of it, and only at the path that record holds: a store file
+  of the platform with every link of Tender's to it, or a download made into an emulator source's folder before the
+  store, at its `downloaded_bios` path; a link only while it still points at its store file and its place may be
+  touched** — test + prompt-only — `tests/services/test_firmware_store.py::TestDeleting` pins the store's side
+  end-to-end over a real folder tree — the store file and both of its links go, a file the user placed at a place stays,
+  a link under a root the resolver only assumed stays with its record and goes at the next link update once the root is
+  read, and an older download stays where it is and its Delete removes it there — and
+  `tests/services/test_firmware.py::TestDeletePlatformBios` / `::TestDeleteOneBiosFile` the older downloads': an
+  emulator-shipped file survives, a hand-placed file under a server file's name survives, a download is removed once
+  RomM no longer holds it, and a per-row delete takes only the record it names. What makes the destructive-op rule (the
+  `backup-or-confirm` entry) concrete for BIOS files is that authority to delete comes from having placed the file, and
+  the records are the only evidence of that: a store record is written when a file reaches the store
+  (`StoredFirmware.mark_downloaded`), a link record when Tender places a link (`FirmwareLink.mark_placed`), and a
+  `downloaded_bios` record was written by the download path before the store existed and is no longer written at all
+  ([#2191](https://github.com/danielcopper/romm-tender/issues/2191) D12). Two writers move an existing older record
+  without making a new one: the RetroDECK home migration (`BiosFile.relocate`) and the refiling
+  (`services/firmware/refiling.py`). A link is removed only while it still points at the store path its record names, so
+  a link someone replaced by a file of their own is left alone; and only where its place may be touched — under a root
+  the resolver read, never under one it only assumed or of a source whose roots could not be asked (D11, D20) — while an
+  older download is removed only inside the BIOS folder RetroDECK names now: one whose file is gone loses its record,
+  one Tender may not reach keeps it while RetroDECK's settings cannot be read, RetroDECK is not installed or it names no
+  BIOS folder (D35), and one outside that folder loses it and stays (D29). So the records are the delete's whole input:
+  it iterates them, not a status listing. The authorisations a reader reaches for instead are wrong in opposite
+  directions. `downloaded` is the resolver's presence at the row's place, equally true of firmware RetroDECK ships with
+  its own components, which no RomM library holds and nothing here can fetch back — an older delete authorised on
+  presence did exactly that to `<bios>/dolphin-emu/Sys/codehandler.bin` on a real device. `on_server` describes what the
+  library holds _now_, not who wrote the file: authorise on it and a file dropped from RomM after we downloaded it is
+  stranded on disk. The count the UI offers is bound to the same set: `deletable_count` on the
+  `get_platform_firmware_status` payload counts every file of this platform's store that Tender has a record of and that
+  is on disk — a copy only another emulator uses and a second copy of the same bytes included — and the older downloads
+  still on disk, one a Delete could not reach included (#2191 D29); each row carries the name its Delete is addressed by
+  (`delete_name`) — its store file, the older download of the library file that fills it, or the older download lying at
+  its own place — which alone gates the row's Delete. **Both buttons reach one removal**
+  (`PlatformBiosDeleter._delete_io` over `FirmwareStore.do_remove`, under a name selection per button): a second copy of
   that loop is the shape this rule is about, because the copies would drift silently. **Nothing mechanical stands behind
   any of this.** A delete path looping a status list on `downloaded` alone would go green — which is exactly the shape
-  this one had when it destroyed that file
+  the older one had when it destroyed that file
+- **A BIOS link goes only to a place the resolver states, for an emulator its source does not state not installed on
+  every entry it lists it under (`FirmwareCatalogue.linkable`), in every enabled source, a sealed catalogue's places
+  included while its rows stay withheld; the link update removes a link of Tender's that still points at its store file
+  only in a source whose list it read whole — never a sealed one — and whose roots it may touch, at a place no emulator
+  that source does not state not installed wants any more, for this platform or for any other whose ids are kept — each
+  one RomM listed at the last sync, and any kept since — or that Tender holds store files for; it keeps the link where
+  no listing was ever kept or such a platform or its source could not be read, and the next update asks again; an
+  installed emulator whose wants the resolver could not read wants no place, since the resolver states none; a link
+  whose store file is gone goes wherever its place may be touched** — test + prompt-only —
+  `tests/services/test_firmware_store.py::TestOnlyAnInstalledEmulatorIsLinkedFor` (no link for an emulator stated not
+  installed; a link nobody wants removed; a link the user put there, one under a root only assumed, one in a source not
+  read and one a sealed list leaves out left alone; its row refusing "Replace…" with the refusal `not_installed`),
+  `::TestALinkAnotherPlatformMayStillWant` (a link another platform's emulator still wants kept — a platform RomM listed
+  without a store file of Tender's, a sealed list that states the place, a platform whose system is switched off, the
+  images a folder another platform's emulator reads recognises — and kept where the listing was never kept, a platform's
+  system could not be asked or a source could not be read for its system; removed once no platform wants it, a platform
+  with no system wanting nothing; each system read once and the asking stopped once every link is known to be wanted;
+  the same through a download and a replacement),
+  `::TestBringingLinksUpToDate::test_a_link_of_tenders_with_no_store_copy_left_is_removed` (a link whose store file is
+  gone) and `tests/adapters/test_atlas_firmware.py::TestEverySourceItIsPlacedIn` (the launch reading's `not-installed`
+  is the only exclusion, and only where every entry of the emulator says it — `unestablished` and a reading that raised
+  rule nothing out; a sealed catalogue is read for its places and marked sealed while the answering read of one stays
+  withheld; a source whose reading raised or named no root is named unread). Why: a packaged card states what a
+  standalone emulator wants whether or not it is installed, so the firmware reading alone cannot keep a link from an
+  emulator that is not there; the launch reading (`emulators_for(system)`, each entry's `availability`) is the source's
+  own statement. A place the resolver states is a place a link may go even beside a sealed catalogue: what the sealed
+  list leaves out is a link not placed, while reading it as complete — for rows and verdicts, or for deciding that a
+  link is unwanted — would misstate what is needed. One place can serve two platforms (D19), and a platform need hold no
+  file of Tender's to want a place, so a link one platform no longer wants stays while another platform's emulator in
+  the same source wants its place, and a platform or a source that could not be read is never read as wanting nothing.
+  An installed emulator whose wants the resolver could not read (`unread_emulators`) is not such a case: it wants no
+  place, because the resolver states none for it, while an emulator its source does not state not installed wants every
+  place the resolver states for it ([#2191](https://github.com/danielcopper/romm-tender/issues/2191) D36, D37, D40, D42,
+  D43). Prompt-only: a new placing path reads `linkable()`, never `placements`; `not_installed` comes only from the
+  source's own launch reading; a link of Tender's that still points at its store file, in a source switched off or not
+  read, stays whatever that source's list would say; a link whose store file is gone goes in any source, not only the
+  one the test places it in; an emulator in `unread_emulators` wants no place only because no placement names it —
+  nothing pins that no placing or removal path reads that set
+- **Every save operation sends RomM the device id `SyncEngine.live_device_id` answers — registered or healed a moment
+  before — and no other: `RommSaveApi.list_saves` and the sync logic (`do_sync_rom_saves`,
+  `MatrixExecutor.sync_rom_saves`, `do_download_save`, `do_upload_save`) take a `LiveDeviceId`, only that entry builds
+  one, and no save service but `SyncEngine` holds the `DeviceRegistry`** — check + test + prompt-only — RomM answers a
+  listing without a device id with no sync row for this device on any save, so the decision reads every save as one this
+  device never touched (the never-touched rows of the decision table, among them a conflict on a save this device is
+  current on); and a stored id the server has since lost (a RomM database wiped or restored) is answered with a 404. An
+  operation that sent the stored id instead would send no id while the device is unregistered, and a dead one after such
+  a wipe. The entry registers or heals the device on every call (one `PUT /api/devices/{id}`), under a lock no caller
+  takes anything beneath, and refuses `server_unreachable` when the registration could not reach RomM, or
+  `device_not_registered` when it failed any other way — RomM, or a proxy in front of it, answered without registering
+  the device (the id-less answer included), or the stored token could not be sent
+  (`docs/architecture/save-file-sync-architecture.md`, "`DeviceRegistry` owns device identity"). Three things keep the
+  rule. basedpyright, in the gate, refuses a stored id or `None` where a `LiveDeviceId` is taken; in basic mode it does
+  not refuse a value typed `Any` — a `dict[str, Any]` read such as `ensure_device_registered()["device_id"]` — nor one
+  an unannotated parameter carries. `scripts/check_live_device_id.py` (AST) fails on a `LiveDeviceId(...)` call or a
+  `typing.cast` naming it anywhere under `backend/` but `SyncEngine.live_device_id`, and on `LiveDeviceId` imported
+  under another name; it does not see the name bound to a variable and called through it, a call reached through
+  `getattr`, a function that builds one and is defined inside the entry itself, a `# type: ignore` or
+  `# pyright: ignore` that hands a plain `str` to a parameter typed `LiveDeviceId`, or `tests/`, where building one is
+  how a test hands an id over. `tests/services/saves/test_device_registry_holder.py` reads every module under
+  `services/saves/` and fails on an annotation naming `DeviceRegistry` anywhere but `SyncEngineConfig` and on a
+  `DeviceRegistry(...)` assigned to an attribute of `self`; an unannotated parameter or attribute holding one, and a
+  registry reached through another object, pass it. Prompt-only: each save operation calls the entry once, before its
+  first request to RomM, and hands the id down; and a new request that names the device takes the id from there —
+  `upload_save`, `download_save_content`, `negotiate_sync` and `confirm_download` take a plain `str`, and are reached
+  today only through code that holds a `LiveDeviceId`
 - **Every read-mutate-write of a `RomSaveSyncState` runs under `SyncEngine.rom_lock(rom_id)`** — test + prompt-only —
   the sync paths, `get_save_status`, the slot list, the three slot mutations, copy to slot, rolling back to a save
-  version, the removed-game cleanup, deleting a ROM's or a platform's local saves and counting a platform's, and the
-  passes that record each installed ROM's save directory hold the lock (the count and the record passes for the
-  directory follow, not for a write of the save state), and following a moved save directory runs inside the lock of
-  whichever holder calls it. Tests pin the status
+  version, the removed-game cleanup, deleting a ROM's or a platform's local saves and counting a platform's, the passes
+  that record each installed ROM's save directory, and the local-save check (`check_local_drift`) hold the lock (the
+  count, the record passes and the check for the directory follow, not for a write of the save state), and following a
+  moved save directory runs inside the lock of whichever holder calls it. Tests pin the status
   (`tests/services/saves/test_status.py::TestGetSaveStatusRomLockSerialization`), the three slot mutations
   (`tests/services/saves/test_slots.py::TestSlotMutationLocking`), the slot list
   (`test_slots.py::TestSaveSlotsUnderRomLock`), a sync
-  (`tests/services/saves/test_service.py::TestPerRomLockSerialization::test_per_rom_lock_serializes_concurrent_sync`)
-  and the removed-game cleanup (`tests/services/saves/test_prune_support.py::TestLockPruneRoms`); prompt-only: every
+  (`tests/services/saves/test_service.py::TestPerRomLockSerialization::test_per_rom_lock_serializes_concurrent_sync`),
+  the removed-game cleanup (`tests/services/saves/test_prune_support.py::TestLockPruneRoms`) and the local-save check
+  (`test_status.py::TestCheckLocalDriftWithSaveSyncOn::test_the_check_waits_for_the_roms_sync_lock`); prompt-only: every
   other holder and any new read-mutate-write — mechanize via a call-site audit of `rom_save_sync_states.save` and
   `write_save_state`
 - **Which files a game's save consists of is the EMULATOR's answer, read live, and six of its seven states refuse the
@@ -1549,55 +1712,84 @@ Format: **invariant** — tier — enforced by.
   (`slots/setup.py`) and `resolve_sync_conflict` (`sync_engine/rollback.py`). `test_save_shape_gate.py` pins those five
   and nothing pins the list: a sixth write path that keys its refusal on `saves_dir` instead writes into a directory the
   answer never offered a sync. The same holds for following a moved directory first: `SyncEngine.follow_save_directory`
-  is called before any local file is looked at by the four sync paths, the five write paths, the two deletes and the two
-  counting reads (`count_platform_saves`, `get_save_status`), and a new reader of local save files that skips it looks
-  in the directory the files have just left — nothing mechanical finds such a reader. (2) A configuration-role file is
-  excluded by `SaveAnswer.synced_files` and included by `owned_files`, which is what a directory move must carry — a
-  caller reading `components` directly gets neither rule, and syncing Saturn's `.smpc` overwrites the console settings
-  the user chose on the other device. Saturn is the only example that actually reaches the rule on a stock RetroDECK:
-  MAME states a per-game `.cfg` too, but its answer classifies as not-established, so the sync refuses before any role
-  is consulted. The rule is a DENIAL — `CONFIGURATION_ROLES` names what to hold back — and turning it into an allow-list
-  of the roles known today is the one change here that fails in silence and in the expensive direction: the resolver's
-  own `unknown` role (a file on the machine no declaration describes) and a component with no role at all are both
-  carried today, and an allow-list drops them, along with every role upstream names next.
-  `tests/domain/test_save_answer.py` and `tests/adapters/test_atlas_saves.py` pin both directions; nothing else would
-  notice, because a dropped file is simply a file the page does not mention. (3) The two axes a rendering must read
-  alongside the state are single fields nothing forces a consumer to touch. `SaveAnswer.unestablished` holds three
-  shapes, and a truthiness test on `state == "unestablished"` collapses "nobody has audited this core" into "the folder
-  is known and the names are not" and into "the question was never put". `content_installed` is worse, because ignoring
-  it is invisible: an uninstalled ROM answers with a state, a directory and a full file list, every name a prediction
-  about the path the game WOULD occupy, so a surface that renders them tells a user their uninstalled game already has
-  three save files. The wire flag beside each name is `carried`, not `synced`, for the same reason — it names the RULE
-  applied to a file, never that file's sync state. (4) **The question must carry the ROM's REAL content path**, because
-  the answer turns on the content file's own EXTENSION — PUAE answers `save-inside-content` for an Amiga `.adf` and
-  establishes nothing for an `.hdf`; Genesis Plus GX answers a shared `scd_*.brm` for a Sega CD `.chd` and a per-game
-  `.srm` for a `.bin`. Within `RomInfoService` the system and the path are decided in exactly two places —
-  `_installed_answer` for a ROM on disk and `_uninstalled_answer` for one the library only knows about — so ADR-0010's
-  slug leak has two sites to guard there rather than one per caller. A **third** site exists outside it:
-  `services/rom_adoption/renamer.py` asks the resolver directly for the save and the savestate directory of both launch
-  paths of a rename, taking the system off the adoption target the service resolved — so it cannot leak the slug, and it
-  is a site the same rule has to hold at. A synthetic stem passed anywhere else answers a different question in a shape
-  that looks like an answer to this one, and nothing would say so. It is also why every per-system pin in
-  `tests/adapters/test_atlas_saves.py` is keyed by `(system, extension)`: a pin that does not name the extension it
-  asked with is pinning nothing, which is how two independent measurements of the same systems produced contradictory
-  fact lists. **Every path asks live and nothing caches an answer** — every call detects the emulator sources afresh,
-  and only the resolver's machine, which remembers a core's probe by the core file's path, modification time and size,
-  outlives it — because the user changes a core's options in the emulator's own quick menu between a launch and the next
-  sync; a display cache added without invalidating it on every sync entry is the one change that makes this rule fail
-  silently and expensively. **A place not read from the emulator's own settings** — a settings file missing or
-  unreadable, a source not set up, a bare RetroArch's marker, which is its `retroarch.cfg` — refuses as its own state,
-  and what decides it is the answer's own findings (`domain/save_answer.py::place_not_read_finding`), never the source's
-  health: ES-DE's settings and EmuDeck's RetroArch beside a standalone emulator are health findings about files no save
-  of that emulator is placed by, and reading them would refuse a save whose place was read. RetroDECK's and EmuDeck's
-  marker findings alone refuse nothing, because their marker names the source's folders and never where an emulator
-  writes; a missing saves root refuses only where the source's roots answer states that root `read`, since a root it
-  only assumed says nothing about a drive. `TestAPlaceNotReadFromTheSettings`,
-  `TestTheRealResolverStatesWhereAPlaceWasNotRead` and `TestAMissingSavesRoot` in `tests/adapters/test_atlas_saves.py`
-  pin both directions, the real resolver's included. Unchecked: such a refusal keeps the directory the resolver named,
-  because the rename on adoption carries a game's saves there, so anything that moves files by `SaveAnswer.directory`
-  has to check the state itself, as `services/saves/save_directory.py::_followable_directory` does — a new mover that
-  does not carries files into a place the emulator's settings never named, and nothing would say so. Detail:
-  `docs/architecture/save-sync-coverage.md`, GLOSSARY.md → Save state / Save scope
+  is called before any local file is looked at by the four sync paths, the five write paths, the two deletes, the two
+  counting reads (`count_platform_saves`, `get_save_status`) and the local-save check (`check_local_drift`), and a new
+  reader of local save files that skips it looks in the directory the files have just left — nothing mechanical finds
+  such a reader. (2) A configuration-role file is excluded by `SaveAnswer.synced_files` and included by `owned_files`,
+  which is what a directory move must carry — a caller reading `components` directly gets neither rule, and syncing
+  Saturn's `.smpc` overwrites the console settings the user chose on the other device. Saturn is the only example that
+  actually reaches the rule on a stock RetroDECK: MAME states a per-game `.cfg` too, but its answer classifies as
+  not-established, so the sync refuses before any role is consulted. The rule is a DENIAL — `CONFIGURATION_ROLES` names
+  what to hold back — and turning it into an allow-list of the roles known today is the one change here that fails in
+  silence and in the expensive direction: the resolver's own `unknown` role (a file on the machine no declaration
+  describes) and a component with no role at all are both carried today, and an allow-list drops them, along with every
+  role upstream names next. `tests/domain/test_save_answer.py` and `tests/adapters/test_atlas_saves.py` pin both
+  directions; nothing else would notice, because a dropped file is simply a file the page does not mention. (3) The two
+  axes a rendering must read alongside the state are single fields nothing forces a consumer to touch.
+  `SaveAnswer.unestablished` holds three shapes, and a truthiness test on `state == "unestablished"` collapses "nobody
+  has audited this core" into "the folder is known and the names are not" and into "the question was never put".
+  `content_installed` is worse, because ignoring it is invisible: an uninstalled ROM answers with a state, a directory
+  and a full file list, every name a prediction about the path the game WOULD occupy, so a surface that renders them
+  tells a user their uninstalled game already has three save files. The wire flag beside each name is `carried`, not
+  `synced`, for the same reason — it names the RULE applied to a file, never that file's sync state. (4) **The question
+  must carry the ROM's REAL content path**, because the answer turns on the content file's own EXTENSION — PUAE answers
+  `save-inside-content` for an Amiga `.adf` and establishes nothing for an `.hdf`; Genesis Plus GX answers a shared
+  `scd_*.brm` for a Sega CD `.chd` and a per-game `.srm` for a `.bin`. Within `RomInfoService` the system and the path
+  are decided in exactly two places — `_installed_answer` for a ROM on disk and `_uninstalled_answer` for one the
+  library only knows about — so ADR-0010's slug leak has two sites to guard there rather than one per caller. A
+  **third** site exists outside it: `services/rom_adoption/renamer.py` asks the resolver directly for the save and the
+  savestate directory of both launch paths of a rename, taking the system off the adoption target the service resolved —
+  so it cannot leak the slug, and it is a site the same rule has to hold at. A synthetic stem passed anywhere else
+  answers a different question in a shape that looks like an answer to this one, and nothing would say so. It is also
+  why every per-system pin in `tests/adapters/test_atlas_saves.py` is keyed by `(system, extension)`: a pin that does
+  not name the extension it asked with is pinning nothing, which is how two independent measurements of the same systems
+  produced contradictory fact lists. **Every path asks live and nothing caches an answer** — every call detects the
+  emulator sources afresh, and only the resolver's machine, which remembers a core's probe by the core file's path,
+  modification time and size, outlives it — because the user changes a core's options in the emulator's own quick menu
+  between a launch and the next sync; a display cache added without invalidating it on every sync entry is the one
+  change that makes this rule fail silently and expensively. **A place not read from the emulator's own settings** — a
+  settings file missing or unreadable, a source not set up, a bare RetroArch's marker, which is its `retroarch.cfg` —
+  refuses as its own state, and what decides it is the answer's own findings
+  (`domain/save_answer.py::place_not_read_finding`), never the source's health: ES-DE's settings and EmuDeck's RetroArch
+  beside a standalone emulator are health findings about files no save of that emulator is placed by, and reading them
+  would refuse a save whose place was read. RetroDECK's and EmuDeck's marker findings alone refuse nothing, because
+  their marker names the source's folders and never where an emulator writes; a missing saves root refuses only where
+  the source's roots answer states that root `read`, since a root it only assumed says nothing about a drive.
+  `TestAPlaceNotReadFromTheSettings`, `TestTheRealResolverStatesWhereAPlaceWasNotRead` and `TestAMissingSavesRoot` in
+  `tests/adapters/test_atlas_saves.py` pin both directions, the real resolver's included. Unchecked: such a refusal
+  keeps the directory the resolver named, because the rename on adoption carries a game's saves there, so anything that
+  moves files by `SaveAnswer.directory` has to check the state itself, as
+  `services/saves/save_directory.py::_followable_directory` does — a new mover that does not carries files into a place
+  the emulator's settings never named, and nothing would say so. Detail: `docs/architecture/save-sync-coverage.md`,
+  GLOSSARY.md → Save state / Save scope
+- **A save place whose directory still holds a resolver template (`<cwd>`, `<region>`, `<save_id>`) is never followed,
+  recorded, renamed into or used as a save-state place** — test + prompt-only — the resolver answers a place it cannot
+  complete as a template and lists the holes in `needs`: a RetroArch save folder set as a relative path answers
+  `<cwd>/…`, below the folder a game is started from, which Tender names it no value for (#2385 D20); Dolphin's GameCube
+  cards answer `…/<region>/Card A`; a Wii or Cemu title answers `…/<save_id>/…`. Such a string names no folder. Carried
+  into, it is a literal `<region>` folder or a path relative to the backend's own working directory, and the upgrade to
+  emu-atlas 0.25.0 made that reachable for real files: a relative save folder that 0.24.0 answered as the platform
+  default — recorded as such — answers `<cwd>/saves` after it, and a follow that took the new answer would move the
+  game's saves into a folder below wherever the backend happens to run. The rule spans three files:
+  `SaveAnswer.concrete_directory` (`domain/save_answer.py`) is `None` wherever a hole in `needs` appears in the
+  directory as `<hole>`, `_followable_directory` (`services/saves/save_directory.py`) reads it for the follow and both
+  records, the rename on adoption's `_save_dir` (`services/rom_adoption/renamer.py`) reads it, and
+  `resolve_savestate_location` (`adapters/atlas_saves.py`) answers `None` — nothing established — while the savestate
+  placement's `needs` is not empty. A hole in a file name alone leaves the directory a folder (Flycast's cards).
+  Enforced by `tests/services/saves/test_save_directory.py::TestNeverIntoAPlaceWithAHole` (the upgrade case: a concrete
+  record, a `<cwd>/saves` answer, the file left where it is, no folder created, the record unchanged; a region-keyed
+  folder; a first sight that records nothing),
+  `tests/services/test_rom_adoption.py::TestAdoptCandidate::test_a_save_directory_with_a_hole_still_in_it_carries_no_save`,
+  and in `tests/adapters/test_atlas_saves.py` `TestWhatTheAnswerCarries`' hole cases,
+  `TestTheSavestateQuestion::test_a_place_with_a_hole_still_in_it_establishes_nothing` and
+  `TestTheVocabularyIsTheResolversOwn::test_the_start_folder_hole_and_how_the_resolver_spells_a_hole_in_a_path`, which
+  holds the `<hole>` spelling to the resolver's own template constants. Unseen by them: a new mover or recorder that
+  reads `SaveAnswer.directory` instead of `concrete_directory` — the field stays the resolver's answer, because the
+  status read shows it — a savestate place taken from anywhere but that adapter, and a template the resolver spells
+  other than `<hole>`, or one whose hole `needs` does not list. Prompt-only: a new mover or recorder of save files reads
+  `concrete_directory`, and a new reader of a savestate place goes through `resolve_savestate_location`, so the guard
+  holds at it without a test of its own. Detail: `docs/architecture/save-sync-coverage.md`, "Nor is it always the
+  game's"
 - **Per-slot server reads/deletes go through `domain/save_slot.py` (legacy omits `&slot=`, client-filters)** —
   prompt-only — `get_slot_saves` / `get_slot_delete_info` / `delete_slot` / `list_file_versions` / `rollback_to_version`
   use `slot_query_param` + `save_in_slot`; RomM can't address `slot:null` via the param, so legacy MUST omit it + filter
@@ -1722,29 +1914,30 @@ Format: **invariant** — tier — enforced by.
 - **Every row a reader must be able to reach on a QAM page is a row Steam can focus — a toggle, a button, or a
   `Focusable` declaring a stop of its own, including a table row with no action of its own, so the reader can walk the
   table; text between two stops of the same card is reached through them and is no stop of its own (an emulator source
-  card's folder and health lines, between its arrows and its switch)** — check + prompt-only —
-  `tender/qam-focusable-row` checks the narrow syntactic slice where an `@decky/ui` `Focusable` in the QAM module map
-  has no nav-stop prop, static focusable descendant, opaque child, or unknown spread; focus order, runtime reachability,
-  edge revelation, scrolling geometry, and controller behaviour remain prompt-only. The frontend suite cannot see those
-  runtime properties: happy-dom has no nav tree, so a page whose rows are unreachable renders exactly like one whose
-  rows are not, and a mouse-driven dev loop never meets the problem either. A region scrolls only by moving focus —
-  Steam's plain `ScrollPanel` binds no gamepad direction — so an unreachable row is also an unscrollable one, and
-  everything below the fold is simply out of reach with a controller. The trap is that a bare `Focusable` is a container
-  rather than a focus stop: Steam's navigation asks the nav node the panel renders (`GetFocusable()`), which finds no
-  stop on a row declaring none of the four options it reads — nor on one whose `onActivate`/`onOKButton` would have
-  promoted it, since that promotion is skipped where an option was supplied — all stated in full at
-  `docs/architecture/qam-panel.md`, which owns that mechanism. **What the check cannot see it says nothing about**, and
-  three shapes matter. One opaque child anywhere among a row's children passes the whole row, which is how the
-  removed-games cleanup's details region stood unreachable in the one release that has shipped with this gate green — a
-  `Focusable` of plain text, fixed by declaring a nav option on it and not by the rule. A descendant the BROWSER can
-  focus — a `tabIndex`, a `button` — is taken as an escape, so a row reachable with a mouse and not with a stick passes.
-  And a row whose own `tabIndex` is its only affordance is reported rather than accepted, because that attribute reaches
-  the rendered element and not the node. The rule spans every page the wide frame will host, and the frame cannot carry
-  it: it holds a page's content as opaque nodes, never as rows it could check. **What the frame DOES carry is the
-  content outside a region's focusable rows, at both ends** — a heading, a counts line or a column header above the
-  first, a legend or a total below the last, each unreachable for the same reason and with no neighbour to ride along
-  with — so `ScrollRegion` scrolls itself to the top when focus reaches the first stop in it and to its end when focus
-  reaches the last (`revealEdge`, over `revealTop` and `revealBottom`). Both halves are pinned by
+  card's folder and health lines, between its arrows and its switch), and so is a line above the first stop of a
+  `ScrollRegion`, which the region brings into view when focus reaches that stop (the Tender folder section's status
+  line)** — check + prompt-only — `tender/qam-focusable-row` checks the narrow syntactic slice where an `@decky/ui`
+  `Focusable` in the QAM module map has no nav-stop prop, static focusable descendant, opaque child, or unknown spread;
+  focus order, runtime reachability, edge revelation, scrolling geometry, and controller behaviour remain prompt-only.
+  The frontend suite cannot see those runtime properties: happy-dom has no nav tree, so a page whose rows are
+  unreachable renders exactly like one whose rows are not, and a mouse-driven dev loop never meets the problem either. A
+  region scrolls only by moving focus — Steam's plain `ScrollPanel` binds no gamepad direction — so an unreachable row
+  is also an unscrollable one, and everything below the fold is simply out of reach with a controller. The trap is that
+  a bare `Focusable` is a container rather than a focus stop: Steam's navigation asks the nav node the panel renders
+  (`GetFocusable()`), which finds no stop on a row declaring none of the four options it reads — nor on one whose
+  `onActivate`/`onOKButton` would have promoted it, since that promotion is skipped where an option was supplied — all
+  stated in full at `docs/architecture/qam-panel.md`, which owns that mechanism. **What the check cannot see it says
+  nothing about**, and three shapes matter. One opaque child anywhere among a row's children passes the whole row, which
+  is how the removed-games cleanup's details region stood unreachable in the one release that has shipped with this gate
+  green — a `Focusable` of plain text, fixed by declaring a nav option on it and not by the rule. A descendant the
+  BROWSER can focus — a `tabIndex`, a `button` — is taken as an escape, so a row reachable with a mouse and not with a
+  stick passes. And a row whose own `tabIndex` is its only affordance is reported rather than accepted, because that
+  attribute reaches the rendered element and not the node. The rule spans every page the wide frame will host, and the
+  frame cannot carry it: it holds a page's content as opaque nodes, never as rows it could check. **What the frame DOES
+  carry is the content outside a region's focusable rows, at both ends** — a heading, a counts line or a column header
+  above the first, a legend or a total below the last, each unreachable for the same reason and with no neighbour to
+  ride along with — so `ScrollRegion` scrolls itself to the top when focus reaches the first stop in it and to its end
+  when focus reaches the last (`revealEdge`, over `revealTop` and `revealBottom`). Both halves are pinned by
   `frontend/src/bigpicture/layout/ScrollRegion.test.tsx` over mocked geometry, so what is tested is the DECISION and not
   the scroll: whether the panel and the reader agree about which element is topmost or last stays device-only, like the
   rest of this entry. **Reachable is not near, and the same mechanism decides where a page puts its controls**: focus
