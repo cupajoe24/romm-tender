@@ -1,13 +1,13 @@
 /**
- * The rows a RomM metadata record contributes to a game page, as labels and
- * values: which fields show, under what label, and joined how. Drawing them is
- * the caller's.
+ * The rows a game page shows from a RomM metadata record and the platform name,
+ * as labels and values: which fields show, under what label, and joined how.
+ * Drawing them is the caller's.
  */
 
 import type { RomMetadata } from "../types";
 import { formatReleaseDate } from "./formatters";
 
-/** One labelled row. A list value (the genres) is answered as the list rather than joined. */
+/** One labelled row. A list value is answered as the list rather than joined. */
 export interface MetadataRow {
   key: string;
   label: string;
@@ -15,8 +15,8 @@ export interface MetadataRow {
 }
 
 /**
- * The rows *meta* contributes, in display order — the platform alone where there
- * is no record. The summary is no row; drawing it is the caller's.
+ * The rows for *meta* and *platformName*, in display order — the platform alone
+ * where there is no record. The summary is no row; drawing it is the caller's.
  */
 export function metadataRows(meta: RomMetadata | null, platformName: string): MetadataRow[] {
   const rows: MetadataRow[] = [];

@@ -144,7 +144,11 @@ export async function releasePruneLeasesByOwner(owner: string): Promise<void> {
   await Promise.all(tokens.map(retireLeaseAfterSettlement));
 }
 
-/** Mount *owner* while the calling component is mounted, and release its leases when it unmounts or *owner* changes. */
+/**
+ * Mount *owner* while the calling component is mounted; on unmount or a change
+ * of *owner*, abort every continuation admitted under it and release its leases
+ * once each settles.
+ */
 export function usePruneLeaseOwner(owner: string): void {
   useEffect(() => {
     mountPruneLeaseOwner(owner);
