@@ -18,17 +18,17 @@
 
 import { FC, useState, KeyboardEvent } from "react";
 import { ConfirmModal, DialogButton, Focusable, GamepadButton, TextField, Spinner, type GamepadEvent } from "@decky/ui";
-import { showToast } from "../utils/toast";
+import type { EndpointFailure, SgdbCandidate } from "../api/backend";
+import { executeSgdbCandidateSearch, executeSgdbSelectionApply } from "../utils/sgdbGamePicker";
 import {
-  searchSgdbGames,
-  applySgdbGameId,
-  debugLog,
-  isEndpointFailure,
-  type EndpointFailure,
-  type SgdbCandidate,
-} from "../api/backend";
-import { applyArtwork } from "../utils/artwork";
-import { artworkApplyMessage } from "../utils/artworkApplyMessage";
+  SGDB_PICKER_TITLE,
+  SGDB_PICKER_EXPLANATION,
+  SGDB_PICKER_FIELD_LABEL,
+  SGDB_PICKER_SEARCH_BUTTON,
+  SGDB_PICKER_CLOSE_BUTTON,
+  SGDB_PICKER_RESULTS_NOTE,
+  SGDB_PICKER_NO_PREVIEW,
+} from "../utils/sgdbPickerWording";
 import { scrollToTop, scrollFocusedToCenter } from "../utils/scrollHelpers";
 import { detach } from "../utils/detach";
 
@@ -88,7 +88,7 @@ const Tile: FC<{
           color: "rgba(255,255,255,0.5)",
         }}
       >
-        No preview
+        {SGDB_PICKER_NO_PREVIEW}
       </div>
     )}
     <div style={{ fontSize: "12px", color: "#fff", textAlign: "center", lineHeight: "1.2" }}>{title}</div>
@@ -115,18 +115,12 @@ export const SgdbGamePickerModalContent: FC<SgdbGamePickerModalProps> = ({
     setSearching(true);
     setSearchError(null);
     try {
-      const res = await searchSgdbGames(term).catch((e): null => {
-        detach(debugLog(`SgdbGamePickerModal: searchSgdbGames rejected: ${e}`));
-        return null;
-      });
-      if (res?.success) {
-        setResults(res.games);
-        if (res.games.length === 0) {
-          setSearchError("No matches found.");
-        }
+      const outcome = await executeSgdbCandidateSearch(term, { tag: "SgdbGamePickerModal" });
+      if (outcome.success) {
+        setResults(outcome.games);
       } else {
-        setSearchError(res?.message ?? "Search failed. Check your connection and try again.");
         setResults([]);
+        setSearchError(outcome.error);
       }
     } finally {
       setSearching(false);
@@ -137,25 +131,16 @@ export const SgdbGamePickerModalContent: FC<SgdbGamePickerModalProps> = ({
     if (applying) return;
     setApplying(true);
     try {
-      const result = await applySgdbGameId(romId, selectedId).catch((e): null => {
-        detach(debugLog(`SgdbGamePickerModal: applySgdbGameId rejected: ${e}`));
-        return null;
+      const outcome = await executeSgdbSelectionApply({
+        romId,
+        appId,
+        selectedId,
+        onApplied,
+        tag: "SgdbGamePickerModal",
       });
-      if (!result) {
-        showToast("Failed to apply artwork selection");
-        return;
+      if (outcome.success) {
+        closeModal?.();
       }
-      if (isEndpointFailure(result)) {
-        showToast(result.message);
-        return;
-      }
-      const applied = await applyArtwork(romId, appId).catch((e): number => {
-        detach(debugLog(`SgdbGamePickerModal: applyArtwork rejected: ${e}`));
-        return 0;
-      });
-      showToast(artworkApplyMessage(applied));
-      onApplied(applied);
-      closeModal?.();
     } finally {
       setApplying(false);
     }
@@ -176,8 +161,8 @@ export const SgdbGamePickerModalContent: FC<SgdbGamePickerModalProps> = ({
       {...(closeModal !== undefined ? { closeModal } : {})}
       onOK={() => closeModal?.()}
       onCancel={() => closeModal?.()}
-      strTitle="Choose SteamGridDB Game"
-      strOKButtonText="Close"
+      strTitle={SGDB_PICKER_TITLE}
+      strOKButtonText={SGDB_PICKER_CLOSE_BUTTON}
       bAlertDialog={true}
     >
       <Focusable
@@ -188,15 +173,13 @@ export const SgdbGamePickerModalContent: FC<SgdbGamePickerModalProps> = ({
         style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}
       >
         <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>{romName}</div>
-        <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
-          No SteamGridDB match was found automatically — search by name and pick the right game.
-        </div>
+        <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>{SGDB_PICKER_EXPLANATION}</div>
 
         <Focusable flow-children="row" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <div style={{ flex: 1 }}>
             <TextField
               focusOnMount={true}
-              label="Search SteamGridDB"
+              label={SGDB_PICKER_FIELD_LABEL}
               value={term}
               onChange={(e: { target: { value: string } }) => setTerm(e.target.value)}
               // Enter (the on-screen keyboard's "Eingabe" key) runs the search,
@@ -216,7 +199,7 @@ export const SgdbGamePickerModalContent: FC<SgdbGamePickerModalProps> = ({
             disabled={searching}
             style={{ width: "120px", height: "40px" }}
           >
-            Search
+            {SGDB_PICKER_SEARCH_BUTTON}
           </DialogButton>
         </Focusable>
 
@@ -231,9 +214,7 @@ export const SgdbGamePickerModalContent: FC<SgdbGamePickerModalProps> = ({
         {searchError ? <div style={{ fontSize: "12px", color: "#ff8800" }}>{searchError}</div> : null}
 
         {results.length > 0 ? (
-          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>
-            Showing the top 6 matches — refine your search if the right game isn&apos;t here.
-          </div>
+          <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>{SGDB_PICKER_RESULTS_NOTE}</div>
         ) : null}
 
         {results.length > 0 ? (
