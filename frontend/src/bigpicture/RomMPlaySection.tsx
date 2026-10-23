@@ -1,13 +1,14 @@
 /**
  * RomMPlaySection — wraps CustomPlayButton and adds info items to its right,
- * mimicking Steam's native PlaySection layout:
+ * mimicking Steam's native PlaySection layout, for example:
  *
- *   [▶ Play ▾]   LAST PLAYED    PLAYTIME    ACHIEVEMENTS    SAVE SYNC    BIOS
- *                24. Jan.       14 Hours    To be impl.     ✅ 2h ago    🟢 OK
+ *   [▶ Play ▾]   LAST PLAYED    PLAYTIME    ACHIEVEMENTS    BIOS
+ *                24. Jan.       14 Hours    🏆 12/40        🔴 <bios_label>
  *
- * Uses our own romm-play-section-row CSS class on the root.
+ * Uses our own romm-play-section-row CSS class on the play row.
  * Individual info items use our own romm-info-* CSS classes.
- * Save Sync and BIOS items only appear when relevant.
+ * Each item appears only when it has something to say; its condition is where
+ * the item is built.
  */
 
 import { useState, useEffect, FC, Fragment, type ReactElement } from "react";
