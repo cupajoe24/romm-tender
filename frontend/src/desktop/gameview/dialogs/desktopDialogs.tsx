@@ -30,6 +30,13 @@ import { DesktopUncheckedSourceDialog } from "./DesktopUncheckedSourceDialog";
 import { DesktopUnsyncedSavesDialog } from "./DesktopUnsyncedSavesDialog";
 import type { UnsyncedSavesChoice, UnsyncedSavesPromptArgs } from "../../../utils/versionSwitch";
 import { DesktopStopGameDialog } from "./DesktopStopGameDialog";
+import { DesktopSgdbGamePickerDialog, type DesktopSgdbGamePickerDialogProps } from "./DesktopSgdbGamePickerDialog";
+
+export type SgdbGamePickerPromptOptions = Omit<DesktopSgdbGamePickerDialogProps, "onClose">;
+
+export function desktopSgdbGamePickerDialog(ask: AskDialog): (options: SgdbGamePickerPromptOptions) => Promise<void> {
+  return (options) => ask<void>(undefined, (resolve) => <DesktopSgdbGamePickerDialog {...options} onClose={resolve} />);
+}
 
 export function desktopAdoptionDialogs(ask: AskDialog): AdoptionDialogs {
   return {

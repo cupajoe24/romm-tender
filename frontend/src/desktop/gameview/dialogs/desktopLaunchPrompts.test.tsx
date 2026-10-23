@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { isValidElement, type ReactNode } from "react";
-import { desktopLaunchPrompts } from "./desktopDialogs";
+import { desktopLaunchPrompts, desktopSgdbGamePickerDialog } from "./desktopDialogs";
 import { DesktopCoreChangeDialog } from "./DesktopCoreChangeDialog";
 import { DesktopFallbackLaunchDialog } from "./DesktopFallbackLaunchDialog";
 import { DesktopOfflineDriftDialog } from "./DesktopOfflineDriftDialog";
 import { DesktopSaveConflictDialog } from "./DesktopSaveConflictDialog";
+import { DesktopSgdbGamePickerDialog } from "./DesktopSgdbGamePickerDialog";
 import type { AskDialog } from "./useDialogHost";
 import type { SyncConflict } from "../../../types";
 
@@ -72,5 +73,19 @@ describe("desktopLaunchPrompts", () => {
 
     expect(await desktopLaunchPrompts(ask).resolveConflicts([conflict("a.srm"), conflict("b.srm")])).toBe("cancel");
     expect(asked).toHaveLength(1);
+  });
+
+  it("asks the SGDB picker through DesktopSgdbGamePickerDialog, dismissed as undefined", async () => {
+    const { ask, asked } = scriptedAsk([undefined]);
+
+    await desktopSgdbGamePickerDialog(ask)({
+      romId: 42,
+      appId: 100,
+      romName: "Zelda",
+    });
+
+    expect(asked).toHaveLength(1);
+    expect(first(asked).dismissed).toBeUndefined();
+    expect(typeOf(first(asked).dialog)).toBe(DesktopSgdbGamePickerDialog);
   });
 });

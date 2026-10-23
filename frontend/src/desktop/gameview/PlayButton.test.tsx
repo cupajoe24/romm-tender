@@ -876,6 +876,42 @@ describe("PlayButton", () => {
     });
   });
 
+  it("opens drop-down menu, triggers refresh artwork, and displays SGDB picker dialog when resolution answers needs_pick", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      fsSizeBytes: 1000,
+      saveSyncEnabled: false,
+      saveStatus: null,
+      saveSyncStatus: null,
+      hasSaves: false,
+      isSharedRom: false,
+      sharedWith: null,
+      loading: false,
+      error: null,
+    } as unknown as GameDetailState);
+
+    vi.mocked(backend.getSgdbResolution).mockResolvedValueOnce({
+      decision: "needs_pick",
+      candidates: [{ id: 7, name: "Mario World Alternate", release_year: 1991, thumb_url: null }],
+    });
+
+    render(<PlayButton appId={123} />);
+
+    const menuToggle = screen.getByRole("button", { name: /game options/i });
+    fireEvent.click(menuToggle);
+
+    const refreshArtworkBtn = screen.getByRole("button", { name: /refresh artwork/i });
+    fireEvent.click(refreshArtworkBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Choose SteamGridDB Game")).toBeInTheDocument();
+      expect(screen.getByText("Mario World Alternate")).toBeInTheDocument();
+    });
+  });
+
   it("opens drop-down menu and triggers refresh metadata", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 100,

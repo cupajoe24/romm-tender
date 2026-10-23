@@ -26,7 +26,7 @@ export type SgdbCandidateSearchResult =
   { success: true; games: SgdbCandidate[]; error?: undefined } | { success: false; games: []; error: string };
 
 export interface SgdbCandidateSearchOptions {
-  tag?: string;
+  tag?: string | undefined;
 }
 
 /**
@@ -36,7 +36,7 @@ export interface SgdbCandidateSearchOptions {
  */
 export async function executeSgdbCandidateSearch(
   term: string,
-  options?: SgdbCandidateSearchOptions,
+  options?: SgdbCandidateSearchOptions | undefined,
 ): Promise<SgdbCandidateSearchResult> {
   const tag = options?.tag ?? "SgdbGamePicker";
   const res = await searchSgdbGames(term).catch((e): null => {
@@ -60,8 +60,8 @@ export interface SgdbSelectionApplyOptions {
   romId: number;
   appId: number;
   selectedId: number;
-  onApplied?: (applied: number | EndpointFailure) => void;
-  tag?: string;
+  onApplied?: ((applied: number | EndpointFailure) => void) | undefined;
+  tag?: string | undefined;
 }
 
 /**

@@ -10,7 +10,7 @@ import { debugLog } from "../../api/backend";
 import { executeRomUninstall } from "../../utils/romUninstall";
 import { executeRefreshArtwork } from "../../utils/artworkRefresh";
 import { executeRefreshMetadata } from "../../utils/metadataRefresh";
-import { desktopLaunchPrompts, desktopStopGameDialog } from "./dialogs/desktopDialogs";
+import { desktopLaunchPrompts, desktopStopGameDialog, desktopSgdbGamePickerDialog } from "./dialogs/desktopDialogs";
 import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
 import { resolveKnownConflicts } from "../../utils/saveConflictFlow";
 import { readGameRunning } from "../../utils/sessionManager";
@@ -224,6 +224,14 @@ export function usePlayLaunch({
       appId,
       leaseOwner,
       tag: "DesktopPlayButton",
+      onNeedsPick: (candidates) => {
+        void desktopSgdbGamePickerDialog(ask)({
+          romId,
+          appId,
+          romName: romName ?? "",
+          candidates,
+        });
+      },
     });
   };
 
