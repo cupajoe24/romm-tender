@@ -1,57 +1,72 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { DesktopUnsyncedSavesDialog } from "./DesktopUnsyncedSavesDialog";
+import { DesktopUnsyncedSavesDialog, type DesktopUnsyncedSavesDialogProps } from "./DesktopUnsyncedSavesDialog";
 
-describe("DesktopUnsyncedSavesDialog — serverReachable: true", () => {
-  it("renders reachable copy and all three buttons", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={true} onChoice={onChoice} />);
+function renderDialog(overrides: Partial<DesktopUnsyncedSavesDialogProps> = {}) {
+  const onChoice = vi.fn();
+  render(
+    <DesktopUnsyncedSavesDialog
+      versionName="Super Mario (USA)"
+      stranding="unsynced"
+      serverReachable={true}
+      versionGone={false}
+      onChoice={onChoice}
+      {...overrides}
+    />,
+  );
+  return onChoice;
+}
+
+describe("DesktopUnsyncedSavesDialog — sync offered", () => {
+  it("renders the copy and all three buttons", () => {
+    renderDialog();
 
     const dialog = screen.getByRole("dialog", { name: "Unsynced saves" });
-    expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveTextContent(
-      '"Super Mario (USA)" has save changes that were never uploaded to RomM. They stay on disk, but won\'t sync until you switch back.',
+      "\"Super Mario (USA)\" has saves that haven't been synced to RomM. They stay on disk, but won't sync until you switch back.",
     );
     expect(screen.getByRole("button", { name: "Sync now & switch" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Switch anyway" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
+  it("says Tender couldn't check when the stranding is unchecked", () => {
+    renderDialog({ stranding: "unchecked" });
+
+    expect(screen.getByRole("dialog", { name: "Unsynced saves" })).toHaveTextContent(
+      "Tender couldn't check whether \"Super Mario (USA)\" has saves that haven't been synced to RomM. They stay on disk, but won't sync until you switch back.",
+    );
+  });
+
   it("calls onChoice with 'sync_and_switch' on Sync now & switch click", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={true} onChoice={onChoice} />);
+    const onChoice = renderDialog();
 
     fireEvent.click(screen.getByRole("button", { name: "Sync now & switch" }));
     expect(onChoice).toHaveBeenCalledWith("sync_and_switch");
   });
 
   it("calls onChoice with 'switch_anyway' on Switch anyway click", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={true} onChoice={onChoice} />);
+    const onChoice = renderDialog();
 
     fireEvent.click(screen.getByRole("button", { name: "Switch anyway" }));
     expect(onChoice).toHaveBeenCalledWith("switch_anyway");
   });
 
   it("calls onChoice with 'cancel' on Cancel click", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={true} onChoice={onChoice} />);
+    const onChoice = renderDialog();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onChoice).toHaveBeenCalledWith("cancel");
   });
 });
 
-describe("DesktopUnsyncedSavesDialog — serverReachable: false", () => {
-  it("renders unreachable copy and only Switch anyway and Cancel", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={false} onChoice={onChoice} />);
+describe("DesktopUnsyncedSavesDialog — RomM unreachable", () => {
+  it("renders the unreachable copy and only Switch anyway and Cancel", () => {
+    renderDialog({ serverReachable: false });
 
-    const dialog = screen.getByRole("dialog", { name: "Unsynced saves" });
-    expect(dialog).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(
-      "\"Super Mario (USA)\" has save changes that were never uploaded, and RomM is not reachable right now — so they can't be synced first. They stay on disk, but won't sync until you switch back.",
+    expect(screen.getByRole("dialog", { name: "Unsynced saves" })).toHaveTextContent(
+      "\"Super Mario (USA)\" has saves that haven't been synced to RomM. RomM is not reachable right now, so they can't be synced first. They stay on disk, but won't sync until you switch back.",
     );
     expect(screen.queryByRole("button", { name: "Sync now & switch" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Switch anyway" })).toBeInTheDocument();
@@ -59,18 +74,28 @@ describe("DesktopUnsyncedSavesDialog — serverReachable: false", () => {
   });
 
   it("calls onChoice with 'switch_anyway' on Switch anyway click", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={false} onChoice={onChoice} />);
+    const onChoice = renderDialog({ serverReachable: false });
 
     fireEvent.click(screen.getByRole("button", { name: "Switch anyway" }));
     expect(onChoice).toHaveBeenCalledWith("switch_anyway");
   });
 
   it("calls onChoice with 'cancel' on Escape key", () => {
-    const onChoice = vi.fn();
-    render(<DesktopUnsyncedSavesDialog versionName="Super Mario (USA)" serverReachable={false} onChoice={onChoice} />);
+    const onChoice = renderDialog({ serverReachable: false });
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onChoice).toHaveBeenCalledWith("cancel");
+  });
+});
+
+describe("DesktopUnsyncedSavesDialog — version gone from RomM", () => {
+  it("says the saves can't be uploaded and offers no sync, even with RomM reachable", () => {
+    renderDialog({ versionGone: true });
+
+    expect(screen.getByRole("dialog", { name: "Unsynced saves" })).toHaveTextContent(
+      '"Super Mario (USA)" has saves that haven\'t been synced to RomM. "Super Mario (USA)" is no longer available on RomM, so its saves can\'t be uploaded. They stay on disk.',
+    );
+    expect(screen.queryByRole("button", { name: "Sync now & switch" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch anyway" })).toBeInTheDocument();
   });
 });

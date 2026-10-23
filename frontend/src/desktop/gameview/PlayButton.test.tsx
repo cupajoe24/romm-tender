@@ -126,7 +126,7 @@ const BACKEND_STUBS = vi.hoisted(() => ({
   getInstalledRom: vi.fn().mockResolvedValue({ launchable: true }),
   isSaveTrackingConfigured: vi.fn().mockResolvedValue({ configured: true }),
   checkCoreChange: vi.fn().mockResolvedValue({ changed: false }),
-  checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, rom_id: 100 }),
+  checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, only_here: false, stranding: "none", rom_id: 100 }),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -1948,7 +1948,7 @@ describe("PlayButton", () => {
       fireEvent.click(screen.getByRole("button", { name: "Use These Files" }));
 
       expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
-      expect(backend.adoptExistingRom).toHaveBeenCalledWith(100, null, null);
+      expect(backend.adoptExistingRom).toHaveBeenCalledWith(100, "/roms/snes/smw.sfc", null);
       expect(steamShortcuts.setLaunchOptionsConfirmed).toHaveBeenCalledWith(123, "run-smw");
       expect(toast.showToast).toHaveBeenCalledWith("Super Mario World is ready to play");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -1965,7 +1965,9 @@ describe("PlayButton", () => {
       expect(backend.startDownload).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getByRole("button", { name: "Delete and Download" }));
 
-      await waitFor(() => expect(backend.startDownload).toHaveBeenLastCalledWith(100, true, null, null, false));
+      await waitFor(() =>
+        expect(backend.startDownload).toHaveBeenLastCalledWith(100, true, null, null, false, ["/roms/snes/smw.sfc"]),
+      );
       expect(await screen.findByRole("progressbar")).toBeInTheDocument();
     });
 
@@ -2027,7 +2029,9 @@ describe("PlayButton", () => {
       expect(collisions).toHaveTextContent("smw.srm (save)");
       fireEvent.click(screen.getByRole("button", { name: "Replace Them" }));
 
-      await waitFor(() => expect(backend.adoptExistingRom).toHaveBeenLastCalledWith(100, null, "overwrite"));
+      await waitFor(() =>
+        expect(backend.adoptExistingRom).toHaveBeenLastCalledWith(100, "/roms/snes/smw.sfc", "overwrite"),
+      );
       expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
     });
 
@@ -2159,7 +2163,12 @@ describe("PlayButton", () => {
     it("offline with local drift prompts with offline drift dialog and launches on start_anyway", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
       vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: true,
+        only_here: false,
+        stranding: "unsynced",
+        rom_id: 100,
+      });
 
       render(<PlayButton appId={123} />);
       fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
@@ -2176,7 +2185,12 @@ describe("PlayButton", () => {
     it("offline with local drift does not launch when cancelled from offline drift dialog", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
       vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: true,
+        only_here: false,
+        stranding: "unsynced",
+        rom_id: 100,
+      });
 
       render(<PlayButton appId={123} />);
       fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
@@ -2195,7 +2209,12 @@ describe("PlayButton", () => {
         .mockResolvedValueOnce({ online: false })
         .mockResolvedValueOnce({ online: false })
         .mockResolvedValueOnce({ online: true });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: true,
+        only_here: false,
+        stranding: "unsynced",
+        rom_id: 100,
+      });
       vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
         success: true,
         synced: 1,
@@ -2216,7 +2235,12 @@ describe("PlayButton", () => {
     it("offline without local drift launches silently without dialog", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
       vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: false, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: false,
+        only_here: false,
+        stranding: "none",
+        rom_id: 100,
+      });
 
       render(<PlayButton appId={123} />);
       fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
