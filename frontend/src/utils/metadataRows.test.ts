@@ -62,9 +62,12 @@ describe("metadataRows", () => {
     expect(metadataRows({ ...FULL, average_rating: 0 }, "").map((row) => row.key)).not.toContain("rating");
   });
 
-  it("rounds the rating to a whole percent", () => {
-    expect(metadataRows({ ...EMPTY, average_rating: 72.6 }, "")).toEqual([
-      { key: "rating", label: "Metadata rating", value: "73%" },
+  it.each([
+    [72.4, "72%"],
+    [72.6, "73%"],
+  ])("rounds a rating of %s to the nearest whole percent", (average_rating, value) => {
+    expect(metadataRows({ ...EMPTY, average_rating }, "")).toEqual([
+      { key: "rating", label: "Metadata rating", value },
     ]);
   });
 });

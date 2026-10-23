@@ -60,6 +60,14 @@ describe("GameInfoTab's descriptive rows", () => {
       "Arcade",
     ]);
   });
+
+  it("draws the platform alone where there is no record", () => {
+    const { container } = render(<GameInfoTab {...PROPS} metadata={null} platformName="N64" coverBase64={null} />);
+
+    const rows = [...container.querySelectorAll(".romm-panel-info-row")];
+    expect(rows.map((row) => row.querySelector(".romm-panel-label")?.textContent)).toEqual(["Platform"]);
+    expect(rows[0]?.querySelector(".romm-panel-value")?.textContent).toBe("N64");
+  });
 });
 
 describe("GameInfoTab's cover (#2381 D18)", () => {
