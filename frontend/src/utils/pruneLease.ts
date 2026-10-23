@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import {
   logError,
   releaseOrphanedPruneLeases,
   releasePruneConflictLease,
   renewPruneConflictLease,
 } from "../api/backend";
+import { detach } from "./detach";
 import { withTimeout } from "./withTimeout";
 
 const RELEASE_TIMEOUT_MS = 5000;
@@ -140,6 +142,16 @@ export async function releasePruneLeasesByOwner(owner: string): Promise<void> {
   for (const [, lease] of owned) lease.abortController?.abort();
   const tokens = owned.map(([token]) => token);
   await Promise.all(tokens.map(retireLeaseAfterSettlement));
+}
+
+/** Mount *owner* while the calling component is mounted, and release its leases when it unmounts or *owner* changes. */
+export function usePruneLeaseOwner(owner: string): void {
+  useEffect(() => {
+    mountPruneLeaseOwner(owner);
+    return () => {
+      detach(releasePruneLeasesByOwner(owner));
+    };
+  }, [owner]);
 }
 
 async function boundedContinuation<T>(promise: Promise<T>): Promise<{ result: T; settled: true }> {
