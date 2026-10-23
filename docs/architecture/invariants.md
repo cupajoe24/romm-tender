@@ -573,15 +573,18 @@ Format: **invariant** — tier — enforced by.
   the way to switch. **What breaks without it:** a sync moves a shortcut onto another version, and a downloaded copy of
   the old one is left unbound beside it, still playable and no longer started by anything
 - **The end-of-run stale removal removes the shortcut only of a game outside what the sync syncs: a bound row missing
-  from a platform the run read whole is kept; on a platform the run did not read, a row a collection last delivered
-  (`roms.delivered_through`) is asked for by its exact id on every run until it is found or unbound, and kept unless
-  RomM's answer is the ROM itself, while any other row is kept when the run's own platform listing no longer names its
-  platform and removed unasked when it does; a row with no recorded route is asked only when the collections' last
-  completed members list it; a kept row stays in its platform's Steam collection; the preview counts exactly the
-  removals and the platform collections the apply makes; and of the two, only the apply records what the stale removal
-  established on the row (`roms.gone_from_romm`): a 404 or a keep on a platform RomM no longer lists marks it, the ROM
-  itself clears the mark, and any other answer writes nothing. The removed-game cleanup's own proof marks and clears
-  rows too, by its rule in docs/architecture/removed-game-cleanup.md, "Discovery"** — test + prompt-only —
+  from a platform the run read whole is kept; on a platform the run did not read, a row whose game the run synced —
+  another member of its sibling group among the ROMs the run counts as synced, a skipped unit's stamp members included —
+  stays bound whatever RomM answers, and is asked about and marked only where any other row would be, while a row
+  without a group key is judged alone (#2533 D6); any other row a collection last delivered (`roms.delivered_through`)
+  is asked for by its exact id on every run until it is found or unbound, and kept unless RomM's answer is the ROM
+  itself, while any other row is kept when the run's own platform listing no longer names its platform and removed
+  unasked when it does; a row with no recorded route is asked only when the collections' last completed members list it;
+  a kept row stays in its platform's Steam collection; the preview counts exactly the removals and the platform
+  collections the apply makes; and of the two, only the apply records what the stale removal established on the row
+  (`roms.gone_from_romm`): a 404 or a keep on a platform RomM no longer lists marks it, the ROM itself clears the mark,
+  and any other answer writes nothing. The removed-game cleanup's own proof marks and clears rows too, by its rule in
+  docs/architecture/removed-game-cleanup.md, "Discovery"** — test + prompt-only —
   `tests/domain/test_sync_diff.py::TestSortStaleRows` for the rule (`sort_stale_rows`, `settle_asked_rows`),
   `tests/services/library/test_sync_orchestrator.py::TestAVersionReachedOnlyThroughACollection` for the apply and the
   preview (a 404 keeps, a found ROM removes, an answer that establishes nothing keeps; a 404 is asked again on the third
@@ -592,36 +595,48 @@ Format: **invariant** — tier — enforced by.
   `test_a_platform_still_on_that_romm_no_longer_lists_keeps_its_shortcuts` holds a platform gone from RomM's list apart
   from one turned off, `test_a_platform_romm_no_longer_lists_keeps_its_steam_collection` keeps its games in its Steam
   collection under its last name with the preview agreeing, and `test_a_platform_read_mid_run_still_counts_as_unlisted`
-  judges it by the run's own listing after a game page's read wrote it back into the kept ids — and
-  `tests/services/library/test_reporter.py::TestCommitUnitResults` for the route a commit records. A skipped platform
-  rebuilds every bound row, so only a fetched one can leave a bound row out, and RomM is then the only thing that
-  dropped it. A platform the run did not read says nothing about RomM; the route the row's last commit recorded tells a
-  game reached through a collection from one reached through its platform. A collection's completion stamp cannot carry
-  that, because every collection apply rewrites its members from RomM's current membership: a game the collection
-  dropped is off the stamp after the run that asked about it, and a route recorded only at a unit's commit is untouched
-  by the question, so a 404 is asked again on every later run. A row with no recorded route falls back to the collection
-  records, read before the run's first unit rewrites any of them
-  (`LocalLibraryReader.do_read_collection_listed_rom_ids`). A platform RomM no longer lists is read off the run's own
-  platform listing (`LibrarySyncStateBox.run_listed_platform_slugs`), never off the kept ids under `platform_ids`, which
-  a game page's read can widen during the run; which platforms are on in Tender is keyed by a RomM id such a platform no
-  longer has, so the route stands in for it. Only a 404 is evidence of absence, so every other answer keeps the
-  shortcut. The apply's finalize writes what it established onto the row (`StaleSort.gone_from_romm_marks`, written by
-  `SyncReporter.finalize_per_unit_run`), which is the only evidence the removed-game cleanup has for a version reached
-  through a collection or kept on a platform RomM no longer lists, since no platform stamp names either;
-  `tests/domain/test_sync_diff.py::TestGoneFromRommMarks` pins which answer writes what, and
-  `tests/contract/test_gone_from_romm_mark.py` that the apply marks, a later delivery clears, and a preview writes
+  judges it by the run's own listing after a game page's read wrote it back into the kept ids —
+  `TestAVersionSwitchedOffTheCollectionsMember` for a game only a collection delivers, bound to a version the collection
+  does not list (kept whether the collection was skipped or fetched, or delivers a version for the first time; asked,
+  marked on a 404 and cleared when RomM returns it where a collection last delivered it; the preview agreeing each time;
+  a bound version of another game, which no unit delivered, still removed; and the gap #2533 D10 accepts, pinned as it
+  is), and `tests/services/library/test_reporter.py::TestCommitUnitResults` for the route a commit records. The stale
+  removal judges the game rather than the row, because a sibling group is one game with one shortcut: a version switch
+  binds that shortcut to a member no unit delivers — and records no route on it — while a collection still delivers the
+  game through another version (#2533 D1). Such a row is still asked about where any other row would be, because its
+  mark is the removed-game cleanup's only evidence for it (D6). The group keys come from
+  `domain/sync_diff.py::group_keys_of` over the ROMs the run counts as synced, which the apply reads off the rows its
+  commits upserted and the preview lays the keys its fetch stamped over the same read. A skipped platform rebuilds every
+  bound row, so only a fetched one can leave a bound row out, and RomM is then the only thing that dropped it. A
+  platform the run did not read says nothing about RomM; the route the row's last commit recorded tells a game reached
+  through a collection from one reached through its platform. A collection's completion stamp cannot carry that, because
+  every collection apply rewrites its members from RomM's current membership: a game the collection dropped is off the
+  stamp after the run that asked about it, and a route recorded only at a unit's commit is untouched by the question, so
+  a 404 is asked again on every later run. A row with no recorded route falls back to the collection records, read
+  before the run's first unit rewrites any of them (`LocalLibraryReader.do_read_collection_listed_rom_ids`). A platform
+  RomM no longer lists is read off the run's own platform listing (`LibrarySyncStateBox.run_listed_platform_slugs`),
+  never off the kept ids under `platform_ids`, which a game page's read can widen during the run; which platforms are on
+  in Tender is keyed by a RomM id such a platform no longer has, so the route stands in for it. Only a 404 is evidence
+  of absence, so every other answer keeps the shortcut. The apply's finalize writes what it established onto the row
+  (`StaleSort.gone_from_romm_marks`, written by `SyncReporter.finalize_per_unit_run`), which is the only evidence the
+  removed-game cleanup has for a version reached through a collection or kept on a platform RomM no longer lists, since
+  no platform stamp names either; `tests/domain/test_sync_diff.py::TestGoneFromRommMarks` pins which answer writes what,
+  and `tests/contract/test_gone_from_romm_mark.py` that the apply marks, a later delivery clears, and a preview writes
   nothing. The rule spans the domain sort, the reader, the reporter's commit, the chunk dispatcher, the fetcher's
   exact-id question (`LibraryFetcher.ask_romm_for_roms`) and the orchestrator, and the preview and the apply each read
-  it — through `services/library/_stale_rows.py::settle_stale_rows`, which is prompt-only, as is that the chunk
-  dispatcher names the unit's kind on every commit, that the listing comes off the run state, and that the preview names
-  a kept row's platform collection through `services/library/_stale_rows.py::with_kept_platform_names`, which must agree
-  with `SyncReporter._names_with_bound_platforms_kept`. **What breaks without it:** a kept row the preview counts as a
-  removal offers Apply on every preview; a removal on a platform read whole takes a game gone from RomM out of Steam
-  with its playtime and collections; a rule read off the collection stamps alone removes a game gone from RomM at the
-  second run after its collection dropped it; a platform RomM stopped listing loses every shortcut as if it had been
-  turned off; a kept row left out of the platform's collection drops out of it, or keeps its game under a collection
-  renamed to the slug; and a mark a preview wrote, or an answer that established nothing set or cleared, would offer the
-  cleanup a game RomM still serves or hide one it no longer does
+  it — through `services/library/_stale_rows.py::settle_stale_rows` with the same group keys, which is prompt-only, as
+  is that the chunk dispatcher names the unit's kind on every commit, that the listing comes off the run state, and that
+  the preview names a kept row's platform collection through
+  `services/library/_stale_rows.py::with_kept_platform_names`, which must agree with
+  `SyncReporter._names_with_bound_platforms_kept`. **What breaks without it:** a kept row the preview counts as a
+  removal offers Apply on every preview; a game only a collection delivers loses its shortcut on every sync after a
+  switch to a version the collection does not list; a kept version never asked about keeps a mark RomM disproved, or
+  never gets the one the cleanup needs; a removal on a platform read whole takes a game gone from RomM out of Steam with
+  its playtime and collections; a rule read off the collection stamps alone removes a game gone from RomM at the second
+  run after its collection dropped it; a platform RomM stopped listing loses every shortcut as if it had been turned
+  off; a kept row left out of the platform's collection drops out of it, or keeps its game under a collection renamed to
+  the slug; and a mark a preview wrote, or an answer that established nothing set or cleared, would offer the cleanup a
+  game RomM still serves or hide one it no longer does
 - **A firmware answer nothing could establish is `unknown`, never `not_needed` — and the distinction survives every
   layer it crosses** — test + prompt-only — `tests/adapters/test_atlas_firmware.py` pins the adapter's degradation (a
   raising resolver, a missing installation, an answer with no root all come back with `resolved` clear, never as an
@@ -667,25 +682,18 @@ Format: **invariant** — tier — enforced by.
   condition is `isFetchable` (`frontend/src/utils/biosFetchable.ts`), which reads the row's `library` — the RomM file
   that fills it, by content or, where the resolver's identity is an archive or names no checksum, by name, wherever RomM
   files it — its `store_file`, its `link` and its `place_refusal`, called from
-  `frontend/src/bigpicture/library/PlatformDetail.tsx` — and since #1815 the per-row Download button reads the same
-  filtered set, so a fourth reader of the axis now exists in that one file. A fifth reads it in the same file for the
-  On-disk cell's second mark (`⊘`), and that one is display alone: it neither counts nor gates, which is what keeps it
-  out of all three folds below. **A sixth reader is the game page's BIOS tab** (`frontend/src/bigpicture/BiosTab.tsx`,
-  through `frontend/src/utils/biosGamePageRows.ts`'s `rowBelongsOnThisPage`), and it is display alone in the same sense:
-  it decides whether a row gets a LINE — a file no page can fetch, that the shown emulator does not require, that is no
-  option of its one-of group, whose verdict is not met and that offers no Replace…, is nothing that page can act on —
-  and gates no count and offers no action, so it belongs to none of the three folds below either. It is asked about
-  whichever emulator the page shows. What holds the two surfaces together is that they call one predicate,
-  `isFetchable`, rather than spelling its clauses twice: a second copy would let the game page point at a download
-  button the platform page does not offer, or leave off a row it does. What must NOT be shared is the game page's rule
-  around it — required for this launch, an option of the emulator's one-of group, present, fetchable, unjudged, or
-  offering Replace… (`replace_offered`) — which is that page's alone; the platform detail has no such rule, and a shared
-  "visibility" module would invent a notion only one surface has. Each fold has its own quiet failure: drop the row from
-  the required counts and a sentence reads "all in place" under a red verdict; add it to the ratio and a SNES page
-  reports `0 / 26 files, 26 missing` for twenty-six optional files no core wants; add it to the buttons and the page
-  offers a download that cannot succeed. The counts and the ratio read `on_server`, the buttons read `library`
-  (`on_server` only on a payload that states no `library`); the row's `id: None` is an honest absence with no consumer
-  at all, so nothing breaks if it is filled in and nothing is guarded by leaving it empty
+  `frontend/src/bigpicture/bios/BiosFiles.tsx`, the BIOS table both the platform detail and the game page's BIOS tab
+  draw — and since #1815 the per-row Download button reads the same filtered set, so a fourth reader of the axis now
+  exists in that one file. A fifth reads it in the same file for the On-disk cell's second mark (`⊘`), and that one is
+  display alone: it neither counts nor gates, which is what keeps it out of all three folds below. Both pages list every
+  row of the shown emulator ([#2429](https://github.com/danielcopper/romm-tender/issues/2429) D3) and call one
+  predicate, `isFetchable`, through one module rather than spelling its clauses twice: a second copy would let one page
+  point at a download button the other does not offer. Each fold has its own quiet failure: drop the row from the
+  required counts and a sentence reads "all in place" under a red verdict; add it to the ratio and a SNES page reports
+  `0 / 26 files, 26 missing` for twenty-six optional files no core wants; add it to the buttons and the page offers a
+  download that cannot succeed. The counts and the ratio read `on_server`, the buttons read `library` (`on_server` only
+  on a payload that states no `library`); the row's `id: None` is an honest absence with no consumer at all, so nothing
+  breaks if it is filled in and nothing is guarded by leaving it empty
 - **No link is placed at a place the resolver could not look at (`firmware-path-inaccessible`)** — test + prompt-only —
   nobody could see what lies there, so a link could not be judged against it, and a place the resolver cannot read is
   usually one the emulator cannot read either (#2190). The row's verdict is withheld, grey, and its sentence names the
@@ -1383,12 +1391,12 @@ Format: **invariant** — tier — enforced by.
   (`TestAOneOfGroupIsOneRequirement`, the group cases of `TestOnePlatformOneEmulator` and `TestOneRomOneEmulator`, and
   `TestDownloadRequiredFirmware`'s group cases) pins it end to end, the ROM's own region, and that the button's count
   and the download are one set; the frontend halves are `frontend/src/utils/biosSummary.test.ts`,
-  `frontend/src/utils/biosGroup.test.ts`, `frontend/src/utils/biosGamePageRows.test.ts`,
-  `frontend/src/bigpicture/BiosTab.test.tsx` and `frontend/src/bigpicture/library/PlatformsTab.test.tsx`. The rule spans
-  the adapter (`adapters/atlas_firmware.py::_wants` and `_groups`), two domain modules (`domain/firmware_groups.py`
-  judges, `domain/bios_status.py` counts), the service (`services/firmware/status.py`, `downloads.py`, `game_detail.py`
-  passing the ROM's regions), six frontend modules (`frontend/src/utils/biosSummary.ts`,
-  `frontend/src/utils/biosGroup.ts`, `frontend/src/utils/biosFetchable.ts`, `frontend/src/utils/biosGamePageRows.ts`,
+  `frontend/src/utils/biosGroup.test.ts`, `frontend/src/bigpicture/BiosTab.test.tsx` and
+  `frontend/src/bigpicture/library/PlatformsTab.test.tsx`. The rule spans the adapter
+  (`adapters/atlas_firmware.py::_wants` and `_groups`), two domain modules (`domain/firmware_groups.py` judges,
+  `domain/bios_status.py` counts), the service (`services/firmware/status.py`, `downloads.py`, `game_detail.py` passing
+  the ROM's regions), six frontend modules (`frontend/src/utils/biosSummary.ts`, `frontend/src/utils/biosGroup.ts`,
+  `frontend/src/utils/biosFetchable.ts`, `frontend/src/bigpicture/bios/BiosFiles.tsx`,
   `frontend/src/bigpicture/BiosTab.tsx`, `frontend/src/bigpicture/library/PlatformDetail.tsx`) and the two type modules
   they share (`frontend/src/types/firmware.ts`, `frontend/src/api/backend.ts`), and nothing joins them. **Prompt-only**:
   no consumer reads an option's `need` as its row's `required` — `required` comes off an emulator's plain declarations
@@ -1465,12 +1473,12 @@ Format: **invariant** — tier — enforced by.
   (`::test_download_required_fetches_for_the_shown_emulator`), and an identity the answer holds no verdict for is
   refused with `emulator_unknown`, because `placements_for` would answer it with the first declarer's requirement
   (`::test_an_emulator_the_answer_does_not_hold_is_refused`). Where a download is linked follows no pick: every
-  download, a game page's "Download BIOS" and a row's own included, lands in the platform's store folder and is linked
-  wherever an emulator of the platform opens the file ([#2191](https://github.com/danielcopper/romm-tender/issues/2191)
-  D3, `::test_a_game_page_download_links_the_file_for_every_emulator_of_the_platform`). A reader keying a launch's rows
-  on `by_file_name()` instead would read the first declarer's place and verdict wherever two emulators declare one name
-  at different places — Saturn green under YabaSanshiro over a file only under `kronos/`. **What the ROM sibling cannot
-  pin is the fixture's own default**: `FakeCoreInfoProvider.get_default_emulator` builds its invocation from the
+  download, a game page's and a row's own included, lands in the platform's store folder and is linked wherever an
+  emulator of the platform opens the file ([#2191](https://github.com/danielcopper/romm-tender/issues/2191) D3,
+  `::test_a_game_page_download_links_the_file_for_every_emulator_of_the_platform`). A reader keying a launch's rows on
+  `by_file_name()` instead would read the first declarer's place and verdict wherever two emulators declare one name at
+  different places — Saturn green under YabaSanshiro over a file only under `kronos/`. **What the ROM sibling cannot pin
+  is the fixture's own default**: `FakeCoreInfoProvider.get_default_emulator` builds its invocation from the
   `active_core` tuple, which carries no identity, so a test on the bare fake resolves an unpinned ROM to a `None` where
   the live adapter resolves it to an emulator — `_DeclaredDefaultCoreInfo` in that file renders the declared default the
   way `AtlasCatalogueAdapter` does, and every other fixture on the bare fake still exercises the weaker resolution
@@ -1803,8 +1811,26 @@ Format: **invariant** — tier — enforced by.
   `ResolveUploadConflictFn` seams; `domain/sync_action.py` holds only the `SyncAction` vocabulary the core answers in,
   so a change to either decision is a contract change carried by re-copied gavel vectors** — test — both vendored vector
   families run against the core (ladder in `tests/adapters/test_gavel_native.py`, decision table in
-  `tests/adapters/test_gavel_native_table_vectors.py`); the `.so` and the vectors are pinned to the same upstream
-  release tag and are bumped together
+  `tests/adapters/test_gavel_native_table_vectors.py`); the `.so`, the vectors and the `ctypes` structs in
+  `adapters/gavel_native.py` are pinned to the same upstream release tag and are bumped together: a struct that lags the
+  binary's header is read and written at the wrong offsets, and only a vector that exercises the moved field notices
+- **An adopt of a head this device must confirm — one the core marks `acknowledge` in the sync, and Keep Local's adopt
+  without an upload always — records its baseline only after `POST /api/saves/{id}/downloaded` succeeded; a failed
+  acknowledgement records nothing, and the status read records no such adopt** — test + prompt-only — the core sets
+  `acknowledge` on an adopt of a head this device is not current on (romm-gavel `SPEC.md`, "Bookkeeping"). Without the
+  acknowledgement RomM keeps the device not current on that head, so a baseline recorded anyway would make the next
+  local edit read as one under a head that moved past it — a conflict no other device caused — while recording nothing
+  leaves the next sync to decide the same adopt again. The rule spans three modules: `MatrixExecutor._dispatch_skip`
+  (`services/saves/sync_engine/matrix.py`) confirms through the retry strategy and lets a failure reach
+  `_dispatch_sync_action`, which reports it as that file's error; `RollbackOrchestrator._resolve_conflict_keep_local`
+  (`sync_engine/rollback.py`) confirms before its adopt and lets a failure end the resolution;
+  `StatusService._partition_outcomes` (`services/saves/status/service.py`) records only an adopt without it, because
+  showing a page never writes to RomM. Enforced by
+  `tests/services/saves/sync_engine/test_matrix.py::TestAnAdoptOfTheHead`,
+  `tests/services/saves/sync_engine/test_rollback.py::TestKeepLocalAdoptAcknowledges` and
+  `tests/services/saves/test_status.py::TestTheStatusReadAndAnAdopt`. Prompt-only: a new consumer of an adopting `Skip`
+  reads `acknowledge` and confirms the head through the retry strategy before it records. Detail:
+  `docs/architecture/save-file-sync-architecture.md`, "Outcomes"
 - **`applied_launch_options` is written only by the six recorded-state writer sites (sync ack-commit, download-complete,
   adopt-complete, uninstall, home-migration, version-switch), each recording the exact command the frontend wrote;
   excluded from the sync UPSERT; the only sanctioned reset is Force Full Sync's clear-to-NULL (a wrong recorded value is
@@ -1896,7 +1922,8 @@ Format: **invariant** — tier — enforced by.
   `frontend/src/bigpicture/panelEvents.ts`, `frontend/src/bigpicture/panelTabContent.tsx` — the panel component itself
   holds none of these writes) via `RomBinding`, built by `bindRom` for a read a run of the `[appId]` effect issued and
   by `bindRomInState` for the active tab's panes, whose writer is built during render; the achievements tab
-  (`frontend/src/bigpicture/AchievementsTab.tsx`) by construction, its React key being the rom id, so its state cannot
+  (`frontend/src/bigpicture/AchievementsTab.tsx`, whose load is `useAchievements` in
+  `frontend/src/utils/achievements.ts`) by construction, its React key being the rom id, so the hook's state cannot
   outlive the identity it was read for. A version switch re-keys without closing, so neither the store's generation
   counter nor the panel's `[appId]` effect sees this class. Binding answers the wrong-rom question only; two answers for
   the SAME rom are ordered instead, by a sequence taken when the read is issued — the store's `loadSeq` and
@@ -1904,13 +1931,14 @@ Format: **invariant** — tier — enforced by.
   writes install what a binding would compare against, so ordering is all they can have, and the panel's lazy SAVES-tab
   slot load (`frontend/src/bigpicture/panelSlotsLoad.ts`) writes through the raw setter, ordered by its own `slots`
   ticket. The fourth has neither — the store's `cached.bios_status` fold runs in the same synchronous run as its guard.
-  The event lane's `handleBiosChange` is bound and ordered: it re-reads `get_bios_status` for the rom it shows, whose
-  emulator is resolved per ROM — a per-game pin over the platform's pick — and takes the `bios` ticket the panel's other
-  BIOS re-reads take (#1718). The play button is NOT covered (#1714)** — test + prompt-only — the panel's fourteen bound
-  sites each carry a version-switch test (`frontend/src/bigpicture/RomMGameInfoPanel.test.tsx`); the store side and
-  every new write site on either are prompt-only, because a checker scoped to the store's own function bodies would be
-  green on the case this rule was written for. The reasons behind the two writer mechanisms live at `writerForRom` and
-  `RomBinding` — do not restate them here
+  The event lane's `rereadBiosAnswer`, which `handleBiosChange` and a press on the panel's own BIOS tab both read
+  through, is bound and ordered: it re-reads `get_bios_status` for the rom it shows, whose emulator is resolved per ROM
+  — a per-game pin over the platform's pick — and takes the `bios` ticket the panel's other BIOS re-reads take (#1718).
+  The play button is NOT covered (#1714)** — test + prompt-only — the panel's fourteen bound sites each carry a
+  version-switch test (`frontend/src/bigpicture/RomMGameInfoPanel.test.tsx`); the store side and every new write site on
+  either are prompt-only, because a checker scoped to the store's own function bodies would be green on the case this
+  rule was written for. The reasons behind the two writer mechanisms live at `writerForRom` and `RomBinding` — do not
+  restate them here
 - **Every row a reader must be able to reach on a QAM page is a row Steam can focus — a toggle, a button, or a
   `Focusable` declaring a stop of its own, including a table row with no action of its own, so the reader can walk the
   table; text between two stops of the same card is reached through them and is no stop of its own (an emulator source

@@ -691,28 +691,33 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   off a RomM payload only through `domain/rom_file.py::has_file_on_romm`, and the stored `Rom.has_file_on_disk` is
   written only from its answer
 - **The end-of-run stale removal removes the shortcut only of a game outside what the sync syncs: a bound row missing
-  from a platform the run read whole is kept; on a platform the run did not read, a row a collection last delivered
-  (`roms.delivered_through`) is asked for by its exact id on every run until it is found or unbound, and kept unless
-  RomM's answer is the ROM itself, while any other row is kept when the run's own platform listing no longer names its
-  platform and removed unasked when it does; a row with no recorded route is asked only when the collections' last
-  completed members list it; a kept row stays in its platform's Steam collection; the preview counts exactly the
-  removals and the platform collections the apply makes; and of the two, only the apply records what the stale removal
-  established on the row (`roms.gone_from_romm`): a 404 or a keep on a platform RomM no longer lists marks it, the ROM
-  itself clears the mark, and any other answer writes nothing. The removed-game cleanup's own proof marks and clears
-  rows too, by its rule in docs/architecture/removed-game-cleanup.md, "Discovery"** — test + prompt-only —
+  from a platform the run read whole is kept; on a platform the run did not read, a row whose game the run synced —
+  another member of its sibling group among the ROMs the run counts as synced, a skipped unit's stamp members included —
+  stays bound whatever RomM answers, and is asked about and marked only where any other row would be, while a row
+  without a group key is judged alone (#2533 D6); any other row a collection last delivered (`roms.delivered_through`)
+  is asked for by its exact id on every run until it is found or unbound, and kept unless RomM's answer is the ROM
+  itself, while any other row is kept when the run's own platform listing no longer names its platform and removed
+  unasked when it does; a row with no recorded route is asked only when the collections' last completed members list it;
+  a kept row stays in its platform's Steam collection; the preview counts exactly the removals and the platform
+  collections the apply makes; and of the two, only the apply records what the stale removal established on the row
+  (`roms.gone_from_romm`): a 404 or a keep on a platform RomM no longer lists marks it, the ROM itself clears the mark,
+  and any other answer writes nothing. The removed-game cleanup's own proof marks and clears rows too, by its rule in
+  docs/architecture/removed-game-cleanup.md, "Discovery"** — test + prompt-only —
   `tests/domain/test_sync_diff.py::TestSortStaleRows` for the rule,
   `tests/services/library/test_sync_orchestrator.py::TestAVersionReachedOnlyThroughACollection` for the apply and the
   preview (among it the third run, the stopped run, the platform route and the fallback),
   `TestDoSyncPerUnit::test_a_game_whose_every_version_is_gone_keeps_its_shortcut` and `TestPlatformTurnedOffAndBackOn`
   (with `test_a_platform_still_on_that_romm_no_longer_lists_keeps_its_shortcuts`,
   `test_a_platform_romm_no_longer_lists_keeps_its_steam_collection` and
-  `test_a_platform_read_mid_run_still_counts_as_unlisted`) for the two ends, and
-  `tests/services/library/test_reporter.py::TestCommitUnitResults` for the route the commit records;
+  `test_a_platform_read_mid_run_still_counts_as_unlisted`) for the two ends,
+  `TestAVersionSwitchedOffTheCollectionsMember` for a game only a collection delivers (skipped or fetched, asked and
+  marked), and `tests/services/library/test_reporter.py::TestCommitUnitResults` for the route the commit records;
   `tests/domain/test_sync_diff.py::TestGoneFromRommMarks` and `tests/contract/test_gone_from_romm_mark.py` for the mark.
   Prompt-only: the collection records are read before the run's first unit (`do_read_collection_listed_rom_ids`), the
   platform listing is the run's own (`LibrarySyncStateBox.run_listed_platform_slugs`) and never the kept ids, the chunk
   dispatcher names the unit's kind on every commit, the preview and the apply both sort through
-  `services/library/_stale_rows.py::settle_stale_rows`, and the preview names a kept row's platform collection through
+  `services/library/_stale_rows.py::settle_stale_rows` with the group keys `domain/sync_diff.py::group_keys_of` reads
+  for the run's synced ROMs, and the preview names a kept row's platform collection through
   `services/library/_stale_rows.py::with_kept_platform_names`, which must agree with
   `SyncReporter._names_with_bound_platforms_kept`
 - **A firmware answer nothing could establish is `unknown`, never `not_needed` — and the distinction survives every
@@ -731,9 +736,9 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   the colour is the resolver's verdict and no count's), the progress ratio
   (`services/firmware/status.py::_bios_aggregates`, `on_server` rows only, and the stated pair only those with a
   verdict) and the download affordance (`isFetchable`, `frontend/src/utils/biosFetchable.ts`, which reads the row's
-  `library`, `store_file`, `link` and `place_refusal`). The platform detail and the game page's BIOS tab call
-  `isFetchable`, never a copy, while the game page's row-visibility rule stays its own; display-only readers (the
-  On-disk `⊘` mark, `rowBelongsOnThisPage`) neither count nor gate
+  `library`, `store_file`, `link` and `place_refusal`). The platform detail and the game page's BIOS tab draw one table
+  (`frontend/src/bigpicture/bios/BiosFiles.tsx`) that calls `isFetchable`, never a copy; the display-only On-disk `⊘`
+  mark neither counts nor gates
 - **No link is placed at a place the resolver could not look at (`firmware-path-inaccessible`)** — test + prompt-only —
   `FirmwarePlacement.place_unreadable` is the one reading, and `domain/firmware_places.py::place_refusal` turns it into
   the `unreadable` refusal no link update passes; `tests/domain/test_firmware_places.py`,
@@ -1123,8 +1128,15 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   `ResolveUploadConflictFn` seams; `domain/sync_action.py` holds only the `SyncAction` vocabulary the core answers in,
   so a change to either decision is a contract change carried by re-copied gavel vectors** — test — both vendored vector
   families run against the core (`tests/adapters/test_gavel_native.py`,
-  `tests/adapters/test_gavel_native_table_vectors.py`); the `.so` and the vectors are pinned to one upstream release tag
-  and bumped together
+  `tests/adapters/test_gavel_native_table_vectors.py`); the `.so`, the vectors and the `ctypes` structs in
+  `adapters/gavel_native.py` are pinned to one upstream release tag and bumped together
+- **An adopt of a head this device must confirm — one the core marks `acknowledge` in the sync, and Keep Local's adopt
+  without an upload always — records its baseline only after `POST /api/saves/{id}/downloaded` succeeded; a failed
+  acknowledgement records nothing, and the status read records no such adopt** — test + prompt-only —
+  `tests/services/saves/sync_engine/test_matrix.py::TestAnAdoptOfTheHead`,
+  `tests/services/saves/sync_engine/test_rollback.py::TestKeepLocalAdoptAcknowledges` and
+  `tests/services/saves/test_status.py::TestTheStatusReadAndAnAdopt`. Prompt-only: a new consumer of an adopting `Skip`
+  reads `acknowledge` and confirms the head through the retry strategy before it records
 - **`applied_launch_options` is written only by the six recorded-state writer sites (sync ack-commit, download-complete,
   adopt-complete, uninstall, home-migration, version-switch), each recording the exact command the frontend wrote;
   excluded from the sync UPSERT; the only sanctioned reset is Force Full Sync's clear-to-NULL** — test + prompt-only —
@@ -1184,13 +1196,15 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   (`frontend/src/utils/gameDetailStore.ts`) via `writerForRom`, or the answer's own `rom_id` in `applySaveStatus`; the
   panel's modules `frontend/src/bigpicture/panelState.ts`, `frontend/src/bigpicture/panelEvents.ts` and
   `frontend/src/bigpicture/panelTabContent.tsx` via `RomBinding` (`bindRom`, `bindRomInState`);
-  `frontend/src/bigpicture/AchievementsTab.tsx` by its rom-id key. Two answers for the SAME rom are ordered by a
-  sequence taken at issue (`loadSeq`, `saveStatusSeq`, `takeReadTicket`). Ordered but unbound: the two identity writes
-  (the store's `loadDetail`, the panel's `loadData`) and the panel's lazy SAVES-tab slot load
+  `frontend/src/bigpicture/AchievementsTab.tsx` (whose load is `useAchievements` in
+  `frontend/src/utils/achievements.ts`) by its rom-id key. Two answers for the SAME rom are ordered by a sequence taken
+  at issue (`loadSeq`, `saveStatusSeq`, `takeReadTicket`). Ordered but unbound: the two identity writes (the store's
+  `loadDetail`, the panel's `loadData`) and the panel's lazy SAVES-tab slot load
   (`frontend/src/bigpicture/panelSlotsLoad.ts`, raw setter, `slots` ticket); neither bound nor ordered: the store's
-  `cached.bios_status` fold. The panel's `handleBiosChange` is bound and ordered (`bios` ticket). The play button is NOT
-  covered** — test + prompt-only — the panel's bound sites each carry a version-switch test
-  (`frontend/src/bigpicture/RomMGameInfoPanel.test.tsx`); the store side and every new write site are prompt-only
+  `cached.bios_status` fold. The panel's `rereadBiosAnswer`, which `handleBiosChange` and a press on the BIOS tab both
+  read through, is bound and ordered (`bios` ticket). The play button is NOT covered** — test + prompt-only — the
+  panel's bound sites each carry a version-switch test (`frontend/src/bigpicture/RomMGameInfoPanel.test.tsx`); the store
+  side and every new write site are prompt-only
 - **Every row a reader must be able to reach on a QAM page is a row Steam can focus — a toggle, a button, or a
   `Focusable` declaring a stop of its own, including a table row with no action of its own; text between two stops of
   the same card is reached through them and is no stop of its own (an emulator source card's folder and health lines,

@@ -13,7 +13,7 @@ import {
 } from "../../utils/connectionState";
 import { detach } from "../../utils/detach";
 import { getGameIconUrl } from "../../utils/artwork";
-import { formatCardDate } from "../../utils/formatters";
+import { formatCheevoDate } from "../../utils/formatters";
 import { AchievementsModal } from "./AchievementsModal";
 import { CARD_STYLE } from "./styles";
 
@@ -472,11 +472,11 @@ export const AchievementsCard: FC<AchievementsCardProps> = ({ appId: _appId, rom
                 <div style={RIGHT_COL_STYLE}>
                   {isEarned ? (
                     <>
-                      {earnedData?.date && <span style={DATE_STYLE}>{formatCardDate(earnedData.date)}</span>}
+                      {earnedData?.date && <span style={DATE_STYLE}>{formatCheevoDate(earnedData.date)}</span>}
                       {isHardcore && earnedData?.date_hardcore && (
                         <div style={HARDCORE_CONTAINER_STYLE}>
                           <span style={HARDCORE_TAG_STYLE}>HC</span>
-                          <span style={DATE_STYLE}>{formatCardDate(earnedData.date_hardcore)}</span>
+                          <span style={DATE_STYLE}>{formatCheevoDate(earnedData.date_hardcore)}</span>
                         </div>
                       )}
                       <span style={POINTS_EARNED_STYLE}>{`${a.points} pts`}</span>

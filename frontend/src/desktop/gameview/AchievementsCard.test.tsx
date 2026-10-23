@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { AchievementsCard, requestOpenAchievementsModal } from "./AchievementsCard";
-import { formatCardDate } from "../../utils/formatters";
+import { formatCheevoDate } from "../../utils/formatters";
 import * as backend from "../../api/backend";
 import * as connState from "../../utils/connectionState";
 import type { Achievement, AchievementProgress } from "../../types";
@@ -127,7 +127,7 @@ describe("AchievementsCard", () => {
   });
 
   it("formats card date by removing trailing seconds", () => {
-    expect(formatCardDate("2025-02-22 12:48:00")).toBe("2025-02-22 12:48");
+    expect(formatCheevoDate("2025-02-22 12:48:00")).toBe("2025-02-22 12:48");
   });
 
   it("renders achievements card with header, summary, and preview rows", async () => {

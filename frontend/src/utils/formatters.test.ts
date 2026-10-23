@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   formatBytes,
+  formatCheevoDate,
   formatLastPlayed,
-  formatCardDate,
   formatModalUnlockDate,
   formatPlaytime,
   formatReleaseDate,
@@ -306,9 +306,13 @@ describe("lastPathSegment", () => {
   });
 });
 
-describe("formatCardDate", () => {
-  it("strips trailing seconds from date string", () => {
-    expect(formatCardDate("2025-02-14 15:45:38")).toBe("2025-02-14 15:45");
+describe("formatCheevoDate", () => {
+  it("drops the seconds", () => {
+    expect(formatCheevoDate("2025-02-14 15:45:38")).toBe("2025-02-14 15:45");
+  });
+
+  it("leaves a date with no time part as it is", () => {
+    expect(formatCheevoDate("2025-02-14")).toBe("2025-02-14");
   });
 });
 
