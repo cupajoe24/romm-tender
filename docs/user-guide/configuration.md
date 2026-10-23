@@ -15,15 +15,16 @@ right. Move onto a section in the list and the right-hand side changes at once �
 | **Controller**       | Steam Input Mode and Apply to All Shortcuts                                                                                                                                |
 | **Steam Library**    | preferred region, collection games in platform groups, collection types in Steam names                                                                                     |
 | **Emulator sources** | every emulator setup Tender found — RetroDECK, EmuDeck, a RetroArch of its own — as a numbered card with its health, **Use this source**, and arrows to move it up or down |
+| **Tender folder**    | where Tender keeps its own files: the current place, the internal storage, each writable drive with its free space, and **Another folder…**                                |
 | **Updates**          | the version you have and the release the last successful check found, an update that was rolled back or refused, the daily update check, and **Check now**                 |
 | **Interface**        | whether Tender's Quick Access entry sits above or below Decky Loader's                                                                                                     |
 | **Advanced**         | log level                                                                                                                                                                  |
 
 If you used an earlier version, everything is still here — the eight blocks the panel used to stack are grouped into
-five of the eight sections; **Emulator sources**, **Updates** and **Interface** are new. Registered Devices is now
-inside **Save Sync**, the SteamGridDB key is inside **Connections**, and the section that used to be called **Library**
-is now **Steam Library**: the Library _page_ is about what gets synced out of RomM, this section is about how it looks
-once it is in Steam.
+five of the nine sections; **Emulator sources**, **Tender folder**, **Updates** and **Interface** are new. Registered
+Devices is now inside **Save Sync**, the SteamGridDB key is inside **Connections**, and the section that used to be
+called **Library** is now **Steam Library**: the Library _page_ is about what gets synced out of RomM, this section is
+about how it looks once it is in Steam.
 
 **Signing in to RetroAchievements is not here yet.** When it arrives it will live under Connections, with the other
 accounts.
@@ -51,9 +52,15 @@ The **Connections** section manages your RomM server connection.
 <!-- Screenshot: Connection Settings page -->
 
 - **RomM URL** — the full URL of your RomM server, including port if needed (e.g. `http://192.168.1.100:8080`). Tap
-  **Edit** to change it; the URL saves automatically.
-- **RomM Account** — shows **Signed in** once a token is stored, or **Not signed in** otherwise. Tap **Sign in** to open
-  a one-time prompt. The prompt offers three sign-in methods, chosen from the **Sign-in method** dropdown:
+  **Edit** to change it and **OK** (or Enter, or R2) to save it. A URL Tender does not take stays in the window with the
+  reason below it in amber. Leave any user name and password out of it (`https://user:password@host`): Tender cannot
+  sign in through the address, and the window says "Tender cannot sign in through a user name and password in the RomM
+  URL — leave them out. Sign in to RomM under RomM Account; a login for a proxy in front of RomM goes into Custom
+  headers." A login your proxy asks for goes into [Custom headers](#custom-headers-for-an-authenticating-proxy) instead.
+- **RomM Account** — shows **Signed in** once a token is stored, or **Not signed in** otherwise. Signing in registers
+  this device with RomM — it appears in RomM's device list — whether or not save sync is on, because the play sessions
+  Tender sends to RomM name the device as well. Tap **Sign in** to open a one-time prompt. The prompt offers three
+  sign-in methods, chosen from the **Sign-in method** dropdown:
   - **Username & password** (default) — enter your RomM username and password once. Tender exchanges them for a RomM
     Client API Token and stores only the token; your password is discarded after the token is minted and never saved. If
     your account cannot create API tokens, the status reports that.
@@ -79,7 +86,7 @@ The **Connections** section manages your RomM server connection.
 
 Tender checks the connection for you — there is no manual "Test Connection" button. The **Connection** row on Tender's
 main QAM panel shows the live status whenever you open it, and names the problem when it can't connect (for example
-_Sign-in rejected_, _Server unreachable_, or _No server URL_).
+_Sign-in rejected_, _Server unreachable_, _No server URL_, or _Remove login from RomM URL_).
 
 ### Custom headers for an authenticating proxy
 
@@ -174,8 +181,11 @@ Pairing hands the device the token over a short-lived one-time code, so you neve
 Both methods validate the token at sign-in with an authenticated probe against your RomM profile: a wrong, revoked, or
 expired credential is rejected there with an actionable message. Sign-in only confirms that the token **authenticates**,
 though — Tender cannot verify the token's granted scopes, so double-check that you granted the write scopes
-(`assets.write`, `devices.write`, `roms.user.write`) when creating it. A missing write scope is not caught at sign-in;
-it surfaces later as a permissions error on the affected action (save upload, device sync, or playtime).
+(`assets.write`, `devices.write`, `roms.user.write`) when creating it. A missing write scope is not caught at sign-in: a
+token without `assets.write` or `roms.user.write` surfaces later as a permissions error on the affected action (save
+upload or playtime). A token without `devices.write` cannot register this device: until it is registered, the Saves tab,
+the save-slot setup and the previous versions say it could not be registered with RomM — see
+[Troubleshooting](troubleshooting.md#this-device-could-not-be-registered-with-romm).
 
 #### Required scopes
 
@@ -226,7 +236,8 @@ configured". The artwork Tender already downloaded and the images already set in
 
 <!-- Screenshot: SteamGridDB API Key section with the Edit button -->
 
-Without an API key, Tender downloads no hero banner, logo, wide grid image or icon; games still get cover art from RomM.
+Without an API key, Tender downloads no hero banner, logo, wide grid image or icon, and no cover from SteamGridDB in
+place of a missing one; games still get cover art from RomM.
 
 Tender finds a game on SteamGridDB by the SteamGridDB id your RomM server holds for it. How RomM gets those ids, and
 what to do for a game it has none for, is under
@@ -347,6 +358,44 @@ its settings file _file_ holds no version Tender can read; its folders are still
 a source you switched off. Where Tender cannot get an emulator list, the platform page, the emulator menu and a game's
 BIOS tab say why — no source found, every source switched off, a broken systems file, a RetroDECK that has not been set
 up yet, a list that cannot be read yet — rather than showing an empty list.
+
+## Tender folder
+
+Tender keeps its own files in one folder, `Tender/` — today the recovery bundles a cleanup seals. It lies in `~/Tender`
+until you choose another place here. The line at the top names the place in use — **In use: Internal storage**, **In
+use: SD card · Emulation**, or **In use: Another folder** — with its state, **Reachable**, or why the folder cannot be
+used: **Not connected**, **Missing** or **Not writable**; the folder itself is under it.
+
+Below it, one tile per place, two to a row; the tile of the place in use is outlined and marked **In use**, and pressing
+it does nothing.
+
+- **Internal storage**, tagged **Default**, puts the folder back in your home folder, `~/Tender`.
+- Each writable drive mounted under `/run/media/<user>/` gets a tile headed by its kind — **SD card**, **USB drive**, or
+  **Drive** for any other — and tagged with its name, and puts the folder at that drive's root. Tender tells the kind
+  from the device behind the mount, and keeps the kind and name with your choice. With no drive connected, a line says
+  to insert an SD card or connect a drive.
+- Every tile shows the folder it would use and, at its foot, the space free there.
+- When the place in use is a drive that is not connected, its tile stays, greyed and outlined, with **Not connected** in
+  place of the free space, and the line at the top still names it by the kind and name kept with your choice.
+- **Another folder…**, with the line "Type a path, for example a folder on one of the drives above", opens one window
+  that stays open until a place is accepted. Its text field opens empty, with an example under it, and takes a path you
+  type, starting with `/` or `~`; Tender puts its folder `Tender/` inside it. After OK, a refusal is shown under the
+  field with your text kept for correcting. Where the last folder you typed is itself named Tender, the window asks
+  whether you meant the folder above it, and where folders of the path do not exist yet it names them and asks before
+  creating them — both questions in the same window, with their own buttons. Changing the text drops a shown question or
+  refusal. A path on a drive that is not connected is refused. An accepted place closes the window; Cancel closes it
+  with nothing chosen.
+
+A place whose `Tender/` would be the folder in use is answered as already Tender's folder, and so is a typed path that
+names the folder in use itself, such as `~/Tender` while it lies there; one whose `Tender/` would lie inside the folder
+in use, or hold it, is refused — all before any question.
+
+A place is refused where `Tender/` would lie inside an emulator source's ROM folder or inside the folder a source keeps
+a system's games in — also where that folder is a link to another drive — or would hold a ROM folder. So is a place
+Tender cannot write to, and a place you choose while Tender cannot read the emulator sources or a source cannot name its
+folders; the internal storage is never checked. Choosing a place switches where Tender keeps its files from then on;
+what lies in the old folder stays there. [Where your data lives](where-your-data-lives.md#tenders-folder) has the rest,
+including what Main says when the folder cannot be reached.
 
 ## Tender's place in the Quick Access Menu
 

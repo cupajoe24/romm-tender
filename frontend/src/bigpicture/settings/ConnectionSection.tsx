@@ -10,6 +10,7 @@
  */
 
 import { FC } from "react";
+import { FaExclamationTriangle } from "react-icons/fa";
 import {
   PanelSection,
   PanelSectionRow,
@@ -20,7 +21,7 @@ import {
   showModal,
   ToggleField,
 } from "@decky/ui";
-import { TextInputModal } from "./TextInputModal";
+import { RommUrlModal } from "./RommUrlModal";
 import { ConnectModal } from "./ConnectModal";
 import { CustomHeadersModal } from "./CustomHeadersModal";
 import { isHttpsUrl } from "../../utils/serverUrl";
@@ -43,15 +44,21 @@ import {
   signInButtonLabel,
 } from "../../utils/settingsWording";
 import type { CustomHeaderEntry } from "../../types";
+import { AMBER } from "../layout/pane";
+
+const warningStyle = { color: AMBER, display: "inline-flex", alignItems: "center", gap: "6px" } as const;
+const warningIconStyle = { flex: "0 0 auto" } as const;
 
 interface ConnectionSectionProps {
   url: string;
   hasToken: boolean;
   allowInsecureSsl: boolean;
   status: string;
+  /** Whether {@link status} reports a refusal or a failure, which the line shows in amber with a warning sign. */
+  statusWarns: boolean;
   /** Names of the configured proxy headers — values never reach the frontend. */
   customHeaderNames: string[];
-  onUrlChange: (value: string) => void;
+  onSaveUrl: (value: string) => Promise<{ success: boolean; message: string }>;
   onSaveCustomHeaders: (headers: CustomHeaderEntry[]) => Promise<SaveHeadersResult>;
   onConnect: (username: string, password: string) => Promise<SignInResult>;
   onConnectToken: (token: string) => Promise<SignInResult>;
@@ -65,8 +72,9 @@ export const ConnectionSection: FC<ConnectionSectionProps> = ({
   hasToken,
   allowInsecureSsl,
   status,
+  statusWarns,
   customHeaderNames,
-  onUrlChange,
+  onSaveUrl,
   onSaveCustomHeaders,
   onConnect,
   onConnectToken,
@@ -80,9 +88,7 @@ export const ConnectionSection: FC<ConnectionSectionProps> = ({
         <Field label={ROMM_URL_LABEL} description={url || ROMM_URL_UNSET}>
           <DialogButton
             style={{ minWidth: "auto", width: "auto" }}
-            onClick={() =>
-              showModal(<TextInputModal label={ROMM_URL_LABEL} value={url} field="url" onSubmit={onUrlChange} />)
-            }
+            onClick={() => showModal(<RommUrlModal value={url} save={onSaveUrl} />)}
           >
             {EDIT_LABEL}
           </DialogButton>
@@ -155,7 +161,19 @@ export const ConnectionSection: FC<ConnectionSectionProps> = ({
               is not the last thing on it — the SteamGridDB group follows, so a
               reader walking down would step straight over the answer to the
               sign-in they just made. */}
-          <Field label={status} focusable={true} />
+          <Field
+            label={
+              statusWarns ? (
+                <span style={warningStyle}>
+                  <FaExclamationTriangle style={warningIconStyle} />
+                  {status}
+                </span>
+              ) : (
+                status
+              )
+            }
+            focusable={true}
+          />
         </PanelSectionRow>
       )}
     </PanelSection>

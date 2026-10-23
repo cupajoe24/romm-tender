@@ -10,7 +10,8 @@ import {
 } from "./sgdbPickerWording";
 
 vi.mock("./artwork", () => ({
-  applyArtwork: vi.fn(),
+  applyAutomaticArtwork: vi.fn(),
+  applySteamGridDbCover: vi.fn(),
 }));
 
 vi.mock("./toast", () => ({
@@ -20,7 +21,8 @@ vi.mock("./toast", () => ({
 describe("sgdbGamePicker", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(artwork.applyArtwork).mockResolvedValue(4);
+    vi.mocked(artwork.applyAutomaticArtwork).mockResolvedValue(4);
+    vi.mocked(artwork.applySteamGridDbCover).mockResolvedValue(true);
     vi.mocked(backend.applySgdbGameId).mockResolvedValue({ success: true });
     vi.mocked(backend.searchSgdbGames).mockResolvedValue({ success: true, games: [] });
     vi.mocked(backend.debugLog).mockResolvedValue(undefined);
@@ -78,9 +80,18 @@ describe("sgdbGamePicker", () => {
       });
 
       expect(backend.applySgdbGameId).toHaveBeenCalledWith(42, 777);
-      expect(artwork.applyArtwork).toHaveBeenCalledWith(42, 1000);
+      expect(artwork.applyAutomaticArtwork).toHaveBeenCalledWith(42, 1000);
+      expect(artwork.applySteamGridDbCover).toHaveBeenCalledWith(42, 1000);
       expect(toast.showToast).toHaveBeenCalledWith("Artwork refreshed (4/4 images applied)");
       expect(onApplied).toHaveBeenCalledWith(4);
+      expect(outcome).toEqual({ success: true, applied: 4 });
+    });
+
+    it("logs a rejected SteamGridDB cover and still reports the apply", async () => {
+      vi.mocked(artwork.applySteamGridDbCover).mockRejectedValue(new Error("cover error"));
+      const outcome = await executeSgdbSelectionApply({ romId: 42, appId: 1000, selectedId: 777, tag: "TestTag" });
+
+      expect(backend.debugLog).toHaveBeenCalledWith("TestTag: applySteamGridDbCover rejected: Error: cover error");
       expect(outcome).toEqual({ success: true, applied: 4 });
     });
 
@@ -100,7 +111,7 @@ describe("sgdbGamePicker", () => {
       });
 
       expect(toast.showToast).toHaveBeenCalledWith("Cleanup in progress");
-      expect(artwork.applyArtwork).not.toHaveBeenCalled();
+      expect(artwork.applyAutomaticArtwork).not.toHaveBeenCalled();
       expect(onApplied).not.toHaveBeenCalled();
       expect(outcome).toEqual({ success: false });
     });
@@ -121,14 +132,14 @@ describe("sgdbGamePicker", () => {
         expect.stringContaining("TestTag: applySgdbGameId rejected: Error: disk error"),
       );
       expect(toast.showToast).toHaveBeenCalledWith(SGDB_PICKER_APPLY_FAILED);
-      expect(artwork.applyArtwork).not.toHaveBeenCalled();
+      expect(artwork.applyAutomaticArtwork).not.toHaveBeenCalled();
       expect(onApplied).not.toHaveBeenCalled();
       expect(outcome).toEqual({ success: false });
     });
 
-    it("catches applyArtwork rejection, logs debugLog, and treats as 0 applied", async () => {
+    it("catches applyAutomaticArtwork rejection, logs debugLog, and treats as 0 applied", async () => {
       const onApplied = vi.fn();
-      vi.mocked(artwork.applyArtwork).mockRejectedValue(new Error("artwork error"));
+      vi.mocked(artwork.applyAutomaticArtwork).mockRejectedValue(new Error("artwork error"));
 
       const outcome = await executeSgdbSelectionApply({
         romId: 42,
@@ -139,16 +150,16 @@ describe("sgdbGamePicker", () => {
       });
 
       expect(backend.debugLog).toHaveBeenCalledWith(
-        expect.stringContaining("TestTag: applyArtwork rejected: Error: artwork error"),
+        expect.stringContaining("TestTag: applyAutomaticArtwork rejected: Error: artwork error"),
       );
       expect(toast.showToast).toHaveBeenCalledWith("No artwork available for this game");
       expect(onApplied).toHaveBeenCalledWith(0);
       expect(outcome).toEqual({ success: true, applied: 0 });
     });
 
-    it("handles applyArtwork returning -1 (missing API key toast)", async () => {
+    it("handles applyAutomaticArtwork returning -1 (missing API key toast)", async () => {
       const onApplied = vi.fn();
-      vi.mocked(artwork.applyArtwork).mockResolvedValue(-1);
+      vi.mocked(artwork.applyAutomaticArtwork).mockResolvedValue(-1);
 
       const outcome = await executeSgdbSelectionApply({
         romId: 42,

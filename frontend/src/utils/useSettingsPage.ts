@@ -39,9 +39,9 @@ import type { CollectionNamingMode, CustomHeaderEntry, RegisteredDevice, SaveSyn
 import type { SaveHeadersResult } from "./customHeaders";
 import { detach } from "./detach";
 import { AUTO_REGION, regionLabel } from "./preferredRegion";
-import { SYNC_ALL_FAILED_STATUS } from "./settingsWording";
-import { INVALID_URL_MESSAGE, signInToRomm, type SignInRequest, type SignInResult } from "./rommSignIn";
-import { isValidServerUrl, trimServerUrl } from "./serverUrl";
+import { SAVE_FAILED, SYNC_ALL_FAILED_STATUS } from "./settingsWording";
+import { signInToRomm, type SignInRequest, type SignInResult } from "./rommSignIn";
+import { trimServerUrl } from "./serverUrl";
 import { REMOVE_KEY_FAILED, SgdbKeySaveRefused } from "./sgdbApiKey";
 import { showToast } from "./toast";
 import { useUpdateOutcomeState, type UpdateOutcomeState } from "./updateOutcomeStore";
@@ -61,27 +61,24 @@ export interface SettingsPrompts {
   confirmPreferredRegion: (fromLabel: string, toLabel: string) => Promise<boolean>;
 }
 
-/**
- * A RomM URL typed on a surface whose editor can unmount the page before the
- * save is tried: read in place of the stored URL when the settings load, and
- * dropped once its save has been tried.
- */
-export interface PendingEdits {
-  url?: string;
-}
-
 export interface SettingsPageState {
   // Connections
   url: string;
   hasToken: boolean;
-  /** The Connections section's one status line: a sign-in's confirmation, a URL refused, a save that failed. */
+  /** The Connections section's one status line: what loading, signing in or out, and the SSL switch's save said. */
   status: string;
+  /** Whether {@link status} reports a refusal or a failure. */
+  statusWarns: boolean;
   allowInsecureSsl: boolean;
   /** Names only — a configured header's value is a proxy credential the backend never sends back. */
   customHeaderNames: string[];
   /** Truthy once a key is configured; never the key. */
   sgdbApiKey: string;
-  saveUrl: (value: string) => void;
+  /**
+   * Saves the RomM URL and answers what the backend said, for the editor to show
+   * a refusal or a failure itself; only an accepted save reaches this state.
+   */
+  saveUrl: (value: string) => Promise<{ success: boolean; message: string }>;
   saveCustomHeaders: (headers: CustomHeaderEntry[]) => Promise<SaveHeadersResult>;
   setAllowInsecureSsl: (value: boolean) => void;
   signIn: (request: SignInRequest) => Promise<SignInResult>;
@@ -135,13 +132,20 @@ export interface SettingsPageState {
   changeLogLevel: (level: string) => void;
 }
 
-export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingEdits = {}): SettingsPageState {
-  // A ref, so the first load reads the carry without making it a dependency.
-  const pending = useRef(pendingEdits);
+const NO_STATUS = { text: "", warns: false } as const;
+
+export function useSettingsPage(prompts: SettingsPrompts): SettingsPageState {
   // Connection state
   const [url, setUrl] = useState("");
+  // The SSL flag the backend holds, which the switch goes back to when it
+  // refuses a save; null until the settings have loaded.
+  const storedSsl = useRef<boolean | null>(null);
   const [hasToken, setHasToken] = useState(false);
-  const [status, setStatus] = useState("");
+  const [statusLine, setStatusLine] = useState<{ text: string; warns: boolean }>(NO_STATUS);
+  const setStatus = (text: string, warns = false) => setStatusLine({ text, warns });
+  // What the SSL switch's save last put on the status line, the one message an
+  // accepted save may clear: the line also carries what loading and signing in said.
+  const saveStatus = useRef<string | null>(null);
   const [allowInsecureSsl, setAllowInsecureSsl] = useState(false);
   const [customHeaderNames, setCustomHeaderNames] = useState<string[]>([]);
 
@@ -183,8 +187,20 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
   useEffect(() => {
     getSettings()
       .then((s) => {
-        setUrl(pending.current.url ?? s.romm_url);
+        storedSsl.current = s.romm_allow_insecure_ssl;
+        setUrl(s.romm_url);
         setHasToken(s.has_token);
+        // While signed in, whether save sync is on or off: the play-session
+        // upload sends the device id too.
+        if (s.has_token) {
+          ensureDeviceRegistered()
+            .then((result) => {
+              if (result.success) {
+                setDeviceInfo({ device_id: result.device_id, device_name: result.device_name });
+              }
+            })
+            .catch(() => {});
+        }
         setAllowInsecureSsl(s.romm_allow_insecure_ssl);
         setCustomHeaderNames(s.romm_custom_header_names ?? []);
         setSgdbApiKey(s.sgdb_api_key_masked);
@@ -196,7 +212,7 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
       })
       .catch((e) => {
         logError(`Failed to load settings: ${e}`);
-        setStatus("Failed to load settings");
+        setStatus("Failed to load settings", true);
       });
 
     // Failure degrades the Preferred-region options to the anchors only.
@@ -208,13 +224,6 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
       .then((settings) => {
         setSaveSyncSettings(settings);
         if (settings.save_sync_enabled) {
-          ensureDeviceRegistered()
-            .then((result) => {
-              if (result.success) {
-                setDeviceInfo({ device_id: result.device_id, device_name: result.device_name });
-              }
-            })
-            .catch(() => {});
           loadDevices();
         }
       })
@@ -303,23 +312,29 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
   };
 
   // --- Connection handlers ---
-  const handleUrlChange = async (value: string) => {
+  const showSaveStatus = (message: string) => {
+    saveStatus.current = message;
+    setStatus(message, true);
+  };
+  const clearSaveStatus = () => {
+    const shown = saveStatus.current;
+    saveStatus.current = null;
+    if (shown !== null) setStatusLine((current) => (current.text === shown ? NO_STATUS : current));
+  };
+  const handleSaveUrl = async (value: string): Promise<{ success: boolean; message: string }> => {
     const trimmed = trimServerUrl(value);
-    setUrl(trimmed);
+    const sentSsl = allowInsecureSsl;
     try {
-      if (!isValidServerUrl(trimmed)) {
-        setStatus(INVALID_URL_MESSAGE);
-        return;
+      const result = await saveServerUrl(trimmed, sentSsl);
+      if (result.success) {
+        storedSsl.current = sentSsl;
+        setUrl(trimmed);
+        setAllowInsecureSsl(sentSsl);
+        clearSaveStatus();
       }
-      await saveServerUrl(trimmed, allowInsecureSsl);
+      return result;
     } catch {
-      setStatus("Failed to save settings");
-    } finally {
-      // The pending value exists to carry an edit across the remount closing
-      // the editor can cause, not to outlive the attempt: left behind, a value
-      // the backend refused is what every later open of the page shows in the
-      // field, over the URL actually saved (#1020).
-      delete pending.current.url;
+      return { success: false, message: SAVE_FAILED };
     }
   };
   // The editor owns closing (on success) and error display (on failure), so the
@@ -337,11 +352,23 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
     return result;
   };
   const handleAllowInsecureSslChange = (val: boolean) => {
+    const before = allowInsecureSsl;
     setAllowInsecureSsl(val);
     // Auto-save the URL with the new SSL setting
-    saveServerUrl(url, val).catch(() => {
-      setStatus("Failed to save settings");
-    });
+    saveServerUrl(url, val)
+      .then((result) => {
+        if (result.success) {
+          storedSsl.current = val;
+          setAllowInsecureSsl(val);
+          clearSaveStatus();
+          return;
+        }
+        setAllowInsecureSsl(storedSsl.current ?? before);
+        showSaveStatus(result.message);
+      })
+      .catch(() => {
+        showSaveStatus(SAVE_FAILED);
+      });
   };
   // The sign-in prompt owns closing (on success) and error display (on
   // failure). The status line is only touched on success — a post-close
@@ -359,12 +386,12 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
     setStatus("");
     try {
       const result = await signOut();
-      setStatus(result.message);
+      setStatus(result.message, !result.success);
       if (result.success) {
         setHasToken(false);
       }
     } catch {
-      setStatus("Sign-out failed");
+      setStatus("Sign-out failed", true);
     }
   };
 
@@ -518,11 +545,12 @@ export function useSettingsPage(prompts: SettingsPrompts, pendingEdits: PendingE
   return {
     url,
     hasToken,
-    status,
+    status: statusLine.text,
+    statusWarns: statusLine.warns,
     allowInsecureSsl,
     customHeaderNames,
     sgdbApiKey,
-    saveUrl: (value: string) => detach(handleUrlChange(value)),
+    saveUrl: handleSaveUrl,
     saveCustomHeaders: handleSaveCustomHeaders,
     setAllowInsecureSsl: handleAllowInsecureSslChange,
     signIn: handleSignIn,

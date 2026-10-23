@@ -82,6 +82,11 @@ beforeEach(() => {
   vi.mocked(backend.savePreferredRegion).mockResolvedValue({ success: true });
   vi.mocked(backend.saveCollectionPlatformGroups).mockResolvedValue({ success: true });
   vi.mocked(backend.setCollectionNamingMode).mockResolvedValue({ success: true });
+  vi.mocked(backend.ensureDeviceRegistered).mockResolvedValue({
+    success: true,
+    device_id: "dev-1",
+    device_name: "Steam Deck",
+  });
   vi.mocked(backend.getSaveSyncSettings).mockResolvedValue({
     save_sync_enabled: false,
     sync_before_launch: true,

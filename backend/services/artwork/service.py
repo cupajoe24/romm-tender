@@ -22,16 +22,18 @@ that third-party host (#1450). The fingerprint records the source *actually*
 applied (``url_cover`` on a fallback), so a later fixed RomM asset or changed
 ``url_cover`` is still detected as a change.
 
-When the fingerprint changed by ONLY its ``?ts=`` cache-buster (a server-side
-rescan re-stamps every ROM's ``updated_at`` without touching the cover files),
-the cached bytes are REVALIDATED with a conditional request instead of
-re-downloaded (#1454): each regular download records the response's HTTP
-validator (``ETag`` / ``Last-Modified``) in a ``{rom_id}.cover-meta.json``
-sidecar beside the cache file, and a ts-only fingerprint change re-requests with
-``If-None-Match`` (else ``If-Modified-Since``) — a ``304`` keeps the bytes and
-adopts the fresh fingerprint, a ``200`` replaces them. Validators are an optional
-capability: a ROM with no stored validator (or a server/proxy that sends none)
-falls back to a plain download, unchanged.
+When the fingerprint changed by ONLY its ``?ts=`` cache-buster (which RomM
+scans do that without touching the cover file:
+docs/architecture/backend-architecture.md, "Conditional-request revalidation
+on a ts-only change"), the cached bytes are REVALIDATED with a conditional
+request instead of re-downloaded (#1454): each regular download records the
+response's HTTP validator (``ETag`` / ``Last-Modified``) in a
+``{rom_id}.cover-meta.json`` sidecar beside the cache file, and a ts-only
+fingerprint change re-requests with ``If-None-Match`` (else
+``If-Modified-Since``) — a ``304`` keeps the bytes and adopts the fresh
+fingerprint, a ``200`` replaces them. Validators are an optional capability: a
+ROM with no stored validator (or a server/proxy that sends none) falls back to
+a plain download, unchanged.
 """
 
 from __future__ import annotations
@@ -54,9 +56,16 @@ from domain.artwork_paths import (
     staging_filename,
     with_tmp_suffix,
 )
+from domain.artwork_slot import ArtworkSlot
 from domain.cover_refresh import cover_ts_only_change, scan_cover_refresh_candidates
 from domain.sync_stage import SyncStage
 from lib.errors import Refused, RommNotFoundError, with_system_text
+from services.artwork._cover_set_in_steam import covers_set_in_steam
+from services.artwork._steamgriddb_cover import (
+    forget_steamgriddb_cover_io,
+    steamgriddb_covers_among_io,
+    steamgriddb_covers_io,
+)
 
 
 @dataclass(frozen=True)
@@ -81,10 +90,16 @@ class _CoverWrite:
 # counter, not a frozen bar) without a WebSocket frame per cover.
 _COVER_PROGRESS_INTERVAL = 50
 
+
+def _narrates_cover(processed: int, total: int) -> bool:
+    """Whether the *processed*-th cover of *total* gets a progress frame."""
+    return processed == 1 or processed == total or processed % _COVER_PROGRESS_INTERVAL == 0
+
+
 if TYPE_CHECKING:
     import asyncio
     import logging
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Collection
 
     from models.state import ShortcutRegistryEntry
     from services.protocols import (
@@ -198,6 +213,11 @@ class ArtworkService:
         fingerprint even for fallback covers — the caller keys its own
         derivation off it. Absent/unread, ``download_artwork`` behaves as before.
 
+        A bound ROM whose cover is set in Steam, or chosen by the user, is left
+        out of both: nothing is downloaded for it, and with no cache path the commit copies nothing
+        over its ``{app_id}p.png`` and adopts no new ``cover_source``, so a
+        cover change RomM made stays pending.
+
         Progress is narrated under the ``fetching`` stage with the ``covers``
         sub-stage (this runs in the per-unit prep phase, before the shortcuts
         are applied) as "Preparing covers for <label>", throttled to the
@@ -212,6 +232,7 @@ class ArtworkService:
             return cover_paths
 
         self._cover_art_file_store.make_dirs(self._cover_cache_dir)
+        left_alone = await self._loop.run_in_executor(None, self._bound_covers_left_alone_io, all_roms)
         total = len(all_roms)
         cover_target = f"Preparing covers for {label}" if label else "Preparing covers"
 
@@ -220,7 +241,7 @@ class ArtworkService:
                 return cover_paths
 
             processed = i + 1
-            if processed == 1 or processed == total or processed % _COVER_PROGRESS_INTERVAL == 0:
+            if _narrates_cover(processed, total):
                 await emit_progress(
                     SyncStage.FETCHING,
                     current=processed,
@@ -231,36 +252,46 @@ class ArtworkService:
                     sub_stage="covers",
                 )
 
-            cover_url = rom.get("path_cover_large") or rom.get("path_cover_small")
-            if not cover_url:
+            prepared = await self._prepare_cover(rom, grid, left_alone)
+            if prepared is None:
                 continue
-
-            rom_id = rom["id"]
-            cache_path = self._cache_path(rom_id)
-            existing, stored_source = self._resolve_cached_cover(rom_id, cache_path, grid, cover_url)
-            if existing:
-                cover_paths[rom_id] = existing
-                if applied_sources is not None:
-                    applied_sources[rom_id] = cover_url
-                continue
-
-            try:
-                result = await self._loop.run_in_executor(
-                    None,
-                    self._fetch_and_record_cover,
-                    rom_id,
-                    cover_url,
-                    cache_path,
-                    rom.get("url_cover"),
-                    stored_source,
-                )
-                cover_paths[rom_id] = cache_path
-                if applied_sources is not None:
-                    applied_sources[rom_id] = result.applied_source
-            except Exception as e:
-                self._logger.warning(f"Failed to download artwork for {rom['name']}: {e}")
+            cover_paths[rom["id"]], applied_source = prepared
+            if applied_sources is not None:
+                applied_sources[rom["id"]] = applied_source
 
         return cover_paths
+
+    async def _prepare_cover(self, rom: dict[str, Any], grid: str, left_alone: set[int]) -> tuple[str, str] | None:
+        """Ready *rom*'s cover in the cache, returning ``(cache_path, applied_source)``.
+
+        ``applied_source`` is the cover source the cache bytes came from.
+        ``None`` where *rom* has no cover, its ID is among *left_alone*, or
+        the download failed, which is logged.
+        """
+        cover_url = rom.get("path_cover_large") or rom.get("path_cover_small")
+        if not cover_url or rom["id"] in left_alone:
+            return None
+
+        rom_id = rom["id"]
+        cache_path = self._cache_path(rom_id)
+        existing, stored_source = self._resolve_cached_cover(rom_id, cache_path, grid, cover_url)
+        if existing:
+            return existing, cover_url
+
+        try:
+            result = await self._loop.run_in_executor(
+                None,
+                self._fetch_and_record_cover,
+                rom_id,
+                cover_url,
+                cache_path,
+                rom.get("url_cover"),
+                stored_source,
+            )
+        except Exception as e:
+            self._logger.warning(f"Failed to download artwork for {rom['name']}: {e}")
+            return None
+        return cache_path, result.applied_source
 
     def _resolve_cached_cover(
         self, rom_id: int, cache_path: str, grid: str, cover_url: str
@@ -361,6 +392,14 @@ class ArtworkService:
         the apply's group collapse diffs against, so the pass opens no extra
         per-ROM DB lookups of its own.
 
+        A changed cover that is set in Steam, or that the user chose
+        (:meth:`_covers_left_alone_io`), is skipped: its cache and its fingerprint stay as they are, so RomM's
+        change stays pending (what becomes of it: docs/architecture/backend-architecture.md,
+        "Cover-cache invalidation"). An automatic cover Tender picked from
+        SteamGridDB while RomM had none counts as changed once RomM has one,
+        whatever its fingerprint, is downloaded whole, and loses its record
+        once RomM's cover is in its place.
+
         Returns the refreshed ``[{"rom_id", "app_id"}]`` list — the shortcuts
         whose Steam tile the frontend must re-apply via
         ``SetCustomArtworkForApp`` (the grid file alone leaves the in-session
@@ -374,6 +413,7 @@ class ArtworkService:
         )
         if adoptions:
             await self._loop.run_in_executor(None, self._adopt_cover_sources_io, adoptions)
+        changed = await self._without_covers_left_alone(changed)
         if not changed:
             return []
 
@@ -387,7 +427,7 @@ class ArtworkService:
             if is_cancelling():
                 break
             processed = i + 1
-            if processed == 1 or processed == total or processed % _COVER_PROGRESS_INTERVAL == 0:
+            if _narrates_cover(processed, total):
                 await emit_progress(
                     SyncStage.FETCHING,
                     current=processed,
@@ -407,6 +447,77 @@ class ArtworkService:
             self._logger.info(f"Cover refresh: {len(refreshed)} of {total} changed cover(s) re-downloaded")
         return refreshed
 
+    async def count_cover_refreshes(self, all_roms: list[dict[str, Any]], registry: dict[str, dict[str, Any]]) -> int:
+        """The preview's cover work: how many covers :meth:`refresh_changed_covers` would refresh.
+
+        The changed covers of the kernel the pass scans by
+        (:func:`domain.cover_refresh.scan_cover_refresh_candidates`), less the
+        ones set in Steam or chosen by the user, read the same way the pass
+        reads them. It reads the grid directory, the cover cache, the recorded
+        outcomes and the choices; it downloads and writes nothing.
+        """
+        steamgriddb = await self._loop.run_in_executor(
+            None, steamgriddb_covers_among_io, self._uow_factory, all_roms, registry
+        )
+        changed = scan_cover_refresh_candidates(all_roms, registry, steamgriddb).changed
+        return len(await self._without_covers_left_alone(changed))
+
+    async def _without_covers_left_alone(self, changed: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+        if not changed:
+            return []
+        covers = [(rom_id, app_id) for rom_id, app_id, _ in changed]
+        left_alone = await self._loop.run_in_executor(None, self._covers_left_alone_io, covers)
+        if left_alone:
+            self._logger.info(
+                f"Cover refresh: {len(left_alone)} changed cover(s) set in Steam or chosen by the user are left alone"
+            )
+        return [entry for entry in changed if entry[0] not in left_alone]
+
+    def _covers_left_alone_io(self, covers: Collection[tuple[int, int]]) -> set[int]:
+        """The ROMs among *covers*, ``(rom_id, app_id)`` pairs, whose cover the sync leaves alone.
+
+        A cover set in Steam, and one the user chose from SteamGridDB, which
+        the RomM cover refresh leaves alone until the slot is set back to
+        automatic.
+        """
+        return self._covers_set_in_steam_io(covers) | self._chosen_covers_io([rom_id for rom_id, _ in covers])
+
+    def _covers_set_in_steam_io(self, covers: Collection[tuple[int, int]]) -> set[int]:
+        """The ROMs among *covers*, ``(rom_id, app_id)`` pairs, whose cover is set in Steam."""
+        return covers_set_in_steam(
+            covers,
+            steam_config=self._steam_config,
+            file_store=self._cover_art_file_store,
+            uow_factory=self._uow_factory,
+            cover_cache_dir=self._cover_cache_dir,
+            logger=self._logger,
+        )
+
+    def _chosen_covers_io(self, rom_ids: Collection[int]) -> set[int]:
+        """The ROMs among *rom_ids* whose cover the user chose, in one short read UoW."""
+        if not rom_ids:
+            return set()
+        with self._uow_factory() as uow:
+            return {rom_id for rom_id in rom_ids if uow.artwork_slot_choices.get(rom_id, ArtworkSlot.COVER) is not None}
+
+    def _bound_covers_left_alone_io(self, all_roms: list[dict[str, Any]]) -> set[int]:
+        """The ROMs among *all_roms* bound to a shortcut whose cover the apply's download leaves alone.
+
+        Besides those the refresh leaves alone, a cover that is Tender's
+        SteamGridDB pick: only the refresh replaces it, never a seed from it.
+        """
+        with self._uow_factory() as uow:
+            bound = [
+                (rom.rom_id, rom.shortcut_app_id)
+                for raw in all_roms
+                if "id" in raw and (rom := uow.roms.get(int(raw["id"]))) is not None and rom.shortcut_app_id is not None
+            ]
+        return self._covers_left_alone_io(bound) | steamgriddb_covers_io(self._uow_factory, [rom for rom, _ in bound])
+
+    def is_cover_set_in_steam(self, rom_id: int, app_id: int) -> bool:
+        """Implements ``services.protocols.CoverSlotReader.is_cover_set_in_steam``."""
+        return int(rom_id) in self._covers_set_in_steam_io([(int(rom_id), int(app_id))])
+
     def _scan_cover_refresh_candidates(
         self, all_roms: list[dict[str, Any]], registry: dict[str, dict[str, Any]]
     ) -> tuple[list[tuple[int, str]], list[tuple[int, int, str]]]:
@@ -417,12 +528,14 @@ class ArtworkService:
         without download); ``changed`` are ``(rom_id, app_id, fresh_source)`` triples
         whose stored fingerprint differs from the fresh one (re-download + republish).
         Only BOUND rows qualify — *registry* projects them, so a ROM with no fresh
-        cover, no registry entry, or an unchanged fingerprint is skipped without any
-        DB access; the compare itself is :func:`domain.cover_refresh.scan_cover_refresh_candidates`
-        (the kernel the preview count shares). Only the cache-existence check on
-        NULL-fingerprint rows touches I/O here.
+        cover, no registry entry, or an unchanged fingerprint is skipped; the
+        compare itself is :func:`domain.cover_refresh.scan_cover_refresh_candidates`
+        (the kernel the preview count shares). I/O here is the cache-existence
+        check on NULL-fingerprint rows and the read of the ROMs whose automatic
+        cover is Tender's SteamGridDB pick.
         """
-        scan = scan_cover_refresh_candidates(all_roms, registry)
+        steamgriddb = steamgriddb_covers_among_io(self._uow_factory, all_roms, registry)
+        scan = scan_cover_refresh_candidates(all_roms, registry, steamgriddb)
         adoptions = [
             (rom_id, fresh)
             for rom_id, fresh in scan.null_fingerprint
@@ -462,9 +575,14 @@ class ArtworkService:
         applied — *url_cover* when the RomM asset 404s and the fallback wins
         (#1450), else *cover_url*. When *stored_source* differs from *cover_url* by
         only its ``?ts=`` and a validator sidecar exists, the fetch revalidates
-        with a conditional request instead of re-downloading.
+        with a conditional request instead of re-downloading. In place of
+        Tender's SteamGridDB pick, RomM's cover is downloaded whole, and the
+        pick's record goes once RomM's cover is published.
         """
         cache_path = self._cache_path(rom_id)
+        steamgriddb_cover = bool(steamgriddb_covers_io(self._uow_factory, [rom_id]))
+        if steamgriddb_cover:
+            stored_source = None
         try:
             result = self._fetch_and_record_cover(rom_id, cover_url, cache_path, url_cover, stored_source)
         except Exception as e:
@@ -480,6 +598,8 @@ class ArtworkService:
         if grid:
             self.finalize_cover_path(grid, cache_path, app_id, str(rom_id))
         self._persist_cover_source(rom_id, result.applied_source)
+        if steamgriddb_cover:
+            forget_steamgriddb_cover_io(self._uow_factory, rom_id)
         return True
 
     def _persist_cover_source(self, rom_id: int, source: str) -> None:
@@ -501,11 +621,10 @@ class ArtworkService:
         Sync worker for the executor. Revalidates with a conditional request
         (instead of re-downloading) only when *stored_source* differs from
         *cover_url* by ONLY its ``?ts=`` cache-buster, a validator sidecar
-        exists, and the cache file is present — the case a server-side rescan
-        creates. Otherwise it is a plain download. Either way the sidecar is
-        refreshed from the response so the *next* sync can revalidate. Returns
-        the :class:`_CoverWrite` the caller persists as the ``cover_source``
-        fingerprint.
+        exists, and the cache file is present. Otherwise it is a plain
+        download. Either way the sidecar is refreshed from the response so the
+        *next* sync can revalidate. Returns the :class:`_CoverWrite` the caller
+        persists as the ``cover_source`` fingerprint.
         """
         etag, last_modified = self._read_cover_meta(rom_id)
         revalidate = (
@@ -722,32 +841,12 @@ class ArtworkService:
         read as-is) → the per-ROM cache file → a legacy staging file → the grid
         ``{app_id}p.png`` fallback.
         """
-        # 1. Pending sync data (in-flight sync's staged cache path)
-        pending = self._get_pending_sync().get(rom_id, {})
-        cover_path = pending.get("cover_path", "")
-
-        # 2. Persisted cover path on the ROM row (cache or legacy grid path)
-        if not cover_path:
-            with self._uow_factory() as uow:
-                rom = uow.roms.get(rom_id)
-            cover_path = (rom.cover_path or "") if rom is not None else ""
-
-        # 3. Per-ROM cover cache file
-        if not cover_path:
-            cache_path = self._cache_path(rom_id)
-            if self._cover_art_file_store.exists(cache_path):
-                cover_path = cache_path
+        cover_path = self._recorded_cover_path(rom_id)
 
         # 4/5. Legacy staging + grid {app_id}p.png fallback (grid-dir bound)
         grid = self._steam_config.grid_dir()
         if not cover_path and grid:
-            staging = os.path.join(grid, staging_filename(rom_id))
-            if self._cover_art_file_store.exists(staging):
-                cover_path = staging
-        if not cover_path and grid:
-            fallback = self.existing_cover_path(rom_id, grid)
-            if fallback:
-                cover_path = fallback
+            cover_path = self._grid_cover_path(rom_id, grid)
 
         if cover_path and self._cover_art_file_store.exists(cover_path):
             b64 = await self._read_base64(cover_path)
@@ -755,6 +854,32 @@ class ArtworkService:
                 return {"base64": b64}
 
         return {"base64": None}
+
+    def _recorded_cover_path(self, rom_id: int) -> str:
+        """The cover path the first three of :meth:`get_artwork_base64`'s places name; ``""`` where none does."""
+        # 1. Pending sync data (in-flight sync's staged cache path)
+        pending = self._get_pending_sync().get(rom_id, {})
+        if cover_path := pending.get("cover_path", ""):
+            return cover_path
+
+        # 2. Persisted cover path on the ROM row (cache or legacy grid path)
+        with self._uow_factory() as uow:
+            rom = uow.roms.get(rom_id)
+        if rom is not None and rom.cover_path:
+            return rom.cover_path
+
+        # 3. Per-ROM cover cache file
+        cache_path = self._cache_path(rom_id)
+        if self._cover_art_file_store.exists(cache_path):
+            return cache_path
+        return ""
+
+    def _grid_cover_path(self, rom_id: int, grid: str) -> str:
+        """*rom_id*'s legacy staging file in *grid*, else its grid ``{app_id}p.png``; ``""`` where neither exists."""
+        staging = os.path.join(grid, staging_filename(rom_id))
+        if self._cover_art_file_store.exists(staging):
+            return staging
+        return self.existing_cover_path(rom_id, grid) or ""
 
     async def fetch_cover_base64(self, rom_id: int) -> dict[str, Any]:
         """Cache-first cover fetch for the version picker (ADR-0021).
@@ -810,52 +935,60 @@ class ArtworkService:
         fingerprint (#1386). ADR-0006: the read and write each own a short
         UoW with the RomM/file I/O in between, outside any transaction.
 
-        Refuses with ``not_synced``, ``no_grid_dir``, ``not_found`` (RomM
-        answered no ROM) and ``no_cover``, and with ``download_failed`` where
-        this device raises an ``OSError`` around the download — the cover's
-        folder, the file the download writes, the move into place, the
-        validator sidecar; the ROM row is left as it was. A RomM error
-        propagates.
+        The answer carries an ``sgdb_artwork`` lease in ``prune_lease_token``
+        for the frontend to hand the cover to Steam under. Refuses with
+        ``not_synced``, ``no_grid_dir``, ``not_found`` (RomM answered no ROM),
+        ``no_cover``, and ``download_failed`` where this device raises an
+        ``OSError`` around the download — the cover's folder, the file the
+        download writes, the move into place, the validator sidecar; the ROM
+        row is left as it was. A RomM error propagates.
         """
         async with self._rules.hold("refresh_cover_artwork", update=True, migration=True, prune=True):
-            app_id = await self._loop.run_in_executor(None, self._read_bound_app_id, rom_id)
-            if app_id is None:
-                raise Refused("not_synced", "ROM is not synced to Steam")
+            answer = await self.refresh_cover_unchecked(rom_id)
+            return {**answer, "prune_lease_token": await self._rules.acquire_lease("sgdb_artwork")}
 
-            grid = self._steam_config.grid_dir()
-            if not grid:
-                raise Refused("no_grid_dir", "Steam grid directory not found")
+    async def refresh_cover_unchecked(self, rom_id: int) -> dict[str, Any]:
+        """:meth:`refresh_cover` without its conflict rules, for a use case that checked its own.
 
-            rom = await self._loop.run_in_executor(None, self._romm_api.get_rom, rom_id)
-            if not rom:
-                raise Refused("not_found", "Could not fetch ROM from server")
+        Implements ``services.protocols.CoverSlotReader.refresh_cover_unchecked``.
+        """
+        app_id = await self._loop.run_in_executor(None, self._read_bound_app_id, rom_id)
+        if app_id is None:
+            raise Refused("not_synced", "ROM is not synced to Steam")
 
-            cover_url = rom.get("path_cover_large") or rom.get("path_cover_small")
-            if not cover_url:
-                raise Refused("no_cover", "ROM has no cover artwork")
+        grid = self._steam_config.grid_dir()
+        if not grid:
+            raise Refused("no_grid_dir", "Steam grid directory not found")
 
-            cache_path = self._cache_path(rom_id)
-            self._cover_art_file_store.make_dirs(self._cover_cache_dir)
-            try:
-                # A manual repair forces a fresh download (stored_source=None never
-                # matches, so it never revalidates), but still seeds the validator.
-                result = await self._loop.run_in_executor(
-                    None, self._fetch_and_record_cover, rom_id, cover_url, cache_path, rom.get("url_cover"), None
-                )
-            except OSError as e:
-                self._logger.warning(f"refresh_cover: failed to save the cover for rom {rom_id}: {e}")
-                raise Refused(
-                    "download_failed", with_system_text("The cover could not be saved on this device", e)
-                ) from e
+        rom = await self._loop.run_in_executor(None, self._romm_api.get_rom, rom_id)
+        if not rom:
+            raise Refused("not_found", "Could not fetch ROM from server")
 
-            self.finalize_cover_path(grid, cache_path, app_id, str(rom_id))
-            await self._loop.run_in_executor(None, self._persist_cover_path, rom_id, cache_path, result.applied_source)
+        cover_url = rom.get("path_cover_large") or rom.get("path_cover_small")
+        if not cover_url:
+            raise Refused("no_cover", "RomM has no cover artwork")
 
-            return {
-                "success": True,
-                "message": "Cover refreshed",
-                "cover_path": cache_path,
-            }
+        cache_path = self._cache_path(rom_id)
+        self._cover_art_file_store.make_dirs(self._cover_cache_dir)
+        try:
+            # A manual repair forces a fresh download (stored_source=None never
+            # matches, so it never revalidates), but still seeds the validator.
+            result = await self._loop.run_in_executor(
+                None, self._fetch_and_record_cover, rom_id, cover_url, cache_path, rom.get("url_cover"), None
+            )
+        except OSError as e:
+            self._logger.warning(f"refresh_cover: failed to save the cover for rom {rom_id}: {e}")
+            raise Refused("download_failed", with_system_text("The cover could not be saved on this device", e)) from e
+
+        self.finalize_cover_path(grid, cache_path, app_id, str(rom_id))
+        await self._loop.run_in_executor(None, self._persist_cover_path, rom_id, cache_path, result.applied_source)
+        await self._loop.run_in_executor(None, forget_steamgriddb_cover_io, self._uow_factory, rom_id)
+
+        return {
+            "success": True,
+            "message": "Cover refreshed",
+            "cover_path": cache_path,
+        }
 
     def _read_bound_app_id(self, rom_id: int) -> int | None:
         """Return the ROM's ``shortcut_app_id``, or ``None`` when unsynced/unbound."""
@@ -932,27 +1065,30 @@ class ArtworkService:
             return
         with self._uow_factory() as uow:
             known = {rom.rom_id for rom in uow.roms.iter_all()}
-        pruned = []
-        for filename in self._cover_art_file_store.listdir(cache_dir):
-            # Sweep any leftover atomic-write sidecar (a crash between write and
-            # rename): it belongs to no ROM's live cache. Covers both the cover
-            # ``.tmp`` and a crashed validator-sidecar ``.cover-meta.json.tmp``.
-            if filename.endswith(TMP_SUFFIX):
-                if self._remove_cache_entry(cache_dir, filename):
-                    pruned.append(filename)
-                continue
-            # Cover-validator sidecar (#1454): orphaned when its rom_id has no row.
-            if filename.endswith(COVER_META_SUFFIX):
-                stem = filename[: -len(COVER_META_SUFFIX)]
-                if self._prune_cache_stem(cache_dir, filename, stem, known):
-                    pruned.append(filename)
-                continue
-            if not filename.endswith(".png"):
-                continue
-            if self._prune_cache_stem(cache_dir, filename, filename[: -len(".png")], known):
-                pruned.append(filename)
+        pruned = [
+            filename
+            for filename in self._cover_art_file_store.listdir(cache_dir)
+            if self._prune_cache_file(cache_dir, filename, known)
+        ]
         if pruned:
             self._logger.info(f"Pruned {len(pruned)} orphaned cover cache file(s)")
+
+    def _prune_cache_file(self, cache_dir: str, filename: str, known: set[int]) -> bool:
+        """Remove *filename* from the cover cache when it is orphaned; return whether it was removed.
+
+        *known* holds the rom_ids that have a ``roms`` row.
+        """
+        # Sweep any leftover atomic-write sidecar (a crash between write and
+        # rename): it belongs to no ROM's live cache. Covers both the cover
+        # ``.tmp`` and a crashed validator-sidecar ``.cover-meta.json.tmp``.
+        if filename.endswith(TMP_SUFFIX):
+            return self._remove_cache_entry(cache_dir, filename)
+        # Cover-validator sidecar (#1454): orphaned when its rom_id has no row.
+        if filename.endswith(COVER_META_SUFFIX):
+            return self._prune_cache_stem(cache_dir, filename, filename[: -len(COVER_META_SUFFIX)], known)
+        if not filename.endswith(".png"):
+            return False
+        return self._prune_cache_stem(cache_dir, filename, filename[: -len(".png")], known)
 
     def _prune_cache_stem(self, cache_dir: str, filename: str, stem: str, known: set[int]) -> bool:
         """Remove *filename* iff *stem* is a numeric rom_id absent from *known*.

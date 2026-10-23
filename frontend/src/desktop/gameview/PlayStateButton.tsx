@@ -6,6 +6,7 @@
  */
 
 import type { CSSProperties, FC } from "react";
+import { CHOOSE_GAME_FIRST_IN_MENU, CHOOSE_GAME_MENU_LABEL } from "../../utils/artworkTabWording";
 import { BUTTON_GROUP_STYLE, BUTTON_BASE_STYLE, SIDE_ACTION_STYLE } from "./styles";
 
 export interface PlayStateButtonProps {
@@ -13,7 +14,10 @@ export interface PlayStateButtonProps {
   showMenu: boolean;
   onPlay: () => void;
   onToggleMenu: () => void;
+  /** The ROM is known to have no SteamGridDB game, so Refresh Artwork has nothing to refresh from yet. */
+  refreshArtworkDisabled?: boolean;
   onRefreshArtwork?: () => void;
+  onChooseGame?: () => void;
   onRefreshMetadata?: () => void;
   onUninstall: () => void;
 }
@@ -33,12 +37,18 @@ const MENU_ITEM_BASE_STYLE: CSSProperties = {
   gap: "8px",
 };
 
+const DISABLED_MENU_ITEM_STYLE: CSSProperties = { ...MENU_ITEM_BASE_STYLE, opacity: 0.6, cursor: "default" };
+
+const MENU_ITEM_NOTE_STYLE: CSSProperties = { display: "block", fontSize: "12px", opacity: 0.8 };
+
 export const PlayStateButton: FC<PlayStateButtonProps> = ({
   effectiveState,
   showMenu,
   onPlay,
   onToggleMenu,
+  refreshArtworkDisabled = false,
   onRefreshArtwork,
+  onChooseGame,
   onRefreshMetadata,
   onUninstall,
 }) => {
@@ -115,7 +125,8 @@ export const PlayStateButton: FC<PlayStateButtonProps> = ({
           <button
             type="button"
             className="tender-desktop-menu-item-refresh-artwork"
-            style={MENU_ITEM_BASE_STYLE}
+            style={refreshArtworkDisabled ? DISABLED_MENU_ITEM_STYLE : MENU_ITEM_BASE_STYLE}
+            disabled={refreshArtworkDisabled}
             onClick={onRefreshArtwork}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -123,7 +134,26 @@ export const PlayStateButton: FC<PlayStateButtonProps> = ({
               <circle cx="4" cy="4" r="1" fill="currentColor" stroke="none" />
               <path d="M2 9.5L5 6.5L7.5 9M6.5 8L8 6.5L10.5 9" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Refresh Artwork
+            {refreshArtworkDisabled ? (
+              <span>
+                <span style={{ display: "block" }}>Refresh Artwork</span>
+                <span style={MENU_ITEM_NOTE_STYLE}>{CHOOSE_GAME_FIRST_IN_MENU}</span>
+              </span>
+            ) : (
+              "Refresh Artwork"
+            )}
+          </button>
+          <button
+            type="button"
+            className="tender-desktop-menu-item-choose-game"
+            style={MENU_ITEM_BASE_STYLE}
+            onClick={onChooseGame}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="5" cy="5" r="3.5" />
+              <path d="M7.5 7.5L10.5 10.5" strokeLinecap="round" />
+            </svg>
+            {CHOOSE_GAME_MENU_LABEL}
           </button>
           <button
             type="button"

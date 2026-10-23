@@ -14,8 +14,11 @@ The Protocols match the aggregate roots settled in ADR-0003 — ``Rom``,
 ``FirmwareCacheEntry``, ``SyncRun`` — plus ``PlatformSyncState`` (the per-platform
 completion stamp, ADR-0023), its per-collection sibling ``CollectionSyncState``,
 ``AnsweredSaveDirectory`` (the save directory the resolver last answered per ROM,
-ADR-0041), ``ArtworkSlotOutcome`` (what was last found for a ROM's wide grid or
-logo) and the ``kv_config`` key-value surface.
+ADR-0041), ``ArtworkSlotOutcome`` (what was last found for one of a ROM's
+artwork slots), ``ArtworkSlotChoice`` (the image a user chose for one),
+``ArtworkSlotHandover`` (the image last handed to Steam for one), ``StoredFirmware``
+and ``FirmwareLink`` (a file in Tender's firmware store, and a link Tender placed to
+one) and the ``kv_config`` key-value surface.
 ``SyncSettings``/``Platform``/``Device`` are NOT repositories — ADR-0003 dropped
 those aggregates.
 
@@ -33,10 +36,13 @@ if TYPE_CHECKING:
 
     from domain.answered_save_directory import AnsweredSaveDirectory
     from domain.artwork_slot import ArtworkSlot
+    from domain.artwork_slot_choice import ArtworkSlotChoice
+    from domain.artwork_slot_handover import ArtworkSlotHandover
     from domain.artwork_slot_outcome import ArtworkSlotOutcome
     from domain.bios_file import BiosFile
     from domain.collection_sync_state import CollectionSyncState
     from domain.firmware_cache import FirmwareCacheEntry
+    from domain.firmware_store import FirmwareLink, StoredFirmware
     from domain.platform_sync_state import PlatformSyncState
     from domain.playtime import PendingSessionRow, Playtime
     from domain.rom import Rom
@@ -134,6 +140,22 @@ class RomRepository(Protocol):
         """
         ...
 
+    def set_chosen_sgdb_id(self, rom_id: int, sgdb_id: int | None) -> None:
+        """Store (or clear with ``None``) the SteamGridDB game the user chose for *rom_id*.
+
+        The only write path for ``chosen_sgdb_id``; the sync upsert in
+        :meth:`save` never touches it, so a re-sync preserves the choice.
+        """
+        ...
+
+    def set_artwork_checked_at(self, rom_id: int, checked_at: float | None) -> None:
+        """Store (or clear with ``None``) when *rom_id*'s automatic artwork was last checked against SteamGridDB.
+
+        The only write path for ``artwork_checked_at``; the sync upsert in
+        :meth:`save` never touches it.
+        """
+        ...
+
     def clear_all_applied_launch_options(self) -> None:
         """Reset every recorded launch command to "unknown" (NULL).
 
@@ -158,11 +180,11 @@ class RomInstallRepository(Protocol):
     """Persistence seam for the ``RomInstall`` aggregate (installed-ROM file records)."""
 
     def get(self, rom_id: int) -> RomInstall | None:
-        """Return the install record for *rom_id*, or ``None``. (downloads.py, game_detail.py, saves/rom_info.py)"""
+        """Return the install record for *rom_id*, or ``None``. (downloads/, game_detail.py, saves/rom_info.py)"""
         ...
 
     def save(self, install: RomInstall) -> None:
-        """Upsert the install record. (downloads.py)"""
+        """Upsert the install record. (downloads/)"""
         ...
 
     def delete(self, rom_id: int) -> None:
@@ -290,9 +312,10 @@ class AnsweredSaveDirectoryRepository(Protocol):
 
 
 class ArtworkSlotOutcomeRepository(Protocol):
-    """Persistence seam for the ``ArtworkSlotOutcome`` aggregate (per-ROM wide grid, logo and icon outcomes).
+    """Persistence seam for the ``ArtworkSlotOutcome`` aggregate (per-ROM wide grid, logo, hero and icon outcomes).
 
-    Keyed by ``(rom_id, slot)``. (steamgrid.py, the one reader and writer)
+    Keyed by ``(rom_id, slot)``. (the steamgrid package reads and writes it; shortcut_artwork.py and
+    artwork/_cover_set_in_steam.py read it)
     """
 
     def get(self, rom_id: int, slot: ArtworkSlot) -> ArtworkSlotOutcome | None:
@@ -305,6 +328,56 @@ class ArtworkSlotOutcomeRepository(Protocol):
 
     def delete_for_rom(self, rom_id: int) -> None:
         """Drop every slot's record of *rom_id*. A no-op when none exists."""
+        ...
+
+    def delete_slot(self, rom_id: int, slot: ArtworkSlot) -> None:
+        """Drop the record of *rom_id*'s *slot*. A no-op when none exists."""
+        ...
+
+
+class ArtworkSlotChoiceRepository(Protocol):
+    """Persistence seam for the ``ArtworkSlotChoice`` aggregate (the image a user chose per ROM and slot).
+
+    Keyed by ``(rom_id, slot)``; no row is a slot on automatic.
+    """
+
+    def get(self, rom_id: int, slot: ArtworkSlot) -> ArtworkSlotChoice | None:
+        """Return the image chosen for *rom_id*'s *slot*, or ``None`` when the slot is automatic."""
+        ...
+
+    def save(self, choice: ArtworkSlotChoice) -> None:
+        """Upsert *choice* under its ``(rom_id, slot)``."""
+        ...
+
+    def get_all_for_rom(self, rom_id: int) -> list[ArtworkSlotChoice]:
+        """Every slot choice of *rom_id*, in no particular order."""
+        ...
+
+    def delete_slot(self, rom_id: int, slot: ArtworkSlot) -> None:
+        """Drop the choice of *rom_id*'s *slot*, setting it back to automatic. A no-op when none exists."""
+        ...
+
+    def delete_for_rom(self, rom_id: int) -> None:
+        """Drop every slot choice of *rom_id*. A no-op when none exists."""
+        ...
+
+
+class ArtworkSlotHandoverRepository(Protocol):
+    """Persistence seam for the ``ArtworkSlotHandover`` aggregate (the image last handed to Steam per ROM and slot).
+
+    Keyed by ``(rom_id, slot)``; no row is a slot with no answer from Steam outstanding.
+    """
+
+    def get(self, rom_id: int, slot: ArtworkSlot) -> ArtworkSlotHandover | None:
+        """Return the image last handed to Steam for *rom_id*'s *slot*, or ``None`` when none is outstanding."""
+        ...
+
+    def save(self, handover: ArtworkSlotHandover) -> None:
+        """Upsert *handover* under its ``(rom_id, slot)``."""
+        ...
+
+    def delete_slot(self, rom_id: int, slot: ArtworkSlot) -> None:
+        """Drop the hand-over of *rom_id*'s *slot*. A no-op when none exists."""
         ...
 
 
@@ -360,6 +433,53 @@ class FirmwareCacheRepository(Protocol):
 
     def get_cache_epoch(self) -> float | None:
         """Return the cache's last-refresh timestamp, or ``None`` when empty. (firmware/listing.py TTL check)"""
+        ...
+
+
+class FirmwareStoreRepository(Protocol):
+    """Persistence seam for the ``StoredFirmware`` aggregate (a file in Tender's firmware store).
+
+    Identity is the composite ``(platform_slug, file_name)``.
+    """
+
+    def get(self, platform_slug: str, file_name: str) -> StoredFirmware | None:
+        """Return the store file for the composite key, or ``None``."""
+        ...
+
+    def save(self, stored: StoredFirmware) -> None:
+        """Upsert *stored*. (firmware/store.py, after a download or a takeover)"""
+        ...
+
+    def delete(self, platform_slug: str, file_name: str) -> None:
+        """Remove the store file's record for the composite key. Idempotent."""
+        ...
+
+    def iter_all(self) -> Iterator[StoredFirmware]:
+        """Iterate every store file."""
+        ...
+
+    def get_folders(self) -> frozenset[str]:
+        """Every Tender folder a store file is recorded under, in one query. (the folder rule's question)"""
+        ...
+
+
+class FirmwareLinkRepository(Protocol):
+    """Persistence seam for the ``FirmwareLink`` aggregate (a link Tender placed). Identity is the link's place."""
+
+    def get(self, place: str) -> FirmwareLink | None:
+        """Return the record of the link at *place*, or ``None``."""
+        ...
+
+    def save(self, link: FirmwareLink) -> None:
+        """Upsert *link* under its place."""
+        ...
+
+    def delete(self, place: str) -> None:
+        """Remove the record of the link at *place*. Idempotent."""
+        ...
+
+    def iter_all(self) -> Iterator[FirmwareLink]:
+        """Iterate every link record."""
         ...
 
 

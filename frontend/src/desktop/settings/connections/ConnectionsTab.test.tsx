@@ -67,6 +67,11 @@ async function submit(form: HTMLElement) {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(backend.getKnownRegions).mockResolvedValue([]);
+  vi.mocked(backend.ensureDeviceRegistered).mockResolvedValue({
+    success: true,
+    device_id: "dev-1",
+    device_name: "Steam Deck",
+  });
   vi.mocked(backend.getSaveSyncSettings).mockResolvedValue({
     save_sync_enabled: false,
     sync_before_launch: true,
@@ -103,19 +108,44 @@ describe("the RomM rows", () => {
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
-  it("refuses a URL that is not one, on the status line", async () => {
+  it("says a refused URL under the field, keeps the text, and drops the refusal on an edit", async () => {
+    vi.mocked(backend.saveServerUrl).mockResolvedValue({ success: false, message: INVALID_URL_MESSAGE });
     await renderTab();
     type(urlField(), "romm.local");
     await press(button("Save"));
 
-    expect(backend.saveServerUrl).not.toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent(INVALID_URL_MESSAGE);
+    expect(backend.saveServerUrl).toHaveBeenCalledWith("romm.local", false);
+    expect(screen.getByRole("alert")).toHaveTextContent(INVALID_URL_MESSAGE);
+    expect(urlField().value).toBe("romm.local");
+
+    type(urlField(), "romm.local/");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("drops a refusal that answers text since edited", async () => {
+    let answer: (value: { success: boolean; message: string }) => void = () => {};
+    vi.mocked(backend.saveServerUrl).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await renderTab();
+    type(urlField(), "romm.local");
+    await press(button("Save"));
+    type(urlField(), "https://romm.other");
+    await act(async () => {
+      answer({ success: false, message: INVALID_URL_MESSAGE });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("offers the insecure-SSL switch for an https URL only, and saves the URL with it", async () => {
     vi.mocked(backend.saveServerUrl).mockResolvedValue({ success: true, message: "" });
     await renderTab();
-    fireEvent.click(screen.getByTestId("toggle-input"));
+    await press(screen.getByTestId("toggle-input"));
     expect(backend.saveServerUrl).toHaveBeenCalledWith("https://romm.local", true);
     expect(rowDescription("Allow Insecure SSL")).toContain("Only on a network you trust.");
   });

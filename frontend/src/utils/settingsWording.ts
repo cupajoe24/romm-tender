@@ -10,6 +10,9 @@ export type Phrase = readonly { readonly text: string; readonly strong?: boolean
 /** A phrase's words without their emphasis. */
 export const phraseText = (phrase: Phrase): string => phrase.map((run) => run.text).join("");
 
+/** A save of a setting that could not reach the backend. */
+export const SAVE_FAILED = "Failed to save settings";
+
 // --- Connections: RomM ---
 
 export const ROMM_HEADING = "RomM";

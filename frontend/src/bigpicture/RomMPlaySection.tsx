@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, FC, Fragment, type ReactElement } from "react";
+import { noteBiosPress } from "../utils/biosAttempts";
 import { showToast } from "../utils/toast";
 import {
   ConfirmModal,
@@ -30,8 +31,10 @@ import { VersionPicker } from "./VersionPicker";
 import { VanishedVersionBanner } from "./VanishedVersionBanner";
 import { WarningCard } from "./WarningCard";
 import { useTriggerHandler } from "./emulatorStepping";
-import { SgdbGamePickerModalContent } from "./SgdbGamePickerModal";
 import { cancelArtworkApply } from "../utils/artwork";
+import { settleArtworkGame } from "../utils/artworkGameChange";
+import { isKnownWithoutSgdbGame, useArtworkSlotsChanges } from "../utils/artworkSlotsStore";
+import { CHOOSE_GAME_FIRST } from "../utils/artworkTabWording";
 import { useAutoArtwork } from "../utils/autoArtwork";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
@@ -359,6 +362,13 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   }, [appId]);
 
   const playtimeInfo = useGamePlaytime(appId, detail.romId, "RomMPlaySection");
+  // Refresh Artwork is offered only once the ROM has a SteamGridDB game (#2381 D3); the visit's read also settles a
+  // game RomM's id replaced (D17).
+  useArtworkSlotsChanges(appId);
+  useEffect(() => {
+    if (detail.romId) detach(settleArtworkGame(appId, detail.romId));
+  }, [appId, detail.romId]);
+  const withoutSgdbGame = isKnownWithoutSgdbGame(appId, detail.romId);
 
   // Helper: create an info item with header and value (Steam's two-line pattern)
   const infoItem = (key: string, header: string, value: string, extraClass?: string) => (
@@ -379,22 +389,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     const romId = detail.romId;
     setActionPending("artwork");
     try {
-      await executeRefreshArtwork({
-        romId,
-        appId,
-        leaseOwner: `game-detail:${appId}`,
-        onNeedsPick: (candidates) => {
-          showModal(
-            <SgdbGamePickerModalContent
-              romId={romId}
-              appId={appId}
-              romName={detail.romName}
-              candidates={candidates}
-              onApplied={() => {}}
-            />,
-          );
-        },
-      });
+      await executeRefreshArtwork({ romId, appId, leaseOwner: `game-detail:${appId}` });
     } finally {
       setActionPending(null);
     }
@@ -427,6 +422,10 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
       const result = await downloadAllFirmware(detail.platformSlug, detail.romId);
       if (result.success) {
         const failed = result.failed ?? [];
+        // The toast says what was downloaded; what was left in place, a link
+        // that could not be placed and a file moved aside are said on the BIOS
+        // tab's rows.
+        noteBiosPress(result);
         showToast(failed.length > 0 ? result.message : `BIOS downloaded (${result.downloaded} files)`);
         if (result.downloaded > 0) {
           globalThis.dispatchEvent(
@@ -566,11 +565,19 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
       <Menu label="RomM Actions">
         <MenuItem
           key="refresh-artwork"
+          disabled={withoutSgdbGame}
           onClick={() => {
             detach(handleRefreshArtwork());
           }}
         >
-          Refresh Artwork
+          {withoutSgdbGame ? (
+            <div>
+              <div>Refresh Artwork</div>
+              <div style={{ fontSize: "12px", opacity: 0.7 }}>{CHOOSE_GAME_FIRST}</div>
+            </div>
+          ) : (
+            "Refresh Artwork"
+          )}
         </MenuItem>
         <MenuItem
           key="refresh-metadata"

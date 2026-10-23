@@ -26,8 +26,9 @@ Sync uses a **newest-wins** model with a hash-divergence guard:
   do.
 - If another device pushed a newer save and your local file is unchanged, the new server save is downloaded silently.
 - If you played offline and your local file changed, your save is pushed back to the server.
-- A conflict modal only appears if **both sides changed** since the last sync — Tender won't silently overwrite either
-  version.
+- A conflict modal only appears if **both sides changed** to different content since the last sync, if a save on this
+  device that Tender never synced meets a different save in RomM, or if your local save looks emptied or cut short —
+  Tender won't silently overwrite either version.
 
 This is the same model used by the official RomM clients (Argosy and Grout). It keeps cross-device save sync simple: one
 timeline per slot, newest wins.
@@ -38,16 +39,24 @@ When a game has several [versions](managing-games.md#versions) — a `(USA)` dum
 so on — each version has its **own** saves, on RomM and on disk. Automatic sync only ever touches the **active version**
 (the one currently bound to the shortcut). Switching versions never copies, moves, or deletes a save.
 
-That means an inactive version's local saves simply wait: if you switch away from a downloaded version whose saves were
-never uploaded, those saves stay on disk untouched and resume syncing the moment you switch back to that version. Tender
-warns you before you leave such a version and shows a reminder banner on the **Saves** tab so the saves aren't forgotten
-(see [Managing Games → Versions](managing-games.md#versions)). Nothing is lost — the saves just don't sync while their
+That means an inactive version's local saves simply wait: if you switch away from a downloaded version whose saves
+haven't been synced to RomM — saves that were never uploaded, or that changed since their last sync — those saves stay
+on disk untouched and resume syncing the moment you switch back to that version. Tender warns you before you leave such
+a version and shows a reminder banner on the **Saves** tab so the saves aren't forgotten (see
+[Managing Games → Versions](managing-games.md#versions)). Nothing is lost — the saves just don't sync while their
 version is inactive.
+
+- **With save sync off** neither the warning nor the banner appears: nothing is being synced, so nothing is left behind
+  by a switch.
+- **Where Tender couldn't check** whether a version's saves have been synced — a save file it can't read, for instance —
+  it warns all the same, and says that it couldn't check.
+- **A version no longer available on RomM** can't receive its saves any more, so the warning offers only **Switch
+  anyway** and **Cancel**; the saves stay on disk.
 
 The reminder never tells you to switch back to a retained version that the current version-list check positively
 confirmed is [no longer available on RomM](managing-games.md#the-switch-version-control). Such a row may still keep its
-local files and saves, but it cannot be selected; the Saves tab skips it and continues looking for drift on later live
-inactive versions.
+local files and saves, but it cannot be selected; the Saves tab skips it and continues looking for unsynced saves on
+later live inactive versions.
 
 ## Important: Use Your Own RomM Account
 
@@ -93,7 +102,9 @@ Tender uses a single, automatic resolution policy:
   the server version is downloaded silently.
 - **Your local edits push automatically** when the server still considers your device up-to-date — for example, you
   played offline and no other device synced in the meantime.
-- **A conflict modal appears only when both sides changed** since the last sync. You pick which version to keep.
+- **A conflict modal appears only when both sides changed** to different content since the last sync, when a save on
+  this device that Tender never synced meets a different save in RomM, or when your local save looks emptied or cut
+  short. You pick which version to keep.
 
 Tap **Sync All Saves Now** to sync saves for all installed ROMs at once. This is useful for:
 
@@ -107,7 +118,9 @@ device.
 
 ## Resolving Conflicts
 
-When both your local save and the server save have changed since the last sync, a modal appears with both versions.
+When both your local save and the server save have changed to different content since the last sync, or a save Tender
+never synced meets a different one in RomM, or your local save looks emptied or cut short, a modal appears with both
+versions.
 
 <!-- Screenshot: Sync conflict modal with local and server save details and three buttons -->
 
@@ -145,6 +158,10 @@ without a slot). Tap it to copy that save into another slot:
 - The slot you copy into **becomes the game's active slot**, with the copied save as its current save.
 - If that save's content is **already in the destination slot**, nothing is copied — you're told it's already there
   (shown as `#<id>`).
+- If the save can't be fetched onto your device, the copy fails and your active slot stays as it was.
+- If the save is copied onto your device but can't be uploaded to RomM, you're told so: the destination slot is active
+  with the copied save, and the next sync uploads it. Where the destination slot already holds a save this device is not
+  up to date with, or one more than twice the copy's size, the next sync asks you which to keep instead.
 
 Common uses: promote a save from the Manual archive into a named slot, or bring a save from one slot onto another so you
 can continue it there.
@@ -247,7 +264,10 @@ picked up by the next launch or by a manual **Sync All Saves Now**; nothing abou
 
 The after-exit sync is skipped the same way while Tender is installing an update from Settings, and the toast says so —
 "Tender is installing an update — saves sync with the next sync that runs". Your local save is untouched, and the first
-sync after the update picks it up.
+sync after the update picks it up. It is skipped as well while a [RetroDECK path migration](retrodeck-path-migration.md)
+is pending, and the toast asks you to deal with the migration first — "Pending RetroDECK migration. Open the Tender menu
+(QAM) to migrate or dismiss." With Tender's **Enable Save Sync** toggle or **Sync after exit** switched off, neither of
+these toasts appears: no sync would have run.
 
 A game that exits while a cleanup of games removed from RomM is running gets no after-exit sync, and neither its
 session's playtime nor its saves are synced — the toast says "Playtime and saves for this session were not synced — a
@@ -264,7 +284,8 @@ RomM lets you turn save sync off for a specific device in its own **device setti
 disable sync for this device there, Tender stops syncing that device's saves and tells you so — a manual sync reports
 "Save sync is disabled for this device on the RomM server", and the after-exit toast says the same. Your local saves are
 left untouched, and the game still launches normally (before-launch sync just skips). Re-enable sync for the device in
-RomM to resume. This is separate from Tender's own **Save Sync** toggle in the QAM — either one being off stops syncing.
+RomM to resume. This is separate from Tender's own **Enable Save Sync** toggle in the QAM — either one being off stops
+syncing.
 
 ## Playtime Tracking
 

@@ -53,10 +53,10 @@ A standalone emulator has **no** libretro `.so`, so the read-path projection rep
 Tender owns two **deviations** from the RetroDECK default core. Each stores only the deviation as a core LABEL; absence
 means "follow the default."
 
-| Scope            | Stored where                                                  | Applies to              | Written by                 |
-| ---------------- | ------------------------------------------------------------- | ----------------------- | -------------------------- |
-| **Per-game**     | Tender's database — `roms.emulator_override` (nullable LABEL) | one ROM (by `rom_id`)   | Tender (`pin`/`clear`)     |
-| **Per-platform** | `settings.json` — `platform_cores` map (`{slug: label}`)      | every ROM on a platform | Tender (`set_system_core`) |
+| Scope            | Stored where                                                  | Applies to              | Written by                                                                                                                     |
+| ---------------- | ------------------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Per-game**     | Tender's database — `roms.emulator_override` (nullable LABEL) | one ROM (by `rom_id`)   | Tender (`pin`/`clear`)                                                                                                         |
+| **Per-platform** | `settings.json` — `platform_cores` map (`{slug: label}`)      | every ROM on a platform | Tender (`set_system_core`; the firmware listing's refiling moves an override filed under a server folder name to its platform) |
 
 Both overrides are Tender's own state and live in Tender's own stores. Neither is written into ES-DE's `gamelist.xml` —
 Tender **never writes that file**. It still **reads** the RetroDECK/ES-DE configuration it does not own (the live
@@ -321,14 +321,17 @@ overlay); or it carries `not-set-up` (`not_set_up`), a RetroDECK the resolver fo
 with that finding and an empty enumeration. `source` is the answering source's `{kind, starts_games}`. The platform page
 and the picker say why, from `reason`, rather than show an empty list they cannot distinguish from a system the frontend
 knows no emulator for ([qam-panel.md](qam-panel.md#notices-and-homes)); the launch degrades to plain. The overlay
-entries the resolver gives beside `emulator-catalogue-sealed` are used nowhere — not for the emulator list, not for
-saves and not for firmware, whose answer beside a sealed catalogue reads as nothing established: an incomplete list
-would look complete. An empty list carrying none of those codes is that real "knows none", and
-`emulator-catalogue-exclusive` is not a refusal at all: a custom `es_systems.xml` declaring itself the whole catalogue
-gives a complete answer, merely a small one. The test is the codes and never an empty caveat list — a broken
-installation states health findings on every answer it gives. `options_to_payload` projects the list to the frontend
-picker shape (`{label, labels, name, kind, core_so, emulator, is_default, bakeable, reason}`): bakeable entries are
-clickable, the default is marked, and `needs_setup` / `unbakeable` entries are disabled with their reason.
+entries the resolver gives beside `emulator-catalogue-sealed` are not read as a list — not for the emulator list, not
+for saves and not for the firmware rows and verdicts, whose answer beside a sealed catalogue reads as nothing
+established: an incomplete list would look complete. The one use is a BIOS link: a place such an answer states is a
+place a link may go, and the list never decides that a link is unwanted
+([#2191](https://github.com/danielcopper/romm-tender/issues/2191) D37, D40). An empty list carrying none of those codes
+is that real "knows none", and `emulator-catalogue-exclusive` is not a refusal at all: a custom `es_systems.xml`
+declaring itself the whole catalogue gives a complete answer, merely a small one. The test is the codes and never an
+empty caveat list — a broken installation states health findings on every answer it gives. `options_to_payload` projects
+the list to the frontend picker shape (`{label, labels, name, kind, core_so, emulator, is_default, bakeable, reason}`):
+bakeable entries are clickable, the default is marked, and `needs_setup` / `unbakeable` entries are disabled with their
+reason.
 
 **One entry per launch command, not per label.** Options whose command text is identical — compared as
 `classify_command` keeps it, stripped and otherwise verbatim — are one entry (`same_command_groups`): RetroDECK lists
@@ -424,7 +427,7 @@ emulator** through the same `ActiveCoreResolver.active_emulator_for_rom` seam an
 | Bake site                                            | When it runs                             | How it resolves the emulator                                                             |
 | ---------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `ShortcutLaunchResolver` → `do_build_core_overrides` | every sync (preview + apply)             | each ROM through `active_emulator_for_rom` → `{rom_id: EmulatorInvocation}` for the bake |
-| `DownloadService` → `_resolve_bound_app_id`          | on download-complete (install/reinstall) | the ROM through `active_emulator_for_rom` in the same flow                               |
+| `RomInstallRecorder` → `do_resolve_launch_bake`      | on download-complete (install/reinstall) | the ROM through `active_emulator_for_rom` in the same flow                               |
 | `MigrationService` → `_build_relaunch_items`         | on RetroDECK-home migration              | each relocated ROM through `active_emulator_for_rom`                                     |
 
 The download-complete bake is the one that re-applies a pin after reinstall — the exact path `roms` storage was chosen
@@ -467,10 +470,11 @@ basename re-resolves to the same disc whenever it is present and cleanly registe
 
 Enumerating a ROM's discs needs two different facts kept separate:
 
-- **Disc identity is format-semantic and hardcoded** — `domain/disc_formats.py` defines
-  `DISC_IMAGE_EXTENSIONS = {.cue, .chd, .iso}`, the irreducible set of launchable disc-image containers. A `.bin` is a
-  **sidecar** (owned by its `.cue`, never launched directly) and an `.m3u` is a **playlist**; both are excluded simply
-  by not being in the set. The disc unit is the `.cue`/`.chd`/`.iso` itself, never the `.bin`.
+- **Disc identity is format-semantic and hardcoded** — `domain/disc_formats.py` defines `DISC_IMAGE_EXTENSIONS`, the
+  irreducible set of launchable disc-image containers: the single-file images and the descriptors of a multi-track set,
+  listed in GLOSSARY.md → Disc. A track file (`.bin`, `.raw`, `.img`, `.sub`, `.mdf`) is a **sidecar** (owned by its
+  descriptor, never launched directly) and an `.m3u` is a **playlist**; both are excluded simply by not being in the
+  set. The disc unit is the image or the descriptor itself, never a track.
 - **The per-system accept-list is a capability and read live** —
   `AtlasCatalogueAdapter.get_supported_extensions(system)` (`adapters/atlas_catalogue.py`) returns the system's
   es_systems `<extension>` set, lowercased, threaded into the resolver through the `SystemSupportedExtensionsFn`
@@ -554,7 +558,7 @@ resolver yields the **path**, `ActiveCoreResolver` yields the **`EmulatorInvocat
 | Bake site                                                                        | How it resolves the disc path                                                             |
 | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `ShortcutLaunchResolver` (`do_scan_installed_paths` / `do_read_installed_paths`) | each installed ROM through `resolve_for_install` → `{rom_id: bake_path}` for the bake     |
-| `DownloadService._resolve_bound_app_id`                                          | the freshly-installed ROM through `resolve_for_install` → re-applies the pin on reinstall |
+| `RomInstallRecorder.do_resolve_launch_bake`                                      | the freshly-installed ROM through `resolve_for_install` → re-applies the pin on reinstall |
 | `MigrationService._build_relaunch_items`                                         | each relocated ROM through `resolve_for_install` against the moved install directory      |
 
 ### The picker use cases
@@ -622,6 +626,10 @@ so standalone emulators and disabled un-bakeable entries render identically (#12
    while no shortcut is re-baked: the frontend re-bakes only on success. The write checks no BIOS, so a firmware read
    cannot add a second way to report a stored switch as failed. The platform detail re-reads the platform once the
    re-bake is done, and that read answers for the new core's firmware.
+
+`platform_cores` has one more writer: the firmware listing's refiling (`services/firmware/refiling.py`) moves an
+override stored under a server folder name, before a firmware file's platform came from RomM's `platform_id`, to its
+platform's slug, in the same live dict, and gives the move back when `settings.json` cannot be written.
 
 The frontend confirm-sets each `rebake_items` entry on its live Steam shortcut the same way the per-game flow does, so a
 per-platform core change applies **immediately** to every installed game on the platform — no sync required. Because the

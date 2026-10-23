@@ -13,9 +13,10 @@ from typing import Any
 
 import pytest
 
+from domain.live_device_id import LiveDeviceId
 from domain.rom_save_sync_state import RomSaveSyncState
 from domain.sync_action import Conflict, Skip
-from lib.errors import DeviceNotRegisteredError, DeviceWriteError, RommApiError, RommConflictError
+from lib.errors import DeviceWriteError, RommApiError, RommConflictError, RommTimeoutError
 from services.saves.sync_engine.matrix import (
     DispatchSink,
     RomDispatchContext,
@@ -245,7 +246,9 @@ class TestServerHashBaselineWriterFlows:
         server_save["content_hash"] = "srv-download-hash"
 
         state = RomSaveSyncState()
-        svc._sync_engine._matrix.do_download_save(server_save, saves_dir, "pokemon.srm", state, "device-1", "gba")
+        svc._sync_engine._matrix.do_download_save(
+            server_save, saves_dir, "pokemon.srm", state, LiveDeviceId("device-1"), "gba"
+        )
 
         assert state.files["pokemon.srm"].last_sync_server_hash == "srv-download-hash"
 
@@ -258,7 +261,9 @@ class TestServerHashBaselineWriterFlows:
         server_save = _server_save(save_id=100)  # no content_hash
 
         state = RomSaveSyncState()
-        svc._sync_engine._matrix.do_download_save(server_save, saves_dir, "pokemon.srm", state, "device-1", "gba")
+        svc._sync_engine._matrix.do_download_save(
+            server_save, saves_dir, "pokemon.srm", state, LiveDeviceId("device-1"), "gba"
+        )
 
         assert state.files["pokemon.srm"].last_sync_server_hash is None
 
@@ -327,39 +332,12 @@ class TestV47SyncFlow:
         assert len(upload_calls) == 1
         assert upload_calls[0][2]["slot"] is None  # legacy → slot:null, NOT "default"
 
-    def test_named_slot_upload_without_device_refused_in_sync(self, tmp_path):
-        """#1478: a named-slot Upload with no registered device is refused, not misfiled.
-
-        The buggy path dropped the slot field and POSTed the named-slot save into
-        the legacy (slot:null) bucket with an emulator tag — a migration-005
-        retirement violation. Now the dispatch's error funnel records the file with
-        a clear message and ``upload_save`` is never called.
-        """
-        svc, fake = make_service(tmp_path)
-        svc._config.settings["save_sync_enabled"] = True
-        # No device registered — server_device_id stays None.
-        _install_rom(svc, tmp_path)
-        _create_save(tmp_path)  # local only → Upload
-        _seed_save_state(
-            svc,
-            42,
-            RomSaveSyncState(system="gba", active_slot="default", slot_confirmed=True),
-        )
-
-        uploaded, downloaded, errors, conflicts = _do_sync(svc, 42)
-
-        assert (uploaded, downloaded, conflicts) == (0, 0, [])
-        # Message aligned to the pre-flight's canonical constant (the per-file sync
-        # error carries no reason-slug field — the list is message-only).
-        assert errors == ["pokemon.srm: Device not registered"]
-        assert not any(c[0] == "upload_save" for c in fake.call_log)
-
     def test_resolve_upload_slot_branches(self):
         """_resolve_upload_slot maps each (active_slot, slots) case correctly.
 
-        Device presence is no longer a branch here: ``do_upload_save`` refuses a
-        slot-less upload when the device id is missing (#1478), so by the time this
-        resolver runs a registered device is guaranteed.
+        Device presence is no branch here: ``do_upload_save`` takes a
+        ``LiveDeviceId``, so by the time this resolver runs a registered device is
+        guaranteed.
         """
         from services.saves.sync_engine.matrix import MatrixExecutor as M
 
@@ -529,11 +507,12 @@ class TestConfirmDownloadAfterSync:
     is_current is computed server-side as
     ``device_save_sync.last_synced_at >= save.updated_at``. ``add_save`` (POST)
     and ``update_save`` (PUT) both upsert the calling device's
-    ``last_synced_at = updated_at`` on every supported RomM version, so a normal
+    ``last_synced_at = updated_at`` when the request names a device, so a normal
     upload leaves us current without a follow-up ack — the POST response proves
-    it and ``_confirm_upload_sync`` skips the redundant round-trip (#1458). The
-    ack stays load-bearing only on ``add_save``'s content-dedup early-return
-    (returns before the upsert, ``is_current=false``). For downloads, the
+    it and ``_confirm_upload_sync`` skips the redundant round-trip (#1458). When
+    a content-dedup answer still needs the ack is in
+    docs/architecture/save-file-sync-architecture.md, "POST and PUT both upsert
+    the calling device's sync row". For downloads, the
     optimistic query-param on ``download_save_content`` upserts the row
     server-side before streaming.
     """
@@ -588,37 +567,24 @@ class TestConfirmDownloadAfterSync:
         assert len(confirm_calls) == 1
         assert confirm_calls[0][1] == (100, "dev-1")
 
-    def test_do_upload_save_refuses_without_device_id(self, tmp_path):
-        """No registered device → upload is refused before any server call (#1478).
-
-        ``do_upload_save`` raises ``DeviceNotRegisteredError`` before
-        ``upload_save`` — neither the upload nor the confirm round-trip is issued.
-        """
-        svc, fake = make_service(tmp_path)
-        # server_device_id stays None — device not registered
-        _install_rom(svc, tmp_path)
-        save_path = str(_create_save(tmp_path))
-
-        with pytest.raises(DeviceNotRegisteredError, match="Device not registered"):
-            _do_upload(svc, 42, save_path, "pokemon.srm", "gba")
-
-        assert not any(c[0] == "upload_save" for c in fake.call_log)
-        assert not any(c[0] == "confirm_download" for c in fake.call_log)
-
     def test_do_upload_save_swallows_confirm_download_error(self, tmp_path):
         """confirm_download failure must NOT bubble — upload is reported successful.
 
-        Driven down the dedup early-return path (``is_current=false``), where the
-        ack still fires, so the swallow-the-error contract stays exercised (#1458).
+        Driven down a content dedup onto an older save this device holds no sync
+        row on: the answer reads it not current, so the ack still fires and the
+        swallow-the-error contract stays exercised (#1458).
         """
         svc, fake = make_service(tmp_path)
         _set_device_id(svc, "dev-1")
         _install_rom(svc, tmp_path)
         save_path = _create_save(tmp_path)
 
-        # An existing "default"-slot save the POST content dedups against; the
-        # dedup response reports us is_current=false, so the ack still fires.
-        fake.saves[100] = _server_save(save_id=100, rom_id=42, slot="default")
+        # The POST goes to "autosave" (a brand-new ROM's fallback slot). Its head is
+        # current for dev-1, so RomM's slot gate lets the POST through; the content
+        # matches the older save there, which dev-1 holds no row on.
+        fake.saves[200] = _server_save(save_id=200, rom_id=42, slot="autosave", updated_at="2026-03-01T00:00:00Z")
+        fake.stage_device_sync(200, "dev-1", "2026-03-01T00:00:00Z")
+        fake.saves[100] = _server_save(save_id=100, rom_id=42, slot="autosave")
         fake.arm_add_save_dedup(100)
 
         # Patch confirm_download to raise; the upload itself must still complete.
@@ -631,7 +597,9 @@ class TestConfirmDownloadAfterSync:
         fake.confirm_download = boom  # type: ignore[method-assign]
         state = RomSaveSyncState()
         try:
-            result = svc._sync_engine.do_upload_save(42, str(save_path), "pokemon.srm", state, "dev-1", "gba", None)
+            result = svc._sync_engine.do_upload_save(
+                42, str(save_path), "pokemon.srm", state, LiveDeviceId("dev-1"), "gba", None
+            )
         finally:
             fake.confirm_download = original_confirm  # type: ignore[method-assign]
 
@@ -654,7 +622,9 @@ class TestConfirmDownloadAfterSync:
         os.makedirs(saves_dir, exist_ok=True)
         server_save = _server_save(save_id=99)
 
-        svc._sync_engine.do_download_save(server_save, saves_dir, "pokemon.srm", RomSaveSyncState(), "dev-1", "gba")
+        svc._sync_engine.do_download_save(
+            server_save, saves_dir, "pokemon.srm", RomSaveSyncState(), LiveDeviceId("dev-1"), "gba"
+        )
 
         dl_calls = [c for c in fake.call_log if c[0] == "download_save_content"]
         assert len(dl_calls) == 1
@@ -687,7 +657,7 @@ class TestConfirmUploadSyncDiscriminator:
         matrix, fake = self._matrix_and_fake(tmp_path)
         response = {"id": 500, "device_syncs": [{"device_id": "dev-1", "is_current": True}]}
 
-        matrix._confirm_upload_sync(response, "dev-1")
+        matrix._confirm_upload_sync(response, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is False
 
@@ -695,7 +665,7 @@ class TestConfirmUploadSyncDiscriminator:
         matrix, fake = self._matrix_and_fake(tmp_path)
         response = {"id": 500, "device_syncs": [{"device_id": "dev-1", "is_current": False}]}
 
-        matrix._confirm_upload_sync(response, "dev-1")
+        matrix._confirm_upload_sync(response, LiveDeviceId("dev-1"))
 
         assert fake.call_log[-1] == ("confirm_download", (500, "dev-1"), {})
 
@@ -703,28 +673,28 @@ class TestConfirmUploadSyncDiscriminator:
         matrix, fake = self._matrix_and_fake(tmp_path)
         response = {"id": 500, "device_syncs": [{"device_id": "other", "is_current": True}]}
 
-        matrix._confirm_upload_sync(response, "dev-1")
+        matrix._confirm_upload_sync(response, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is True
 
     def test_confirms_when_device_syncs_missing(self, tmp_path):
         matrix, fake = self._matrix_and_fake(tmp_path)
 
-        matrix._confirm_upload_sync({"id": 500}, "dev-1")
+        matrix._confirm_upload_sync({"id": 500}, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is True
 
     def test_confirms_when_device_syncs_empty(self, tmp_path):
         matrix, fake = self._matrix_and_fake(tmp_path)
 
-        matrix._confirm_upload_sync({"id": 500, "device_syncs": []}, "dev-1")
+        matrix._confirm_upload_sync({"id": 500, "device_syncs": []}, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is True
 
     def test_confirms_when_device_syncs_not_a_list(self, tmp_path):
         matrix, fake = self._matrix_and_fake(tmp_path)
 
-        matrix._confirm_upload_sync({"id": 500, "device_syncs": "garbage"}, "dev-1")
+        matrix._confirm_upload_sync({"id": 500, "device_syncs": "garbage"}, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is True
 
@@ -733,23 +703,15 @@ class TestConfirmUploadSyncDiscriminator:
         # A truthy-but-not-True value is "unexpected shape" → fail open, confirm.
         response = {"id": 500, "device_syncs": [{"device_id": "dev-1", "is_current": "yes"}]}
 
-        matrix._confirm_upload_sync(response, "dev-1")
+        matrix._confirm_upload_sync(response, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is True
-
-    def test_noop_when_no_device_id(self, tmp_path):
-        matrix, fake = self._matrix_and_fake(tmp_path)
-        response = {"id": 500, "device_syncs": [{"device_id": "dev-1", "is_current": False}]}
-
-        matrix._confirm_upload_sync(response, None)
-
-        assert self._confirmed(fake) is False
 
     def test_noop_when_no_upload_id(self, tmp_path):
         matrix, fake = self._matrix_and_fake(tmp_path)
         response = {"device_syncs": [{"device_id": "dev-1", "is_current": False}]}
 
-        matrix._confirm_upload_sync(response, "dev-1")
+        matrix._confirm_upload_sync(response, LiveDeviceId("dev-1"))
 
         assert self._confirmed(fake) is False
 
@@ -765,7 +727,7 @@ class TestDedupReturnedNonHeadPredicate:
     POST that deduped to a pre-existing NON-head save (#1482)."""
 
     def test_empty_planned_group_is_benign(self):
-        """No planned head to bypass (e.g. an empty-slot race) → benign."""
+        """No planned head to bypass → benign."""
         assert _dedup_returned_non_head({"id": 100}, []) is False
 
     def test_missing_response_id_is_benign(self):
@@ -792,7 +754,7 @@ class TestDedupToNonHeadUploadGuard:
     while a newer, different head still leads the slot — no new version, the
     foreign head stays authoritative. The automatic POST path passes its
     pre-upload ``list_saves`` snapshot as ``planned_group`` so the response can
-    be classified; the PUT / explicit-action callers pass none and are inert.
+    be classified; every other caller passes none and is inert.
     """
 
     def test_dedup_to_non_head_raises_conflict_without_baseline_or_confirm(self, tmp_path):
@@ -807,16 +769,19 @@ class TestDedupToNonHeadUploadGuard:
         head = _server_save(save_id=200, slot="default", updated_at="2026-03-01T00:00:00Z")
         fake.saves[100] = older
         fake.saves[200] = head
+        # Current on the head, so RomM's slot gate lets the POST through to the dedup.
+        fake.stage_device_sync(200, "device-1", "2026-03-01T00:00:00Z")
         fake.arm_add_save_dedup(100)  # the POST dedups to the OLDER save
 
         state = RomSaveSyncState(active_slot="default")
+        file_path, device_id = str(save_path), LiveDeviceId("device-1")
         with pytest.raises(RommConflictError):
             svc._sync_engine._matrix.do_upload_save(
                 42,
-                str(save_path),
+                file_path,
                 "pokemon.srm",
                 state,
-                "device-1",
+                device_id,
                 "gba",
                 None,
                 planned_group=[older, head],
@@ -829,9 +794,10 @@ class TestDedupToNonHeadUploadGuard:
         assert state.own_upload_ids is None
         assert not any(c[0] == "confirm_download" for c in fake.call_log)
 
-    def test_dedup_to_head_records_baseline_and_confirms(self, tmp_path):
-        """Dedup to the head itself is benign — baseline recorded on the head and
-        the #1458 confirm ack still fires (today's behavior, unchanged)."""
+    def test_dedup_to_head_records_baseline_without_a_confirm(self, tmp_path):
+        """Dedup to the head itself is benign — baseline recorded on the head. RomM
+        reaches its dedup only past the slot gate, so the device is already current
+        on the head, the answer says so, and the #1458 confirm ack is not sent."""
         svc, fake = make_service(tmp_path)
         _set_device_id(svc, "device-1")
         _install_rom(svc, tmp_path)
@@ -841,6 +807,8 @@ class TestDedupToNonHeadUploadGuard:
         head = _server_save(save_id=200, slot="default", updated_at="2026-03-01T00:00:00Z")
         fake.saves[100] = older
         fake.saves[200] = head
+        # Current on the head, so RomM's slot gate lets the POST through to the dedup.
+        fake.stage_device_sync(200, "device-1", "2026-03-01T00:00:00Z")
         fake.arm_add_save_dedup(200)  # dedup to the HEAD → benign
 
         state = RomSaveSyncState(active_slot="default")
@@ -849,7 +817,7 @@ class TestDedupToNonHeadUploadGuard:
             str(save_path),
             "pokemon.srm",
             state,
-            "device-1",
+            LiveDeviceId("device-1"),
             "gba",
             None,
             planned_group=[older, head],
@@ -857,40 +825,11 @@ class TestDedupToNonHeadUploadGuard:
 
         assert result["id"] == 200
         assert state.files["pokemon.srm"].tracked_save_id == 200
-        # Dedup response reported is_current=false → the ack stays load-bearing.
-        assert fake.call_log[-1] == ("confirm_download", (200, "device-1"), {})
-
-    def test_empty_planned_group_records_baseline(self, tmp_path):
-        """Empty planned slot (no head to bypass — the empty-slot race) keeps
-        today's behavior: the dedup response is recorded as the baseline. Safe
-        because the response holds our content; a concurrent newer head is caught
-        on the next sync's fresh ``list_saves`` (#1482 documented edge)."""
-        svc, fake = make_service(tmp_path)
-        _set_device_id(svc, "device-1")
-        _install_rom(svc, tmp_path)
-        save_path = _create_save(tmp_path, content=b"raced content")
-
-        raced = _server_save(save_id=300, slot="default", updated_at="2026-03-01T00:00:00Z")
-        fake.saves[300] = raced
-        fake.arm_add_save_dedup(300)
-
-        state = RomSaveSyncState(active_slot="default")
-        result = svc._sync_engine._matrix.do_upload_save(
-            42,
-            str(save_path),
-            "pokemon.srm",
-            state,
-            "device-1",
-            "gba",
-            None,
-            planned_group=[],  # the plan saw an empty slot
-        )
-
-        assert result["id"] == 300
-        assert state.files["pokemon.srm"].tracked_save_id == 300
+        # The dedup answer shows this device current on the head → no ack.
+        assert not any(c[0] == "confirm_download" for c in fake.call_log)
 
     def test_no_planned_group_leaves_guard_inert(self, tmp_path):
-        """A caller that passes no ``planned_group`` (PUT / explicit actions)
+        """A caller that passes no ``planned_group`` (one that plans no listing)
         never triggers the guard, even on a non-head dedup shape — baseline is
         recorded as before."""
         svc, fake = make_service(tmp_path)
@@ -902,11 +841,13 @@ class TestDedupToNonHeadUploadGuard:
         head = _server_save(save_id=200, slot="default", updated_at="2026-03-01T00:00:00Z")
         fake.saves[100] = older
         fake.saves[200] = head
+        # Current on the head, so RomM's slot gate lets the POST through to the dedup.
+        fake.stage_device_sync(200, "device-1", "2026-03-01T00:00:00Z")
         fake.arm_add_save_dedup(100)  # non-head dedup, but no planned_group passed
 
         state = RomSaveSyncState(active_slot="default")
         result = svc._sync_engine._matrix.do_upload_save(
-            42, str(save_path), "pokemon.srm", state, "device-1", "gba", None
+            42, str(save_path), "pokemon.srm", state, LiveDeviceId("device-1"), "gba", None
         )
 
         assert result["id"] == 100
@@ -2169,16 +2110,69 @@ class TestSyncRomSavesDispatch:
         assert (saves_dir / "pokemon.srm").exists()
 
     def test_sync_rom_saves_upload_409_downgrades_to_download(self, tmp_path):
-        """Upload POST 409 (slot head moved) + local unchanged since baseline →
-        the backstop re-fetches the slot and downloads the fresh head, no conflict."""
+        """A slot that was empty when listed + local unchanged since baseline: the
+        POST planned for it (row 2) 409s because another device's save landed
+        first, and the backstop re-fetches the slot and downloads that fresh head,
+        no conflict."""
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        save_path = _create_save(tmp_path, content=b"in-sync local")
+        local_hash = _file_md5(str(save_path))
+        _seed_save_state_dict(
+            svc,
+            42,
+            {
+                "active_slot": "default",
+                "slot_confirmed": True,
+                "files": {"pokemon.srm": {"last_sync_hash": local_hash}},
+            },
+        )
+        foreign: dict[str, Any] = {}
+        upload_save = fake.upload_save
+
+        def upload_after_another_device(*args, **kwargs):
+            if not foreign:
+                foreign.update(
+                    fake.seed_foreign_save(
+                        42,
+                        uploaded_by="device-B",
+                        slot="default",
+                        updated_at="2026-03-01T00:00:00Z",
+                        content=b"newer from device B",
+                    )
+                )
+            return upload_save(*args, **kwargs)
+
+        fake.upload_save = upload_after_another_device
+
+        uploaded, downloaded, errors, conflicts = _do_sync(svc, 42)
+
+        assert errors == []
+        assert conflicts == []
+        # The 409-downgraded transfer is attributed as a download, not an upload (#250).
+        assert uploaded == 0
+        assert downloaded == 1
+        # The POST was attempted overwrite=false (so RomM's 409 could fire)…
+        upload_calls = [c for c in fake.call_log if c[0] == "upload_save"]
+        assert len(upload_calls) == 1
+        assert upload_calls[0][2]["overwrite"] is False
+        # …then the backstop downloaded the fresh server head into the local file.
+        download_calls = [c for c in fake.call_log if c[0] == "download_save_content"]
+        assert [c[1][0] for c in download_calls] == [foreign["id"]]
+        assert (tmp_path / "saves" / "gba" / "pokemon.srm").read_bytes() == b"newer from device B"
+
+    def test_sync_rom_saves_newer_foreign_head_with_unchanged_local_downloads_without_a_post(self, tmp_path):
+        """A newer foreign head + local unchanged since baseline: RomM answers this
+        device a not-current placeholder on it, so row 10 downloads the head
+        directly — no POST, no conflict."""
         svc, fake = make_service(tmp_path)
         _enable_sync_with_device(svc)
         _install_rom(svc, tmp_path)
         save_path = _create_save(tmp_path, content=b"in-sync local")
         local_hash = _file_md5(str(save_path))
 
-        # A newer save from another device this device has never synced → the POST
-        # into the slot 409s.
+        # A newer save from another device this device has never synced.
         foreign = fake.seed_foreign_save(
             42,
             uploaded_by="device-B",
@@ -2200,14 +2194,9 @@ class TestSyncRomSavesDispatch:
 
         assert errors == []
         assert conflicts == []
-        # The 409-downgraded transfer is attributed as a download, not an upload (#250).
         assert uploaded == 0
         assert downloaded == 1
-        # The POST was attempted overwrite=false (so RomM's 409 could fire)…
-        upload_calls = [c for c in fake.call_log if c[0] == "upload_save"]
-        assert len(upload_calls) == 1
-        assert upload_calls[0][2]["overwrite"] is False
-        # …then the backstop downloaded the fresh server head into the local file.
+        assert not any(c[0] == "upload_save" for c in fake.call_log)
         download_calls = [c for c in fake.call_log if c[0] == "download_save_content"]
         assert [c[1][0] for c in download_calls] == [foreign["id"]]
         assert (tmp_path / "saves" / "gba" / "pokemon.srm").read_bytes() == b"newer from device B"
@@ -2387,7 +2376,7 @@ class TestSyncRomSavesDispatch:
             ctx=RomDispatchContext(
                 rom_id=42,
                 save_state=RomSaveSyncState(active_slot="default"),
-                device_id="device-1",
+                device_id=LiveDeviceId("device-1"),
                 rom_name="pokemon",
                 save_names=("pokemon.srm", "pokemon.rtc", "pokemon.sav"),
                 saves_dir=str(tmp_path / "saves" / "gba"),
@@ -2464,14 +2453,87 @@ class TestGetServerSaveHashNonRetryable:
         assert result is None
 
 
-class TestHandleUnexpectedError:
-    """_handle_unexpected_error records the error and cleans up the .tmp file
-    (matrix.py lines 322-326). Reached from _dispatch_sync_action's generic
-    except branch (line 480-481)."""
+class TestADownloadThatFailsLeavesNoTmp:
+    """``do_download_save`` removes its ``.tmp`` on every failure and raises on."""
 
-    def test_dispatch_sync_action_handles_unexpected_exception(self, tmp_path):
-        """A non-RommApiError raised during dispatch is classified, recorded,
-        and the .tmp file is cleaned up."""
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            RommTimeoutError("read timed out"),
+            DeviceWriteError(28, "No space left on device"),
+            RuntimeError("a bug"),
+        ],
+        ids=["stalled", "this-device-cannot-write", "any-other-fault"],
+    )
+    def test_a_download_that_breaks_off_leaves_no_tmp(self, tmp_path, failure):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        save_path = _create_save(tmp_path, content=b"local bytes")
+        fake.saves[100] = _server_save(save_id=100)
+        fake.break_download_on(100, failure)
+        state = RomSaveSyncState()
+        download = svc._sync_engine._matrix.do_download_save
+        server_save, saves_dir_path, device_id = fake.saves[100], str(save_path.parent), LiveDeviceId("device-1")
+
+        with pytest.raises(type(failure)) as caught:
+            download(server_save, saves_dir_path, "pokemon.srm", state, device_id, "gba")
+
+        assert caught.value is failure
+        assert not (save_path.parent / "pokemon.srm.tmp").exists()
+        assert save_path.read_bytes() == b"local bytes"
+        assert state.files == {}
+
+    def test_a_download_that_cannot_be_moved_into_place_leaves_no_tmp(self, tmp_path, monkeypatch):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        saves_dir = tmp_path / "saves" / "gba"
+        saves_dir.mkdir(parents=True)
+        fake.saves[100] = _server_save(save_id=100)
+
+        def failing_rename(_src: str, _dst: str) -> None:
+            raise PermissionError("save directory is read-only")
+
+        monkeypatch.setattr(svc._save_file_store, "rename", failing_rename)
+
+        download = svc._sync_engine._matrix.do_download_save
+        server_save, saves_dir_path, state = fake.saves[100], str(saves_dir), RomSaveSyncState()
+        device_id = LiveDeviceId("device-1")
+        with pytest.raises(PermissionError, match="read-only"):
+            download(server_save, saves_dir_path, "pokemon.srm", state, device_id, "gba")
+
+        assert not (saves_dir / "pokemon.srm.tmp").exists()
+
+    def test_a_tmp_that_cannot_be_removed_leaves_the_download_s_own_failure_raised(self, tmp_path, monkeypatch):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        saves_dir = tmp_path / "saves" / "gba"
+        saves_dir.mkdir(parents=True)
+        fake.saves[100] = _server_save(save_id=100)
+        failure = RommTimeoutError("read timed out")
+        fake.break_download_on(100, failure)
+        removals: list[str] = []
+
+        def failing_remove(path: str) -> None:
+            removals.append(path)
+            raise PermissionError("save directory is read-only")
+
+        monkeypatch.setattr(svc._save_file_store, "remove_file", failing_remove)
+
+        download = svc._sync_engine._matrix.do_download_save
+        server_save, saves_dir_path, state = fake.saves[100], str(saves_dir), RomSaveSyncState()
+        device_id = LiveDeviceId("device-1")
+        with pytest.raises(RommTimeoutError) as caught:
+            download(server_save, saves_dir_path, "pokemon.srm", state, device_id, "gba")
+
+        assert caught.value is failure
+        assert removals == [str(saves_dir / "pokemon.srm.tmp")]
+
+    @pytest.mark.parametrize(
+        "failure",
+        [RommApiError("upstream 502"), RuntimeError("a bug")],
+        ids=["romm-answers-an-error", "any-other-fault"],
+    )
+    def test_the_per_file_sync_leaves_no_tmp(self, tmp_path, failure):
         from domain.sync_action import Download
 
         svc, fake = make_service(tmp_path)
@@ -2479,10 +2541,48 @@ class TestHandleUnexpectedError:
         _install_rom(svc, tmp_path)
         saves_dir = tmp_path / "saves" / "gba"
         saves_dir.mkdir(parents=True, exist_ok=True)
-        # Seed a .tmp file at the expected path — the cleanup branch must remove it.
-        tmp_file = saves_dir / "pokemon.srm.tmp"
-        tmp_file.write_bytes(b"partial download")
-        assert tmp_file.exists()
+        fake.break_download_on(100, failure)
+
+        errors: list[str] = []
+        svc._sync_engine._matrix._dispatch_sync_action(
+            Download(server_save={"id": 100, "file_name": "pokemon.srm"}),
+            ctx=RomDispatchContext(
+                rom_id=42,
+                save_state=RomSaveSyncState(),
+                device_id=LiveDeviceId("device-1"),
+                rom_name="pokemon",
+                save_names=("pokemon.srm", "pokemon.rtc", "pokemon.sav"),
+                saves_dir=str(saves_dir),
+                system="gba",
+                core_so=None,
+            ),
+            filename="pokemon.srm",
+            local_path=None,
+            local_hash=None,
+            last_sync_hash=None,
+            last_sync_server_hash=None,
+            server_candidates=[],
+            options=SyncRunOptions(),
+            sink=DispatchSink(errors=errors, conflicts=[]),
+        )
+
+        assert len(errors) == 1
+        assert not (saves_dir / "pokemon.srm.tmp").exists()
+
+
+class TestHandleUnexpectedError:
+    """_handle_unexpected_error records the error. Reached from
+    _dispatch_sync_action's generic except branch."""
+
+    def test_dispatch_sync_action_handles_unexpected_exception(self, tmp_path):
+        """A non-RommApiError raised during dispatch is classified and recorded."""
+        from domain.sync_action import Download
+
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        saves_dir = tmp_path / "saves" / "gba"
+        saves_dir.mkdir(parents=True, exist_ok=True)
 
         # do_download_save is reached for Download action; make it raise an
         # unexpected (non-RommApi) Exception so _handle_unexpected_error fires.
@@ -2499,7 +2599,7 @@ class TestHandleUnexpectedError:
             ctx=RomDispatchContext(
                 rom_id=42,
                 save_state=RomSaveSyncState(),
-                device_id=None,
+                device_id=LiveDeviceId("device-1"),
                 rom_name="pokemon",
                 save_names=("pokemon.srm", "pokemon.rtc", "pokemon.sav"),
                 saves_dir=str(saves_dir),
@@ -2519,8 +2619,6 @@ class TestHandleUnexpectedError:
         assert direction is None
         assert len(errors) == 1
         assert errors[0].startswith("pokemon.srm:")
-        # The .tmp file was removed by the cleanup branch.
-        assert not tmp_file.exists()
 
 
 class TestDispatchSyncActionErrorBranches:
@@ -2530,7 +2628,7 @@ class TestDispatchSyncActionErrorBranches:
     def test_dispatch_sync_action_records_rommapi_error(self, tmp_path, caplog):
         """A RommApiError from a Download action is recorded with classify_error
         message AND logged at WARNING (so a sync failure leaves a log trace, not
-        only an errors-list entry); no .tmp cleanup is attempted on this branch."""
+        only an errors-list entry)."""
         from domain.sync_action import Download
 
         svc, fake = make_service(tmp_path)
@@ -2552,7 +2650,7 @@ class TestDispatchSyncActionErrorBranches:
             ctx=RomDispatchContext(
                 rom_id=42,
                 save_state=RomSaveSyncState(),
-                device_id=None,
+                device_id=LiveDeviceId("device-1"),
                 rom_name="pokemon",
                 save_names=("pokemon.srm", "pokemon.rtc", "pokemon.sav"),
                 saves_dir=str(saves_dir),
@@ -2600,7 +2698,7 @@ class TestDispatchUploadDefensiveBranches:
             ctx=RomDispatchContext(
                 rom_id=42,
                 save_state=RomSaveSyncState(),
-                device_id=None,
+                device_id=LiveDeviceId("device-1"),
                 rom_name="pokemon",
                 save_names=("pokemon.srm", "pokemon.rtc", "pokemon.sav"),
                 saves_dir=str(tmp_path / "saves" / "gba"),

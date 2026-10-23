@@ -15,14 +15,14 @@
  * CSS classes prefixed with `romm-panel-` are injected separately by styleInjector.
  */
 
-import { useState, useEffect, useRef, FC } from "react";
+import { useState, useEffect, useRef, useCallback, FC } from "react";
 import { Focusable } from "@decky/ui";
 import { refreshMigrationState, logError } from "../api/backend";
 import { AchievementsTab } from "./AchievementsTab";
 import { BiosTab } from "./BiosTab";
 import { useTriggerHandler } from "./emulatorStepping";
 import { PanelTabBar } from "./PanelTabBar";
-import { bindRomInState, loadData, type PanelReadSeqs, type PanelState } from "./panelState";
+import { bindRomInState, loadData, openingTab, type PanelReadSeqs, type PanelState } from "./panelState";
 import { wirePanelEvents } from "./panelEvents";
 import { useSaveSlotsLoad } from "./panelSlotsLoad";
 import { buildTabContent } from "./panelTabContent";
@@ -35,6 +35,8 @@ import { SettingsResetCard } from "./SettingsResetCard";
 import { StrandedPanelCard } from "./StrandedPanelCard";
 import { useStrandedAnswer } from "../utils/strandedPanelStore";
 import { detach } from "../utils/detach";
+import { forgetBiosPresses } from "../utils/biosAttempts";
+import { executeBiosReplace } from "../utils/biosReplace";
 
 interface RomMGameInfoPanelProps {
   appId: number;
@@ -56,12 +58,13 @@ export const RomMGameInfoPanel: FC<RomMGameInfoPanelProps> = ({ appId }) => {
     coverBase64: null,
     biosStatus: null,
     biosLevel: null,
+    biosReadFailed: false,
     coreInfo: null,
     saveSyncEnabled: false,
     saveStatus: null,
     conflicts: [],
     error: false,
-    activeTab: "info",
+    activeTab: openingTab(appId),
     raId: null,
     slotConfirmed: false,
     activeSlot: "default",
@@ -77,6 +80,8 @@ export const RomMGameInfoPanel: FC<RomMGameInfoPanelProps> = ({ appId }) => {
   // handler can reject events for other platforms without a stale closure
   // (mirrors romIdRef). bios events fan out to every mounted panel (#1082).
   const platformSlugRef = useRef<string>("");
+  // "Replace…" on the BIOS tab, for this panel's own platform.
+  const replaceBios = useCallback((place: string) => executeBiosReplace(platformSlugRef.current, place), []);
   // Load-once gate for the lazy SAVES tab data; the rule it enforces is stated
   // at `panelSlotsLoad.ts`. It lives here because a version switch resets it.
   const slotsLoadedRef = useRef(false);
@@ -114,6 +119,7 @@ export const RomMGameInfoPanel: FC<RomMGameInfoPanelProps> = ({ appId }) => {
     return () => {
       cancelled = true;
       unwire();
+      forgetBiosPresses();
     };
   }, [appId]);
 
@@ -181,7 +187,6 @@ export const RomMGameInfoPanel: FC<RomMGameInfoPanelProps> = ({ appId }) => {
         activeTab={state.activeTab}
         hasAchievements={!!state.raId}
         hasSaves={state.saveSyncEnabled}
-        hasBios={!!state.biosStatus}
         onSelect={(tabId) => setState((prev) => ({ ...prev, activeTab: tabId }))}
       />
       <Focusable
@@ -206,9 +211,11 @@ export const RomMGameInfoPanel: FC<RomMGameInfoPanelProps> = ({ appId }) => {
         <BiosTab
           biosStatus={state.biosStatus}
           biosLevel={state.biosLevel}
+          readFailed={state.biosReadFailed}
           coreInfo={state.coreInfo}
           isActive={state.activeTab === "bios"}
           platformName={state.platformName}
+          onReplace={replaceBios}
         />
       </Focusable>
     </div>

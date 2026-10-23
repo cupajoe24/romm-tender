@@ -6,8 +6,8 @@
  * section components', which are pure renderers — the pane mounts only the
  * focused section, so a section owning its own reads would re-issue them on each
  * move through the list. What stays here is the QAM's own: the selection, the
- * two questions drawn as gamepad modals, and the two carries a QAM remount
- * needs (`pendingEdits`, `saveSyncToggleKey`).
+ * two questions drawn as gamepad modals, and the carry a QAM remount needs
+ * (`saveSyncToggleKey`).
  *
  * Structure and vocabulary: `docs/architecture/qam-panel.md`, section Settings.
  */
@@ -35,7 +35,6 @@ import { useSettingsPage, type SettingsPrompts } from "../utils/useSettingsPage"
 import { WidePage } from "./layout/WidePage";
 import { ListDetail, type ListDetailItem } from "./layout/ListDetail";
 import { ROW_MARKER_GAP, ROW_MARKER_WIDTH, SELECTION_ACCENT } from "./layout/pane";
-import { pendingEdits } from "./settings/TextInputModal";
 import { ConnectionSection } from "./settings/ConnectionSection";
 import { SteamGridDBSection } from "./settings/SteamGridDBSection";
 import { SaveSyncSection } from "./settings/SaveSyncSection";
@@ -45,6 +44,9 @@ import { AdvancedSection } from "./settings/AdvancedSection";
 import { InterfaceSection } from "./settings/InterfaceSection";
 import { UpdatesSection } from "./settings/UpdatesSection";
 import { EmulatorSourcesSection } from "./settings/EmulatorSourcesSection";
+import { TenderFolderSection } from "./settings/TenderFolderSection";
+import { useTenderFolder } from "./useTenderFolder";
+import { TENDER_FOLDER_SECTION } from "../utils/tenderFolderWording";
 import { WithUpdateDot } from "./UpdateDot";
 import { LibrarySection } from "./settings/LibrarySection";
 import { showPreferredRegionModal } from "./settings/PreferredRegionModal";
@@ -68,6 +70,7 @@ const SECTION_LABELS: Record<SettingsSection, string> = {
   controller: "Controller",
   "steam-library": "Steam Library",
   "emulator-sources": "Emulator sources",
+  "tender-folder": TENDER_FOLDER_SECTION,
   updates: "Updates",
   interface: "Interface",
   advanced: "Advanced",
@@ -95,6 +98,7 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
   // Emulator sources: `undefined` until the listing answers, `null` where it failed.
   const [emulatorSources, setEmulatorSources] = useState<EmulatorSourcesListing | null | undefined>(undefined);
   const [sourcesBusy, setSourcesBusy] = useState(false);
+  const tenderFolder = useTenderFolder();
 
   useEffect(() => {
     getSettings()
@@ -125,7 +129,7 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
       }),
     confirmPreferredRegion: showPreferredRegionModal,
   };
-  const state = useSettingsPage(prompts, pendingEdits);
+  const state = useSettingsPage(prompts);
   const saveSyncEnabled = state.saveSyncSettings?.save_sync_enabled ?? false;
 
   // --- Interface handler ---
@@ -195,8 +199,9 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
               hasToken={state.hasToken}
               allowInsecureSsl={state.allowInsecureSsl}
               status={state.status}
+              statusWarns={state.statusWarns}
               customHeaderNames={state.customHeaderNames}
-              onUrlChange={state.saveUrl}
+              onSaveUrl={state.saveUrl}
               onSaveCustomHeaders={state.saveCustomHeaders}
               onConnect={(username, password) => state.signIn({ mode: "credentials", username, password })}
               onConnectToken={(token) => state.signIn({ mode: "token", token })}
@@ -271,6 +276,8 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
             }}
           />
         );
+      case "tender-folder":
+        return <TenderFolderSection folder={tenderFolder} />;
       case "updates":
         return (
           <UpdatesSection

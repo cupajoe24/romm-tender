@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { CHOOSE_GAME_FIRST_IN_MENU } from "../../utils/artworkTabWording";
 import { PlayStateButton } from "./PlayStateButton";
 
 describe("PlayStateButton", () => {
@@ -58,8 +59,9 @@ describe("PlayStateButton", () => {
     expect(launchBtn).toBeDisabled();
   });
 
-  it("renders menu with Refresh Artwork, Refresh Metadata, and Uninstall options in order with standard grey colors", () => {
+  it("renders menu with Refresh Artwork, Choose SteamGridDB Game…, Refresh Metadata, and Uninstall in order with standard grey colors", () => {
     const onRefreshArtwork = vi.fn();
+    const onChooseGame = vi.fn();
     const onRefreshMetadata = vi.fn();
     const onUninstall = vi.fn();
     const { container } = render(
@@ -69,6 +71,7 @@ describe("PlayStateButton", () => {
         onPlay={vi.fn()}
         onToggleMenu={vi.fn()}
         onRefreshArtwork={onRefreshArtwork}
+        onChooseGame={onChooseGame}
         onRefreshMetadata={onRefreshMetadata}
         onUninstall={onUninstall}
       />,
@@ -81,28 +84,52 @@ describe("PlayStateButton", () => {
     expect(menu).toBeInTheDocument();
 
     const menuButtons = menu.querySelectorAll("button");
-    expect(menuButtons).toHaveLength(3);
+    expect(menuButtons).toHaveLength(4);
 
-    // Verify ordering: Refresh Artwork, Refresh Metadata, Uninstall
     expect(menuButtons[0]).toHaveTextContent("Refresh Artwork");
-    expect(menuButtons[1]).toHaveTextContent("Refresh Metadata");
-    expect(menuButtons[2]).toHaveTextContent("Uninstall");
+    expect(menuButtons[1]).toHaveTextContent("Choose SteamGridDB Game…");
+    expect(menuButtons[2]).toHaveTextContent("Refresh Metadata");
+    expect(menuButtons[3]).toHaveTextContent("Uninstall");
 
-    // Standard grey color (#c7d5e0) on refresh items
+    // Standard grey color (#c7d5e0) on the artwork and metadata items
     expect(menuButtons[0]).toHaveStyle({ color: "#c7d5e0" });
     expect(menuButtons[1]).toHaveStyle({ color: "#c7d5e0" });
+    expect(menuButtons[2]).toHaveStyle({ color: "#c7d5e0" });
 
     // Destructive red on uninstall
-    expect(menuButtons[2]).toHaveStyle({ color: "#ff6b6b" });
+    expect(menuButtons[3]).toHaveStyle({ color: "#ff6b6b" });
 
-    // Click triggers
     fireEvent.click(menuButtons[0]!);
     expect(onRefreshArtwork).toHaveBeenCalledTimes(1);
 
     fireEvent.click(menuButtons[1]!);
-    expect(onRefreshMetadata).toHaveBeenCalledTimes(1);
+    expect(onChooseGame).toHaveBeenCalledTimes(1);
 
     fireEvent.click(menuButtons[2]!);
+    expect(onRefreshMetadata).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(menuButtons[3]!);
     expect(onUninstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("greys Refresh Artwork and says where to choose a game, when told the ROM has none", () => {
+    const onRefreshArtwork = vi.fn();
+    render(
+      <PlayStateButton
+        effectiveState="play"
+        showMenu={true}
+        onPlay={vi.fn()}
+        onToggleMenu={vi.fn()}
+        refreshArtworkDisabled={true}
+        onRefreshArtwork={onRefreshArtwork}
+        onUninstall={vi.fn()}
+      />,
+    );
+
+    const refresh = screen.getByRole("button", { name: /refresh artwork/i });
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveTextContent(CHOOSE_GAME_FIRST_IN_MENU);
+    fireEvent.click(refresh);
+    expect(onRefreshArtwork).not.toHaveBeenCalled();
   });
 });

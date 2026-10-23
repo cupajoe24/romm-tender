@@ -33,7 +33,7 @@ transactions actually held the lock.
 The established fix is the same for both: snapshot the rows a seam needs
 *inside* one short UoW, close it, then call the seam *outside* any open UoW
 (``services/relaunch_options_resolver.py``, ``services/cores.py``,
-``services/disc.py``, ``services/downloads.py``,
+``services/disc.py``, ``services/downloads/service.py``,
 ``services/library/shortcut_launch_resolver.py`` are the reference shape).
 Re-read anything the write then depends on: the second transaction runs on its
 own connection, so the snapshot may have gone stale.
@@ -241,11 +241,12 @@ IO_SEAM_METHODS: frozenset[str] = frozenset(
         # BOUND METHOD, the blind spot documented above, so these entries catch
         # nothing today and are here for the call site that writes one plainly.
         # The store's other I/O is unlisted and that is a gap rather than a
-        # judgement: grid_dir() is called from services/artwork.py (six sites),
+        # judgement: grid_dir() is called from services/artwork/ (seven sites),
+        # services/steamgrid/ (service.py and _slots.py),
         # services/shortcut_removal.py and services/library/reporter.py,
         # set_steam_input_config() from services/settings.py,
         # services/shortcut_removal.py and services/library/reporter.py,
-        # write_shortcut_icon() from services/steamgrid.py, and
+        # write_shortcut_icon() from services/steamgrid/service.py, and
         # ensure_grid_file() from services/shortcut_artwork.py.
         "read_shortcut_exes",
         "read_shortcut_launch_options",
@@ -258,6 +259,15 @@ IO_SEAM_METHODS: frozenset[str] = frozenset(
         # stats every entry that is a link, to answer which artwork slots a
         # shortcut already has.
         "grid_file_names",
+        # SteamConfigStore.read_grid_file — reads one file of Steam's grid
+        # directory whole, for the ARTWORK tab to hash a slot's image against
+        # Tender's record. Its call site reaches it as a bound method, so the
+        # entry is a statement of the rule rather than an enforcement of it.
+        "read_grid_file",
+        # SteamConfigStore.grid_file_stamps — stats the files filling the
+        # ARTWORK tab's slots, so each thumbnail is loaded anew only when its
+        # own file changed. Called plainly, so this entry is enforced.
+        "grid_file_stamps",
         # FirmwarePlatformResolver (services/protocols/paths.py) — reads what
         # one system's emulators want, with content verification: it opens each
         # candidate in a declared folder and reads it the way the emulator does,
@@ -294,7 +304,6 @@ IO_SEAM_METHODS: frozenset[str] = frozenset(
         # RetroDECK's settings file and ES-DE's, and resolves the answer with
         # realpath.
         "download_folder",
-        "bios_download_folder",
         "rom_root",
         "bios_folder",
         "saves_root",
@@ -306,16 +315,13 @@ IO_SEAM_METHODS: frozenset[str] = frozenset(
         # named. RomRemovalService and RomAdoptionService ask a system's folder
         # (``_rom_folder``, ``_rom_folders``), the adoption its target
         # (``_resolve_target``), the candidate search its platform folder
-        # (``_platform_dir``), the cleanup's save step the saves root
-        # (``_saves_root``), and FirmwareDemand where a BIOS download lands and
-        # where the status looks (``download_root``, ``status_root``).
+        # (``_platform_dir``), and the cleanup's save step the saves root
+        # (``_saves_root``).
         "_rom_folder",
         "_rom_folders",
         "_resolve_target",
         "_platform_dir",
         "_saves_root",
-        "download_root",
-        "status_root",
         # RecoveryBundleInventoryReader (services/protocols/files.py) — lists the
         # recovery root and measures every bundle under it, one descriptor walk
         # per bundle. Object-shaped, so the method name is the whole entry.

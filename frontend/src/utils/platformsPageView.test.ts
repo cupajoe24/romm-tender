@@ -92,18 +92,42 @@ describe("libraryMark", () => {
 describe("biosRowAction", () => {
   it("offers Download for a fetchable row unless the server is offline, then the delete if any", () => {
     const fetchable = new Set(["bios.bin"]);
-    expect(biosRowAction(file({}), fetchable, false)).toEqual({ kind: "download" });
-    expect(biosRowAction(file({ deletable_count: 1 }), fetchable, true)).toEqual({
-      kind: "delete",
-      folder: false,
-      count: 1,
-    });
+    expect(biosRowAction(file({}), fetchable, false)).toEqual({ kind: "download", name: "bios.bin", firmwareId: null });
+    expect(biosRowAction(file({ deletable_count: 1 }), fetchable, true)).toEqual({ kind: "delete", name: "bios.bin" });
     expect(biosRowAction(file({}), new Set(), false)).toBeNull();
-    expect(biosRowAction(file({ declared_kind: "directory", deletable_count: 3 }), new Set(), false)).toEqual({
-      kind: "delete",
-      folder: true,
-      count: 3,
+  });
+
+  it("downloads by the row's download name, with the library file's id where one fills it", () => {
+    const library = { firmware_id: 7, file_name: "scph5501.bin" } as unknown as NonNullable<FirmwareRow["library"]>;
+    const row = file({ file_name: "bios.bin", library });
+    expect(biosRowAction(row, new Set(["bios.bin"]), false)).toEqual({
+      kind: "download",
+      name: "scph5501.bin",
+      firmwareId: 7,
     });
+  });
+
+  it("offers Replace… where the backend does and the row has a place, ahead of a delete", () => {
+    expect(
+      biosRowAction(
+        file({ replace_offered: true, local_path: "/bios/bios.bin", deletable_count: 1 }),
+        new Set(),
+        false,
+      ),
+    ).toEqual({ kind: "replace", place: "/bios/bios.bin" });
+    expect(biosRowAction(file({ replace_offered: true, deletable_count: 1 }), new Set(), false)).toEqual({
+      kind: "delete",
+      name: "bios.bin",
+    });
+  });
+
+  it("deletes by delete_name, and offers no delete where it is null or nothing is deletable", () => {
+    expect(biosRowAction(file({ delete_name: "store.bin", deletable_count: 1 }), new Set(), false)).toEqual({
+      kind: "delete",
+      name: "store.bin",
+    });
+    expect(biosRowAction(file({ delete_name: null, deletable_count: 1 }), new Set(), false)).toBeNull();
+    expect(biosRowAction(file({ delete_name: "store.bin", deletable_count: 0 }), new Set(), false)).toBeNull();
   });
 });
 

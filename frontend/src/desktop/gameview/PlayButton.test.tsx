@@ -13,6 +13,9 @@ import * as backend from "../../api/backend";
 import * as steamShortcuts from "../../utils/steamShortcuts";
 import * as metadataPatches from "../../utils/metadataPatches";
 import * as toast from "../../utils/toast";
+import * as artworkRefresh from "../../utils/artworkRefresh";
+import * as artworkSlotsStore from "../../utils/artworkSlotsStore";
+import { CHOOSE_GAME_FIRST_IN_MENU, GAME_CHANGE_DISCARDS_CHOICES } from "../../utils/artworkTabWording";
 import { emitHostEvent } from "../../test-utils/host-event-bus";
 import { RESUME_TARGET_OCCUPIED_TOAST } from "../../utils/adoptWording";
 import { BIOS_MISSING_RED } from "../../utils/biosColor";
@@ -126,7 +129,7 @@ const BACKEND_STUBS = vi.hoisted(() => ({
   getInstalledRom: vi.fn().mockResolvedValue({ launchable: true }),
   isSaveTrackingConfigured: vi.fn().mockResolvedValue({ configured: true }),
   checkCoreChange: vi.fn().mockResolvedValue({ changed: false }),
-  checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, rom_id: 100 }),
+  checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, only_here: false, stranding: "none", rom_id: 100 }),
   refreshCoverArtwork: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
   getSgdbResolution: vi.fn().mockResolvedValue({ decision: "resolved", sgdb_id: 42 }),
   refreshSgdbArtwork: vi.fn().mockResolvedValue({ success: true }),
@@ -134,7 +137,24 @@ const BACKEND_STUBS = vi.hoisted(() => ({
 }));
 
 vi.mock("../../utils/artwork", () => ({
-  applyArtwork: vi.fn().mockResolvedValue(4),
+  applyAutomaticArtwork: vi.fn().mockResolvedValue(4),
+  applySteamGridDbCover: vi.fn().mockResolvedValue(true),
+}));
+
+// Refresh Artwork's own flow is `utils/artworkRefresh.test.ts`'s; this file pins
+// what the menu hands it and when it offers it.
+vi.mock("../../utils/artworkRefresh", () => ({
+  executeRefreshArtwork: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../utils/artworkSlotsStore", () => ({
+  loadArtworkSlots: vi.fn().mockResolvedValue(null),
+  isKnownWithoutSgdbGame: vi.fn(() => false),
+  useArtworkSlotsChanges: vi.fn(),
+}));
+
+vi.mock("../../utils/artworkGameChange", () => ({
+  settleArtworkGame: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../utils/steamShortcuts", () => ({
@@ -180,6 +200,9 @@ describe("PlayButton", () => {
       message: "Not found",
     });
     vi.mocked(backend.getAchievements).mockResolvedValue({ success: false, reason: "not_found", message: "Not found" });
+    vi.mocked(artworkSlotsStore.isKnownWithoutSgdbGame).mockReturnValue(false);
+    vi.mocked(artworkSlotsStore.loadArtworkSlots).mockClear().mockResolvedValue(null);
+    vi.mocked(artworkRefresh.executeRefreshArtwork).mockClear();
 
     (window as unknown as { SteamClient?: unknown }).SteamClient = {
       Apps: {
@@ -869,14 +892,36 @@ describe("PlayButton", () => {
     fireEvent.click(refreshArtworkBtn);
 
     await waitFor(() => {
-      expect(backend.refreshCoverArtwork).toHaveBeenCalledWith(100);
-      expect(backend.getSgdbResolution).toHaveBeenCalledWith(100);
-      expect(backend.refreshSgdbArtwork).toHaveBeenCalledWith(100, 42);
-      expect(toast.showToast).toHaveBeenCalledWith("Artwork refreshed (4/4 images applied)");
+      expect(artworkRefresh.executeRefreshArtwork).toHaveBeenCalledWith({
+        romId: 100,
+        appId: 123,
+        leaseOwner: expect.any(String),
+        tag: "DesktopPlayButton",
+        chooseGameFirst: CHOOSE_GAME_FIRST_IN_MENU,
+      });
     });
   });
 
-  it("opens drop-down menu, triggers refresh artwork, and displays SGDB picker dialog when resolution answers needs_pick", async () => {
+  it("greys Refresh Artwork with where to choose a game, while the ROM has no SteamGridDB game", async () => {
+    vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
+      romId: 100,
+      romName: "Super Mario World",
+      platformSlug: "snes",
+      installed: true,
+      loading: false,
+      error: null,
+    } as unknown as GameDetailState);
+    vi.mocked(artworkSlotsStore.isKnownWithoutSgdbGame).mockReturnValue(true);
+
+    render(<PlayButton appId={123} />);
+    fireEvent.click(screen.getByRole("button", { name: /game options/i }));
+
+    const refresh = screen.getByRole("button", { name: /refresh artwork/i });
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveTextContent(CHOOSE_GAME_FIRST_IN_MENU);
+  });
+
+  it("opens the SteamGridDB game picker from the menu, warning where a slot holds a choice", async () => {
     vi.mocked(gameDetailStore.useGameDetail).mockReturnValue({
       romId: 100,
       romName: "Super Mario World",
@@ -893,23 +938,22 @@ describe("PlayButton", () => {
       error: null,
     } as unknown as GameDetailState);
 
-    vi.mocked(backend.getSgdbResolution).mockResolvedValueOnce({
-      decision: "needs_pick",
-      candidates: [{ id: 7, name: "Mario World Alternate", release_year: 1991, thumb_url: null }],
+    vi.mocked(artworkSlotsStore.loadArtworkSlots).mockResolvedValueOnce({
+      success: true,
+      has_api_key: true,
+      game: { sgdb_id: 5, source: "chosen", name: "Mario" },
+      slots: [{ slot: "hero", state: "chosen", source: "chosen", image_id: 9, has_choice: true, signature: "" }],
     });
 
     render(<PlayButton appId={123} />);
 
-    const menuToggle = screen.getByRole("button", { name: /game options/i });
-    fireEvent.click(menuToggle);
+    fireEvent.click(screen.getByRole("button", { name: /game options/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose SteamGridDB Game…" }));
 
-    const refreshArtworkBtn = screen.getByRole("button", { name: /refresh artwork/i });
-    fireEvent.click(refreshArtworkBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText("Choose SteamGridDB Game")).toBeInTheDocument();
-      expect(screen.getByText("Mario World Alternate")).toBeInTheDocument();
-    });
+    const picker = await screen.findByRole("dialog", { name: "Choose SteamGridDB Game" });
+    expect(artworkSlotsStore.loadArtworkSlots).toHaveBeenCalledWith(123, 100);
+    expect(picker).toHaveTextContent(GAME_CHANGE_DISCARDS_CHOICES);
+    expect(artworkRefresh.executeRefreshArtwork).not.toHaveBeenCalled();
   });
 
   it("opens drop-down menu and triggers refresh metadata", async () => {
@@ -2063,7 +2107,7 @@ describe("PlayButton", () => {
       fireEvent.click(screen.getByRole("button", { name: "Use These Files" }));
 
       expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
-      expect(backend.adoptExistingRom).toHaveBeenCalledWith(100, null, null);
+      expect(backend.adoptExistingRom).toHaveBeenCalledWith(100, "/roms/snes/smw.sfc", null);
       expect(steamShortcuts.setLaunchOptionsConfirmed).toHaveBeenCalledWith(123, "run-smw");
       expect(toast.showToast).toHaveBeenCalledWith("Super Mario World is ready to play");
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -2080,7 +2124,9 @@ describe("PlayButton", () => {
       expect(backend.startDownload).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getByRole("button", { name: "Delete and Download" }));
 
-      await waitFor(() => expect(backend.startDownload).toHaveBeenLastCalledWith(100, true, null, null, false));
+      await waitFor(() =>
+        expect(backend.startDownload).toHaveBeenLastCalledWith(100, true, null, null, false, ["/roms/snes/smw.sfc"]),
+      );
       expect(await screen.findByRole("progressbar")).toBeInTheDocument();
     });
 
@@ -2142,7 +2188,9 @@ describe("PlayButton", () => {
       expect(collisions).toHaveTextContent("smw.srm (save)");
       fireEvent.click(screen.getByRole("button", { name: "Replace Them" }));
 
-      await waitFor(() => expect(backend.adoptExistingRom).toHaveBeenLastCalledWith(100, null, "overwrite"));
+      await waitFor(() =>
+        expect(backend.adoptExistingRom).toHaveBeenLastCalledWith(100, "/roms/snes/smw.sfc", "overwrite"),
+      );
       expect(await screen.findByRole("button", { name: /^PLAY/ })).toBeInTheDocument();
     });
 
@@ -2274,7 +2322,12 @@ describe("PlayButton", () => {
     it("offline with local drift prompts with offline drift dialog and launches on start_anyway", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
       vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: true,
+        only_here: false,
+        stranding: "unsynced",
+        rom_id: 100,
+      });
 
       render(<PlayButton appId={123} />);
       fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
@@ -2291,7 +2344,12 @@ describe("PlayButton", () => {
     it("offline with local drift does not launch when cancelled from offline drift dialog", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
       vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: true,
+        only_here: false,
+        stranding: "unsynced",
+        rom_id: 100,
+      });
 
       render(<PlayButton appId={123} />);
       fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));
@@ -2310,7 +2368,12 @@ describe("PlayButton", () => {
         .mockResolvedValueOnce({ online: false })
         .mockResolvedValueOnce({ online: false })
         .mockResolvedValueOnce({ online: true });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: true, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: true,
+        only_here: false,
+        stranding: "unsynced",
+        rom_id: 100,
+      });
       vi.mocked(backend.preLaunchSync).mockResolvedValueOnce({
         success: true,
         synced: 1,
@@ -2331,7 +2394,12 @@ describe("PlayButton", () => {
     it("offline without local drift launches silently without dialog", async () => {
       vi.mocked(gameDetailStore.useGameDetail).mockReturnValue(detailState({ installed: true }));
       vi.mocked(backend.probeReachability).mockResolvedValue({ online: false });
-      vi.mocked(backend.checkLocalDrift).mockResolvedValue({ drifted: false, rom_id: 100 });
+      vi.mocked(backend.checkLocalDrift).mockResolvedValue({
+        drifted: false,
+        only_here: false,
+        stranding: "none",
+        rom_id: 100,
+      });
 
       render(<PlayButton appId={123} />);
       fireEvent.click(screen.getByRole("button", { name: /^PLAY/ }));

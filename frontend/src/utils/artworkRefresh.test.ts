@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as backend from "../api/backend";
-import { applyArtwork } from "./artwork";
+import type { ArtworkSlotRow, ArtworkSlots } from "../api/backend";
+import { applyAutomaticArtwork, applyTabSlotImage } from "./artwork";
+import { loadArtworkSlots } from "./artworkSlotsStore";
+import { CHOOSE_GAME_FIRST } from "./artworkTabWording";
 import { showToast } from "./toast";
 import * as pruneLease from "./pruneLease";
 import { executeRefreshArtwork } from "./artworkRefresh";
@@ -9,6 +12,7 @@ vi.mock("../api/backend", () => ({
   refreshCoverArtwork: vi.fn(),
   getSgdbResolution: vi.fn(),
   refreshSgdbArtwork: vi.fn(),
+  setArtworkSlotAutomatic: vi.fn(),
   debugLog: vi.fn(),
   isEndpointFailure: vi.fn(
     (x: unknown) =>
@@ -17,7 +21,12 @@ vi.mock("../api/backend", () => ({
 }));
 
 vi.mock("./artwork", () => ({
-  applyArtwork: vi.fn(),
+  applyAutomaticArtwork: vi.fn(),
+  applyTabSlotImage: vi.fn(),
+}));
+
+vi.mock("./artworkSlotsStore", () => ({
+  loadArtworkSlots: vi.fn(),
 }));
 
 vi.mock("./toast", () => ({
@@ -29,20 +38,37 @@ vi.mock("./pruneLease", () => ({
   isPruneLeaseCancellation: vi.fn(() => false),
 }));
 
+function slot(name: ArtworkSlotRow["slot"], state: ArtworkSlotRow["state"] = "automatic"): ArtworkSlotRow {
+  return { slot: name, state, source: "tender", image_id: null, has_choice: false, signature: "" };
+}
+
+function slots(over: { sgdbId?: number | null; cover?: ArtworkSlotRow["state"] } = {}): ArtworkSlots {
+  return {
+    success: true,
+    has_api_key: true,
+    game: { sgdb_id: over.sgdbId === undefined ? 101 : over.sgdbId, source: "romm", name: "Game" },
+    slots: [slot("cover", over.cover ?? "automatic"), slot("grid"), slot("hero"), slot("logo"), slot("icon")],
+  };
+}
+
 describe("executeRefreshArtwork", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(pruneLease.isPruneLeaseCancellation).mockReturnValue(false);
+    vi.mocked(loadArtworkSlots).mockResolvedValue(slots());
+    vi.mocked(applyTabSlotImage).mockResolvedValue("set");
   });
 
-  it("happy path: refreshes cover, resolves SGDB, refreshes SGDB, applies art and toasts result", async () => {
+  it("reloads the cover on automatic, hands it to Steam, applies the SteamGridDB slots and toasts the count", async () => {
     vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({
       success: true,
       message: "Cover refreshed",
       cover_path: "/grid/99p.png",
+      prune_lease_token: "lease-1",
     });
     vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "resolved", sgdb_id: 101 });
     vi.mocked(backend.refreshSgdbArtwork).mockResolvedValue({ success: true });
-    vi.mocked(applyArtwork).mockResolvedValue(4);
+    vi.mocked(applyAutomaticArtwork).mockResolvedValue(4);
 
     const listener = vi.fn();
     globalThis.addEventListener("romm_data_changed", listener);
@@ -50,9 +76,15 @@ describe("executeRefreshArtwork", () => {
       await executeRefreshArtwork({ romId: 42, appId: 999 });
 
       expect(backend.refreshCoverArtwork).toHaveBeenCalledWith(42);
-      expect(backend.getSgdbResolution).toHaveBeenCalledWith(42);
+      expect(applyTabSlotImage).toHaveBeenCalledWith(
+        42,
+        999,
+        "cover",
+        { status: "cover", prune_lease_token: "lease-1" },
+        false,
+      );
       expect(backend.refreshSgdbArtwork).toHaveBeenCalledWith(42, 101);
-      expect(applyArtwork).toHaveBeenCalledWith(42, 999);
+      expect(applyAutomaticArtwork).toHaveBeenCalledWith(42, 999);
       expect(showToast).toHaveBeenCalledWith("Artwork refreshed (4/4 images applied)");
 
       const ev = listener.mock.calls.map((c) => c[0] as CustomEvent).find((e) => e.detail?.type === "cover_refreshed");
@@ -62,25 +94,38 @@ describe("executeRefreshArtwork", () => {
     }
   });
 
-  it("cover refresh failure: debugLogs error and includes cover failure in final toast", async () => {
+  it("leaves a cover the user chose alone", async () => {
+    vi.mocked(loadArtworkSlots).mockResolvedValue(slots({ cover: "chosen" }));
+    vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "resolved", sgdb_id: 101 });
+    vi.mocked(backend.refreshSgdbArtwork).mockResolvedValue({ success: true });
+    vi.mocked(applyAutomaticArtwork).mockResolvedValue(4);
+
+    await executeRefreshArtwork({ romId: 42, appId: 999 });
+
+    expect(backend.refreshCoverArtwork).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith("Artwork refreshed (4/4 images applied)");
+  });
+
+  it("where RomM has no cover, sets Tender's SteamGridDB cover and counts it", async () => {
     vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({
       success: false,
       reason: "no_cover",
       message: "ROM has no cover artwork",
     });
+    const served = { status: "cover", prune_lease_token: "lease-2" } as never;
+    vi.mocked(backend.setArtworkSlotAutomatic).mockResolvedValue(served);
     vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "resolved", sgdb_id: 101 });
     vi.mocked(backend.refreshSgdbArtwork).mockResolvedValue({ success: true });
-    vi.mocked(applyArtwork).mockResolvedValue(4);
+    vi.mocked(applyAutomaticArtwork).mockResolvedValue(4);
 
     await executeRefreshArtwork({ romId: 42, appId: 999 });
 
-    expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("refreshCoverArtwork failed: no_cover"));
-    expect(showToast).toHaveBeenCalledWith(
-      "Artwork refreshed (4/4 images applied). The RomM cover could not be updated: ROM has no cover artwork",
-    );
+    expect(backend.setArtworkSlotAutomatic).toHaveBeenCalledWith(42, "cover");
+    expect(applyTabSlotImage).toHaveBeenCalledWith(42, 999, "cover", served, false);
+    expect(showToast).toHaveBeenCalledWith("Artwork refreshed (5/5 images applied)");
   });
 
-  it("cover refresh rejection: debugLogs rejection and treats as request did not complete", async () => {
+  it("a cover reload that failed for another reason is said beside the SteamGridDB answer", async () => {
     vi.mocked(backend.refreshCoverArtwork).mockRejectedValue(new Error("network down"));
     vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "resolved", sgdb_id: 101 });
     vi.mocked(backend.refreshSgdbArtwork).mockResolvedValue({
@@ -92,9 +137,43 @@ describe("executeRefreshArtwork", () => {
     await executeRefreshArtwork({ romId: 42, appId: 999 });
 
     expect(backend.debugLog).toHaveBeenCalledWith(expect.stringContaining("refreshCoverArtwork rejected"));
+    expect(backend.setArtworkSlotAutomatic).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith(
       "SteamGridDB refused the API key — check it in Settings. The RomM cover could not be updated: the request did not complete",
     );
+    expect(applyAutomaticArtwork).not.toHaveBeenCalled();
+  });
+
+  it("slots that could not be read: toasts 'Failed to refresh artwork' and touches nothing", async () => {
+    vi.mocked(loadArtworkSlots).mockResolvedValue(null);
+
+    await executeRefreshArtwork({ romId: 42, appId: 999 });
+
+    expect(showToast).toHaveBeenCalledWith("Failed to refresh artwork");
+    expect(backend.refreshCoverArtwork).not.toHaveBeenCalled();
+    expect(backend.getSgdbResolution).not.toHaveBeenCalled();
+  });
+
+  it("no SteamGridDB game: says where to choose one, the surface's sentence where it gives one", async () => {
+    vi.mocked(loadArtworkSlots).mockResolvedValue(slots({ sgdbId: null }));
+
+    await executeRefreshArtwork({ romId: 42, appId: 999 });
+    expect(showToast).toHaveBeenLastCalledWith(CHOOSE_GAME_FIRST);
+
+    await executeRefreshArtwork({ romId: 42, appId: 999, chooseGameFirst: "Choose it in the menu." });
+    expect(showToast).toHaveBeenLastCalledWith("Choose it in the menu.");
+    expect(backend.getSgdbResolution).not.toHaveBeenCalled();
+  });
+
+  it("decision=needs_pick: chooses nothing and says where the game is chosen", async () => {
+    vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({ success: true, message: "ok" });
+    const candidates = [{ id: 1, name: "Candidate 1", release_year: 2000, thumb_url: "https://thumb" }];
+    vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "needs_pick", candidates });
+
+    await executeRefreshArtwork({ romId: 42, appId: 999, chooseGameFirst: "Choose it in the menu." });
+
+    expect(showToast).toHaveBeenCalledWith("Choose it in the menu.");
+    expect(backend.refreshSgdbArtwork).not.toHaveBeenCalled();
   });
 
   it("getSgdbResolution rejection: debugLogs and toasts 'Failed to refresh artwork'", async () => {
@@ -129,56 +208,13 @@ describe("executeRefreshArtwork", () => {
     expect(showToast).toHaveBeenCalledWith("Set a SteamGridDB API key in Settings first");
   });
 
-  it("decision=resolved with refreshSgdbArtwork endpoint failure: toasts refusal message", async () => {
-    vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({ success: true, message: "ok" });
-    vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "resolved", sgdb_id: 101 });
-    vi.mocked(backend.refreshSgdbArtwork).mockResolvedValue({
-      success: false,
-      reason: "rate_limited",
-      message: "SteamGridDB is rate-limiting requests — try again in a moment",
-    });
+  it("reads the slots again once it ends, whatever it came to", async () => {
+    vi.mocked(loadArtworkSlots).mockResolvedValueOnce(slots({ sgdbId: null }));
 
     await executeRefreshArtwork({ romId: 42, appId: 999 });
 
-    expect(showToast).toHaveBeenCalledWith("SteamGridDB is rate-limiting requests — try again in a moment");
-    expect(applyArtwork).not.toHaveBeenCalled();
-  });
-
-  it("decision=needs_pick with onNeedsPick callback: calls onNeedsPick with candidates", async () => {
-    vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({ success: true, message: "ok" });
-    const candidates = [{ id: 1, name: "Candidate 1", release_year: 2000, thumb_url: "https://thumb" }];
-    vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "needs_pick", candidates });
-    const onNeedsPick = vi.fn();
-
-    await executeRefreshArtwork({ romId: 42, appId: 999, onNeedsPick });
-
-    expect(onNeedsPick).toHaveBeenCalledWith(candidates);
-  });
-
-  it("decision=needs_pick with coverFailure: toasts cover failure notice", async () => {
-    vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({
-      success: false,
-      reason: "no_cover",
-      message: "ROM has no cover artwork",
-    });
-    const candidates = [{ id: 1, name: "Candidate 1", release_year: 2000, thumb_url: "https://thumb" }];
-    vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "needs_pick", candidates });
-    const onNeedsPick = vi.fn();
-
-    await executeRefreshArtwork({ romId: 42, appId: 999, onNeedsPick });
-
-    expect(showToast).toHaveBeenCalledWith("The RomM cover could not be updated: ROM has no cover artwork");
-    expect(onNeedsPick).toHaveBeenCalledWith(candidates);
-  });
-
-  it("decision=needs_pick without onNeedsPick callback: toasts notice", async () => {
-    vi.mocked(backend.refreshCoverArtwork).mockResolvedValue({ success: true, message: "ok" });
-    const candidates = [{ id: 1, name: "Candidate 1", release_year: 2000, thumb_url: "https://thumb" }];
-    vi.mocked(backend.getSgdbResolution).mockResolvedValue({ decision: "needs_pick", candidates });
-
-    await executeRefreshArtwork({ romId: 42, appId: 999 });
-
-    expect(showToast).toHaveBeenCalledWith("Multiple SteamGridDB matches found");
+    expect(loadArtworkSlots).toHaveBeenCalledTimes(2);
+    expect(loadArtworkSlots).toHaveBeenLastCalledWith(999, 42);
   });
 
   it("prune lease cancellation: debugLogs cancellation and suppresses toast", async () => {

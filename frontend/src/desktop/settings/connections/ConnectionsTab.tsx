@@ -4,13 +4,15 @@
  * handlers (`useSettingsPage`) and the same words (`utils/settingsWording.ts`).
  *
  * The RomM URL is edited in its row and saved only by its Save button, which is
- * there only while the field differs from the stored URL (D7). Sign-in, the
+ * there only while the field differs from the stored URL (D7); a save the
+ * backend refused, or one that could not reach it, is said under the field
+ * until the text is edited, as the QAM's `RommUrlModal` says it. Sign-in, the
  * custom headers and the SteamGridDB key validate before they save, so each is
  * a dialog, drawn in the window's own document (`useDialogHost`), as is the
  * sign-out confirm. Sign out is last in its group.
  */
 
-import { useState, type FC } from "react";
+import { useRef, useState, type FC } from "react";
 import { DialogButton, Field, TextField } from "@decky/ui";
 import { verifySgdbApiKey } from "../../../api/backend";
 import { detach } from "../../../utils/detach";
@@ -41,33 +43,54 @@ import { useDialogHost, type AskDialog } from "../../gameview/dialogs/useDialogH
 import { SectionHeading } from "../SectionHeading";
 import { SettingsToggle } from "../SettingsToggle";
 import { desktopSettingsPrompts } from "../settingsPrompts";
-import { BUTTON_ROW_STYLE, BUTTON_STYLE, MUTED_TEXT_STYLE, SECTION_STYLE } from "../settingsStyles";
+import { AMBER, BUTTON_ROW_STYLE, BUTTON_STYLE, MUTED_TEXT_STYLE, SECTION_STYLE } from "../settingsStyles";
 import { CustomHeadersDialog } from "./CustomHeadersDialog";
 import { SgdbKeyDialog } from "./SgdbKeyDialog";
 import { SignInDialog } from "./SignInDialog";
 
 const ROW_BUTTON_STYLE = { ...BUTTON_STYLE, minWidth: "90px" };
 const INLINE_BUTTON_STYLE = { width: "auto", minWidth: "90px", marginLeft: "8px" };
+const WARNING_TEXT_STYLE = { ...MUTED_TEXT_STYLE, color: AMBER };
 
 const UrlRow: FC<{ state: SettingsPageState }> = ({ state }) => {
   const [draft, setDraft] = useState(state.url);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // The field's text as it stands now, read when an answer arrives: a refusal
+  // that comes back after an edit is about text no longer there.
+  const current = useRef(state.url);
   const differs = trimServerUrl(draft) !== state.url;
+  const save = async () => {
+    const asked = draft;
+    const answer = await state.saveUrl(asked);
+    if (!answer.success && current.current === asked) setRefusal(answer.message);
+  };
   // Save rides the field's own inline controls, which Steam draws in the
   // input's row, rather than a row of Tender's beside a field whose box also
   // holds its label and padding.
   return (
-    <TextField
-      label={ROMM_URL_LABEL}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      inlineControls={
-        differs ? (
-          <DialogButton style={INLINE_BUTTON_STYLE} onClick={() => state.saveUrl(draft)}>
-            {SAVE_LABEL}
-          </DialogButton>
-        ) : undefined
-      }
-    />
+    <>
+      <TextField
+        label={ROMM_URL_LABEL}
+        value={draft}
+        onChange={(e) => {
+          current.current = e.target.value;
+          setDraft(e.target.value);
+          setRefusal(null);
+        }}
+        inlineControls={
+          differs ? (
+            <DialogButton style={INLINE_BUTTON_STYLE} onClick={() => detach(save())}>
+              {SAVE_LABEL}
+            </DialogButton>
+          ) : undefined
+        }
+      />
+      {refusal !== null && (
+        <div role="alert" style={WARNING_TEXT_STYLE}>
+          {refusal}
+        </div>
+      )}
+    </>
   );
 };
 
@@ -124,7 +147,7 @@ const RommSection: FC<{ state: SettingsPageState; ask: AskDialog }> = ({ state, 
         />
       )}
       {state.status && (
-        <div role="status" style={MUTED_TEXT_STYLE}>
+        <div role="status" style={state.statusWarns ? WARNING_TEXT_STYLE : MUTED_TEXT_STYLE}>
           {state.status}
         </div>
       )}

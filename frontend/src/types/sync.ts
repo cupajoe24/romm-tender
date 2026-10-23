@@ -347,6 +347,17 @@ export interface SyncPreviewSummary {
    * interrupted" lingers. Absent on older backends (treat as 0).
    */
   restamp_platform_count?: number;
+  /**
+   * Enabled collections the preview could not skip for a reason a fresh stamp
+   * settles, whose apply will stamp them (#2477): a stamp that is missing,
+   * records no fetch start or checksum, or no longer matches the listing, or a
+   * member updated after its reference, on a collection with members and a
+   * recordable `updated_at`. A probe that failed or could not be read is not
+   * counted. Read exactly as `restamp_platform_count` is: a
+   * restamp-only preview must still offer Apply, or such a collection is
+   * fetched in full on every sync. Absent on older backends (treat as 0).
+   */
+  restamp_collection_count?: number;
   /** Scope of the run — how many platforms this sync spans (always shown, independent of diffs). */
   sync_platform_count?: number;
   /** Scope of the run — how many collections this sync spans. */
@@ -544,7 +555,7 @@ export interface SyncApplyUnitData {
  */
 export interface ShortcutArtworkData {
   icons: { app_id: number; icon_path: string; record?: ShortcutIconRecord }[];
-  artwork: { app_id: number; rom_id: number; slot: "grid" | "logo" }[];
+  artwork: { app_id: number; rom_id: number; slot: "grid" | "logo" | "cover" }[];
   prune_lease_token: string;
 }
 

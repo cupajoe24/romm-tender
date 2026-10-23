@@ -1,7 +1,9 @@
 /**
- * The desktop client's dialog for manual SteamGridDB artwork resolution.
- * Opened when automatic SGDB resolution answers `needs_pick`, allowing the user
- * to search SteamGridDB by title and select a game to apply.
+ * The desktop client's dialog for choosing the SteamGridDB game a ROM's artwork
+ * comes from, opened by the Play menu's Choose SteamGridDB Game… (the desktop
+ * client has no ARTWORK tab). The user searches SteamGridDB by title and picks a
+ * game to apply; before a change that discards the images the user chose, it
+ * says so. Big Picture's `SgdbGamePickerModal` is the other drawing of it.
  */
 
 import { useState, type FC, type FormEvent } from "react";
@@ -16,6 +18,7 @@ import {
   SGDB_PICKER_SEARCH_BUTTON,
   SGDB_PICKER_TITLE,
 } from "../../../utils/sgdbPickerWording";
+import { GAME_CHANGE_DISCARDS_CHOICES } from "../../../utils/artworkTabWording";
 import {
   DIALOG_ERROR_STYLE,
   DIALOG_INPUT_STYLE,
@@ -30,15 +33,20 @@ export interface DesktopSgdbGamePickerDialogProps {
   appId: number;
   romName: string;
   candidates?: SgdbCandidate[] | undefined;
+  /** The ROM has images the user chose, which the change discards. */
+  discardsChoices?: boolean | undefined;
   onApplied?: ((applied: number | EndpointFailure) => void) | undefined;
   onClose: () => void;
 }
+
+const DISCARDS_CHOICES_STYLE = { ...DIALOG_TEXT_STYLE, color: "#ffb74d" };
 
 export const DesktopSgdbGamePickerDialog: FC<DesktopSgdbGamePickerDialogProps> = ({
   romId,
   appId,
   romName,
   candidates,
+  discardsChoices,
   onApplied,
   onClose,
 }) => {
@@ -93,6 +101,7 @@ export const DesktopSgdbGamePickerDialog: FC<DesktopSgdbGamePickerDialogProps> =
     >
       <div style={{ fontSize: "13px", color: "rgba(255, 255, 255, 0.6)", marginBottom: "4px" }}>{romName}</div>
       <div style={DIALOG_TEXT_STYLE}>{SGDB_PICKER_EXPLANATION}</div>
+      {discardsChoices ? <div style={DISCARDS_CHOICES_STYLE}>{GAME_CHANGE_DISCARDS_CHOICES}</div> : null}
 
       <form onSubmit={(e) => void handleSearch(e)} style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
         <input

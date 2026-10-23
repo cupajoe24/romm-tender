@@ -141,25 +141,29 @@ export const FAILED_LABEL = "Failed";
 export const DOWNLOAD_ALL_LABEL = "Download all";
 export const downloadRequiredLabel = (count: number): string => `Download required (${count})`;
 export const deleteBiosLabel = (count: number): string => `Delete BIOS (${count})`;
-/** A row's delete: a folder's carries how many recorded files it would take. */
-export const deleteRowLabel = (folder: boolean, count: number): string => (folder ? `Delete (${count})` : "Delete");
+export const DELETE_ROW_LABEL = "Delete";
 
-export const deleteRowConfirm = (fileName: string, folder: boolean, count: number): ConfirmWords => ({
-  title: folder ? `Delete ${count} file(s) in ${fileName}?` : `Delete ${fileName}?`,
-  description:
-    "This deletes only what Tender downloaded, at the places it wrote them. Files your emulator came with, or " +
-    "that you put there yourself, are never touched — and a folder the emulator lists is never removed. Games that " +
-    "need them won't launch until you download them again.",
+/** *name* is the row's `delete_name`: what the delete takes, which can be another name than the row's. */
+export const deleteRowConfirm = (name: string): ConfirmWords => ({
+  title: `Delete ${name}?`,
+  description: "Tender removes it from its firmware store and every link to it. Files you placed yourself stay.",
   confirm: "Delete",
+  cancel: "Cancel",
+});
+
+export const REPLACE_ROW_LABEL = "Replace…";
+
+/** *backupRoot* is the platform answer's `backup_root`, where the replaced file goes; `null` where it states none. */
+export const replaceRowConfirm = (fileName: string, place: string, backupRoot: string | null): ConfirmWords => ({
+  title: `Replace ${fileName}?`,
+  description: `The file at ${place} goes to ${backupRoot ?? "the backup folder"}, and Tender's copy is linked in its place.`,
+  confirm: "Replace",
   cancel: "Cancel",
 });
 
 export const deleteBiosConfirm = (platformName: string): ConfirmWords => ({
   title: `Delete BIOS files for ${platformName}?`,
-  description:
-    "This deletes only the BIOS files Tender downloaded for this system. Files your emulator came with, or that " +
-    "you put there yourself, are left where they are. Games that need the deleted files won't launch until you " +
-    "download them again.",
+  description: `Tender removes every BIOS file it downloaded for ${platformName} and every link to them. Files you placed yourself stay.`,
   confirm: "Delete BIOS Files",
   cancel: "Cancel",
 });

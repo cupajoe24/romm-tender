@@ -95,10 +95,8 @@ export function desktopUncheckedSourceDialog(ask: AskDialog): () => Promise<bool
 export function desktopUnsyncedSavesDialog(
   ask: AskDialog,
 ): (args: UnsyncedSavesPromptArgs) => Promise<UnsyncedSavesChoice> {
-  return ({ versionName, serverReachable }) =>
-    ask<UnsyncedSavesChoice>("cancel", (resolve) => (
-      <DesktopUnsyncedSavesDialog versionName={versionName} serverReachable={serverReachable} onChoice={resolve} />
-    ));
+  return (args) =>
+    ask<UnsyncedSavesChoice>("cancel", (resolve) => <DesktopUnsyncedSavesDialog {...args} onChoice={resolve} />);
 }
 
 export function desktopStopGameDialog(ask: AskDialog): () => Promise<boolean> {

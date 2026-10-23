@@ -489,6 +489,55 @@ class TestNeverIntoAPlaceNotRead:
         assert _recorded(svc) == str(old)
 
 
+def _with_a_hole(directory: str, hole: str) -> SaveAnswer:
+    """A refusing answer whose directory still holds the resolver's *hole*, spelled ``<hole>``."""
+    return replace(_answer(directory), state="hole", needs=(hole,))
+
+
+class TestNeverIntoAPlaceWithAHole:
+    """A directory with a hole still in it names no folder, so nothing is carried into it or recorded."""
+
+    def test_an_upgrade_that_answers_below_the_start_folder_moves_nothing_and_keeps_the_record(
+        self, tmp_path, dirs, monkeypatch
+    ):
+        # Recorded concrete before, a relative save folder answered below the
+        # folder a game is started from now: the files stay where they are.
+        old, _new = dirs
+        monkeypatch.chdir(tmp_path)
+        svc, _ = make_service(tmp_path)
+        _install_rom(svc, tmp_path)
+        _record(svc, str(old))
+        save = _create_save(tmp_path, content=b"progress")
+
+        _follow(svc, _with_a_hole("<cwd>/saves", "cwd"))
+
+        assert save.read_bytes() == b"progress"
+        assert not (tmp_path / "<cwd>").exists()
+        assert _recorded(svc) == str(old)
+
+    def test_a_folder_keyed_by_region_moves_nothing_and_keeps_the_record(self, tmp_path, dirs):
+        old, _new = dirs
+        svc, _ = make_service(tmp_path)
+        _install_rom(svc, tmp_path)
+        _record(svc, str(old))
+        save = _create_save(tmp_path, content=b"progress")
+        templated = tmp_path / "GC" / "<region>" / "Card A"
+
+        _follow(svc, _with_a_hole(str(templated), "region"))
+
+        assert save.read_bytes() == b"progress"
+        assert not (tmp_path / "GC").exists()
+        assert _recorded(svc) == str(old)
+
+    def test_a_first_sight_records_nothing(self, tmp_path):
+        svc, _ = make_service(tmp_path)
+        _install_rom(svc, tmp_path)
+
+        _follow(svc, _with_a_hole(str(tmp_path / "Wii" / "title" / "<save_id>" / "data"), "save_id"))
+
+        assert _recorded(svc) is None
+
+
 class TestTheSecondaryWritePathsFollowFirst:
     """The write, delete and count paths follow a moved directory first, with the reading they took.
 
@@ -673,6 +722,61 @@ class TestTheSecondaryWritePathsFollowFirst:
 
         await svc._sync_engine.follow_save_directory(_ROM, _answer(str(new)))
 
+        assert save.read_bytes() == b"progress"
+        assert _recorded(svc) == str(old)
+
+
+class TestTheLocalSaveCheckFollowsFirst:
+    """``check_local_drift`` carries a moved directory's files before it looks, as every other reader does."""
+
+    @pytest.mark.asyncio
+    async def test_a_never_synced_save_left_in_the_old_folder_is_found_in_the_new_one(self, tmp_path, dirs):
+        # Without the follow the check looks in the new folder, finds nothing,
+        # and every gate lets the shortcut move over a save that exists only here.
+        old, new = dirs
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _record(svc, str(old))
+        _create_save(tmp_path, content=b"never uploaded")
+        _seed_answer(svc, _answer(str(new)))
+
+        result = await svc.check_local_drift(_ROM)
+
+        assert result == {"drifted": False, "only_here": True, "stranding": "unsynced", "rom_id": _ROM}
+        assert (new / "pokemon.srm").read_bytes() == b"never uploaded"
+        assert _recorded(svc) == str(new)
+
+    @pytest.mark.asyncio
+    async def test_a_change_left_in_the_old_folder_is_still_drift(self, tmp_path, dirs):
+        old, new = dirs
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        state = RomSaveSyncState()
+        state.adopt_baseline("pokemon.srm", tracked_save_id=1, last_sync_hash="hash-of-the-synced-save")
+        _seed_save_state(svc, _ROM, state)
+        _record(svc, str(old))
+        _create_save(tmp_path, content=b"played since the last sync")
+        _seed_answer(svc, _answer(str(new)))
+
+        result = await svc.check_local_drift(_ROM)
+
+        assert result == {"drifted": True, "only_here": False, "stranding": "unsynced", "rom_id": _ROM}
+        assert (new / "pokemon.srm").exists()
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_followed_while_save_sync_is_off(self, tmp_path, dirs):
+        old, new = dirs
+        svc, _ = make_service(tmp_path)
+        _install_rom(svc, tmp_path)
+        _record(svc, str(old))
+        save = _create_save(tmp_path, content=b"progress")
+        _seed_answer(svc, _answer(str(new)))
+
+        result = await svc.check_local_drift(_ROM)
+
+        assert result["stranding"] == "none"
         assert save.read_bytes() == b"progress"
         assert _recorded(svc) == str(old)
 

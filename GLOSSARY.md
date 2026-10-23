@@ -73,7 +73,10 @@ The program has two names, and they are not interchangeable. The **display name*
 a toast's sender, the label on the Client API Token in their RomM account, the client a registered device is listed
 under, the headline of a README they open by hand. The **identifier** is `romm-tender`: the one a machine spends —
 folder names, the outgoing `User-Agent`, the `localStorage` breadcrumb key. A new string picks by its reader, never by
-which one looks better in place.
+which one looks better in place. Folder names take the identifier where the folder is hidden — Tender's directories
+under `~/.config`, `~/.local` and the rest; the one folder a user is meant to open, **Tender's folder**, is spelt like
+the display name (`Tender/`) but is a literal of its own, `FOLDER_NAME` (`domain/tender_folder.py`), never read from
+`DISPLAY_NAME` — a renamed program must not move every user's files.
 
 Both live in `backend/domain/identity.py`, beside `VERSION` — which is the release this is, not a name at all. Three
 constants in one module is not a fold: they are three different values, so no edit to one reproduces another by
@@ -88,8 +91,7 @@ the rule under it are one thing, so the headline is interpolated and the underli
 The identifier has **four** homes, separate because they answer four questions that must stay free to disagree:
 
 - `APP_DIR_NAME` (`domain/user_data_location.py`) — the name every directory the program derives for itself carries.
-- `PACKAGE_NAME` (`domain/identity.py`) — the recovery root and the `User-Agent`, both through bootstrap, and nothing
-  else.
+- `PACKAGE_NAME` (`domain/identity.py`) — the `User-Agent`, through bootstrap, and nothing else.
 - `SESSION_BREADCRUMB_KEY` (`frontend/src/utils/sessionManager.ts`) — the `localStorage` key naming the open-session
   breadcrumb, so a rename orphans every row written under the old one.
 - `DB_FILENAME` (`bootstrap/adapters.py`) — the name of the database file in the data root, so a rename that no start-up
@@ -133,14 +135,12 @@ installed, and the bin root is shared with every other program the user installe
 name of ours. The bin root has no XDG variable either: the basedir spec names the path, so its ladder is
 `TENDER_BIN_DIR` and then the built-in default. Every reader takes the seven off the one `AppDirectories` the entry
 point resolved, which reaches `bootstrap()` as an argument and the services as `WiringConfig.directories`; apart from
-the recovery root, nothing composes a directory of its own from a home or a folder name. `resolve_directories` has
-exactly one caller (`main.py`), and `config_root` / `data_root` have none left.
+Tender's folder, nothing composes a directory of its own from a home or a folder name. `resolve_directories` has exactly
+one caller (`main.py`), and `config_root` / `data_root` have none left.
 
-One folder named after the program is written outside the seven: the root of the [recovery bundles](#recovery-bundle),
-directly under the home directory, its name built from `PACKAGE_NAME` (see
-[the identifier's homes](#display-name-tender-vs-identifier-romm-tender)). It is not a root resolved from the
-environment, and it sits where it does because it is the one folder a user is meant to open in a file manager — a folder
-under `~/.local` is hidden there by default.
+One folder named after the program is written outside the seven: [Tender's folder](#tenders-folder), `~/Tender` unless
+the user chose another place. It is not a root resolved from the environment, and it sits where it does because it is
+the one folder a user is meant to open in a file manager — a folder under `~/.local` is hidden there by default.
 
 _Avoid_: **Decky-assigned directory** — those were named after the folder Decky Loader installed Tender into, which is
 what made the data move on a rename, and nothing derives a directory from a folder name any more. Also avoid: plugin
@@ -415,6 +415,9 @@ solo groups). Key derivation: `domain/sibling_group.py`, persisted as `roms.sibl
   rule: [qam-panel.md § Library](docs/architecture/qam-panel.md#library)); the collection count (`in_steam_count`) is
   the reachable versions as the sync's collection filing resolves them, with no such exclusion. Both start from one
   computation, `domain/sibling_resolution.py`'s `reachable_rom_ids`.
+- **Stranded version** — an installed version whose local saves the stranding verdict answers `unsynced`, or `unchecked`
+  where the check could not tell, so leaving it strands them: the active version a switch would leave, or an inactive
+  one already left. Unrelated to a **stranded panel**.
 
 **Region** and **Languages** are **attributes of a single version**, parsed from its filename tags: `(Spain)` → where
 that release shipped; `(En,Fr,De,Es)` → the languages contained in that one dump. A multi-language version is still one
@@ -435,12 +438,12 @@ The two path fields on `RomInstall` (`domain/rom_install.py`) answer different q
   ([ADR-0014](docs/adr/0014-per-game-disc-selection-in-db-applied-as-bake-time-launch-path-override.md)), and a
   folder-boot system (PS3/RPCS3) bakes the game **directory** rather than the nested launch file
   ([ADR-0019](docs/adr/0019-folder-as-launch-target.md)). `file_path` stays the launch **file** anchor in every case.
-- **`rom_dir`** — the **dedicated per-ROM directory**, present only for folder-backed (multi-file) ROMs. **NULL for
-  single-file ROMs**, which live as a bare file directly in the shared `<roms>/<system>/` directory and own no dedicated
-  folder.
+- **`rom_dir`** — the **dedicated per-ROM directory**, present only for folder-backed ROMs: a multi-file ROM, or a
+  single `.zip` unpacked into a folder (**served shape**). **NULL for single-file ROMs** kept as they arrived, which
+  live as a bare file directly in the shared `<roms>/<system>/` directory and own no dedicated folder.
 
-Single-file vs multi-file is **read from `rom_dir` presence** — never re-derived from the file's parent directory, never
-stored as a separate boolean ([ADR-0008](docs/adr/0008-rom-install-launch-file-and-rom-dir.md)). Migration moves
+Folder-backed vs bare file is **read from `rom_dir` presence** — never re-derived from the file's parent directory,
+never stored as a separate boolean ([ADR-0008](docs/adr/0008-rom-install-launch-file-and-rom-dir.md)). Migration moves
 `rom_dir` whole when set, else the file; uninstall removes `rom_dir` whole when set, else the file. A future per-file
 `RomFile[]` model — one row per physical file, each tagged with a RomM `category` (`game` / `dlc` / `update` / `mod` /
 …) — is the planned shape for the multi-file features in
@@ -524,17 +527,28 @@ kind rather than whatever it resolves to: an install row must be removable, the 
 link is never adoptable however well its target resolves. _Avoid_: "shape" for this — **shape** is the
 single-file-vs-folder question the server answers, and the two are different judgements about different things.
 
+### Served shape
+
+What a download of a ROM becomes on disk: a **file**, a **folder**, or both. A ROM RomM stores as several files is a
+folder (it arrives as a zip and is unpacked), and one stored as a single file is a file — except a single `.zip` that
+may hold a disc image at its top level (or, for a zip that holds nothing but one folder, at that folder's top level;
+macOS Finder's `__MACOSX/` folder is ignored), which is both: the file it arrives as and the folder it is unpacked into
+once the zip's own directory has been read. It is a file only when RomM lists its members (`archive_members`) and none
+at that top level is a disc image. Decided by `served_shapes` (`domain/served_shape.py`); which sites ask it is
+[backend-architecture.md](docs/architecture/backend-architecture.md#downloadservice-notes)'s.
+
 ### Unusable namesake
 
 An entry whose **normalized name** equals the ROM's but which cannot become its install: the other **shape** — a
-directory where RomM serves a single file, or a loose file where it serves a folder — or any `link`. It is deliberately
-**not** an adoption candidate: nothing about it can be taken over, so it is never offered, ranked or renamed. It is
-still reported, because the alternative is a download that silently produces a second copy of the game beside it. The
-dialog's two exits are download-anyway (the server's copy lands beside it, under the server's name) and cancel; neither
-touches the entry. The two reasons are not one reason: a wrong shape is wrong only against what the server sends, so
-that refusal names the served shape, while a `link` is unusable on its own terms and naming a shape beside it would
-suggest the other shape would have taken it. _Avoid_: mismatched candidate, unusable candidate — the whole point is that
-it is not one.
+directory where RomM serves a single file, or a loose file where it serves a folder — or any `link`. A single `.zip`
+that may be unpacked has both shapes (**served shape**), so for it only a `link` is unusable. It is deliberately **not**
+an adoption candidate: nothing about it can be taken over, so it is never offered, ranked or renamed. It is still
+reported, because the alternative is a download that silently produces a second copy of the game beside it. The dialog's
+two exits are download-anyway (the server's copy lands beside it, under the server's name) and cancel; neither touches
+the entry. The two reasons are not one reason: a wrong shape is wrong only against what the server sends, so that
+refusal names the served shape, while a `link` is unusable on its own terms and naming a shape beside it would suggest
+the other shape would have taken it. _Avoid_: mismatched candidate, unusable candidate — the whole point is that it is
+not one.
 
 ### Library
 
@@ -686,17 +700,20 @@ download or a progress ratio, because nothing in Tender can fetch it.
 
 Whether one row's requirement is met: the resolver's own verdict over that file, read at the place the launching
 emulator opens it — never presence. A wrong image is there and unmet; a file the resolver could not compare is there and
-withheld; for a **folder declaration** the verdict is what the folder _holds_, and RetroDECK links LRPS2's `pcsx2/bios`
-onto the BIOS root, so the folder is there on every install. The rows a launch reads are the **launching emulator**'s
-own requirements, each at the place the resolver names for that emulator: with YabaSanshiro launching Saturn,
-`saturn_bios.bin` is the file directly under the BIOS root, whatever lies under Kronos's `kronos/`. Every statement
-below is scoped to a **required by the launching emulator** row first, and the library's own held/offered ratio is a
-third axis again, counting what the RomM library holds rather than what is met.
+withheld. A **folder declaration** is one row per file of it — each library file the resolver recognises for the folder,
+and each file lying in it that the resolver makes a statement about — each with the resolver's verdict over that file,
+and the folder's own verdict — what it _holds_ — counts once as one requirement; RetroDECK links LRPS2's `pcsx2/bios`
+onto the BIOS root, so the folder is there on every install, and where nothing lies in it and no library file is
+recognised for it, one row stands for the folder with that verdict, until a file of the folder has a row of its own. The
+rows a launch reads are the **launching emulator**'s own requirements, each at the place the resolver names for that
+emulator: with YabaSanshiro launching Saturn, `saturn_bios.bin` is the file directly under the BIOS root, whatever lies
+under Kronos's `kronos/`. Every statement below is scoped to a **required by the launching emulator** row first, and the
+library's own held/offered ratio is a third axis again, counting what the RomM library holds rather than what is met.
 
 - **met** — raises `required_downloaded`, the "in place" a sentence counts. The resolver established that the right file
   is where the emulator opens it — or, for a declared folder, that an image inside passes the emulator's own check. A
-  library file no emulator declares is no requirement of anything, so the resolver has no verdict for it; its row says
-  only whether Tender's own look found it.
+  library file no emulator declares is no requirement of anything, so the resolver has no verdict for it, and its row
+  has none; it says only whether this platform's firmware store holds it.
 - **unmet** — the resolver showed the requirement is not met: the file is absent, the bytes are the wrong image, the
   emulator refuses it on its size, or something of the wrong shape is at the place. Worded with which of these it is.
 - **withheld** — the resolver established neither: the file could not be recognised, read or compared, a folder stands
@@ -711,8 +728,8 @@ alone.
 ### Byte reading (firmware): what became of a row's bytes
 
 What the reading DID to a declared file, carried on the row beside its **verdict** in the resolver's own vocabulary and
-never re-derived here. It answers a different question: the verdict says whether the requirement is met, this says what
-was done to establish it.
+never re-derived here — but for `rejected`, Tender's own word, read off a folder file's verdict (below). It answers a
+different question: the verdict says whether the requirement is met, this says what was done to establish it.
 
 It is needed because a withheld verdict has several causes and one of them is not a withholding at all. A file the
 emulator **read and does not recognise** was checked — DuckStation boots such an image and calls it an unknown BIOS — so
@@ -720,13 +737,16 @@ the verdict stays withheld while "could not be checked" is simply untrue of it. 
 not come back**, which is a statement about Tender's own read and no evidence the launch cannot read it, and one the
 emulator **refuses** on its size before reading a byte, which arrives with the verdict already unmet and needs the
 reason rather than a verdict, and one that is there and is **not the image** the emulator expects, which arrives unmet
-too and is worded as the wrong file rather than as one that is missing. Everything else — the bytes matched, nothing
-asked — leaves the row to the axes it always had.
+too and is worded as the wrong file rather than as one that is missing. A file in a declared folder the emulator's own
+test read and **turned down** is a wrong file too, worded as not an image the emulator accepts; that word, `rejected`,
+is Tender's own, since the resolver states it only as the file's verdict (#2191 D41). Everything else — the bytes
+matched, nothing asked — leaves the row to the axes it always had.
 
 Where each of these is worded is `frontend/src/utils/biosFileNote.ts`, the one place both surfaces derive a row's note
 from. The platform pane's **Contents** column words every value, from the same module (`contentsWords`): right file,
-wrong file, refused, not comparable, not recognised, could not be read, not checked, not established. The mark in its
-`On disk` cell stays the verdict alone, so the two columns explain each other.
+wrong file (not the image expected, or not an image accepted), refused, not comparable, not recognised, could not be
+read, not checked, not established. The mark in its `On disk` cell stays the verdict alone, so the two columns explain
+each other.
 
 ### One-of group (firmware): met / partial / unmet / unknown
 
@@ -844,8 +864,13 @@ counting every row the library holds.
 
 ### Firmware store
 
-Tender's own store of BIOS files, each held once and reaching each emulator source through a link at the place emu-atlas
-names ([ADR-0042](docs/adr/0042-tender-takes-emulator-answers-starts-emulators-and-keeps-its-own-store.md)).
+Tender's own store of the BIOS files it downloads from RomM, in `Tender/bios/<platform>/` under each file's name in
+RomM, reaching each emulator source through a link at the place emu-atlas names
+([ADR-0042](docs/adr/0042-tender-takes-emulator-answers-starts-emulators-and-keeps-its-own-store.md)). A file is held
+once per platform it was downloaded for, never once for the whole machine (#2191 D3). A **link** of Tender's is an
+absolute symlink at such a place, pointing at a store file; it is Tender's own when it points at a store file Tender has
+recorded. _Avoid_: placement for the link itself (a placement is the resolver's answer about where an emulator opens a
+file).
 
 ### Safely-bakeable
 
@@ -874,17 +899,21 @@ RetroDECK resolve its own command ([ADR-0020](docs/adr/0020-live-es-systems-emul
 
 ### Disc
 
-The launchable unit of a multi-disc ROM: a single-disc **container** file the emulator opens directly — a `.cue`, a
-`.chd`, or an `.iso` (`DISC_IMAGE_EXTENSIONS`, `domain/disc_formats.py`). A disc is **not** its `.bin` sidecar (raw
-track data a `.cue` references, never launched directly) and **not** the `.m3u` playlist (which points at several
-discs). When a bin/cue PS1 game ships both files, the disc is the `.cue`, never the `.bin`. The foil to **disc-image
-format** (the file-shape category) and **selected disc** (the user's per-game pick among the discs).
+The launchable unit of a multi-disc ROM: a single-disc **container** file the emulator opens directly — a single-file
+image (`.chd`, `.iso`, `.cdi`, `.gcm`, `.rvz`, `.wbfs`, `.wia`, `.gcz`, `.ciso`, `.cso`, `.pbp`) or the descriptor of a
+multi-track set (`.cue`, `.gdi`, `.ccd`, `.toc`, `.mds`) — `DISC_IMAGE_EXTENSIONS`, `domain/disc_formats.py`. A disc is
+**not** one of its track files (`.bin`, `.raw`, `.img`, `.sub`, `.mdf` — raw track data, never launched directly: a
+`.cue`, `.gdi` or `.toc` lists them, a `.ccd` or `.mds` pairs with them by sharing their basename) and **not** the
+`.m3u` playlist (which points at several discs); two descriptors of the same disc are one disc. When a bin/cue PS1 game
+ships both files, the disc is the `.cue`, never the `.bin`. The foil to **disc-image format** (the file-shape category)
+and **selected disc** (the user's per-game pick among the discs).
 
 ### Disc-image format
 
 The format-semantic, emulator-independent category "this file shape is a launchable disc image" — the hardcoded set
-`{.cue, .chd, .iso}` (`DISC_IMAGE_EXTENSIONS`). It answers _is this a disc image?_, which es_systems cannot: es_systems
-is a flat per-system accept-list with no per-token role metadata, so it can say a system _accepts_ `.cue` but never that
+`DISC_IMAGE_EXTENSIONS` (`domain/disc_formats.py`), the formats **disc** lists. Whether a single `.zip` is unpacked is
+asked of the same set (**served shape**). It answers _is this a disc image?_, which es_systems cannot: es_systems is a
+flat per-system accept-list with no per-token role metadata, so it can say a system _accepts_ `.cue` but never that
 `.cue` is a disc while `.bin` is its sidecar. The set is intersected with the system's **live** es_systems accept-list
 at enumeration time, so the hardcoded knowledge supplies disc _identity_ and es_systems supplies per-system _capability_
 — two different questions with two different owners
@@ -939,8 +968,9 @@ recorded as the [answered save directory](#answered-save-directory), which is no
 - **shared** — the emulator's granularity is a shared card or a shared file, so one file holds many games' progress and
   a per-game sync would carry another game's save onto this ROM's record.
 - **inside the content** — the save is written into the game file itself. There is nothing separate to carry.
-- **hole** — the shape is known, but part of the path or the name is the game's own identity, which nothing here
-  supplies. Flycast needs a `save_id` in the filename; Dolphin needs the `region` in the directory.
+- **hole** — the shape is known, but part of the path or the name is the game's own identity, or the folder the game is
+  started from, which nothing here supplies. Flycast needs a `save_id` in the filename; Dolphin needs the `region` in
+  the directory; a RetroArch save folder set as a relative path needs the starting folder (`cwd`).
 - **not established** — nobody established what this emulator writes, or the directory is known and the names in it are
   not, or no question reached the resolver at all. **These are three shapes, `nothing_established`, `directory_known`
   and `not_asked`, and they stay apart**: they are different sentences to a reader, and collapsing them claims ignorance
@@ -1006,9 +1036,11 @@ baseline to detect drift on the next sync. Adopting a baseline (`adopt_baseline(
 ### Newest-wins matrix
 
 The save-sync conflict-resolution model (`services/saves/sync_engine/`). For each tracked file it evaluates local vs
-remote vs **baseline** and resolves to whichever side is newer, rather than blindly mirroring one direction. The
-"matrix" is the per-file evaluation table that drives the actual upload / download / no-op dispatch for a ROM's sync
-run.
+remote vs **baseline** and decides from what changed on each side since the last sync, rather than blindly mirroring one
+direction. Where both sides changed to different content, or a local save of unknown provenance meets a different server
+save, or a local save looks emptied or cut short, it asks the user; modification times are compared only where nothing
+else orders the two sides. The "matrix" is the per-file evaluation table that drives the actual upload / download /
+no-op dispatch for a ROM's sync run.
 
 ### SyncRun
 
@@ -1056,7 +1088,8 @@ answer with the fetch start and the checksum), and removed-game discovery reads 
 RomM's last complete fetch returned. A stamp whose skip is **revoked** (`skip_revoked`) keeps the second use and loses
 the first. It is set when games are **unbound** in a way the skip cannot see (and was set once on every stamp by the
 upgrade that introduced it), and it lasts until the platform's next apply. Distinct from deleting the stamp, which
-removes both uses. A collection's completion stamp has no revoked state. What sets it and which readers honour it:
+removes both uses. A collection's completion stamp records when its apply's fetch started and a checksum of the ids the
+collection's listing carried, and it has no revoked state. What sets it and which readers honour it:
 [backend-architecture.md](docs/architecture/backend-architecture.md#libraryservice-decomposition-serviceslibrary),
 "Incremental skip".
 
@@ -1065,6 +1098,24 @@ removes both uses. A collection's completion stamp has no revoked state. What se
 A checksum-verified, atomically sealed pre-mutation snapshot created by explicit Prune. It records the affected local
 aggregate state and selected/mandatory recoverable files for manual recovery; it is not a database export or an
 automatic restore point. Finalization revalidates both the sealed bytes and their source state before deleting anything.
+Bundles are sealed into `recovery/` inside [Tender's folder](#tenders-folder); they are not **records** in that entry's
+sense — Tender lists them from the folder and keeps no record of them.
+
+### Tender's folder
+
+`Tender/`, the one folder Tender keeps its own files in, inside a **place** the user chooses: no choice is the internal
+default, the home folder (`~/Tender`); a choice holds the place, the **mount point** it lay on and, for a place on a
+drive, that drive's kind and name, stored in `settings.json` under `tender_folder` (`domain/tender_folder.py`). Its
+subfolders belong to the stores that write them — `recovery/` today. Whenever Tender creates `Tender/`, it writes
+`.tender-folder` into it, holding the id Tender keeps in `kv_config`.
+
+Something **recorded under** a folder is what a store keeps a path of there — a download, a firmware file, a save; each
+store answers for itself which folders it holds records under, and forgets its records under one when the user asks
+(`TenderFolderRecordReader`). The folder is **unreachable** only while something is recorded under it and its drive is
+not mounted (told by the mount point), the folder is missing, or it cannot be written. With nothing recorded there it is
+never unreachable: a missing folder is created again by the next write, and a write to a drive that is gone is refused
+on its own. A **drive** is a writable mount directly under `/run/media/<user>/`. _Avoid_: **library folder** for the
+whole of it — the game library is one store inside it.
 
 ### Action token
 
@@ -1097,13 +1148,15 @@ and they are asked in this order:
 
 1. **Update** — an **install attempt** holds the update rule (`blocked_by_update`). Every endpoint that names the
    migration rule names this one too, and so does the migration itself (`migrate_retrodeck_files`).
-2. **Migration** — a RetroDECK home migration is pending (`blocked_by_migration`).
-3. **Sync** — a library sync is in flight, running or cancelling (`sync_active`).
-4. **Prune** — a removed-game cleanup is running (`prune_active`). An endpoint that names this rule holds an
+2. **Folder** — [Tender's folder](#tenders-folder) is unreachable (`folder_unreachable`, with its `state`). No endpoint
+   names it yet; each store that keeps files there names it at its own entry points.
+3. **Migration** — a RetroDECK home migration is pending (`blocked_by_migration`).
+4. **Sync** — a library sync is in flight, running or cancelling (`sync_active`).
+5. **Prune** — a removed-game cleanup is running (`prune_active`). An endpoint that names this rule holds an
    **operation** named after itself for as long as its call runs (see **Prune conflicts**).
 
 The first named rule that holds refuses the call before its work runs, and a refused call holds nothing. A cleanup's
-exclusive start is asked before all four. A use case asks its endpoint's rules at its entry, so the endpoint only calls
+exclusive start is asked before all five. A use case asks its endpoint's rules at its entry, so the endpoint only calls
 it.
 
 **`<verb>_unchecked`** — the service method an endpoint calls, without that endpoint's rules, for a peer service that
@@ -1159,28 +1212,51 @@ and IGDB-collection are both `kind="virtual"`, distinguished by `virtual_type` (
 complete-set reconcile on the next normal sync (no Force Full Sync). Collections whose Steam names come out the same
 still union.
 
-### Artwork slot / filled slot / slot outcome
+### Artwork slot / filled slot / slot outcome / slot choice / automatic / set in Steam / hand-over
 
-An **artwork slot** is one of the images Steam draws for a shortcut — here the hero, the logo, the wide grid and the
-icon, which Tender takes from SteamGridDB (`domain/artwork_slot.py`, `ArtworkSlot`; the cover has rules of its own). A
-slot is **filled** when Steam's grid directory holds an image file for it, whoever put it there — the icon's when the
-shortcut's icon path is neither empty, the **placeholder icon** nor the **logo icon**, and, in the grid directory, its
-file is there — and a filled slot is left alone except by **Refresh Artwork**, the SteamGridDB picker and a version
-switch. A **slot outcome** is what was last found for a ROM's wide grid, logo or icon — `set`, `none` or `refused`
-(`ArtworkSlotOutcome`). Detail: [Game page artwork](docs/architecture/steam-non-steam-shortcuts.md#game-page-artwork).
-_Avoid_: plain "slot", which means a **Save-sync slot** or a **Conditional slot**.
+An **artwork slot** is one of the five images Steam draws for a shortcut — the hero, the logo, the wide grid and the
+icon, which Tender takes from SteamGridDB, and the cover, which the sync takes from RomM unless the user chose one from
+SteamGridDB, and which is Tender's pick from SteamGridDB until RomM's arrives (`domain/artwork_slot.py`, `ArtworkSlot`;
+the cover has rules of its own). A slot is **filled** when Steam's grid directory holds an image file for it, whoever
+put it there — the icon's when the shortcut's icon path is neither empty, the **placeholder icon** nor the **logo
+icon**, and, in the grid directory, its file is there — and a filled hero, logo, wide grid or icon is left alone except
+by the ARTWORK tab, **Refresh Artwork** and keeping current (for a slot on automatic) and a version switch. A filled
+cover is RomM's to replace: the sync replaces it whenever RomM's changes, unless it is chosen or set in Steam; an empty
+cover — RomM has none for the game, its download failed or it was removed through Steam — is filled from SteamGridDB
+like the other slots, and RomM's cover takes that pick's place once the sync has one (#2381 D24, D27). A **slot
+outcome** is what was last found for a ROM's hero, wide grid, logo or icon — `set`, `none` or `refused` — and, for the
+cover, `set` for an image from SteamGridDB and `none` where SteamGridDB has no cover (`ArtworkSlotOutcome`). A **slot
+choice** is the SteamGridDB image a user chose for one of a ROM's slots in the game page's ARTWORK tab
+(`ArtworkSlotChoice`); it stays until the user chooses another or sets the slot back to automatic, or the ROM's
+SteamGridDB game changes — the user choosing another game, or RomM's id replacing the one the user chose. A slot with
+neither a choice nor an image set in Steam is **automatic**: Tender picks its image — RomM's cover for the cover, with
+Tender's pick from SteamGridDB standing in until RomM's arrives, and Tender's pick (`choose_candidate`) for the other
+four — and Refresh Artwork may replace it. Tender **keeps it current**: a visit to the game page checks the automatic
+slots showing Tender's SteamGridDB image at most once in seven days, and replaces one whose pick is now another image
+(`keep_artwork_current`; the time is `roms.artwork_checked_at`); RomM's cover is kept current by the sync instead, which
+also puts RomM's cover in place of Tender's SteamGridDB pick once RomM has one. A slot is **set in Steam** when its file
+in the grid directory is not Tender's — another extension, or a `.png` whose hash is neither the one Steam last
+confirmed Tender set nor that of the image Tender last handed to Steam whose answer is outstanding (the slot's
+**hand-over**, `ArtworkSlotHandover`) — or, for the icon, when the shortcut's icon path is not Tender's file; neither
+the shortcut artwork job, the sync's cover refresh and cover write, keeping current nor Refresh Artwork replaces such a
+slot. A version switch and a sync rebind do, and so does a choice in the ARTWORK tab, after asking — except for the
+icon, which it repoints without asking. Detail:
+[Game page artwork](docs/architecture/steam-non-steam-shortcuts.md#game-page-artwork). _Avoid_: plain "slot", which
+means a **Save-sync slot** or a **Conditional slot**; "picked" for what the user chose, which is Tender's word for its
+own pick.
 
 ### Shortcut artwork job / placeholder icon / logo icon
 
-The **shortcut artwork job** is the background run that gives every bound shortcut its SteamGridDB icon, wide grid and
-logo where the slot is not **filled** and its **slot outcome** does not rule it out (`services/shortcut_artwork.py`); it
-is never a step of a sync, and the hero is left to the game page. The **placeholder icon** is the transparent 1×1 PNG a
-sync gives each shortcut it mints (an adopted shortcut keeps the icon it has), so the icon the job sets later replaces
-one. The **logo icon** is Tender's logo, given where SteamGridDB has no icon for the game, does not know its id, or the
-ROM has no SteamGridDB id stored; it means "no SteamGridDB icon to give", never "not loaded yet", and is not the
-**logo** slot. Both are stand-ins that leave the icon slot unfilled, so whether the job asks again is the slot outcome's
-to say; an icon set by hand fills the slot and is left alone. _Avoid_: "shortcut icon job": it gives more than the icon.
-Detail: [Shortcut artwork](docs/architecture/steam-non-steam-shortcuts.md#shortcut-artwork).
+The **shortcut artwork job** is the background run that gives every bound shortcut its SteamGridDB icon, wide grid, logo
+and cover where the slot is not **filled** and its **slot outcome** does not rule it out
+(`services/shortcut_artwork.py`); it is never a step of a sync, and the hero is left to the game page. The **placeholder
+icon** is the transparent 1×1 PNG a sync gives each shortcut it mints (an adopted shortcut keeps the icon it has), so
+the icon the job sets later replaces one. The **logo icon** is Tender's logo, given where SteamGridDB has no icon for
+the game, does not know its id, or the ROM has no SteamGridDB id stored; it means "no SteamGridDB icon to give", never
+"not loaded yet", and is not the **logo** slot. Both are stand-ins that leave the icon slot unfilled, so whether the job
+asks again is the slot outcome's to say; an icon set by hand fills the slot and is left alone. _Avoid_: "shortcut icon
+job": it gives more than the icon. Detail:
+[Shortcut artwork](docs/architecture/steam-non-steam-shortcuts.md#shortcut-artwork).
 
 ### Surface (bigpicture / desktop)
 

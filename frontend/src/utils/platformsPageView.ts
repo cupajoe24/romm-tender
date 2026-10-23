@@ -13,7 +13,7 @@
  */
 
 import type { FirmwarePlatformExt, SystemCoreInfo } from "../types";
-import { fetchedAsRequired, isFetchable } from "./biosFetchable";
+import { downloadName, fetchedAsRequired, isFetchable } from "./biosFetchable";
 import { biosFileDescription, biosFileNote } from "./biosFileNote";
 import { needWords } from "./biosGroup";
 import { biosHeldRatio } from "./biosHeldRatio";
@@ -384,43 +384,42 @@ export function biosSectionView(firmware: FirmwarePlatformExt, serverOffline: bo
 }
 
 /**
- * A BIOS row's one action: fetch it, or remove the copy we fetched — or
- * nothing.
+ * A BIOS row's one action: fetch it, replace what lies at its place, or remove
+ * the copy Tender holds — or nothing.
  *
- * The two are alternatives in every state the pane can show, so one narrow
- * column carries both. They are not mutually exclusive by construction, though:
- * a file downloaded before an emu-atlas bump moved its placement is absent at
- * the new destination (so fetchable) and present at the recorded one (so
- * deletable). Download wins there, which is the useful half — the file the core
- * will look for is the one that is missing.
+ * The actions are alternatives in every state the pane can show, so one narrow
+ * column carries them. Download wins where a row is both fetchable and
+ * deletable — the file the emulator will look for is the one that is missing —
+ * and fetches the row by `downloadName`, with the library file's id where one
+ * fills it. "Replace…" is the backend's decision alone (`replace_offered`).
  *
- * **The delete's condition is `deletable_count` and nothing else.** That field
- * says how many of the plugin's own downloads a delete here would take, which
- * is the whole authority; `downloaded` is `os.path.exists` and is equally true
- * of `dolphin-emu/Sys/codehandler.bin`, which RetroDECK ships, no library can
- * hand back, and which sits one row above a real download on the GameCube pane.
- * The unlink itself re-reads the records and takes the path each one holds, so
- * this action cannot widen what it removes.
- *
- * A declared FOLDER offers it too, and that is a different rule from the one
- * that keeps a folder out of the downloads: there is no file to FETCH into a
- * name the emulator lists, but the files already inside it are ours wherever a
- * record names them. Its button carries the count and its delete is addressed
- * by the folder rather than by a file name, because no record carries the
- * folder's name.
+ * **The delete's condition is `delete_name` and nothing else.** It names
+ * Tender's own store file, an older download of the library file that fills
+ * the row, or an older download lying at the row's place, which is the whole
+ * authority; `downloaded` is the resolver's presence at the row's place and is
+ * equally true of a file the user placed. The removal itself re-reads the
+ * records and takes only Tender's own files and links, so this action cannot
+ * widen what it removes. A row from a payload that states no `delete_name` is
+ * deleted by its own name.
  */
 export type BiosRowAction =
-  { readonly kind: "download" } | { readonly kind: "delete"; readonly folder: boolean; readonly count: number } | null;
+  | { readonly kind: "download"; readonly name: string; readonly firmwareId: number | null }
+  | { readonly kind: "replace"; readonly place: string }
+  | { readonly kind: "delete"; readonly name: string }
+  | null;
 
 export function biosRowAction(
   file: FirmwareRow,
   fetchable: ReadonlySet<string>,
   serverOffline: boolean,
 ): BiosRowAction {
-  if (fetchable.has(file.file_name) && !serverOffline) return { kind: "download" };
-  const count = file.deletable_count ?? 0;
-  if (count === 0) return null;
-  return { kind: "delete", folder: file.declared_kind === "directory", count };
+  if (fetchable.has(file.file_name) && !serverOffline) {
+    return { kind: "download", name: downloadName(file), firmwareId: file.library?.firmware_id ?? null };
+  }
+  if (file.replace_offered && file.local_path) return { kind: "replace", place: file.local_path };
+  const name = file.delete_name === undefined ? file.file_name : file.delete_name;
+  if (name === null || (file.deletable_count ?? 0) === 0) return null;
+  return { kind: "delete", name };
 }
 
 /**

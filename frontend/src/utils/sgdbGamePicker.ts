@@ -12,7 +12,7 @@ import {
   type EndpointFailure,
   type SgdbCandidate,
 } from "../api/backend";
-import { applyArtwork } from "./artwork";
+import { applyAutomaticArtwork, applySteamGridDbCover } from "./artwork";
 import { artworkApplyMessage } from "./artworkApplyMessage";
 import { showToast } from "./toast";
 import { detach } from "./detach";
@@ -65,8 +65,9 @@ export interface SgdbSelectionApplyOptions {
 }
 
 /**
- * Persists the user's manual SGDB game choice, downloads the four SGDB asset
- * types, writes them onto the Steam shortcut, and toasts the outcome.
+ * Persists the user's manual SGDB game choice, writes that game's images onto
+ * the Steam shortcut's slots on automatic, sets Tender's SteamGridDB cover where
+ * RomM has none, and toasts the outcome.
  */
 export async function executeSgdbSelectionApply(
   options: SgdbSelectionApplyOptions,
@@ -84,9 +85,12 @@ export async function executeSgdbSelectionApply(
     showToast(result.message);
     return { success: false };
   }
-  const applied = await applyArtwork(romId, appId).catch((e): number => {
-    detach(debugLog(`${tag}: applyArtwork rejected: ${e}`));
+  const applied = await applyAutomaticArtwork(romId, appId).catch((e): number => {
+    detach(debugLog(`${tag}: applyAutomaticArtwork rejected: ${e}`));
     return 0;
+  });
+  await applySteamGridDbCover(romId, appId).catch((e: unknown) => {
+    detach(debugLog(`${tag}: applySteamGridDbCover rejected: ${e}`));
   });
   showToast(artworkApplyMessage(applied));
   onApplied?.(applied);

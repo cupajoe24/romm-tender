@@ -1,14 +1,23 @@
 /**
  * The save-slot surfaces' feedback, failure and confirmation sentences: what a
  * copy to a slot and a restore of a version answer, why a slot switch failed,
- * what deleting a slot will do, and the refusals' own sentences. One home for
- * the surfaces that use them. When and where to show them stays with each
- * caller.
+ * what deleting a slot will do and did, the reminder for a stranded version,
+ * the error sentences for a call that threw, and the refusals' own sentences.
+ * One home for the surfaces that use them. When and where to show them stays
+ * with each caller.
  */
 
 import { isEndpointFailure } from "../api/backend";
 import { displaySlot, formatSaveTimeAgo } from "./saveHelpers";
-import type { CopySaveToSlotStatus, EndpointFailure, RollbackStatus, SlotDeleteInfo, SyncConflict } from "../types";
+import type { StrandedVersion } from "./saveSlotFlow";
+import type {
+  CopySaveToSlotStatus,
+  EndpointFailure,
+  RollbackStatus,
+  SlotDeleteInfo,
+  SyncConflict,
+  WireReason,
+} from "../types";
 
 /** The toast for a restore refused as unsupported — the backend's own explanation where it gave one. */
 export function unsupportedRestoreMessage(result: Extract<RollbackStatus, { status: "unsupported" }>): string {
@@ -87,6 +96,11 @@ export function copyToSlotFeedback(
       return { kind: "toast", message: "Set up save slots for this game first, then copy." };
     case "copy_failed":
       return { kind: "toast", message: `Couldn't copy the save: ${result.message}` };
+    case "upload_failed":
+      return {
+        kind: "toast",
+        message: `Save copied to slot '${displaySlot(targetSlot)}' on this device, but not uploaded to RomM yet. The next sync uploads it or asks you which to keep.`,
+      };
     case "invalid_slot_name":
       return { kind: "toast", message: "Enter a valid slot name." };
     default:
@@ -155,6 +169,14 @@ export function rollbackFeedback(
   }
 }
 
+/** The reminder for a stranded version, worded by whether its saves could be checked. */
+export function strandedVersionNotice({ name, stranding }: StrandedVersion): string {
+  return stranding === "unchecked"
+    ? `Tender couldn't check whether version "${name}" has saves that haven't been synced to RomM — switch back to ` +
+        "check and sync them."
+    : `Version "${name}" has saves that haven't been synced to RomM — switch back to sync them.`;
+}
+
 /**
  * Error message for a switchSlot failure: a known reason's own wording, the
  * backend's explanation for `save_shape_unsupported`, and `fallback` otherwise.
@@ -180,6 +202,33 @@ export function switchSlotFailureMessage(
     return message;
   }
   return fallback;
+}
+
+/**
+ * Error message for a failed switch into a new slot. `not_installed` has a
+ * sentence of its own rather than {@link switchSlotFailureMessage}'s, whose
+ * "Can't switch" names an action New Slot's reader did not take.
+ */
+export function createSlotFailureMessage(reason: WireReason): string {
+  if (reason === "pending_uploads" || reason === "server_unreachable") {
+    return switchSlotFailureMessage(reason);
+  }
+  if (reason === "not_installed") {
+    return "Can't create a slot — download the game first";
+  }
+  return "Failed to create slot";
+}
+
+export const SWITCH_SLOT_ERROR_MESSAGE = "An error occurred while switching slots";
+
+export const CREATE_SLOT_ERROR_MESSAGE = "An error occurred while creating the slot";
+
+export const SLOT_DELETE_INFO_ERROR_MESSAGE = "Failed to load slot info";
+
+export const DELETE_SLOT_ERROR_MESSAGE = "An error occurred while deleting the slot";
+
+export function slotDeletedMessage(slot: string): string {
+  return `Slot '${slot}' deleted`;
 }
 
 /** Build confirmation text lines for deleting a slot. */

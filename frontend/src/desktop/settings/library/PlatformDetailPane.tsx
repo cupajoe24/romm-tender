@@ -45,11 +45,12 @@ import {
   REMOVING_DURING_SYNC,
   SAVE_COUNT_FAILED,
   SHORTCUT_COUNTS_FAILED,
+  DELETE_ROW_LABEL,
+  REPLACE_ROW_LABEL,
   busyPlatformName,
   deleteBiosConfirm,
   deleteBiosLabel,
   deleteRowConfirm,
-  deleteRowLabel,
   deleteSavesConfirm,
   deleteSavesLabel,
   downloadRequiredLabel,
@@ -57,9 +58,12 @@ import {
   removalProgressLine,
   removeShortcutsConfirm,
   removeShortcutsLabel,
+  replaceRowConfirm,
   unansweredLine,
   type ConfirmWords,
 } from "../../../utils/platformsPageWording";
+import { downloadName } from "../../../utils/biosFetchable";
+import { biosPlaceLines, storeOnlySentence } from "../../../utils/biosPlaceWords";
 import { useSyncRunning } from "../../../utils/syncRunning";
 import type { PlatformRow, PlatformsPageState, StatusScope } from "../../../utils/usePlatformsPage";
 import { DesktopConfirmDialog } from "../../gameview/dialogs/DesktopConfirmDialog";
@@ -148,17 +152,23 @@ function downloadLabel(row: PlatformRow, state: PlatformsPageState, id: string, 
   return showing === "failed" ? <span style={{ color: RED }}>{FAILED_LABEL}</span> : label;
 }
 
-const BiosFileRow: FC<PaneProps & { file: FirmwareRow; fetchable: ReadonlySet<string>; emulator: string | null }> = ({
-  row,
-  state,
-  ask,
-  file,
-  fetchable,
-  emulator,
-}) => {
+const BiosFileRow: FC<
+  PaneProps & {
+    file: FirmwareRow;
+    fetchable: ReadonlySet<string>;
+    emulator: string | null;
+    backupRoot: string | null;
+  }
+> = ({ row, state, ask, file, fetchable, emulator, backupRoot }) => {
   const mark = diskMark(file);
   const library = libraryMark(file);
-  const { description, lines } = biosRowText(file);
+  const { description, lines: noteLines } = biosRowText(file);
+  // What the last press on this row left behind — kept in place, linked, moved aside.
+  const platformName = (slug: string) => state.rows.get(slug)?.name ?? slug;
+  const lines = [
+    ...noteLines,
+    ...biosPlaceLines(file, emulator, state.attemptFor(row.slug, file.local_path, downloadName(file)), platformName),
+  ];
   const folder = declaredFolder(file);
   const action = biosRowAction(file, fetchable, state.serverOffline);
   const busy = state.busySlug !== null;
@@ -168,9 +178,26 @@ const BiosFileRow: FC<PaneProps & { file: FirmwareRow; fetchable: ReadonlySet<st
       <DialogButton
         style={ROW_BUTTON_STYLE}
         disabled={busy}
-        onClick={() => state.downloadOne(row.slug, file.file_name, emulator)}
+        onClick={() => state.downloadOne(row.slug, action.name, action.firmwareId)}
       >
-        {downloadLabel(row, state, file.file_name, DOWNLOAD_LABEL)}
+        {downloadLabel(row, state, action.name, DOWNLOAD_LABEL)}
+      </DialogButton>
+    );
+  } else if (action?.kind === "replace") {
+    button = (
+      <DialogButton
+        style={ROW_BUTTON_STYLE}
+        disabled={busy}
+        onClick={() =>
+          confirmThen(
+            ask,
+            "tender-settings-replace-bios-file-title",
+            replaceRowConfirm(file.file_name, action.place, backupRoot),
+            () => state.replaceBios(row.slug, action.place),
+          )
+        }
+      >
+        {REPLACE_ROW_LABEL}
       </DialogButton>
     );
   } else if (action?.kind === "delete") {
@@ -179,18 +206,12 @@ const BiosFileRow: FC<PaneProps & { file: FirmwareRow; fetchable: ReadonlySet<st
         style={ROW_BUTTON_STYLE}
         disabled={busy}
         onClick={() =>
-          confirmThen(
-            ask,
-            "tender-settings-delete-bios-file-title",
-            deleteRowConfirm(file.file_name, action.folder, action.count),
-            () => {
-              if (action.folder) state.deleteBiosFolder(row.slug, file.local_path);
-              else state.deleteBiosFile(row.slug, file.file_name);
-            },
+          confirmThen(ask, "tender-settings-delete-bios-file-title", deleteRowConfirm(action.name), () =>
+            state.deleteBiosFile(row.slug, action.name),
           )
         }
       >
-        <span style={{ color: RED }}>{deleteRowLabel(action.folder, action.count)}</span>
+        <span style={{ color: RED }}>{DELETE_ROW_LABEL}</span>
       </DialogButton>
     );
   }
@@ -227,6 +248,8 @@ const BiosSection: FC<PaneProps & { firmware: FirmwarePlatformExt }> = ({ row, s
   const view = biosSectionView(firmware, state.serverOffline);
   const legend = biosLegend(files);
   const busy = state.busySlug !== null;
+  // Why a download here lands in Tender's firmware store and is linked nowhere.
+  const storeOnly = storeOnlySentence(firmware.store_only, firmware.active_core_label ?? null, row.name);
   return (
     <section style={SECTION_STYLE}>
       <SectionHeading
@@ -235,6 +258,7 @@ const BiosSection: FC<PaneProps & { firmware: FirmwarePlatformExt }> = ({ row, s
         noteColor={biosColorForLevel(firmware.bios_level ?? null)}
       />
       <div style={MUTED_TEXT_STYLE}>{view.sentence}</div>
+      {storeOnly !== null && <div style={MUTED_TEXT_STYLE}>{storeOnly}</div>}
       {view.nothingEstablished && <div style={MUTED_TEXT_STYLE}>{BY_HAND_LINE}</div>}
       {files.length > 0 && (
         <table style={TABLE_STYLE} data-testid="bios-table">
@@ -258,6 +282,7 @@ const BiosSection: FC<PaneProps & { firmware: FirmwarePlatformExt }> = ({ row, s
                 file={file}
                 fetchable={view.fetchable}
                 emulator={firmware.active_core_label ?? null}
+                backupRoot={firmware.backup_root ?? null}
               />
             ))}
           </tbody>

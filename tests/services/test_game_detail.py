@@ -14,6 +14,7 @@ from fakes.fake_path_exists_reader import FakePathExistsReader
 from fakes.fake_platform_core_reader import FakePlatformCoreReader
 from fakes.fake_platform_systems import RETRODECK_SOURCE, FakePlatformSystems
 from fakes.fake_retrodeck_folders import FakeRetroDeckFolders
+from fakes.fake_settings_persister import FakeSettingsPersister
 from fakes.fake_unit_of_work import FakeUnitOfWork, FakeUnitOfWorkFactory
 from fakes.running_loop import running_loop
 from fakes.system_time import FakeClock
@@ -24,6 +25,7 @@ from domain.retrodeck_folders import GAME_DOWNLOAD, switched_off
 from domain.rom_save_sync_state import FileSyncState
 from services.achievements import AchievementsService, AchievementsServiceConfig
 from services.firmware import FirmwareService, FirmwareServiceConfig
+from services.firmware.store import FirmwareStore, FirmwareStoreConfig
 from services.game_detail import GameDetailService, GameDetailServiceConfig
 
 # RetroDECK ROMs root the target-path probe resolves against. Never touched on
@@ -103,6 +105,7 @@ def game_detail(clock, active_core_resolver, path_probe) -> GameDetailHarness:
         ),
     )
 
+    firmware_resolver = FakeFirmwareResolver()
     firmware = FirmwareService(
         config=FirmwareServiceConfig(
             romm_api=MagicMock(),
@@ -110,8 +113,21 @@ def game_detail(clock, active_core_resolver, path_probe) -> GameDetailHarness:
             logger=logging.getLogger("test"),
             clock=FakeClock(now=datetime(2026, 1, 1, tzinfo=UTC)),
             firmware_file_store=FirmwareFileAdapter(),
-            firmware_resolver=FakeFirmwareResolver(),
-            platform_firmware_resolver=FakeFirmwareResolver(),
+            platform_firmware_resolver=firmware_resolver,
+            firmware_identifier=lambda md5: None,
+            store=FirmwareStore(
+                config=FirmwareStoreConfig(
+                    romm_api=MagicMock(),
+                    firmware_file_store=FirmwareFileAdapter(),
+                    platform_firmware_resolver=firmware_resolver,
+                    platform_systems=FakePlatformSystems(),
+                    prepare_folder=lambda: "/home/deck/Tender",
+                    uow_factory=FakeUnitOfWorkFactory(),
+                    clock=FakeClock(now=datetime(2026, 1, 1, tzinfo=UTC)),
+                    data_dir="/home/deck/.local/share/romm-tender",
+                    logger=logging.getLogger("test"),
+                )
+            ),
             retrodeck_folders=FakeRetroDeckFolders(),
             core_info=FakeCoreInfoProvider(),
             platform_systems=FakePlatformSystems(),
@@ -119,6 +135,8 @@ def game_detail(clock, active_core_resolver, path_probe) -> GameDetailHarness:
             active_core=FakeActiveCoreResolver(),
             uow_factory=FakeUnitOfWorkFactory(),
             conflict_rules=_make_conflict_rules(),
+            settings={},
+            settings_persister=FakeSettingsPersister(),
         ),
     )
 
@@ -723,8 +741,8 @@ class TestGetCachedGameDetailCarriesNoBiosAnswer:
     What an emulator wants is read off the machine, and an answer read for a
     previous page open may not stand in for this one — so every open starts
     not-knowing and the live ``get_bios_status`` fills it in a moment later. The
-    frontend clears a shown requirement on an absent ``bios_status``, so the flag
-    is what keeps "not known yet" apart from "this core needs none" (#1693).
+    flag with no level marks the payload as no answer, by ``get_bios_status``'s
+    contract, so the frontend keeps what it shows.
     """
 
     @pytest.mark.asyncio
@@ -761,7 +779,7 @@ class TestGetCachedGameDetailCarriesNoBiosAnswer:
         ]
         listing._firmware_cache_epoch = 99.0
 
-        with patch.object(game_detail.firmware._demand, "_retrodeck_folders", FakeRetroDeckFolders(bios=str(tmp_path))):
+        with patch.object(game_detail.firmware._demand._platform_firmware_resolver, "bios_root", str(tmp_path)):
             result = await game_detail.service.get_cached_game_detail(50000)
 
         assert result["bios_status"] is None
@@ -878,19 +896,26 @@ class TestGetBiosStatusFound:
         assert result["bios_label"] == "OK"
 
     @pytest.mark.asyncio
-    async def test_returns_none_when_no_bios_needed(self, game_detail):
-        """ROM with needs_bios=False returns bios_status / level / label all None.
+    async def test_the_answer_that_no_bios_is_needed_is_sent_whole(self, game_detail):
+        """The checker's needs-none payload ships as the status, so the BIOS tab draws it like any other.
 
-        This is the real negative — the answer the frontend is allowed to clear a
-        shown requirement on, so it must NOT be flagged unknown (#1693).
+        It is a real answer, so it must NOT be flagged unknown.
         """
         _seed_rom(game_detail, 42, app_id=50000, name="Game", platform_slug="gba")
-        game_detail.service._bios_checker.check_platform_bios = AsyncMock(return_value={"needs_bios": False})
+        payload = {
+            "needs_bios": False,
+            "bios_level": "ok",
+            "bios_label": "OK",
+            "required_count": 0,
+            "files": [],
+            "emulator_tabs": [{"emulator": "mgba_libretro.so", "label": "mGBA", "launching": True}],
+        }
+        game_detail.service._bios_checker.check_platform_bios = AsyncMock(return_value=payload)
 
         result = await game_detail.service.get_bios_status(42)
-        assert result["bios_status"] is None
-        assert result["bios_level"] is None
-        assert result["bios_label"] is None
+        assert result["bios_status"] == {**payload, "platform_slug": "gba"}
+        assert result["bios_level"] == "ok"
+        assert result["bios_label"] == "OK"
         assert result["bios_status_unknown"] is False
 
     @pytest.mark.asyncio
@@ -1010,7 +1035,7 @@ class TestGetBiosStatusFound:
                     "bios_label": "Missing",
                     "files": [{"file_name": "gba_bios.bin", "downloaded": False}],
                 }
-            return {"needs_bios": False}
+            return {"needs_bios": False, "bios_level": "ok", "bios_label": "OK", "files": []}
 
         game_detail.service._bios_checker.check_platform_bios = fake_check
 
@@ -1018,7 +1043,8 @@ class TestGetBiosStatusFound:
         plain = await game_detail.service.get_bios_status(43)
 
         assert pinned["bios_level"] == "missing"
-        assert plain["bios_status"] is None
+        assert plain["bios_level"] == "ok"
+        assert plain["bios_status"]["needs_bios"] is False
         assert active_core_resolver.emulator_calls == [42, 43]
 
 
@@ -1050,11 +1076,10 @@ class TestGetBiosStatusNotFound:
 
     @pytest.mark.asyncio
     async def test_firmware_error_flags_unknown(self, game_detail):
-        """A raising BIOS check answers ``bios_status_unknown`` — not "no BIOS need" (#1693).
+        """A raising BIOS check answers ``bios_status_unknown`` with no level — no answer.
 
-        The frontend clears a shown requirement on an absent ``bios_status``, so
-        a failed check that shipped the same payload as a real negative took the
-        missing-BIOS warning off the page.
+        The flag with no level is what the frontend reads as a failed read, so it
+        keeps a shown missing-BIOS warning rather than clearing it.
         """
         _seed_rom(game_detail, 42, app_id=50000, name="Game", platform_slug="gba")
         game_detail.service._bios_checker.check_platform_bios = AsyncMock(side_effect=Exception("fail"))

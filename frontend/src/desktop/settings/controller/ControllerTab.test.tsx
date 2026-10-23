@@ -62,6 +62,11 @@ beforeEach(() => {
     success: true,
     message: "Steam Input applied",
   });
+  vi.mocked(backend.ensureDeviceRegistered).mockResolvedValue({
+    success: true,
+    device_id: "dev-1",
+    device_name: "Steam Deck",
+  });
   vi.mocked(backend.getSaveSyncSettings).mockResolvedValue({
     save_sync_enabled: false,
     sync_before_launch: true,

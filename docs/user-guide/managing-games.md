@@ -130,16 +130,23 @@ Switching **never deletes anything.** ROM files already on disk stay put, and sa
 switch. What happens depends on whether the version you're leaving is downloaded and whether its saves are synced:
 
 - **Not downloaded, or downloaded with all saves already synced** — the switch is instant. If the version you switch
-  _to_ is on disk it's playable right away (Play stays Play); if it isn't, the button becomes **Download**.
+  _to_ is on disk it's playable right away (Play stays Play); if it isn't, the button becomes **Download**. With save
+  sync turned off nothing is synced, so there is nothing to warn about either and the switch is instant as well.
 - **Switching back to a version still on disk** — instant and playable immediately, with no re-download.
-- **Leaving a downloaded version whose saves were never uploaded** — a dialog warns you first. It offers **Sync now &
-  switch** (uploads the saves, then switches), **Switch anyway** (the saves stay on disk but stop syncing until you
-  switch back to that version), and **Cancel**. When RomM is unreachable the saves can't be uploaded, so the dialog
-  drops the sync option and offers only **Switch anyway** and **Cancel**, explaining why.
+- **Leaving a downloaded version whose saves haven't been synced to RomM** — saves that were never uploaded, or that
+  changed since their last sync — a dialog warns you first. It offers **Sync now & switch** (uploads the saves, then
+  switches), **Switch anyway** (the saves stay on disk but stop syncing until you switch back to that version), and
+  **Cancel**. When RomM is unreachable the saves can't be uploaded, so the dialog drops the sync option and offers only
+  **Switch anyway** and **Cancel**, explaining why. The same goes for a version that is no longer available on RomM: its
+  saves can't be uploaded there, so only **Switch anyway** and **Cancel** are offered, and the saves stay on disk.
+- **Leaving a downloaded version whose saves Tender couldn't check** — a save file it can't read, for instance — the
+  same dialog warns you, and says that Tender couldn't check whether the saves have been synced rather than that they
+  weren't.
 
 When you leave a downloaded version with unsynced saves behind, the **Saves** tab shows a reminder banner ("switch back
-to sync them") so those saves aren't forgotten. It does not recommend switching back to a version positively confirmed
-as no longer available on RomM; it skips that retained row and continues checking any later live versions.
+to sync them") so those saves aren't forgotten; where Tender couldn't check that version's saves, the banner says so. It
+does not recommend switching back to a version positively confirmed as no longer available on RomM; it skips that
+retained row and continues checking any later live versions.
 
 While a download of the game is running, switching is blocked with a short message — cancel the running download first.
 
@@ -208,7 +215,8 @@ The confirmation options apply to this run only:
   can be rebuilt by hand. Switch it off to limit the run to individual versions of games that still exist; the list
   still shows every game, and those games read **Nothing removed**.
 - **Back up before removing** is on. It seals saves, playtime and the shortcut's Steam details in a recovery bundle
-  under `~/romm-tender-recovery/bundles/` before anything changes. Leaving it on is what makes whole-game removal
+  under `recovery/bundles/` in Tender's folder before anything changes — where that folder lies is
+  [Where your data lives](where-your-data-lives.md#tenders-folder). Leaving it on is what makes whole-game removal
   reversible by hand; turning it off asks you to confirm separately, with **I understand there is no recovery bundle**
   under it, and switches every file backup off.
 - **Back up downloaded game files too** switches on the **Back up file** switch of every row whose downloaded file the
@@ -319,10 +327,11 @@ own. A download, and everything about where one would land, asks RetroDECK; the 
 the source that answers, which is RetroDECK while it is switched on. Where _source_ has no system for the platform,
 **Download** is refused and the pages say **"_Source_ has no system for _platform_, so Tender cannot download its
 games."**; where the platform's only systems are switched off in _source_, they say **"System _system_ is switched off
-in _source_."** The platform's **Download BIOS** is refused the same way. A game you already installed keeps the system
-it was downloaded under, and **Download BIOS** on its page places the files for that system. Where several systems fit
-one platform — SNES is `sfc`, `snes` and `snesna` in RetroDECK — the main one (`snes`) is taken; the platform's page
-names it.
+in _source_."** A platform's BIOS downloads are not refused: they land in Tender's firmware store and are linked once a
+source has a system for the platform ([Where downloads go](bios-management.md#where-downloads-go)). A game you already
+installed keeps the system it was downloaded under, and **Download BIOS** on its page links the files for that system.
+Where several systems fit one platform — SNES is `sfc`, `snes` and `snesna` in RetroDECK — the main one (`snes`) is
+taken; the platform's page names it.
 
 **A download needs RetroDECK.** **Download** is refused, saying why, while RetroDECK is not installed (**Downloads need
 RetroDECK, which is not installed.**), while it is switched off in **Settings › Emulator sources** (**Downloads need
@@ -339,21 +348,21 @@ it and removes nothing from it. The main panel then shows a notice about the set
 does not name (**RetroDECK: its settings file _file_ does not name its BIOS folder and saves folder, so Tender uses none
 of them.**). Each folder is judged on its own. Games go to the ROM folder ES-DE uses — the one ES-DE's own settings
 name, or ES-DE's own default where they name none — so they are still downloaded, uninstalled and replaced there, even
-with a damaged RetroDECK settings file. A BIOS folder the file does not name means no BIOS file is downloaded or
-deleted, and a saves folder it does not name means the
-[cleanup of versions removed from RomM](#cleaning-up-versions-removed-from-romm) does not start. A button refused this
-way answers with the sentence the notice shows. While RetroDECK has not been set up yet, it names no folder at all, and
-none of these buttons does anything. A download is also refused, with that notice's sentence, while RetroDECK's own
-folder, as its settings name it, does not exist (an SD card that is not inserted). Games already on your device still
-start, because RetroDECK starts them itself.
+with a damaged RetroDECK settings file. A BIOS folder the file does not name means Tender places and removes no BIOS
+link there, and leaves a BIOS file it downloaded there in older versions where it is, and a saves folder it does not
+name means the [cleanup of versions removed from RomM](#cleaning-up-versions-removed-from-romm) does not start. A button
+refused this way answers with the sentence the notice shows. While RetroDECK has not been set up yet, it names no folder
+at all, and none of these buttons does anything. A download is also refused, with that notice's sentence, while
+RetroDECK's own folder, as its settings name it, does not exist (an SD card that is not inserted). Games already on your
+device still start, because RetroDECK starts them itself.
 
 **Tender uses none of RetroDECK's folders where it could not ask about them** — finding RetroDECK at all, or asking it
 where its own folder, its ROM folder, its BIOS folder and its saves folder are, failed with an error. Every one of those
-buttons, and **Delete** on a BIOS file, then says **RetroDECK's folders could not be established, so Tender downloads
-into and removes from none of them.**, and no leftover partial download is removed. A download while RetroDECK is
-switched off says that instead, as it always does. Where only the question for one system's ROM folder failed, the
-buttons that need that folder — **Download**, **Use Existing Files**, **Check Against Server** and replacing a copy —
-say the same sentence for that system's games, and every other button works as usual.
+buttons then says **RetroDECK's folders could not be established, so Tender downloads into and removes from none of
+them.**, and no leftover partial download in RetroDECK's folders is removed. A download while RetroDECK is switched off
+says that instead, as it always does. Where only the question for one system's ROM folder failed, the buttons that need
+that folder — **Download**, **Use Existing Files**, **Check Against Server** and replacing a copy — say the same
+sentence for that system's games, and every other button works as usual.
 
 **Only one version of a game is kept on disk at a time.** If you tap **Download** on a version while another version of
 the same game (its [sibling group](#versions)) is already on disk, Tender removes the old install first and then
@@ -407,6 +416,20 @@ comparison in front of you.
 
 One case the dialog cannot help with: the folder or file in the way is the wrong shape for the game — a folder where the
 server serves a single file, or the reverse. The dialog says so and only offers replace or cancel.
+
+A disc game your server keeps as a single zip has two right shapes: the zip itself, and the folder unpacking it produces
+(see [Multi-Disc and Multi-File Games](#multi-disc-and-multi-file-games)). So a folder you unpacked yourself, under the
+name the zip unpacks into, is the same game, and the dialog offers to use it. A folder an earlier download unpacked
+carries its launch file's name (`<Game>.m3u/`, say) and is found the way any copy under another name is — see
+[When the same game is on your device under a different name](#when-the-same-game-is-on-your-device-under-a-different-name).
+**Check Against Server** compares such a folder against the files your server lists inside the zip; a server that lists
+none (one not rescanned since RomM 4.9.0) cannot confirm it. Only a zip your server lists as holding no disc image at
+its top level (or, for a zip that holds nothing but one folder, at that folder's top level) has the one shape, the zip.
+
+When both are on your device — the zip and an unpacked folder — each gets a dialog of its own, one after the other.
+**Use These Files** in either dialog uses the copy that dialog shows. **Download Instead** in the first one opens the
+second, and nothing is deleted until you have chosen **Download Instead** in both: **Cancel** in the second dialog
+leaves both copies as they are, including the one you already agreed to replace.
 
 **Coming soon:** **on the desktop client's game page** the download button behaves the same way: it reads **USE EXISTING
 FILES**, and this dialog — and every other one in this section and the next — opens there with the same choices and the
@@ -470,10 +493,10 @@ download, be looking for saves under a name nothing ever wrote. Renaming now kee
 
 **Download Instead** on a file you picked from the list deletes that file, exactly as it does for one sitting at the
 game's own location — it asks a second time and names what goes first. Your saves and savestates for it are moved to the
-canonical name rather than left behind, so the freshly downloaded copy finds them. (For a game made of several files
-they stay where they are: the name they would need depends on what is inside the archive, which is not known until it
-has been downloaded.) Choosing **None of These** deletes nothing — you declined every candidate rather than picking one,
-so the download simply lands beside them.
+canonical name rather than left behind, so the freshly downloaded copy finds them. (For a game made of several files,
+and for one your server keeps as a single zip that may be unpacked, they stay where they are: the name they would need
+depends on what is inside the archive, which is not known until it has been downloaded.) Choosing **None of These**
+deletes nothing — you declined every candidate rather than picking one, so the download simply lands beside them.
 
 If a name it needs is already taken — you have played both versions and both left saves — a second dialog opens **before
 anything has been moved**, lists everything that collides, and asks once for the whole set. This is the same dialog on
@@ -504,7 +527,8 @@ paused download stays in the active list, not the finished one).
 Resume is only available for **single-file ROMs on a direct connection** — the server has to support resuming a transfer
 from where it left off. Two cases can't resume, so they show only **Cancel** (no Pause/Resume):
 
-- **Multi-file ROMs** (multi-disc or bin/cue titles downloaded as a single ZIP), and
+- **Multi-file ROMs** (games your server stores as several files — multi-disc or bin/cue titles — and sends as one ZIP
+  it builds for the download; a game your server keeps as one zip resumes like any single file), and
 - **Servers behind Cloudflare** (the Cloudflare Tunnel doesn't honour partial-content requests).
 
 In those cases, cancelling and starting over is the only option — but a fresh download is safe, as cancelling never
@@ -522,35 +546,64 @@ Some games ship as more than one file — multi-disc PS1 titles, a base game plu
 downloads these as a single ZIP, which Tender extracts automatically. You just download and play; the layout is handled
 for you.
 
+A disc game your server keeps as **one `.zip`** is unpacked the same way, because many emulators cannot mount a disc
+from inside a zip: RetroArch hands its core only one file out of the zip, so a Saturn `.cue` finds none of its `.bin`
+tracks, and Dolphin (Wii and GameCube) reads no zip at all. Tender looks inside the zip once it has arrived; one with a
+disc image at its top level — a `.cue` with its tracks, a Dreamcast `.gdi` set, a Wii or GameCube `.rvz`, `.wbfs`,
+`.iso` and the like — is unpacked, and the zip is removed afterwards. A zip that holds nothing but one folder, the way
+compressing a folder makes one, counts that folder's top level instead, and its content is unpacked without the folder
+around it. In either case the `__MACOSX` folder macOS Finder adds to a zip it makes is ignored and not unpacked.
+Anything else stays the zip it is: a cartridge ROM, an arcade romset, a floppy game with its `.m3u`, a DOS game whose CD
+image sits in a folder below that top level, a lone `.bin`, an `.img` without its `.ccd`. Nothing in those says the zip
+has to be unpacked, and the emulators for most of them read the zip as it is.
+
 After the byte transfer finishes, the download button and the QAM queue show a brief **Extracting…** phase with its own
 progress (the percentage climbs back from 0 as the archive unpacks — a large Switch or disc image takes a moment). The
 extraction can't be cancelled, so the cancel/pause controls are replaced by a spinner until it's done; the game then
-flips to **Installed** as usual. Single-file ROMs download as a bare file and skip this phase entirely.
+flips to **Installed** as usual. A single file that is not unpacked downloads as a bare file and skips this phase
+entirely.
 
 Tender gives the extracted game its own folder and names that folder after the real **launch file** (including the
 extension, e.g. `Example Quest - Second Journey (USA).m3u/` or `Example Quest (USA).iso/`) so that ES-DE collapses it
 into a single game entry instead of showing a folder plus loose files.
 
 **Disc switching only applies to systems whose emulator supports it.** For the disc-swapping consoles — PS1, Saturn,
-Sega CD, PC Engine CD, Dreamcast, GameCube, Wii, and the like — a game with two or more `.cue`, `.chd` or `.iso` discs,
-or with one `.cue` disc, gets a game-named `.m3u` playlist so you can flip between discs in-game, and the folder is
-named after that playlist. Discs in any other format get no generated playlist, which includes GameCube and Wii games in
-`.rvz`, `.gcz`, `.ciso` or `.wbfs`. Tender decides this by reading ES-DE's own per-system supported-extension list, so a
-game only ever gets an `.m3u` on a system where ES-DE (and the emulator behind it) actually understands one.
+Sega CD, PC Engine CD, Dreamcast, GameCube, Wii, and the like — a game with two or more discs, or with one `.cue` disc,
+gets a game-named `.m3u` playlist so you can flip between discs in-game, and the folder is named after that playlist. A
+disc is any disc image Tender recognises: `.cue`, `.gdi`, `.ccd`, `.toc` and `.mds` for a disc made of tracks, and
+`.chd`, `.iso`, `.cdi`, `.gcm`, `.rvz`, `.wbfs`, `.wia`, `.gcz`, `.ciso`, `.cso` and `.pbp` for one in a single file. A
+single disc in any format but `.cue` gets no generated playlist. Tender decides this by reading ES-DE's own per-system
+supported-extension list, so a game only ever gets an `.m3u` on a system where ES-DE (and the emulator behind it)
+actually understands one.
+
+A disc made of tracks that gets no playlist launches from the file that describes its tracks — the `.cue`, `.gdi`,
+`.ccd`, `.toc` or `.mds` — and never from one of the tracks. A disc dumped with both a `.cue` and a `.ccd` counts as one
+disc.
 
 **Cartridge and folder systems get no playlist.** Switch (`.nsp`), Xbox 360 (`.iso`), and other systems with no disc
 concept collapse to their real game file instead — the folder is named after the cartridge/disc image (`<Game>.nsp/`,
 `<Game>.iso/`) and the game launches straight from it. RomM bundles a generic `.m3u` into every multi-file ZIP, but
 Tender ignores it on these systems rather than launching from a file the emulator can't read.
 
-Single-file titles (most `.chd`/`.iso` games on disc-image systems) download as a bare file with no folder, so they need
-no playlist either way.
+Single-file titles that are not a zip (most `.chd`/`.iso` games on disc-image systems) download as a bare file with no
+folder, so they need no playlist either way.
+
+**Space for unpacking.** An unpacked game needs room for the zip and for what comes out of it at the same time. Where
+your server lists what is inside a single zip — libraries rescanned since RomM 4.9.0 — the check before the download
+counts both for a zip it lists with a disc image at its top level (or at its one folder's, as above); otherwise it
+counts the zip alone. Once the download is complete, Tender checks again against the size the zip itself states, for a
+single zip and a multi-file download alike. When the storage is too full, the download fails with **Not enough space to
+unpack**, nothing is installed, and the downloaded zip is kept: free some space and press **Download** again, and Tender
+unpacks the zip it already has instead of downloading it again. The kept zip does not survive a restart of Tender
+(rebooting the Deck, say) — Tender clears unfinished downloads when it starts, so the next download fetches the game
+again.
 
 !!! note "Known limitation"
 
     Games installed **before** this version keep their old folder layout, so ES-DE may still show them as a folder plus
-    loose files — or, on cartridge systems, as a stray `.m3u`. The fix only affects new downloads; re-download the game
-    to get the single clean ES-DE entry.
+    loose files — or, on cartridge systems, as a stray `.m3u`. A disc game downloaded as a single zip before this version
+    stays a zip, which an emulator that cannot mount a disc from a zip does not start. The fix only affects new downloads;
+    re-download the game to get the single clean ES-DE entry, and an unpacked disc where the zip held one.
 
 ### When a download has nothing launchable
 
@@ -584,9 +637,10 @@ picked.
 ### What "All discs" means
 
 On the **disc-swapping consoles** (PS1, Saturn, Sega CD, PC Engine CD, Dreamcast, GameCube, Wii, and the like) a
-multi-disc game whose discs are `.cue`, `.chd` or `.iso` images gets a generated `.m3u` playlist, so the dropdown's
-default entry is **All discs (m3u)** — it launches through the playlist and lets you flip between discs **inside the
-emulator**, no relaunch needed. You can still pick a single disc from the same dropdown to jump straight to it.
+multi-disc game gets a generated `.m3u` playlist (see
+[Multi-Disc and Multi-File Games](#multi-disc-and-multi-file-games) for the disc formats), so the dropdown's default
+entry is **All discs (m3u)** — it launches through the playlist and lets you flip between discs **inside the emulator**,
+no relaunch needed. You can still pick a single disc from the same dropdown to jump straight to it.
 
 On systems with **no playlist concept**, there's no in-emulator disc switching, so the dropdown defaults to **Disc 1**
 and switching discs means picking a different disc here and relaunching. Either way, the picker works the same.
@@ -702,34 +756,88 @@ date) again as Tender stored it at the last sync. It asks your RomM server nothi
 changed on the server arrives with the next sync.
 
 Opening a game's page sets its hero banner, logo, wide grid and icon only where the game has none yet — an icon counts
-as none while it is the empty spot a newly added game shows, or Tender's logo — so an image you set yourself stays.
-Switching the game to another version replaces all four with that version's, an image you set yourself included; it uses
-the images Tender already downloaded for that version and downloads only the ones it has not. **Refresh Artwork** is the
-way to replace them otherwise: it downloads the hero banner, logo, wide grid and icon from SteamGridDB anew and applies
-them, an image you set yourself included, so the image SteamGridDB ranks first today reaches the game. An image whose
-new download fails keeps the one Tender had.
+as none while it is the empty spot a newly added game shows, or Tender's logo — so an image you set yourself stays. A
+game with no cover gets Tender's pick from SteamGridDB's covers the same way — usually a game RomM has no cover for,
+also one whose RomM cover could not be downloaded or was removed through Steam — and the first sync that brings RomM's
+cover for it puts RomM's cover in its place. Switching the game to another version sets the hero banner, logo, wide grid
+and icon to that version's, over an image you set yourself too (whether Steam then shows Tender's image over one you set
+from a JPEG is not yet known), and the cover to the one you chose for that version, else RomM's, else — RomM has none,
+or it cannot be reached — Tender's pick from SteamGridDB; it uses the images Tender already downloaded for that version
+and downloads only the ones it has not. An image whose new download fails keeps the one Tender had.
 
-When you tap **Refresh Artwork**, Tender asks your RomM server which SteamGridDB game the ROM maps to and applies the
-hero banner, logo, wide grid, and icon for that game. **RomM is the source of truth**: whenever your server has a
-SteamGridDB id for a game, that id wins — on both sync and refresh. Where RomM's id comes from, and how to give RomM
-one, is under [Game not found on SteamGridDB](troubleshooting.md#game-not-found-on-steamgriddb). If neither RomM nor
-Tender has an id, a picker opens, where you search SteamGridDB by name and choose from the results (with thumbnails). A
-name pick is applied immediately. Because a manual pick isn't stored as the resolved id, you can change it any time:
-just tap **Refresh Artwork** again and the picker reopens. Once RomM has an id for a game you picked, **Refresh
-Artwork** replaces each picked image with that game's, where SteamGridDB has such an image for that game. Only **Refresh
-Artwork** does this: opening the game's page and the background artwork job keep using the images Tender already
-downloaded for the game.
+Once a week at most, opening a game's page also checks the images Tender picked from SteamGridDB: where SteamGridDB now
+ranks another image first, Tender replaces it and says so once, for example "Updated the hero and the logo from
+SteamGridDB" — Steam redraws the page when an image changes. An image you chose and one set in Steam are never replaced.
+When SteamGridDB cannot be reached, the next visit checks again; and an image Tender downloaded but had not yet handed
+to Steam when the page was closed or redrawn is handed over at the next visit, without waiting for the week.
 
-One exception after you update Tender: for a game Tender knows on SteamGridDB, an icon, wide grid or logo Tender
-downloaded before the update is downloaded once more the first time the game is switched to another version, or the
-first time the game gets that image because it has none yet. If you had picked the game in the picker and RomM has an id
-for it now, that image then becomes the one of the game RomM's id points to. An image the game already shows stays until
-then.
+### The ARTWORK tab
 
-When SteamGridDB refuses your API key, **Refresh Artwork** says "SteamGridDB refused the API key — check it in Settings"
-and opens no picker; when SteamGridDB is rate-limiting requests, it says that instead. Opening a game's page stays quiet
-about both. When the RomM cover could not be updated, the same message says why, after the SteamGridDB result; when the
-picker opens instead, that is a message of its own before the picker.
+The **ARTWORK** tab on a game's page lists the game's five images — cover, wide grid, hero banner, logo and icon — each
+with the image Steam shows for it, where it comes from and its state:
+
+- **Automatic** — Tender picks the image: the cover is RomM's cover, kept current when RomM changes it, and Tender's
+  pick from SteamGridDB's covers until RomM's arrives ("SteamGridDB — Tender's pick, until RomM's cover arrives"); the
+  other four are Tender's pick from SteamGridDB, kept current when SteamGridDB ranks another image first.
+- **Chosen by you** — an image you chose in the tab. It stays across syncs, later visits to the page and **Refresh
+  Artwork**, and comes back when you switch back to that version of the game, until you choose another, set the slot
+  back to automatic or change the game's SteamGridDB game.
+- **Set in Steam** — an image you set through Steam's own "Set custom artwork", or an icon you set in the shortcut's
+  properties. Neither the background job, opening the page nor **Refresh Artwork** replaces it; a choice in the tab
+  does, after asking (below), and so does switching the game to another version.
+
+The cover the **GAME INFO** tab shows is the same one: the cover Steam shows, or RomM's cover where Steam's own copy
+does not load.
+
+Pressing a slot opens a picker with SteamGridDB's images for it, in SteamGridDB's order, each labelled with its size.
+The first tile is **Automatic**; the image the slot shows is marked **CURRENT** — the Automatic tile while the slot is
+on automatic, the chosen image while you chose one — and the one Tender's own rule takes today **Tender's pick today**.
+The grid shows 14 images after **Automatic**; its last tile, **Load more**, adds 16 more and moves you to the first new
+one. Select a tile and press **Use this image**, which stays below the grid. An image SteamGridDB gives no size for
+shows none. The previews load straight from SteamGridDB; only the image you choose is downloaded in full. The cover can
+be chosen from SteamGridDB's portrait covers. Its picker marks **Tender's pick today** only while the cover is on
+automatic and shows Tender's pick from SteamGridDB or no cover at all; over RomM's cover or one you chose it marks none.
+Setting the cover back to **Automatic** reloads RomM's cover at once, or, where RomM has none, sets Tender's pick from
+SteamGridDB. Choosing images needs a [SteamGridDB API key](configuration.md#steamgriddb-api-key); without one the tab
+says so. The cover's slot opens either way: without a key or a SteamGridDB game its picker offers **Automatic — RomM
+cover, or Tender's pick until it arrives** alone and says why no SteamGridDB covers are offered, so RomM's cover is
+always one press away. If Steam does not take an image you chose, the tab says "Steam did not take the image" and the
+slot stays as it was before: the image you had chosen there earlier, if any, is chosen again.
+
+Over an image set in Steam the picker asks once more: "This image was set through Steam. Replacing it removes it; Tender
+keeps no copy." **Replace** has Steam remove its image and sets yours — whether Steam's call removes its file in every
+case is still to be confirmed on the device — and **Cancel** keeps it. The icon asks nothing: choosing another one
+points the shortcut at Tender's file, and your own icon file stays where it is.
+
+At the top the tab names the SteamGridDB game the artwork comes from. **RomM is the source of truth**: whenever your
+server has a SteamGridDB id for a game, the tab shows it "(from RomM)" and offers no change — a wrong match is corrected
+in RomM, as [Game not found on SteamGridDB](troubleshooting.md#game-not-found-on-steamgriddb) describes. Without one,
+the tab says that RomM has no SteamGridDB entry and offers **Choose game…**, which searches SteamGridDB by name; the
+game you choose is remembered and shown "(chosen by you)" with **Change game…**. Changing the game sets every image you
+chose for the game back to automatic — the picker says so before you change it — and an image set in Steam stays. Once
+RomM has an id of its own for a game you chose, RomM's id wins the same way: the next visit to the game's page sets the
+images you chose back to automatic under RomM's game, says "RomM now maps this game to …; your chosen images went back
+to automatic." once, and leaves an image set in Steam alone. Until the game has a SteamGridDB game, the slots that need
+one say so.
+
+### Refresh Artwork
+
+**Refresh Artwork** asks your RomM server which SteamGridDB game the ROM maps to, so an id RomM gained since the last
+sync is used, then reloads RomM's cover and downloads Tender's pick anew for every slot on automatic, so the image
+SteamGridDB ranks first today reaches the game, and a damaged or deleted image is repaired. Where RomM has no cover, it
+sets Tender's pick from SteamGridDB's covers instead; where SteamGridDB has none either, it says "RomM has no cover
+artwork". An image you chose and one set in Steam stay, the cover included. While the game has no SteamGridDB game it is
+greyed out with "Choose a SteamGridDB game in the ARTWORK tab first."; it opens no game picker, and the next sync brings
+RomM's cover and id once RomM has them.
+
+One exception after you update Tender: for a game Tender knows on SteamGridDB, an icon, wide grid, logo or hero banner
+Tender downloaded before the update is downloaded once more the first time the game is switched to another version, or
+the first time the game gets that image because it has none yet. If you had chosen the game and RomM has an id for it
+now, that image then becomes the one of the game RomM's id points to. An image the game already shows stays until then.
+
+When SteamGridDB refuses your API key, **Refresh Artwork** says "SteamGridDB refused the API key — check it in
+Settings"; when SteamGridDB is rate-limiting requests, it says that instead. Opening a game's page stays quiet about
+both. When the RomM cover could not be updated, the same message says why, after the SteamGridDB result.
 
 The full set of per-game actions — refresh artwork, refresh metadata, sync save files, download BIOS, and uninstall — is
 available from the RomM Actions menu in the game detail panel.

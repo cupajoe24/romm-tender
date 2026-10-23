@@ -136,6 +136,8 @@ describe("SaveManagementCard", () => {
     });
     vi.mocked(backend.checkLocalDrift).mockResolvedValue({
       drifted: false,
+      only_here: false,
+      stranding: "none",
       rom_id: 42,
     });
     vi.mocked(connectionState.getRommConnectionState).mockReturnValue("connected");
@@ -462,6 +464,8 @@ describe("SaveManagementCard", () => {
     });
     vi.mocked(backend.checkLocalDrift).mockResolvedValue({
       drifted: true,
+      only_here: false,
+      stranding: "unsynced",
       rom_id: 99,
     });
 

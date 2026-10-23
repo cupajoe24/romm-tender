@@ -25,6 +25,7 @@ from tests.services.saves._helpers import (
     _server_save,
     _server_save_with_syncs,
     _set_device_id,
+    _stored_device_id,
     make_service,
 )
 
@@ -342,7 +343,7 @@ class TestGetSaveStatusComputeAction:
             },
         )
 
-        result = svc._status._get_save_status_io(42, [ss])
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))
 
         assert len(result["conflicts"]) == 1
         c = result["conflicts"][0]
@@ -385,12 +386,12 @@ class TestGetSaveStatusComputeAction:
         )
 
         # Sanity: the identical setup is conflict-producing while save sync is on.
-        assert len(svc._status._get_save_status_io(42, [ss])["conflicts"]) == 1
+        assert len(svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))["conflicts"]) == 1
 
         # Disable save sync → the conflict array is empty; the rest of the
         # payload is still produced (only the conflict signal is gated).
         svc._config.settings["save_sync_enabled"] = False
-        result = svc._status._get_save_status_io(42, [ss])
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))
         assert result["conflicts"] == []
         assert result["rom_id"] == 42
         assert "files" in result
@@ -420,13 +421,13 @@ class TestGetSaveStatusComputeAction:
                 }
             },
         )
-        result_skip = svc._status._get_save_status_io(42, [ss_skip])
+        result_skip = svc._status._get_save_status_io(42, [ss_skip], device_id=_stored_device_id(svc))
         assert result_skip["files"][0]["status"] == "synced"
 
         # ---------- Upload ----------
         # Reset state for next case: no server saves
         _seed_save_state(svc, 42, RomSaveSyncState())
-        result_upload = svc._status._get_save_status_io(42, [])
+        result_upload = svc._status._get_save_status_io(42, [], device_id=_stored_device_id(svc))
         assert result_upload["files"][0]["status"] == "upload"
 
         # ---------- Download ----------
@@ -448,7 +449,7 @@ class TestGetSaveStatusComputeAction:
                 }
             },
         )
-        result_dl = svc._status._get_save_status_io(42, [ss_dl])
+        result_dl = svc._status._get_save_status_io(42, [ss_dl], device_id=_stored_device_id(svc))
         assert result_dl["files"][0]["status"] == "download"
 
         # ---------- Conflict ----------
@@ -465,7 +466,7 @@ class TestGetSaveStatusComputeAction:
                 }
             },
         )
-        result_conflict = svc._status._get_save_status_io(42, [ss_dl])
+        result_conflict = svc._status._get_save_status_io(42, [ss_dl], device_id=_stored_device_id(svc))
         assert result_conflict["files"][0]["status"] == "conflict"
 
     def test_get_save_status_server_only_collapses_to_one_entry(self, tmp_path):
@@ -492,7 +493,7 @@ class TestGetSaveStatusComputeAction:
 
         _seed_save_state(svc, 42, RomSaveSyncState())
 
-        result = svc._status._get_save_status_io(42, [ss_old, ss_new])
+        result = svc._status._get_save_status_io(42, [ss_old, ss_new], device_id=_stored_device_id(svc))
 
         assert len(result["files"]) == 1
         entry = result["files"][0]
@@ -508,7 +509,7 @@ class TestGetSaveStatusComputeAction:
 
         _seed_save_state(svc, 42, RomSaveSyncState())
 
-        result = svc._status._get_save_status_io(42, [])
+        result = svc._status._get_save_status_io(42, [], device_id=_stored_device_id(svc))
 
         assert result["files"] == []
         assert result["conflicts"] == []
@@ -579,7 +580,7 @@ class TestSaveSyncDisplayEnrichment:
         _install_rom(svc, tmp_path)
         _seed_save_state(svc, 42, RomSaveSyncState())
 
-        result = svc._status._get_save_status_io(42, [])
+        result = svc._status._get_save_status_io(42, [], device_id=_stored_device_id(svc))
 
         assert result["save_sync_display"] == {
             "status": "none",
@@ -614,7 +615,7 @@ class TestSaveSyncDisplayEnrichment:
             },
         )
 
-        result = svc._status._get_save_status_io(42, [ss])
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))
 
         assert result["save_sync_display"] == {
             "status": "synced",
@@ -643,7 +644,7 @@ class TestSaveSyncDisplayEnrichment:
             },
         )
 
-        result = svc._status._get_save_status_io(42, [ss])
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))
 
         assert result["save_sync_display"]["status"] == "conflict"
         assert result["save_sync_display"]["label"] == "Conflict"
@@ -662,7 +663,7 @@ class TestServerQueryFailed:
         _enable_sync_with_device(svc)
         _install_rom(svc, tmp_path)
         _create_save(tmp_path)
-        fake.fail_on_next(OSError("connection reset"))
+        fake.fail_next_list_saves(OSError("connection reset"))
 
         result = await svc.get_save_status(42)
 
@@ -705,7 +706,7 @@ class TestServerQueryFailed:
         _enable_sync_with_device(svc)
         _install_rom(svc, tmp_path)
         _create_save(tmp_path)
-        fake.fail_on_next(RommConnectionError("connection reset"))
+        fake.fail_next_list_saves(RommConnectionError("connection reset"))
 
         result = await svc.get_save_status(42)
 
@@ -725,7 +726,7 @@ class TestServerQueryFailed:
         _enable_sync_with_device(svc)
         _install_rom(svc, tmp_path)
         _create_save(tmp_path)
-        fake.fail_on_next(RommNotFoundError("HTTP 404: Not Found"))
+        fake.fail_next_list_saves(RommNotFoundError("HTTP 404: Not Found"))
 
         result = await svc.get_save_status(42)
 
@@ -792,7 +793,7 @@ class TestServerQueryFailed:
 
         # Drive the IO helper directly with the failure flag so we exercise
         # the redaction path against a "successful" matrix result.
-        result = svc._status._get_save_status_io(42, [ss], server_query_failed=True)
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc), server_query_failed=True)
 
         assert result["server_query_failed"] is True
         assert len(result["files"]) == 1
@@ -881,7 +882,7 @@ class TestMultiFileSlotConflictAggregation:
         fake.saves[200] = bkr_ss
         fake.saves[201] = bcr_ss
 
-        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss])
+        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss], device_id=_stored_device_id(svc))
 
         assert len(result["conflicts"]) >= 1
         conflict_files = {c["filename"] for c in result["conflicts"]}
@@ -914,7 +915,12 @@ class TestMultiFileSlotConflictAggregation:
         fake.saves[200] = bkr_ss
         fake.saves[201] = bcr_ss
 
-        status_conflicts = {c["filename"] for c in svc._status._get_save_status_io(42, [bkr_ss, bcr_ss])["conflicts"]}
+        status_conflicts = {
+            c["filename"]
+            for c in svc._status._get_save_status_io(42, [bkr_ss, bcr_ss], device_id=_stored_device_id(svc))[
+                "conflicts"
+            ]
+        }
         _uploaded, _downloaded, _errors, sync_conflicts = _do_sync(svc, 42)
         sync_conflict_files = {c["filename"] for c in sync_conflicts}
 
@@ -931,7 +937,7 @@ class TestMultiFileSlotConflictAggregation:
         fake.saves[200] = bkr_ss
         fake.saves[201] = bcr_ss
 
-        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss])
+        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss], device_id=_stored_device_id(svc))
 
         conflict_files = {c["filename"] for c in result["conflicts"]}
         assert conflict_files == {"rally.bkr", "rally.bcr"}
@@ -951,7 +957,7 @@ class TestMultiFileSlotConflictAggregation:
         fake.saves[200] = bkr_ss
         fake.saves[201] = bcr_ss
 
-        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss])
+        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss], device_id=_stored_device_id(svc))
 
         assert len(result["conflicts"]) == 1
         assert result["conflicts"][0]["filename"] == "rally.bcr"
@@ -974,9 +980,14 @@ class TestMultiFileSlotConflictAggregation:
 
         # Sanity: identical setup surfaces both conflicts when the server query
         # succeeded — the failure flag is the only thing that empties them.
-        assert len(svc._status._get_save_status_io(42, [bkr_ss, bcr_ss])["conflicts"]) == 2
+        assert (
+            len(svc._status._get_save_status_io(42, [bkr_ss, bcr_ss], device_id=_stored_device_id(svc))["conflicts"])
+            == 2
+        )
 
-        result = svc._status._get_save_status_io(42, [bkr_ss, bcr_ss], server_query_failed=True)
+        result = svc._status._get_save_status_io(
+            42, [bkr_ss, bcr_ss], device_id=_stored_device_id(svc), server_query_failed=True
+        )
 
         assert result["conflicts"] == []
         assert len(result["files"]) == 2
@@ -1007,7 +1018,7 @@ class TestMultiFileSlotConflictAggregation:
         fake.saves[201] = ss_new
         _seed_save_state(svc, 42, RomSaveSyncState())
 
-        result = svc._status._get_save_status_io(42, [ss_old, ss_new])
+        result = svc._status._get_save_status_io(42, [ss_old, ss_new], device_id=_stored_device_id(svc))
 
         assert len(result["files"]) == 1
         assert result["files"][0]["server_save_id"] == 201  # newest
@@ -1042,7 +1053,7 @@ class TestSingleFileConflictRegression:
             },
         )
 
-        result = svc._status._get_save_status_io(42, [ss])
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))
 
         assert len(result["conflicts"]) == 1
         assert result["conflicts"][0]["filename"] == "pokemon.srm"
@@ -1072,7 +1083,7 @@ class TestSingleFileConflictRegression:
             },
         )
 
-        result = svc._status._get_save_status_io(42, [ss])
+        result = svc._status._get_save_status_io(42, [ss], device_id=_stored_device_id(svc))
 
         assert result["conflicts"] == []
         assert len(result["files"]) == 1
@@ -1283,7 +1294,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(99)
 
-        assert result == {"drifted": False, "rom_id": 99}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 99}
         assert store.hashed == []
 
     @pytest.mark.asyncio
@@ -1297,7 +1308,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": False, "rom_id": 42}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
         assert store.hashed == [str(save)]
 
     @pytest.mark.asyncio
@@ -1310,7 +1321,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": True, "rom_id": 42}
+        assert result == {"drifted": True, "only_here": False, "stranding": "none", "rom_id": 42}
 
     @pytest.mark.asyncio
     async def test_missing_baseline_key_is_not_drift(self, tmp_path):
@@ -1323,7 +1334,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": False, "rom_id": 42}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
         assert store.hashed == []
 
     @pytest.mark.asyncio
@@ -1337,7 +1348,7 @@ class TestCheckLocalDrift:
         with caplog.at_level("WARNING", logger="test"):
             result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": False, "rom_id": 42}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
         assert store.hashed == []
         assert [r for r in caplog.records if r.levelname == "WARNING"] == []
 
@@ -1352,7 +1363,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": True, "rom_id": 42}
+        assert result == {"drifted": True, "only_here": False, "stranding": "none", "rom_id": 42}
 
     @pytest.mark.asyncio
     async def test_internal_error_during_enumeration_is_not_drifted(self, tmp_path, monkeypatch, caplog):
@@ -1367,7 +1378,7 @@ class TestCheckLocalDrift:
         with caplog.at_level("WARNING", logger="test"):
             result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": False, "rom_id": 42}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
         warnings = [r for r in caplog.records if r.levelname == "WARNING"]
         assert len(warnings) == 1
         assert "rom_id=42" in warnings[0].getMessage()
@@ -1383,7 +1394,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": False, "rom_id": 42}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
         assert store.hashed != []
 
     @pytest.mark.asyncio
@@ -1406,7 +1417,7 @@ class TestCheckLocalDrift:
 
         result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": True, "rom_id": 42}
+        assert result == {"drifted": True, "only_here": False, "stranding": "none", "rom_id": 42}
         assert store.hashed == [str(srm)]
 
     @pytest.mark.asyncio
@@ -1424,7 +1435,170 @@ class TestCheckLocalDrift:
         with caplog.at_level("WARNING", logger="test"):
             result = await svc.check_local_drift(42)
 
-        assert result == {"drifted": False, "rom_id": 42}
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
         warnings = [r for r in caplog.records if r.levelname == "WARNING"]
         assert len(warnings) == 1
         assert "rom_id=42" in warnings[0].getMessage()
+
+
+class TestCheckLocalDriftWithSaveSyncOn:
+    """The two facts the check reports apart, and the stranding verdict the switch, cleanup and Saves tab read."""
+
+    @pytest.mark.asyncio
+    async def test_a_save_of_a_rom_with_no_save_state_exists_only_here(self, tmp_path):
+        """No save state at all → only_here, stranding unsynced; never drift, so the offline launch stays quiet."""
+        store = _RecordingSaveFileStore()
+        svc, _ = make_service(tmp_path, save_file_store=store)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": True, "stranding": "unsynced", "rom_id": 42}
+        assert store.hashed == []
+
+    @pytest.mark.asyncio
+    async def test_a_save_its_save_state_has_no_entry_for_exists_only_here(self, tmp_path):
+        """A save state that records another file only → only_here for the unrecorded one."""
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+        _seed_synced_files(svc, {"pokemon.rtc": "rtc-base"})
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": True, "stranding": "unsynced", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_save_changed_since_its_last_sync_is_drift_and_unsynced(self, tmp_path):
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+        _seed_synced_files(svc, {"pokemon.srm": "hash-of-other-bytes"})
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": True, "only_here": False, "stranding": "unsynced", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_save_matching_its_last_sync_strands_nothing(self, tmp_path):
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        save = _create_save(tmp_path)
+        _seed_synced_files(svc, {"pokemon.srm": _file_md5(save)})
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_no_save_on_disk_strands_nothing(self, tmp_path):
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_file_that_cannot_be_hashed_is_unchecked_and_never_drift(self, tmp_path):
+        store = _RecordingSaveFileStore(hash_raises=OSError("file vanished"))
+        svc, _ = make_service(tmp_path, save_file_store=store)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+        _seed_synced_files(svc, {"pokemon.srm": "hash-A"})
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": False, "stranding": "unchecked", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_failed_read_of_the_save_state_is_unchecked_and_never_drift(self, tmp_path, monkeypatch):
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+
+        def _boom():
+            raise RuntimeError("uow boom")
+
+        monkeypatch.setattr(svc._status, "_uow_factory", _boom)
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": False, "stranding": "unchecked", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_failed_save_answer_is_unchecked(self, tmp_path, monkeypatch):
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+
+        def _boom(_rom_id):
+            raise RuntimeError("resolver boom")
+
+        monkeypatch.setattr(svc._rom_info, "save_answer", _boom)
+
+        result = await svc.check_local_drift(42)
+
+        assert result["stranding"] == "unchecked"
+        assert result["drifted"] is False
+
+    @pytest.mark.asyncio
+    async def test_the_check_waits_for_the_roms_sync_lock(self, tmp_path):
+        """It may move files (following a moved directory), so it never runs beside another holder of the lock."""
+        svc, _ = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+
+        async with svc._sync_engine.rom_lock(42):
+            check = asyncio.ensure_future(svc.check_local_drift(42))
+            await asyncio.sleep(0.05)
+            assert not check.done()
+        result = await check
+
+        assert result["stranding"] == "unsynced"
+
+
+class TestCheckLocalDriftWithSaveSyncOff:
+    """With save sync off no stranding gate warns; the offline launch's ``drifted`` is read as before."""
+
+    @pytest.mark.asyncio
+    async def test_a_save_with_no_recorded_sync_strands_nothing(self, tmp_path):
+        svc, _ = make_service(tmp_path)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_changed_save_is_still_drift_but_strands_nothing(self, tmp_path):
+        svc, _ = make_service(tmp_path)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+        _seed_synced_files(svc, {"pokemon.srm": "hash-of-other-bytes"})
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": True, "only_here": False, "stranding": "none", "rom_id": 42}
+
+    @pytest.mark.asyncio
+    async def test_a_check_that_could_not_read_strands_nothing(self, tmp_path):
+        store = _RecordingSaveFileStore(hash_raises=OSError("file vanished"))
+        svc, _ = make_service(tmp_path, save_file_store=store)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path)
+        _seed_synced_files(svc, {"pokemon.srm": "hash-A"})
+
+        result = await svc.check_local_drift(42)
+
+        assert result == {"drifted": False, "only_here": False, "stranding": "none", "rom_id": 42}

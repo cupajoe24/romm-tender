@@ -20,7 +20,7 @@ vi.mock("../../api/backend", async (importOriginal) => {
     invalidateCachedGameDetail: vi.fn(),
     getSaveSetupInfo: vi.fn(),
     probeReachability: vi.fn().mockResolvedValue({ online: true }),
-    checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, rom_id: 100 }),
+    checkLocalDrift: vi.fn().mockResolvedValue({ drifted: false, only_here: false, stranding: "none", rom_id: 100 }),
     isSaveTrackingConfigured: vi.fn().mockResolvedValue({ configured: true }),
     confirmSlotChoice: vi.fn(),
     checkCoreChange: vi.fn().mockResolvedValue({ changed: false }),
@@ -349,7 +349,12 @@ describe("usePlayLaunch", () => {
 
   it("a prompt that throws resets the button instead of leaving it stuck", async () => {
     vi.mocked(backend.probeReachability).mockResolvedValueOnce({ online: false });
-    vi.mocked(backend.checkLocalDrift).mockResolvedValueOnce({ drifted: true, rom_id: 100 });
+    vi.mocked(backend.checkLocalDrift).mockResolvedValueOnce({
+      drifted: true,
+      only_here: false,
+      stranding: "unsynced",
+      rom_id: 100,
+    });
     ask.mockRejectedValueOnce(new Error("dialog host gone"));
 
     const { result } = renderHook(() =>

@@ -409,6 +409,7 @@ describe("Desktop DiscSelector — multi-version rendering and switching", () =>
       success: false,
       reason: "unsynced_saves",
       message: "Unsynced saves exist",
+      stranding: "unsynced",
       unsynced_rom_id: 42,
       unsynced_version_name: "USA (v1.1)",
       server_reachable: true,
@@ -425,7 +426,7 @@ describe("Desktop DiscSelector — multi-version rendering and switching", () =>
 
     // Unsynced saves dialog opens
     expect(r.getByRole("dialog")).toBeInTheDocument();
-    expect(r.getByText(/USA \(v1\.1\).*has save changes that were never uploaded to RomM/i)).toBeInTheDocument();
+    expect(r.getByText(/USA \(v1\.1\).*has saves that haven't been synced to RomM/i)).toBeInTheDocument();
 
     // Clicking "Switch anyway" forces switch
     vi.mocked(backend.switchVersion).mockResolvedValueOnce({
@@ -454,6 +455,7 @@ describe("Desktop DiscSelector — multi-version rendering and switching", () =>
       success: false,
       reason: "unsynced_saves",
       message: "Unsynced saves exist",
+      stranding: "unsynced",
       unsynced_rom_id: 42,
       unsynced_version_name: "USA (v1.1)",
       server_reachable: true,

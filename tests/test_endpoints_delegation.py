@@ -286,15 +286,6 @@ class TestFirmwareEndpointDelegation:
         services.firmware_service.download_required_firmware.assert_awaited_once_with("saturn", "kronos_libretro.so")
 
     @pytest.mark.asyncio
-    async def test_download_platform_firmware_file_passes_the_shown_emulator(self, endpoints, services):
-        services.firmware_service.download_platform_firmware_file = AsyncMock(return_value={"success": True})
-        result = await endpoints.download_platform_firmware_file("saturn", "saturn_bios.bin", "kronos_libretro.so")
-        services.firmware_service.download_platform_firmware_file.assert_awaited_once_with(
-            "saturn", "saturn_bios.bin", "kronos_libretro.so"
-        )
-        assert result == {"success": True}
-
-    @pytest.mark.asyncio
     async def test_check_platform_bios_delegates(self, endpoints, services):
         services.firmware_service.check_platform_bios = AsyncMock(return_value={"present": []})
         # The frontend sends only the slug; main.py threads no per-game
@@ -530,9 +521,9 @@ class TestDownloadEndpointDelegation:
     async def test_start_download_delegates(self, endpoints, services):
         services.download_service.start_download = AsyncMock(return_value={"queued": True})
         result = await endpoints.start_download(42)
-        # No candidate named, no collision answered and nothing reported by the
-        # page: the plain Download press.
-        services.download_service.start_download.assert_awaited_once_with(42, False, None, None, False)
+        # No candidate named, no collision answered, nothing reported by the page
+        # and no path confirmed: the plain Download press.
+        services.download_service.start_download.assert_awaited_once_with(42, False, None, None, False, None)
         assert result == {"queued": True}
 
     @pytest.mark.asyncio
@@ -699,6 +690,24 @@ class TestSgdbEndpointDelegation:
         services.sgdb_service.refresh_sgdb_artwork = AsyncMock(return_value={"success": True})
         result = await endpoints.refresh_sgdb_artwork(42, 7)
         services.sgdb_service.refresh_sgdb_artwork.assert_awaited_once_with(42, 7)
+        assert result == {"success": True}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("name", "args"),
+        [
+            ("get_artwork_game", (42,)),
+            ("get_artwork_slots", (42, 7)),
+            ("get_artwork_slot_candidates", (42, "logo", 1)),
+            ("choose_artwork_slot_image", (42, "logo", 12)),
+            ("set_artwork_slot_automatic", (42, "cover")),
+            ("keep_artwork_current", (42,)),
+        ],
+    )
+    async def test_the_artwork_tabs_endpoints_delegate(self, endpoints, services, name, args):
+        setattr(services.sgdb_service, name, AsyncMock(return_value={"success": True}))
+        result = await getattr(endpoints, name)(*args)
+        getattr(services.sgdb_service, name).assert_awaited_once_with(*args)
         assert result == {"success": True}
 
     @pytest.mark.asyncio

@@ -25,7 +25,7 @@ from services import shortcut_artwork
 from services.shortcut_artwork import ShortcutArtworkService, ShortcutArtworkServiceConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Collection
 
     from lib.prune_conflicts import PruneConflicts
 
@@ -62,6 +62,9 @@ class _FakeSteamConfig:
         if self.grid_unlistable:
             raise PermissionError("grid directory not readable")
         return self.grid_files
+
+    def grid_file_stamps(self, names: Collection[str]) -> dict[str, str]:
+        raise NotImplementedError
 
 
 class _FakeArtworkSource:
@@ -173,10 +176,14 @@ class _Job:
         prune_conflicts: PruneConflicts | None = None,
         grid_files: frozenset[str] | None = None,
         sgdb_ids: dict[int, int] | None = None,
+        covers: bool = True,
     ) -> None:
-        # Unless a test says otherwise, every bound shortcut already has its wide grid and logo.
+        # Unless a test says otherwise, every bound shortcut already has its wide grid and logo; and,
+        # unless *covers* is false, its cover from RomM, whichever grid files a test names.
         filled = frozenset(name for app_id in bound for name in (f"{app_id}.png", f"{app_id}_logo.png"))
-        self.steam_config = _FakeSteamConfig(icons, filled if grid_files is None else grid_files)
+        named = filled if grid_files is None else grid_files
+        romms_covers = frozenset(f"{app_id}p.png" for app_id in bound) if covers else frozenset()
+        self.steam_config = _FakeSteamConfig(icons, named | romms_covers)
         self.source = _FakeArtworkSource()
         self.sink = FakeEventSink()
         self.sleeper = FakeSleeper()
@@ -1369,6 +1376,44 @@ class TestTheWideGridAndTheLogo:
         assert job.source.slots_fetched == []
 
     @pytest.mark.asyncio
+    async def test_a_game_the_user_chose_lifts_a_none_recorded_without_a_game(self):
+        job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, grid_files=frozenset({"100.png"}))
+        with job.uow:
+            job.uow.roms.set_chosen_sgdb_id(1, 8)
+            job.uow.artwork_slot_outcomes.save(
+                ArtworkSlotOutcome.record_none(
+                    rom_id=1, slot=ArtworkSlot.LOGO, sgdb_id=None, recorded_at=job.clock.time()
+                )
+            )
+
+        await job.run()
+
+        assert job.source.slots_fetched == [(1, ArtworkSlot.LOGO)]
+
+    @pytest.mark.asyncio
+    async def test_a_none_recorded_under_the_chosen_game_rules_it_out(self):
+        job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, grid_files=frozenset({"100.png"}))
+        with job.uow:
+            job.uow.roms.set_chosen_sgdb_id(1, 8)
+            job.uow.artwork_slot_outcomes.save(
+                ArtworkSlotOutcome.record_none(rom_id=1, slot=ArtworkSlot.LOGO, sgdb_id=8, recorded_at=job.clock.time())
+            )
+
+        await job.run()
+
+        assert job.source.slots_fetched == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("extension", ["jpg", "jpeg", "webp"])
+    async def test_a_slot_set_in_steam_under_another_extension_is_never_fetched(self, extension):
+        grid_files = frozenset({f"100.{extension}", f"100_logo.{extension}"})
+        job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, grid_files=grid_files)
+
+        await job.run()
+
+        assert job.source.slots_fetched == []
+
+    @pytest.mark.asyncio
     async def test_a_failed_slot_is_not_handed_over_and_waits_for_the_next_run(self):
         job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, grid_files=frozenset({"100_logo.png"}))
         job.source.answer_slot(1, ArtworkSlot.WIDE_GRID, SlotAnswer.FAILED)
@@ -1889,3 +1934,42 @@ class TestSteamsRendererMemory:
         assert polls == [(True, 1), (True, 1), (True, 1), (False, 1)]
         assert job.readings == 2
         assert job.delivered() == {100: "/grid/100_icon.png"}
+
+
+class TestTheCoverWhereRommHasNone:
+    """D23, D27: an empty cover slot is filled in the first pass, beside the icon and the wide grid."""
+
+    @pytest.mark.asyncio
+    async def test_an_empty_cover_is_handed_over_in_the_first_pass(self, monkeypatch):
+        monkeypatch.setattr(shortcut_artwork, "_WORKERS", 1)
+        job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, grid_files=frozenset({"100.png"}), covers=False)
+
+        await job.run()
+
+        assert job.source.order == [("cover", 1), ("logo", 1)]
+        first, second = (payload for _name, payload in job.sink.events)
+        assert first["artwork"] == [{"app_id": 100, "rom_id": 1, "slot": "cover"}]
+        assert second["artwork"] == [{"app_id": 100, "rom_id": 1, "slot": "logo"}]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", ["100p.png", "100p.jpg"])
+    async def test_a_cover_in_the_grid_folder_is_left_untouched(self, name):
+        job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, grid_files=frozenset({name}), covers=False)
+
+        await job.run()
+
+        assert (1, ArtworkSlot.COVER) not in job.source.slots_fetched
+
+    @pytest.mark.asyncio
+    async def test_a_cover_steamgriddb_had_none_for_is_not_asked_within_the_week(self):
+        job = _Job(icons={100: _SET_BY_HAND}, bound={100: 1}, covers=False)
+        with job.uow:
+            job.uow.artwork_slot_outcomes.save(
+                ArtworkSlotOutcome.record_none(
+                    rom_id=1, slot=ArtworkSlot.COVER, sgdb_id=None, recorded_at=job.clock.time()
+                )
+            )
+
+        await job.run()
+
+        assert job.source.slots_fetched == []

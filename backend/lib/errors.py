@@ -10,6 +10,7 @@ import socket
 from typing import Any
 
 from lib.list_result import ErrorCode
+from lib.url_host import without_userinfo
 
 
 class SgdbApiError(Exception):
@@ -21,6 +22,13 @@ class SgdbApiError(Exception):
     def __init__(self, status_code: int | None, message: str) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class SgdbKeyUnsendableError(SgdbApiError):
+    """A stored SteamGridDB API key no HTTP header can carry, refused before any request was made."""
+
+    def __init__(self) -> None:
+        super().__init__(None, "The SteamGridDB API key holds a character no HTTP header can carry")
 
 
 class SgdbRateLimitedError(SgdbApiError):
@@ -40,7 +48,7 @@ class SteamGridDirMissingError(Exception):
 
 
 class RommApiError(Exception):
-    """Base exception for all RomM HTTP API errors."""
+    """Base exception for all RomM HTTP API errors; its ``url`` never carries the address's user name or password."""
 
     status_code = None
     # Parsed FastAPI ``detail`` body, populated only by the request paths that
@@ -54,7 +62,7 @@ class RommApiError(Exception):
     phrase: str | None = None
 
     def __init__(self, message, url=None, method=None):
-        self.url = url
+        self.url = without_userinfo(url) if url is not None else None
         self.method = method
         super().__init__(message)
 
@@ -178,6 +186,14 @@ class TokenHostMismatchError(RommApiError):
     """
 
 
+class TokenUnsendableError(RommApiError):
+    """The stored Client API Token holds a character no HTTP header can carry.
+
+    Raised before the token is put on a request. Non-retryable: only signing in
+    again stores a token that can be sent.
+    """
+
+
 class RommSyncDisabledError(RommApiError):
     """RomM has save sync disabled for this device (the negotiate 400 policy signal).
 
@@ -216,24 +232,6 @@ class DeviceWriteError(OSError):
     otherwise be retried. A caller with an answer of its own words it as a
     fault on this device with :func:`with_system_text`; elsewhere its text is
     the message.
-    """
-
-
-class DeviceNotRegisteredError(Exception):
-    """A save upload was attempted with no registered device id.
-
-    A client-side precondition failure, not a RomM HTTP error (hence a plain
-    ``Exception``, outside the :class:`RommApiError` hierarchy). Every RomM
-    version Tender accepts has Device Sync, so a registered device is the norm and a
-    missing id is a fault. RomM runs ``add_save``'s write-time 409 gates, and
-    records the calling device's sync row on ``add_save`` and ``update_save``,
-    only when a device is named (``endpoints/saves.py``, read at 5.3.0), so a
-    device-less upload would skip the conflict backstop the save sync relies on
-    and leave this device's sync row unwritten; the upload is refused rather
-    than sent. Save-sync funnels catch it and surface the
-    ``device_not_registered`` reason slug — they own the slug/message (a
-    save-sync concern) since ``lib`` cannot import the service-layer message
-    constants.
     """
 
 
@@ -278,6 +276,13 @@ def _refused_message(exc: RommApiError) -> str:
     return f"RomM or a proxy in front of it refused the request ({answer})"
 
 
+def _unsent_token_message(exc: TokenHostMismatchError | TokenUnsendableError) -> str:
+    """:func:`classify_error`'s message for a stored token refused before it is sent."""
+    if isinstance(exc, TokenUnsendableError):
+        return "Your saved RomM login cannot be used. Sign in again to continue."
+    return "Your saved RomM login is for a different server. Sign in again to continue."
+
+
 def classify_error(exc):
     """Return ``(reason, user_friendly_message)`` for an exception.
 
@@ -320,8 +325,8 @@ def classify_error(exc):
         return ErrorCode.NOT_FOUND.value, "Resource not found on server"
     if isinstance(exc, RommUnsupportedError):
         return ErrorCode.UNSUPPORTED.value, f"This feature requires RomM {exc.min_version} or newer"
-    if isinstance(exc, TokenHostMismatchError):
-        return "config_error", "Your saved RomM login is for a different server. Sign in again to continue."
+    if isinstance(exc, TokenHostMismatchError | TokenUnsendableError):
+        return "config_error", _unsent_token_message(exc)
     if isinstance(exc, RommSyncDisabledError):
         return (
             "device_sync_disabled",

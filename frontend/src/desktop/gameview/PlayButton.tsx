@@ -54,6 +54,8 @@ import { useOutsideClick } from "../../utils/useOutsideClick";
 import { showToast } from "../../utils/toast";
 import { detach } from "../../utils/detach";
 import { useGamePlaytime } from "../../utils/playtimeReconcile";
+import { settleArtworkGame } from "../../utils/artworkGameChange";
+import { isKnownWithoutSgdbGame, useArtworkSlotsChanges } from "../../utils/artworkSlotsStore";
 import { findDesktopWindow } from "../desktopWindow";
 import { DiscSelector } from "./DiscSelector";
 import { CONTAINER_STYLE, BUTTON_GROUP_STYLE, BUTTON_BASE_STYLE, SIDE_ACTION_STYLE, ensurePulseStyles } from "./styles";
@@ -184,6 +186,13 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
   const romId = detail.romId;
   const downloads = useDownloads();
   const playtimeInfo = useGamePlaytime(appId, romId, "DesktopPlayButton");
+  // Refresh Artwork is offered only once the ROM has a SteamGridDB game, as on
+  // Big Picture's play row; the visit's read also settles a game RomM's id replaced.
+  useArtworkSlotsChanges(appId);
+  useEffect(() => {
+    if (romId) detach(settleArtworkGame(appId, romId));
+  }, [appId, romId]);
+  const withoutSgdbGame = isKnownWithoutSgdbGame(appId, romId);
 
   const [stateOverride, setStateOverride] = useState<PlayButtonState | null>(null);
   // The last session start or stop seen for a ROM, whatever made it. A start
@@ -454,6 +463,7 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
     handleStopClick,
     handleUninstallClick,
     handleRefreshArtworkClick,
+    handleChooseGameClick,
     handleRefreshMetadataClick,
   } = usePlayLaunch({
     appId,
@@ -606,8 +616,12 @@ const PlayButtonControls: FC<PlayButtonProps & { ask: AskDialog }> = ({ appId, a
             void handlePlayClick();
           }}
           onToggleMenu={() => setShowMenu((prev) => !prev)}
+          refreshArtworkDisabled={withoutSgdbGame}
           onRefreshArtwork={() => {
             void handleRefreshArtworkClick();
+          }}
+          onChooseGame={() => {
+            void handleChooseGameClick();
           }}
           onRefreshMetadata={() => {
             void handleRefreshMetadataClick();

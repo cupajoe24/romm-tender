@@ -18,6 +18,10 @@ from fakes.fake_romm_api import FakeRommApi
 from fakes.fake_unit_of_work import FakeUnitOfWork, FakeUnitOfWorkFactory
 from fakes.system_time import FakeClock
 
+from domain.artwork_slot import ArtworkSlot
+from domain.artwork_slot_choice import ArtworkSlotChoice
+from domain.artwork_slot_handover import ArtworkSlotHandover
+from domain.artwork_slot_outcome import ArtworkSlotOutcome
 from domain.rom import Rom
 from domain.rom_file import NoFileOnRomm
 from domain.rom_install import RomInstall
@@ -46,7 +50,12 @@ class _FakeDriftProbe:
 
     async def __call__(self, rom_id: int) -> dict[str, Any]:
         self.calls.append(rom_id)
-        return {"drifted": self.drifted, "rom_id": rom_id}
+        return {
+            "drifted": self.drifted,
+            "only_here": False,
+            "stranding": "unsynced" if self.drifted else "none",
+            "rom_id": rom_id,
+        }
 
 
 class _FakeReachabilityProbe:
@@ -1017,6 +1026,7 @@ class TestSwitchVersion:
         refused = _refusal(event_loop, service.switch_version(_APP_ID, 2, False), UnsyncedSaves)
         assert refused.message == "Unsynced saves on the current version."
         assert refused.details == {
+            "stranding": "unsynced",
             "server_reachable": True,
             "unsynced_rom_id": 1,
             "unsynced_version_name": "Game (USA)",
@@ -1026,6 +1036,47 @@ class TestSwitchVersion:
         with uow as u:
             assert u.roms.get(1).shortcut_app_id == _APP_ID
             assert u.roms.get(2).shortcut_app_id is None
+
+    @pytest.mark.parametrize(
+        ("answer", "stranding"),
+        [
+            ({"drifted": False, "only_here": True, "stranding": "unsynced"}, "unsynced"),
+            ({"drifted": False, "only_here": False, "stranding": "unchecked"}, "unchecked"),
+        ],
+        ids=["no-recorded-sync", "could-not-check"],
+    )
+    def test_a_save_the_stranding_verdict_holds_soft_blocks_without_drift(
+        self, event_loop, service, uow, reachability_probe, answer, stranding
+    ):
+        _seed_rom(uow, rom_id=1, app_id=_APP_ID, fs_name="Game (USA).sfc")
+        _seed_rom(uow, rom_id=2, app_id=None)
+        _seed_install(uow, 1)
+
+        async def _probe(rom_id: int) -> dict[str, Any]:
+            return {"rom_id": rom_id, **answer}
+
+        service._drift_probe = _probe
+        refused = _refusal(event_loop, service.switch_version(_APP_ID, 2, False), UnsyncedSaves)
+
+        assert refused.details["stranding"] == stranding
+        with uow as u:
+            assert u.roms.get(1).shortcut_app_id == _APP_ID
+
+    def test_a_drifted_save_the_verdict_does_not_hold_switches_freely(self, event_loop, service, uow):
+        # With save sync off the check still reports drift for the offline
+        # launch, and its stranding verdict is "none": the switch goes through.
+        _seed_rom(uow, rom_id=1, app_id=_APP_ID)
+        _seed_rom(uow, rom_id=2, app_id=None)
+        _seed_install(uow, 1)
+
+        async def _probe(rom_id: int) -> dict[str, Any]:
+            return {"rom_id": rom_id, "drifted": True, "only_here": False, "stranding": "none"}
+
+        service._drift_probe = _probe
+        result = _run(event_loop, service.switch_version(_APP_ID, 2, False))
+
+        assert result["success"] is True
+        assert result["rom_id"] == 2
 
     def test_t5_unsynced_saves_offline_still_soft_blocks(
         self, event_loop, service, uow, drift_probe, reachability_probe
@@ -1231,7 +1282,7 @@ class TestSwitchVersion:
                     target = u.roms.get(2)
                     target.bind_shortcut(999)
                     u.roms.save(target)
-                return {"drifted": False, "rom_id": rom_id}
+                return {"drifted": False, "only_here": False, "stranding": "none", "rom_id": rom_id}
 
         service._drift_probe = _MutatingDriftProbe()
         refused = _refusal(event_loop, service.switch_version(_APP_ID, 2, False))
@@ -1528,3 +1579,44 @@ class TestTheNamedRefusals:
 
         assert isinstance(refused, NamedRefused)
         assert (refused.reason, refused.message, refused.details) == (reason, "Not now.", {"unsynced_rom_id": 1})
+
+
+class TestTheTargetsSteamGridDbCover:
+    """D28: the switch forgets the target's record of Tender's SteamGridDB cover, so the next cover is judged anew."""
+
+    def _seed_cover(self, uow: FakeUnitOfWork, rom_id: int, *, chosen: bool) -> None:
+        uow.artwork_slot_outcomes.save(
+            ArtworkSlotOutcome.record_set(
+                rom_id=rom_id, slot=ArtworkSlot.COVER, sgdb_id=7, image_id=12, image_sha256="ab", recorded_at=1.0
+            )
+        )
+        uow.artwork_slot_handovers.save(
+            ArtworkSlotHandover.hand_over(
+                rom_id=rom_id, slot=ArtworkSlot.COVER, image_id=13, image_sha256="cd", handed_at=2.0
+            )
+        )
+        if chosen:
+            uow.artwork_slot_choices.save(
+                ArtworkSlotChoice(rom_id=rom_id, slot=ArtworkSlot.COVER, image_id=12, chosen_at=1.0)
+            )
+
+    def test_an_automatic_steamgriddb_cover_record_goes_with_the_switch(self, event_loop, service, uow):
+        _seed_rom(uow, rom_id=1, app_id=_APP_ID)
+        _seed_rom(uow, rom_id=2, app_id=None)
+        self._seed_cover(uow, 2, chosen=False)
+
+        _run(event_loop, service.switch_version(_APP_ID, 2, False))
+
+        with uow as u:
+            assert u.artwork_slot_outcomes.get(2, ArtworkSlot.COVER) is None
+            assert u.artwork_slot_handovers.get(2, ArtworkSlot.COVER) is None
+
+    def test_a_chosen_cover_keeps_its_record(self, event_loop, service, uow):
+        _seed_rom(uow, rom_id=1, app_id=_APP_ID)
+        _seed_rom(uow, rom_id=2, app_id=None)
+        self._seed_cover(uow, 2, chosen=True)
+
+        _run(event_loop, service.switch_version(_APP_ID, 2, False))
+
+        with uow as u:
+            assert u.artwork_slot_outcomes.get(2, ArtworkSlot.COVER) is not None

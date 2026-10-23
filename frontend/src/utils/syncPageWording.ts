@@ -117,9 +117,15 @@ export function previewEstimateLine(s: SyncPreviewSummary, applySeconds: number)
  * What a preview with no rows to draw says instead of a table of zeros.
  *
  * The three cases are three different facts and the reader acts on each
- * differently: cover work still has an Apply to press (#1386), an unstamped
- * platform needs a 0-delta apply to heal a lingering "interrupted" (#1416), and
- * a genuinely empty delta has nothing to do at all.
+ * differently: cover work still has an Apply to press (#1386), a platform or a
+ * collection whose completion stamp is missing or no longer matches RomM needs a
+ * 0-delta apply to record a fresh one (#1416, #743, #2477), and a genuinely empty
+ * delta has nothing to do at all. The re-stamp sentence covers every cause
+ * behind its two counts — a run that stopped before stamping, a skip a removal
+ * revoked, a stamp from before the checksum, and a RomM change no shortcut
+ * shows, such as a hidden game or an edit inside the stamp's margin — because
+ * the apply does the same thing for each: it fetches the platform or the
+ * collection and records what RomM serves.
  *
  * *hasChanges* is `previewHasChanges` — the same condition that arms Apply Sync
  * — and it is what decides between the last sentence and the rest, rather than
@@ -131,7 +137,9 @@ export function emptyPreviewSentence(s: SyncPreviewSummary, hasChanges: boolean)
   if (!hasChanges) return "Everything is up to date.";
   const covers = s.cover_refresh_count ?? 0;
   if (covers > 0) return `No shortcut changes — ${pluralize(covers, "cover update")}.`;
-  if ((s.restamp_platform_count ?? 0) > 0) return "No shortcut changes — recording what RomM has now.";
+  if ((s.restamp_platform_count ?? 0) + (s.restamp_collection_count ?? 0) > 0) {
+    return "No shortcut changes — recording what RomM has now.";
+  }
   return "No shortcut changes — there is still something to apply.";
 }
 

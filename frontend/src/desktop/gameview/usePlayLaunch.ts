@@ -2,13 +2,17 @@
  * The desktop Play button's actions: a launch through the shared gate
  * (`utils/launchGateOps.ts`, `utils/launchVerdict.ts`) asked through the desktop
  * dialogs, the Steam start with its shortcut-option re-confirm, Stop, Resolve
- * Conflict and Uninstall.
+ * Conflict and Uninstall, and the menu's artwork and metadata actions — among
+ * them the SteamGridDB game picker, which the desktop client opens from this
+ * menu for want of an ARTWORK tab.
  */
 
 import { useRef } from "react";
 import { debugLog } from "../../api/backend";
 import { executeRomUninstall } from "../../utils/romUninstall";
 import { executeRefreshArtwork } from "../../utils/artworkRefresh";
+import { loadArtworkSlots } from "../../utils/artworkSlotsStore";
+import { CHOOSE_GAME_FIRST_IN_MENU } from "../../utils/artworkTabWording";
 import { executeRefreshMetadata } from "../../utils/metadataRefresh";
 import { desktopLaunchPrompts, desktopStopGameDialog, desktopSgdbGamePickerDialog } from "./dialogs/desktopDialogs";
 import { activateRunningApp, executeStopRunningGame } from "../../utils/runningGame";
@@ -56,6 +60,7 @@ export interface UsePlayLaunchResult {
   handleStopClick: () => Promise<void>;
   handleUninstallClick: () => Promise<void>;
   handleRefreshArtworkClick: () => Promise<void>;
+  handleChooseGameClick: () => Promise<void>;
   handleRefreshMetadataClick: () => Promise<void>;
   launchGame: () => void;
 }
@@ -224,14 +229,22 @@ export function usePlayLaunch({
       appId,
       leaseOwner,
       tag: "DesktopPlayButton",
-      onNeedsPick: (candidates) => {
-        void desktopSgdbGamePickerDialog(ask)({
-          romId,
-          appId,
-          romName: romName ?? "",
-          candidates,
-        });
-      },
+      chooseGameFirst: CHOOSE_GAME_FIRST_IN_MENU,
+    });
+  };
+
+  const handleChooseGameClick = async () => {
+    if (!romId) return;
+    setShowMenu?.(false);
+    // Read for the warning alone: a slot state that could not be read warns of
+    // nothing, and the change still goes through.
+    const slots = await loadArtworkSlots(appId, romId);
+    await desktopSgdbGamePickerDialog(ask)({
+      romId,
+      appId,
+      romName: romName ?? "",
+      discardsChoices: slots?.slots.some((row) => row.has_choice) ?? false,
+      onApplied: () => detach(loadArtworkSlots(appId, romId)),
     });
   };
 
@@ -247,6 +260,7 @@ export function usePlayLaunch({
     handleStopClick,
     handleUninstallClick,
     handleRefreshArtworkClick,
+    handleChooseGameClick,
     handleRefreshMetadataClick,
     launchGame,
   };

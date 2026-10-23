@@ -16,16 +16,21 @@ export type SettingsSection =
   | "controller"
   | "steam-library"
   | "emulator-sources"
+  | "tender-folder"
   | "updates"
   | "interface"
   | "advanced";
 
 /**
- * One tab of the desktop Tender Settings window: every Settings section, and the
- * four QAM pages the window carries whole.
+ * One tab of the desktop Tender Settings window: every Settings section it
+ * carries, and the four QAM pages it carries whole.
  */
 export type SettingsTab =
-  Exclude<SettingsSection, "emulator-sources" | "interface"> | "sync" | "library" | "downloads" | "data-management";
+  | Exclude<SettingsSection, "emulator-sources" | "interface" | "tender-folder">
+  | "sync"
+  | "library"
+  | "downloads"
+  | "data-management";
 
 /**
  * Where a navigation lands: a page, or the Settings page opened on one of its

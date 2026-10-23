@@ -25,6 +25,8 @@ import { WarningCard } from "./WarningCard";
 import { DownloadProgressRow } from "./DownloadProgressRow";
 import { MigrationBlockedPage } from "./MigrationBlockedPage";
 import { SettingsResetBanner } from "./SettingsResetBanner";
+import { TenderFolderNotices } from "./TenderFolderNotices";
+import { useTenderFolder } from "./useTenderFolder";
 import { PlaytimeScopeBanner } from "./PlaytimeScopeBanner";
 import { UpdateNotice } from "./UpdateNotice";
 import { UpdateFailureNotice } from "./UpdateFailureNotice";
@@ -40,7 +42,7 @@ interface MainPageProps {
 }
 
 /** The connection-row label for a failed probe, mapped from the backend's
- *  `{reason, message}`. The two `config_error` sub-cases are split by message
+ *  `{reason, message}`. The three `config_error` sub-cases are split by message
  *  text (the slug is shared). Anything unclassified falls back to the generic
  *  "Not connected". `version_error` is included for completeness even though a
  *  version failure short-circuits the whole panel to the VersionErrorCard. */
@@ -55,6 +57,7 @@ function connectionFailureLabel(failure: ConnectionFailure | null | undefined): 
     case "version_error":
       return "Unsupported RomM version";
     case "config_error":
+      if (/user name and password/i.test(message)) return "Remove login from RomM URL";
       if (/server url/i.test(message)) return "No server URL";
       if (/not signed in/i.test(message)) return "Not signed in";
       return "Not connected";
@@ -172,7 +175,7 @@ function previewMovesACollection(summary: SyncPreview["summary"]): boolean {
  * spend it. Two of the three such previews can be named: a collection that
  * moved, and cover work. **The collection wins where a preview is both**,
  * because it is the one whose result the reader will see in Steam. What is left
- * keeps the plain invitation: a platform re-stamp, which has nothing a reader
+ * keeps the plain invitation: a re-stamp, which has nothing a reader
  * would recognise to name, and a genuinely empty delta, which has nothing at
  * all. Neither may be called cover work, and the page behind the slot is where
  * it is said which of them it is.
@@ -366,6 +369,7 @@ export const MainPage: FC<MainPageProps> = ({ onNavigate }) => {
   const [sourceBanners, setSourceBanners] = useState<SourceBanner[]>([]);
   const migration = useMigrationStatus();
   const settingsReset = useSettingsResetState();
+  const tenderFolder = useTenderFolder();
   const playtimeScope = usePlaytimeScopeState();
   const downloads = useDownloads();
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -568,6 +572,10 @@ export const MainPage: FC<MainPageProps> = ({ onNavigate }) => {
   return (
     <Focusable {...preferMarkedChild(preferEntry)}>
       {settingsReset.pending && <SettingsResetBanner backedUpTo={settingsReset.backedUpTo} />}
+      <TenderFolderNotices
+        folder={tenderFolder}
+        onChooseAnotherPlace={() => onNavigate({ page: "settings", section: "tender-folder" })}
+      />
       {playtimeScope.pending && (
         <PlaytimeScopeBanner onOpenConnections={() => onNavigate({ page: "settings", section: "connections" })} />
       )}
