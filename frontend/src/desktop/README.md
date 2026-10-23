@@ -30,14 +30,16 @@ are sorted into dedicated lowercase subdirectories:
   with `PlayStateButton`, `PlayButtonBadges`, `DownloadingButton`, `DiscSelector` and `usePlayLaunch`. `AboutHeader.tsx`
   is exported but not rendered anywhere.
   - `desktop/gameview/dialogs/` — the game page's dialogs, drawn for the desktop client over the flows and words in
-    `utils/` (`adoptFlow.ts`, `adoptWording.ts`, `launchPromptWording.ts`, `saveConflictFlow.ts`, `saveHelpers.ts`): the
-    already-on-your-device dialogs a Download press opens, the save-conflict dialog, the launch dialogs (offline drift,
-    fallback launch, core change, unsynced saves) and the slot dialogs. `DesktopDialog.tsx` is the frame they share (and
-    the settings window's confirms share, through `DesktopConfirmDialog.tsx`), `desktopDialogs.tsx` puts them in the
-    shapes the shared flows ask for (`desktopLaunchPrompts` for a launch), and `useDialogHost.tsx` is how a component
-    asks one: a promise that settles with the button pressed, and with the dialog's cancel answer on Escape, a backdrop
-    click or unmount. A start from Tender's Play button asks through the launch dialogs, and so does a start the launch
-    watcher catches (`utils/launchInterceptor.ts`) while the desktop client is Steam's main UI.
+    `utils/` (`adoptFlow.ts`, `adoptWording.ts`, `launchPromptWording.ts`, `saveConflictFlow.ts`, `saveHelpers.ts`,
+    `sgdbGamePicker.ts`, `sgdbPickerWording.ts`): the already-on-your-device dialogs a Download press opens, the
+    save-conflict dialog, the launch dialogs (offline drift, fallback launch, core change, unsynced saves), the slot
+    dialogs, and the SteamGridDB game picker dialog (`DesktopSgdbGamePickerDialog.tsx`). `DesktopDialog.tsx` is the
+    frame they share (and the settings window's confirms share, through `DesktopConfirmDialog.tsx`),
+    `desktopDialogs.tsx` puts them in the shapes the shared flows ask for (`desktopLaunchPrompts` for a launch,
+    `desktopSgdbGamePickerDialog` for manual artwork resolution), and `useDialogHost.tsx` is how a component asks one: a
+    promise that settles with the button pressed, and with the dialog's cancel answer on Escape, a backdrop click or
+    unmount. A start from Tender's Play button asks through the launch dialogs, and so does a start the launch watcher
+    catches (`utils/launchInterceptor.ts`) while the desktop client is Steam's main UI.
 - `desktop/gamesettings/` — (Planned) `GameSettingsView` specific components.
 - `desktop/settings/` — the Tender Settings window and its entry in Steam's "Steam" menu
   ([The Tender Settings Window](../../../docs/architecture/desktop-dom-architecture.md#the-tender-settings-window)):
