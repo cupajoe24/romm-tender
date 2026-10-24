@@ -11,7 +11,6 @@
  */
 
 import { useState, useEffect, FC, Fragment, type ReactElement } from "react";
-import { noteBiosPress } from "../utils/biosAttempts";
 import { showToast } from "../utils/toast";
 import {
   ConfirmModal,
@@ -39,7 +38,7 @@ import { useAutoArtwork } from "../utils/autoArtwork";
 import { hasAnySaveConflict } from "../utils/saveStatus";
 import { scrollToTop } from "../utils/scrollHelpers";
 import { getEventTarget } from "../utils/events";
-import { testConnection, probeReachability, downloadAllFirmware, deleteLocalSaves, debugLog } from "../api/backend";
+import { testConnection, probeReachability, deleteLocalSaves, debugLog } from "../api/backend";
 import { isStrandedPanelFailure } from "../api/host";
 import { executeManualSaveSync } from "../utils/manualSaveSync";
 import { executeRomUninstall } from "../utils/romUninstall";
@@ -56,7 +55,6 @@ import { timeoutMs } from "../utils/playSection";
 import {
   getGameDetail,
   noteSaveSyncDisplay,
-  refreshBiosStatus,
   refreshCoreAndBios,
   refreshSaveStatus,
   useGameDetail,
@@ -415,35 +413,6 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     }
   };
 
-  const handleDownloadBios = async () => {
-    if (actionPending || !detail.platformSlug) return;
-    setActionPending("bios");
-    try {
-      const result = await downloadAllFirmware(detail.platformSlug, detail.romId);
-      if (result.success) {
-        const failed = result.failed ?? [];
-        // The toast says what was downloaded; what was left in place, a link
-        // that could not be placed and a file moved aside are said on the BIOS
-        // tab's rows.
-        noteBiosPress(result);
-        showToast(failed.length > 0 ? result.message : `BIOS downloaded (${result.downloaded} files)`);
-        if (result.downloaded > 0) {
-          globalThis.dispatchEvent(
-            new CustomEvent("romm_data_changed", { detail: { type: "bios", platform_slug: detail.platformSlug } }),
-          );
-        }
-        // Refresh BIOS status — getBiosStatus ships pre-computed level/label so we don't re-derive.
-        await refreshBiosStatus(appId);
-      } else {
-        showToast(result.message || "BIOS download failed");
-      }
-    } catch {
-      showToast("BIOS download failed");
-    } finally {
-      setActionPending(null);
-    }
-  };
-
   const handleUninstall = async () => {
     if (actionPending || !detail.romId) return;
     setActionPending("uninstall");
@@ -594,14 +563,6 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
           }}
         >
           Sync Save Files
-        </MenuItem>
-        <MenuItem
-          key="download-bios"
-          onClick={() => {
-            detach(handleDownloadBios());
-          }}
-        >
-          Download BIOS
         </MenuItem>
         <MenuSeparator key="sep" />
         <MenuItem key="delete-saves" tone="destructive" onClick={handleDeleteSaves}>

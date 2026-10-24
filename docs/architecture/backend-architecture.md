@@ -833,16 +833,28 @@ sibling row holding `shortcut_app_id` is the group's **active version**.
   (`domain/sync_diff.py::collapse_sibling_groups`). Preview and apply build the full per-ROM shortcut list, then
   collapse it to one entry per group against the bound-row registry (preview reads
   `LocalLibraryReader.do_read_preview_baseline`, apply reads `LocalLibraryReader.do_read_apply_registry` per unit). The
-  collapse takes an explicit `complete_group_view` flag: a sibling group is per-platform, so the whole-library
-  **preview** union and each **platform** apply unit see a group's whole membership (`complete_group_view=True`) and
-  collapse identically — the preview counts can never diverge from what those units create (the #1292 counts-vs-reality
-  bug class). A **collection** apply unit spans platforms and may fetch only one unbound sibling of a group whose bound
-  member it never fetched, so it is a **partial** view (`complete_group_view=False`): a group that already holds a
-  binding anywhere is grandfathered untouched — never rebound onto the partial member, never given a second shortcut —
-  because the group's real representative rides its own platform unit in the same run. (Inferring "bound sibling absent
-  ⇒ vanished" from a partial view would rebind a live installed game onto an uninstalled sibling — #1296.)
-  `classify_roms` runs over the collapsed set, so its new / changed / unchanged / stale buckets count **games, not
-  dumps**, and an unbound sibling stops reading as a perpetual "new".
+  collapse takes an explicit `complete_group_view`: a sibling group is per-platform, so each **platform** apply unit
+  sees a group's whole membership (`complete_group_view=True`). A **collection** apply unit spans platforms and may
+  fetch only one unbound sibling of a group whose bound member it never fetched, so it is a **partial** view
+  (`complete_group_view=False`): a group that already holds a binding anywhere is grandfathered untouched — never
+  rebound onto the partial member, never given a second shortcut. The whole-library **preview** passes the set of group
+  keys it holds whole, so each group gets the view the apply's units have: every group a platform unit of the run
+  delivered a member of is complete, whether or not that unit is skipped as unchanged, and a group only collections
+  reach is partial (#2536). The rebinds the view decides are therefore counted as the apply makes them (the #1292
+  counts-vs-reality bug class). Collapsed whole, a game only collections reach would count a rebind of a bound member
+  gone from RomM, or without a file, that its collection unit never makes. Where the group's platform is synced, its
+  bound member rides that platform unit in the same run; where only collections reach the group, the stale removal keeps
+  the binding (below). (Inferring "bound sibling absent ⇒ vanished" from a partial view would rebind a live installed
+  game onto an uninstalled sibling — #1296.) A collection skipped as unchanged hands the preview the bound members it
+  lists, rebuilt from their stored rows, among them one its platform's fetch no longer returns: a user's own hide in
+  RomM drops the member from `/api/roms` but not from a standard or virtual collection's listing. The apply's platform
+  unit commits before that collection unit runs and collapses the group without the member, so it rebinds the shortcut
+  where a same-stem sibling is fetched. The preview collapses such a group a second time without the rebuilt rows
+  (`services/library/_preview_union.py::collapse_counting_platform_rebinds`); where that pass rebinds a row, its answer
+  is taken and the row is no longer classified as skipped, and where it does not, the row keeps its place and stays
+  skipped, so the platform-collection diff files it as the apply does (#2544 D1). The run counts the row as synced
+  either way, which the stale removal reads. `classify_roms` runs over the collapsed set, so its new / changed /
+  unchanged / stale buckets count **games, not dumps**, and an unbound sibling stops reading as a perpetual "new".
 - **Resolution chain** (`domain/sibling_resolution.py::resolve_group_representative`, total + shuffle-stable): an
   installed sibling wins; else an existing binding; else RomM's per-user default (`is_main_sibling`); else the **1G1R
   ranking** — prerelease demotion > **region priority** > revision (newest) > alphabetical `fs_name_no_ext` > `rom_id`.
@@ -882,18 +894,25 @@ sibling row holding `shortcut_app_id` is the group's **active version**.
   ([ADR-0021](../adr/0021-sibling-group-one-shortcut-binding-active-version.md) §2's amendment). A bound sibling that
   vanished from the server emits nothing and keeps its binding, its shortcut, name and launch command, installed or not;
   the game page says it is gone, and the version picker switches it. The one move left is onto **the same dump under a
-  new id** — in a view that sees the group's whole membership (a platform unit or the preview,
-  `complete_group_view=True`; a partial collection view never moves a binding), onto a fetched sibling with a file on
-  RomM, no shortcut of its own and the `fs_name_no_ext` the vanished row's stored `fs_name` has without its extension.
-  The collapse then emits a **rebind entry** keyed to the vanished sibling's `rom_id` (so the frontend reuses its
-  existing shortcut through the `rom_id → appId` map — no delete + recreate churn), carrying the target's launch bake
-  and a `bind_rom_id` marker. The commit translates the ack through `bind_rom_id`, so the DB binding moves onto the
-  target; the collision-safe `Rom` save then unbinds the vanished row. The shortcut's appId, artwork, collections and
-  playtime all survive. The #1036 committed-appId guard is unchanged (the reused appId is committed this run, so it is
-  never emitted for removal).
+  new id** — in a view that sees the group's whole membership (a platform unit, or the preview for a group a platform
+  unit delivers; a partial collection view never moves a binding), onto a fetched sibling with a file on RomM, no
+  shortcut of its own and the `fs_name_no_ext` the vanished row's stored `fs_name` has without its extension. The
+  collapse then emits a **rebind entry** keyed to the vanished sibling's `rom_id` (so the frontend reuses its existing
+  shortcut through the `rom_id → appId` map — no delete + recreate churn), carrying the target's launch bake and a
+  `bind_rom_id` marker. The commit translates the ack through `bind_rom_id`, so the DB binding moves onto the target;
+  the collision-safe `Rom` save then unbinds the vanished row. The shortcut's appId, artwork, collections and playtime
+  all survive. The #1036 committed-appId guard is unchanged (the reused appId is committed this run, so it is never
+  emitted for removal).
 - **The stale removal keeps a game gone from RomM.** A bound row no unit of the run returned is sorted by
   `domain/sync_diff.py::sort_stale_rows`: on a platform the run read whole it is gone from RomM and stays bound — and
-  stays in its platform's Steam collection; on a platform the run did not read, it was reached either through a
+  stays in its platform's Steam collection. On a platform the run did not read, **a row whose game the run synced stays
+  bound**: when another member of its sibling group is among the ROMs a unit returned, a skipped unit's stamp members
+  included (#2533 D1), the row is never removed. A row's group is read off its stored key: a bound version whose stored
+  key no longer matches its game's, after RomM matched the game anew, is judged by that stored key, as before this rule
+  (#2533 D10). It is still asked about wherever any other row would be, below, and RomM's answer sets or clears its mark
+  as for any asked row (D6). A version switch binds the shortcut to a member no unit delivers while a collection still
+  delivers the game through another version, and collecting any version puts the game's one shortcut in the collection
+  (the group fallback below). A row without a group key is judged alone. Any other row was reached either through a
   collection or through its platform. The row itself says which: `roms.delivered_through` records the kind of unit whose
   commit last upserted it (`Rom.record_delivery`, written by `SyncReporter.commit_unit_results` for the unit the chunk
   dispatcher names; a commit that names none, such as a unit acknowledged after its run ended, keeps the row's value). A
@@ -919,8 +938,11 @@ sibling row holding `shortcut_app_id` is the group's **active version**.
   (`do_read_kept_platform_names`, through `services/library/_stale_rows.py::with_kept_platform_names`) and counts the
   collection as kept. Force Full Sync leaves the routes in place. The preview asks the same question for the same rows,
   through the same `services/library/_stale_rows.py::settle_stale_rows`, so the removals it counts are the ones the
-  apply makes. **Only the apply records what it established** (`StaleSort.gone_from_romm_marks`, written in the
-  finalize's write UoW by `SyncReporter.finalize_per_unit_run`): an asked row RomM answered with a proven 404 is marked
+  apply makes. Both judge a row's game by the group keys of the ROMs the run counts as synced
+  (`domain/sync_diff.py::group_keys_of`): the apply reads them off the rows its commits upserted
+  (`do_read_resident_group_keys`), and the preview, which writes nothing, lays the keys its fetch stamped over the same
+  read. **Only the apply records what it established** (`StaleSort.gone_from_romm_marks`, written in the finalize's
+  write UoW by `SyncReporter.finalize_per_unit_run`): an asked row RomM answered with a proven 404 is marked
   `roms.gone_from_romm = 'not_found'`, one RomM returned has its mark cleared, and an answer that establishes nothing
   writes nothing; a row kept on a platform RomM no longer lists is marked `delisted`. A row kept on a platform the run
   read whole is not marked, since that platform's stamp already names it. Any commit of a row clears its mark, because
@@ -2711,16 +2733,19 @@ backstop in `_handle_upload_409` (`services/saves/sync_engine/matrix.py`).
   Two conversions are the adapter's, not the core's, and both exist so an "unknown" stays a flag instead of becoming a
   value: a server save's ISO-8601 `updated_at` becomes epoch seconds plus a `has_updated_at` flag (an unparseable
   timestamp arrives as a cleared flag, never as a substitute instant, so it cannot win head selection), and an absent
-  size becomes a cleared `has_size` flag (`0` is exactly what the corrupt-local guard reacts to, so it cannot double as
-  "no size recorded"). Presence of the local file rides on the pointer alone — a file that exists but could not be
-  measured is a real case, distinct from a missing one. The core answers with the chosen `server_save_id`, which the
-  adapter resolves back to the caller's own save dict so `Download` / `Conflict` carry the full record their consumers
-  read.
-- **What ships**: `backend/native/libgavel-x86_64-linux.so` (romm-gavel `v1.0.1`, a freestanding build with zero library
+  size or content size becomes a cleared `has_*` flag (a raw size of `0` is what the guard refuses outright, and a
+  content size of `0` is a file of fill only, so neither can double as "no size recorded"). A non-integral size raises
+  rather than rounding, and so does a `size_fixed` that is not a `bool`: an absent or `None` one is unknown, and
+  anything else would be read as yes or no by a guess. Presence of the local file rides on the pointer alone — a file
+  that exists but could not be measured is a real case, distinct from a missing one. The core answers with the chosen
+  `server_save_id`, which the adapter resolves back to the caller's own save dict so `Download`, `Conflict` and an
+  adopting `Skip` carry the full record their consumers read; an adopting `Skip` also carries `acknowledge`, and a skip
+  that adopts nothing names no head.
+- **What ships**: `backend/native/libgavel-x86_64-linux.so` (romm-gavel `v2.0.0`, a freestanding build with zero library
   dependencies — it loads on any x86_64 Linux), vendored verbatim from the upstream release with a pinned SHA-256
   checksum. The C ABI has been part of upstream's promise since `v1.0.0`: struct layouts, signatures and enumerator
-  values now cost a major bump to change, which is what makes pinning a compiled artifact meaningful. Provenance and the
-  update procedure live in
+  values cost a major bump to change, which is what makes pinning a compiled artifact meaningful — and why the binary
+  and the `ctypes` structs in `adapters/gavel_native.py` move together. Provenance and the update procedure live in
   [`native/README.md`](https://github.com/danielcopper/romm-tender/blob/main/backend/native/README.md). The checksum is
   re-verified by CI, so a swapped binary fails the pipeline; nothing asserts the `.so` reaches a built package, because
   no build here produces one.
@@ -2966,22 +2991,23 @@ answers `null` where nothing is left.
 **No unknown withdraws a download, because the two questions are independent.** What the resolver could establish is the
 emulator's DEMAND; what is fetchable is what the RomM library HOLDS, and neither answers the other. A platform nothing
 could be read for still has a library behind it, and fetching from it is the one action that moves the platform along at
-all — so every download `PlatformDetail` offers is built off the fetchable set
-(`on_server && !downloaded && declared_kind !== "directory"`, plus the offline server) and reads the verdict
-**nowhere**: not `bios_level`, not `required_withheld`. The two further inputs those buttons do read are of the same two
-kinds — each row's `fetch_for_required` is its emulator's own demand and is what `Download required` counts over the
-shown emulator's rows, and the library's own finished ratio is what stops `Download all` offering a set already complete
-— so neither is a readiness gate either. `fetch_for_required` is `domain/firmware_groups.py`'s `fetched_as_required`,
-the one rule `FirmwareDownloader.download_required_firmware` applies too: the files the emulator requires, and the
-options of its one-of groups that serve a region nothing in place covers yet. A pick nothing could identify — a platform
-with no emulator listed, or one whose first listed emulator the resolver names no identity for — is no emulator (#2190
-D26): no row is its requirement or one it uses, nothing is fetched for it, it has no entry in the emulator selector — so
-the platform page opens on the first other emulator and offers that one's `Download required`, and none where there is
-no other (#2190 D34) — and the header reads that nothing could be established — the empty required set is an absence of
-an answer, never "nothing required" (the verdict for no identity is none, so `emulator_read` is false and the level
-unknown). Reading readiness there is what took the buttons off PS2, GameCube and PSP the moment a BIOS answer was scoped
-to the emulator that actually launches: those launch standalone emulators the resolver holds no card for, so the verdict
-declines over a library that still holds their files.
+all — so every download the BIOS table offers (`frontend/src/bigpicture/bios/BiosFiles.tsx`, on a platform's pane and on
+a game's BIOS tab) is built off the fetchable set (`on_server && !downloaded && declared_kind !== "directory"`, plus the
+offline server) and reads the verdict **nowhere**: not `bios_level`, not `required_withheld`. The two further inputs
+those buttons do read are of the same two kinds — each row's `fetch_for_required` is its emulator's own demand and is
+what `Download required` counts over the shown emulator's rows, and the library's own finished ratio is what stops
+`Download all` offering a set already complete — so neither is a readiness gate either. `fetch_for_required` is
+`domain/firmware_groups.py`'s `fetched_as_required`, the one rule `FirmwareDownloader.download_required_firmware`
+applies too: the files the emulator requires, and the options of its one-of groups that serve a region nothing in place
+covers yet. A pick nothing could identify — a platform with no emulator listed, or one whose first listed emulator the
+resolver names no identity for — is no emulator (#2190 D26): no row is its requirement or one it uses, nothing is
+fetched for it, it has no entry in the emulator selector — so the platform page opens on the first other emulator and
+offers that one's `Download required`, and none where there is no other (#2190 D34) — and the header reads that nothing
+could be established — the empty required set is an absence of an answer, never "nothing required" (the verdict for no
+identity is none, so `emulator_read` is false and the level unknown). Reading readiness there is what took the buttons
+off PS2, GameCube and PSP the moment a BIOS answer was scoped to the emulator that actually launches: those launch
+standalone emulators the resolver holds no card for, so the verdict declines over a library that still holds their
+files.
 
 **What the narrowest decline does decide is wording.** "Not read" (`emulator_read` false, `reading_complete_for`) means
 the emulator stated nothing about what it wants — a `read` declaration with an empty list is read, and says it needs

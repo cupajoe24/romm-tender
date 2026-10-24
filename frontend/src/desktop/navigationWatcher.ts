@@ -63,7 +63,7 @@ interface MainWindowBrowserManagerStub {
   };
 }
 
-interface WindowWithManager extends Window {
+interface WindowWithManager {
   MainWindowBrowserManager?: MainWindowBrowserManagerStub;
 }
 

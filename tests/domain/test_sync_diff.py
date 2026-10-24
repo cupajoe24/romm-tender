@@ -13,6 +13,7 @@ from domain.sync_diff import (
     collapse_sibling_groups,
     compute_collection_diff,
     compute_platform_collection_diff,
+    group_keys_of,
     platform_breakdown,
     platform_collection_name,
     select_stale_removals,
@@ -1063,6 +1064,46 @@ class TestCollapseSiblingGroupsPartialView:
         assert all(BIND_ROM_ID_KEY not in e for e in emitted)
 
 
+class TestCollapseSiblingGroupsViewPerGroup:
+    """``complete_group_view`` as the set of groups held whole: the preview's union (#2536 D2)."""
+
+    @staticmethod
+    def _vanished_and_fileless():
+        """g1's bound 1 left RomM, its dump is 2; g2's bound 3 has no file, its dump is 4."""
+        members = [
+            _gsd(2, group_key="g1", fs_name_no_ext="a"),
+            _no_file(_gsd(3, group_key="g2", fs_name_no_ext="b")),
+            _gsd(4, group_key="g2", fs_name_no_ext="b"),
+        ]
+        registry = {
+            "1": _greg(1, app_id=1001, group_key="g1", fs_name="a.z64"),
+            "3": _greg(3, app_id=1003, group_key="g2", fs_name="b.z64"),
+        }
+        return members, registry
+
+    @pytest.mark.parametrize(
+        ("whole", "expected"),
+        [
+            ({"g1", "g2"}, [(1, 2), (3, 4)]),
+            ({"g1"}, [(1, 2), (3, None)]),
+            ({"g2"}, [(3, 4)]),
+            (set(), [(3, None)]),
+        ],
+        ids=["both", "g1", "g2", "none"],
+    )
+    def test_only_a_group_held_whole_rebinds(self, whole, expected):
+        members, registry = self._vanished_and_fileless()
+        emitted = collapse_sibling_groups(members, registry, installed_rom_ids=set(), complete_group_view=whole)
+        assert sorted((e["rom_id"], e.get(BIND_ROM_ID_KEY)) for e in emitted) == expected
+
+    @pytest.mark.parametrize(("whole", "flag"), [({"g1", "g2"}, True), (set(), False)], ids=["every", "none"])
+    def test_a_set_naming_every_group_or_none_answers_as_the_flag_does(self, whole, flag):
+        members, registry = self._vanished_and_fileless()
+        by_set = collapse_sibling_groups(members, registry, installed_rom_ids=set(), complete_group_view=whole)
+        by_flag = collapse_sibling_groups(members, registry, installed_rom_ids=set(), complete_group_view=flag)
+        assert by_set == by_flag
+
+
 class TestPlatformBreakdown:
     """platform_breakdown — the preview's library-wide counts split per platform."""
 
@@ -1464,12 +1505,83 @@ class TestSortStaleRows:
             [], read_platform_slugs=set(), listed_platform_slugs=set(), collection_listed_rom_ids=set()
         ) == StaleSort([], [], [])
 
+    def test_a_row_whose_game_a_unit_delivered_is_never_removed_and_asked_only_where_another_would_be(self):
+        """A version switch bound a member no unit delivers; the run delivered another member of its group."""
+        listed_turned_off = StaleRow(1, 1001, "gba", None, "igdb:1:1")
+        via_collection = StaleRow(2, 1002, "gba", "collection", "igdb:2:1")
+        via_platform_turned_off = StaleRow(3, 1003, "gba", "platform", "igdb:3:1")
+        via_platform_gone_from_romm = StaleRow(4, 1004, "psx", "platform", "igdb:4:1")
+        unrecorded_listed = StaleRow(5, 1005, "gba", None, "igdb:5:1")
+
+        sort = sort_stale_rows(
+            [
+                listed_turned_off,
+                via_collection,
+                via_platform_turned_off,
+                via_platform_gone_from_romm,
+                unrecorded_listed,
+            ],
+            read_platform_slugs=set(),
+            listed_platform_slugs={"gba"},
+            collection_listed_rom_ids={5},
+            synced_group_keys={"igdb:1:1", "igdb:2:1", "igdb:3:1", "igdb:4:1", "igdb:5:1"},
+        )
+
+        assert sort == StaleSort([], [], [], (via_collection, unrecorded_listed))
+        assert sort.gone_from_romm_marks({}, set()) == {}
+
+    def test_a_row_asked_only_for_its_mark_is_marked_and_cleared_like_any_asked_row(self):
+        gone, present, unknown = (StaleRow(rid, 1000 + rid, "gba", "collection", "igdb:1:1") for rid in (1, 2, 3))
+        sort = sort_stale_rows(
+            [gone, present, unknown],
+            read_platform_slugs=set(),
+            listed_platform_slugs={"gba"},
+            collection_listed_rom_ids=(),
+            synced_group_keys={"igdb:1:1"},
+        )
+
+        assert sort.gone_from_romm_marks({1: "gone", 2: "present", 3: "unknown"}, set()) == {1: "not_found", 2: None}
+
+    def test_a_row_on_a_platform_read_whole_is_kept_whether_or_not_its_game_was_delivered(self):
+        row = StaleRow(1, 1001, "n64", "platform", "igdb:1:1")
+
+        sort = sort_stale_rows(
+            [row],
+            read_platform_slugs={"n64"},
+            listed_platform_slugs={"n64"},
+            collection_listed_rom_ids=(),
+            synced_group_keys={"igdb:1:1"},
+        )
+
+        assert sort.keep == [row]
+
+    @pytest.mark.parametrize("key", [None, "igdb:2:1"], ids=["no group key", "another game"])
+    def test_a_row_whose_own_game_no_unit_delivered_is_judged_alone(self, key):
+        row = StaleRow(1, 1001, "gba", None, key)
+
+        sort = sort_stale_rows(
+            [row],
+            read_platform_slugs=set(),
+            listed_platform_slugs={"gba"},
+            collection_listed_rom_ids=(),
+            synced_group_keys={"igdb:1:1"},
+        )
+
+        assert sort.remove == [row]
+
     def test_only_a_rom_romm_returned_is_removed(self):
         gone, present, unknown, unasked = (StaleRow(rid, 1000 + rid, "gba") for rid in (1, 2, 3, 4))
 
         remove, keep = settle_asked_rows([gone, present, unknown, unasked], {1: "gone", 2: "present", 3: "unknown"})
 
         assert (remove, keep) == ([present], [gone, unknown, unasked])
+
+
+class TestGroupKeysOf:
+    def test_the_keys_held_for_the_ids_asked_and_nothing_for_an_id_without_one(self):
+        keys = {1: "igdb:1:1", 2: "igdb:1:1", 3: "igdb:3:1", 4: "igdb:4:1"}
+
+        assert group_keys_of({1, 2, 3, 5}, keys) == frozenset({"igdb:1:1", "igdb:3:1"})
 
 
 class TestGoneFromRommMarks:

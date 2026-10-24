@@ -234,7 +234,7 @@ describe("Platforms", () => {
     expect(screen.getByTestId("bios-legend")).toHaveTextContent("required, missing");
 
     await press(button("Download required (1)"));
-    expect(backend.downloadRequiredFirmware).toHaveBeenCalledWith("gba", null);
+    expect(backend.downloadRequiredFirmware).toHaveBeenCalledWith("gba", null, null);
   });
 
   it("opens the emulator menu from the core button", async () => {
@@ -275,7 +275,7 @@ describe("Platforms", () => {
     await renderTab();
     await openPlatform("Game Boy Advance");
     await press(button("Download", screen.getByTestId("bios-table")));
-    expect(backend.downloadPlatformFirmwareFile).toHaveBeenCalledWith("gba", "gba_bios.bin", null);
+    expect(backend.downloadPlatformFirmwareFile).toHaveBeenCalledWith("gba", "gba_bios.bin", null, null);
   });
 
   it("asks before deleting a downloaded file, and before deleting every one", async () => {
