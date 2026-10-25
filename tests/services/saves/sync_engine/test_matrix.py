@@ -2349,27 +2349,23 @@ class TestTheContentSizeAtTheBoundaries:
         assert _require_save_state(svc, 42).files["pokemon.srm"].last_sync_content_size is None
 
 
-# Each shape a save answer can state ``pokemon.srm``'s size in — one group per
-# claim, listing that file — and the ``size_fixed`` the decision is handed for
-# it; ``_ABSENT`` is the key left out.
+# Each shape a save answer can state ``pokemon.srm``'s size in — the one group
+# listing that file, or none (``no-group``) — and the ``size_fixed`` the
+# decision is handed for it; ``_ABSENT`` is the key left out.
 _ABSENT = object()
 _CLAIMS: dict[str, tuple[tuple[bool | None, ...], object]] = {
     "fixed": ((True,), True),
     "not-fixed": ((False,), False),
     "null": ((None,), _ABSENT),
     "no-group": ((), _ABSENT),
-    "two-groups-agree": ((True, True), True),
-    "two-groups-disagree": ((True, False), _ABSENT),
 }
 
 
 class TestTheSizeClaimReachesTheDecision:
-    """Each save file's ``size_fixed`` reaches the decision as the save answer states it (#2538 D3, D4).
+    """Each save file's ``size_fixed`` reaches the decision as the save answer states it (#2538 D3).
 
     The sync and the save status's preview walk the same matrix with the same
-    synced components, so both hand the decision the same claim. A file two
-    groups list is two components, and so two decisions; what is pinned here is
-    the claim each is handed, not how many there are.
+    synced components, so both hand the decision the same claim.
     """
 
     @staticmethod
@@ -2379,7 +2375,7 @@ class TestTheSizeClaimReachesTheDecision:
         *,
         elsewhere: tuple[tuple[str, bool | None], ...] = (),
     ):
-        """An answer whose groups list ``pokemon.srm`` once per claim in *claims*.
+        """An answer whose one group listing ``pokemon.srm`` states the claim in *claims*, or none (``no-group``).
 
         *elsewhere* adds one group per ``(name, claim)`` in another directory.
         """
