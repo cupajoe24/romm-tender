@@ -334,6 +334,7 @@ export const BiosTab: FC<BiosTabProps> = ({
   }
   const groupBlock = buildGroupBlock(biosStatus);
   if (groupBlock) header.push(groupBlock);
+  const hasLibrary = part.libraryRows.length > 0;
 
   // The selector and the table sit below the header, outside its section: a
   // section is itself a focusable button, and their buttons inside it would be
@@ -351,7 +352,10 @@ export const BiosTab: FC<BiosTabProps> = ({
         style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: "24px 40px" }}
         onFocus={centreFocused}
       >
-        <div data-testid="bios-main-column" style={{ ...COLUMN_BOX, flex: `0 0 ${MAIN_COLUMN}`, maxWidth: "100%" }}>
+        <div
+          data-testid="bios-main-column"
+          style={{ ...COLUMN_BOX, flex: hasLibrary ? `0 0 ${MAIN_COLUMN}` : "1 1 100%", maxWidth: "100%" }}
+        >
           <Focusable className="romm-bios-column" flow-children="column" style={COLUMN_FILL}>
             {section(
               "bios-core",
@@ -363,14 +367,18 @@ export const BiosTab: FC<BiosTabProps> = ({
             <BiosEmulatorSelector part={part} padding={`4px ${PANE_GUTTER} 6px`} />
             <BiosShownTable part={part} />
             <BiosButtons part={part} status={status && { key: status.slug, scope: status.scope, text: status.text }} />
+            <div data-testid="bios-legend-row" style={{ opacity: 0.6, marginTop: "12px" }}>
+              <BiosPartLegend part={part} inline />
+            </div>
           </Focusable>
         </div>
-        <div data-testid="bios-library-column" style={{ ...COLUMN_BOX, flex: `1 1 ${SIDE_COLUMN}` }}>
-          <Focusable className="romm-bios-column" flow-children="column" style={COLUMN_FILL}>
-            <BiosLibraryTable part={part} />
-            <BiosPartLegend part={part} />
-          </Focusable>
-        </div>
+        {hasLibrary && (
+          <div data-testid="bios-library-column" style={{ ...COLUMN_BOX, flex: `1 1 ${SIDE_COLUMN}` }}>
+            <Focusable className="romm-bios-column" flow-children="column" style={COLUMN_FILL}>
+              <BiosLibraryTable part={part} />
+            </Focusable>
+          </div>
+        )}
       </div>
     </Focusable>
   );
