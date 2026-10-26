@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 
     from services.library._state import LibrarySyncStateBox
 
-    # Orchestrator-supplied progress emitter. Matches the kw-only signature
-    # of ``SyncOrchestrator.emit_progress``: stage positional, every other
-    # field keyword. Sub-services consume this through the Config seam.
+    # ``SyncProgress.emit_progress``, as its callers use it: the stage
+    # positional, every other field by keyword. Sub-services consume this
+    # through the Config seam.
     EmitProgressFn = Callable[..., Awaitable[None]]
 
 _SYNC_CANCELLED = "Sync cancelled"

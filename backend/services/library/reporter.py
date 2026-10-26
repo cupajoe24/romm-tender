@@ -1,7 +1,7 @@
 """Sync result reporter and registry-query sub-service.
 
 Owns the post-apply path: the ``report_unit_results`` ack the frontend
-sends (event signal only) and the orchestrator-driven
+sends (event signal only) and the chunk-dispatcher-driven
 ``commit_unit_results`` that finalises artwork file names and upserts
 each acked ROM into the ``roms`` aggregate, stamping its cached
 ``rom_metadata`` in the same write UoW (Rom row first, then metadata —
@@ -14,7 +14,8 @@ run-history-derived query methods (``get_registry_platforms``,
 reset.
 Anything that mutates the ``roms`` registry as a side-effect of a
 finished sync run belongs here; anything that decides "what should
-this sync do?" belongs in the orchestrator.
+this sync do?" belongs in the orchestrator, the preview or the unit
+applier.
 """
 
 from __future__ import annotations
@@ -83,7 +84,7 @@ class SyncReporterConfig:
     repositories), the shared ``LibrarySyncStateBox`` (the reporter reads
     the pending-sync dicts staged by :class:`ChunkDispatcher`; the run-lifecycle
     reset is owned by the orchestrator's terminal ``finally``, not here), an
-    orchestrator-supplied ``emit_progress`` callback for the terminal "done"
+    ``SyncProgress.emit_progress`` callback for the terminal "done"
     event, the ``ArtworkManager`` peer used for cover-path finalisation, and
     the ``ConflictRules`` the ``sync_complete`` event's lease is taken through.
     """
