@@ -281,21 +281,6 @@ locally with `mise run docs`.
   to render as a row's headline. Nothing mechanical carries any of this; the vocabulary overlaps ours almost exactly
   (`satisfied`, `required`, `present`, `cores`, `description` all exist on both sides and name different types), which
   is what makes a wrong reading look like a correct one.
-- **Tender works out no new fact the resolver states — not in code and not by decision.** The target, open in #2579, is
-  one reading module per kind of resolver answer, with every later layer reading only its view; today the firmware
-  answer alone is read in the adapter, in `domain/`, in `services/firmware/` and in the frontend. Until #2579's check is
-  in CI this is prompt-only, and each of these is a finding, never "no rule violated": a new site that decides something
-  from one of the resolver's verdicts, causes or caveat codes (`requirements_met`, `satisfied`, `checked`, a group's
-  verdict, a granularity), whether it reads them off the resolver's answer or off a Tender type that passes them on
-  under the same name, instead of going through the reader that already decides that fact; a join on `file_name` where
-  the resolver states `declared`; an import from anywhere but the top-level `atlas` namespace (`atlas.__all__`), the one
-  exception being `RealMachine`, which `adapters/emulator_sources.py` holds; a new Tender table for something the
-  resolver answers (find rules, launch command patterns, launch-file types, RomM regions). The derivations and imports
-  that exist today, some of them pinned by entries in the register below, stand until #2195 and #2580 remove them:
-  fixing one is not a finding, extending one or copying it to a new page is. Where the resolver gives no answer, Tender
-  says it could not be established and an emu-atlas issue asks for the answer; a decision that lets Tender work out a
-  resolver fact — because the resolver is slow, cannot answer yet, or another page already does it — is not proposed.
-  Once #2579's check is in CI, this entry shrinks to that check's one-line statement in the register.
 
 ## Current State
 
@@ -544,6 +529,42 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   a finding** — check — `scripts/check_seam_owner.py` (an aliased seam, a `getattr`, or a seam passed positionally into
   a helper slips past it); unchecked: `shortcut_launch_resolver`'s install-path read UoW is never held across the
   `active_core` seam's calls (`check_uow_seam_nesting.py` catches only the inline form)
+- **The resolver's answer is read only in the adapter that asks for it — `adapters/atlas_catalogue.py`,
+  `atlas_firmware.py`, `atlas_saves.py`, `emulator_sources.py` and `retrodeck_folders.py`: only they import the
+  resolver, and only names in `atlas.__all__`; outside them no backend module and no panel code names one of the
+  resolver's codes, a distinctive value of any other closed vocabulary it exports or one of its distinctive answer field
+  names; and every caveat, health-issue, unresolved and reason code the vendored resolver states is classified by one of
+  them or stands on the list of codes nothing classifies today. Only infrastructure and homonyms are excepted: by name,
+  each with its reason, `adapters/atlas_zstd.py` imports the resolver to hand it the zstd codec and
+  `adapters/emulator_sources.py` holds `RealMachine` (`IMPORT_GRANTS`, `INTERNALS_GRANTED`); `tests/` is excepted as a
+  whole, because tests build the resolver's machines and answers rather than read an answer for display; and a name that
+  means something else in a module stands on `NOT_THE_RESOLVERS`, in the backend's check and in the panel's rule. The
+  modules that read the answer today (`READERS_TODAY`, `RESOLVER_READERS_TODAY`), `atlas_firmware.py`'s three private
+  imports (`INTERNALS_TO_REMOVE`), the homonyms, the generic words left unwatched (`GENERIC_VALUES`, and in the panel
+  alone `PANEL_GENERIC_VALUES`) and the codes nothing classifies (`_UNCLASSIFIED`) stand on lists that only shrink** —
+  check + test + prompt-only — `scripts/check_resolver_reading.py` (the backend's imports and vocabulary, and that
+  `frontend/resolver-vocabulary.json` is what it writes today; what it does not see is listed in its docstring), the
+  ESLint rule `tender/no-resolver-vocabulary` in `frontend/eslint.config.js`, kept live by
+  `frontend/src/eslintNoResolverVocabulary.test.ts`, and `tests/adapters/test_resolver_codes.py` (a code is classified
+  once a reading module imports its constant). Unseen by the ESLint rule: a second site in a listed or excepted file
+  reading the name it stands there for; a name as a plain string (`"satisfied" in row`, `Pick<T, "satisfied">`,
+  `T["satisfied"]`); a code, value or name spelled as the name of a class field, a class method, a method in a type, an
+  enum member, a JSX attribute or a binding (a variable, a parameter, a function, a class, a type, an import or an
+  export), or as a qualified name in a type (`typeof a.pal`); test files, `src/test-setup.ts` and `src/test-utils/`; a
+  code or name built at run time; a field reached through a spread or `Object.entries`; a generic word of those
+  vocabularies, which the check leaves out (`GENERIC_VALUES`); a word the panel alone speaks with a meaning of its own,
+  which the rule leaves out in the panel (`PANEL_GENERIC_VALUES`); a word of Tender's own spoken inside one of those
+  vocabularies (`"rejected"`); and a watched value handed on through a parameter or a field of Tender's own name. Unseen
+  by the classification test: whether a reading module that names a code reads it rightly. Prompt-only: an entry on
+  `NOT_THE_RESOLVERS` is a name that means something else in its module, never a read of the resolver's answer; a code
+  the resolver adds is classified by a reading module rather than added to the list; Tender keeps no table of its own
+  for anything the resolver answers (find rules, launch command patterns, launch-file types, RomM regions); a join is on
+  the resolver's keys (`declared`, `(emulator, declared_index)`), never on `file_name` alone or a label; where the
+  resolver gives no answer, Tender says it could not be established and an emu-atlas issue asks for it; no decision is
+  proposed that lets Tender work out a fact the resolver states — because the resolver is slow, cannot answer yet, or
+  another page already does it; and the derivations and imports on today's lists stand until the issue that builds their
+  kind's reading module removes them (#2579 D5): fixing one is not a finding, extending one or copying it to a new page
+  is
 - **The resolver's installations are detected in one place, `adapters/emulator_sources.py`, through the one
   `RealMachine` the process keeps; every other adapter asks it, and a game's questions go to the source
   `domain/emulator_sources.py::answering_source` names** — test + prompt-only —

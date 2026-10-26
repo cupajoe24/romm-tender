@@ -1,7 +1,7 @@
 ---
 status: accepted
 decided: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-26
 amends: [0011, 0028, 0030, 0041]
 ---
 
@@ -101,3 +101,28 @@ Measured before deciding (2026-10-04):
 - The work waits on resolver answers that do not exist yet (the launch command and its parts, links in the firmware
   root), tracked as emu-atlas issues the Tender issues are blocked by. Until they land, what is missing is shown as
   missing.
+
+## Amendment — each kind of answer is read in one module, and CI holds it
+
+Decided in [#2579](https://github.com/danielcopper/romm-tender/issues/2579). The first decision held only as prose:
+after the adapter, nothing kept the reading together, and the layers behind it each derived facts of their own from the
+answer and disagreed. Its reading half is now held by checks; the rest stays prose.
+
+- **The reading module of each kind of answer is its adapter**, the module that asks the resolver: firmware, saves, the
+  catalogue, the folders and the sources. It translates the answer into Tender's own types, joined on the resolver's
+  keys, and no later layer judges a fact the resolver states — the adapter of ports and adapters, chosen over a domain
+  module beside it that would read the resolver's vocabulary a second time.
+- **The panel receives Tender's own marks**, a closed set per row, group and emulator that the reading module decides,
+  and words them itself; it reads no resolver code and no answer field name. The alternative, a panel that words the
+  resolver's codes itself, is the copy that drifted.
+- **A check in CI fails on a second reader**: an import of the resolver outside the reading modules, an import of a name
+  the resolver does not export, and a resolver code, a distinctive value of any of its closed vocabularies or a
+  distinctive answer field name named in any other backend module or in the panel. At every update of the vendored
+  resolver a test fails on a code no reading module classifies.
+- **No exception for a derivation.** The modules that read the answer today stand on the check's lists, which only
+  shrink; the issues that build each reading module remove them. Only infrastructure, homonyms and generic words are
+  excepted: by name and with its reason, the one machine the sources holder keeps and the zstd codec handed to the
+  resolver; the tests as a whole, because they build the resolver's machines and answers rather than read an answer for
+  display; a name that means something else in a module, on a list of its own that only shrinks; and a word of the
+  resolver's vocabularies that Tender's own code speaks with a meaning of its own too widely to except file by file,
+  left unwatched on lists that only shrink, one for the backend and the panel and one for the panel alone.
