@@ -114,3 +114,16 @@ only ever confirms our own reading of the contract.
 They earn it in practice, not just in principle: deliberately breaking the marshalling (reading a 0-byte size as "no
 size", swapping the two recorded hashes, taking `is_current` from key presence rather than value, dropping the
 adopt-baseline flag) turns this tier red, and for one of those breakages it is the only tier that notices.
+
+## emu-atlas recorded machines — vendored conformance sweep
+
+`tests/adapters/atlas_vectors/` holds emu-atlas's `vectors/` folder, copied verbatim from the release whose resolver is
+vendored at `backend/_vendor/atlas/`. Its manifest, which `scripts/check_vendored_trees.py` checks, pins the copy
+against edits; `tests/services/test_firmware_vectors.py` holds the release line in that folder's `README.md` against the
+resolver's version. What neither sees is that README's. **Never edit a vector, and never list a mismatch to make the
+sweep pass** — the copy changes only by a re-copy with the resolver it belongs to.
+
+`tests/services/test_firmware_vectors.py` runs the copy's firmware vectors through the platform page's BIOS read — the
+real service over the real resolver adapter on the vector's machine — and holds the level against each emulator's
+`requirements_met`. What it compares, what it leaves out, and how its list of known mismatches may change are its module
+docstring's.
