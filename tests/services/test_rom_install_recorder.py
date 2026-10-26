@@ -290,3 +290,31 @@ class TestRecordInstallFsSizeWriteBack:
         rom = uow.roms.get(42)
         assert rom is not None
         assert rom.fs_size_bytes == 999_000
+
+    def test_negative_fs_size_bytes_does_not_overwrite(self, harness):
+        # Rom.record_fs_size_bytes refuses it, so the guard keeps it out of the install.
+        uow = harness._uow
+        seeded = Rom.synced(
+            rom_id=42,
+            platform_slug="n64",
+            name="Game 42",
+            fs_name="game_42.z64",
+            shortcut_app_id=1042,
+            synced_at="2026-01-01T00:00:00+00:00",
+            fs_size_bytes=999_000,
+        )
+        uow.roms.save(seeded)
+
+        _, error = harness._install_recorder.do_record_install(
+            rom_id=42,
+            rom_detail={"platform_slug": "n64", "fs_size_bytes": -1},
+            file_path="/roms/n64/game_42.z64",
+            rom_dir=None,
+            system="n64",
+            cleanup=lambda: None,
+        )
+
+        assert error is None
+        rom = uow.roms.get(42)
+        assert rom is not None
+        assert rom.fs_size_bytes == 999_000
