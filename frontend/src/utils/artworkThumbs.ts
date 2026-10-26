@@ -1,5 +1,6 @@
 /**
- * Where the ARTWORK tab's row thumbnails come from: Steam's own copy of each slot's image (#2381 D14).
+ * Where the ARTWORK tab's row thumbnails, and the cover GAME INFO and the desktop About card show, come from: Steam's own
+ * copy of each slot's image (#2381 D14).
  *
  * Steam serves its grid folder to the renderer under `https://steamloopback.host/customimages/`, and its
  * `appStore.GetCustom…URLs` getters answer the URLs it tries for a slot, `.jpg` before `.png`. The row shows the first
@@ -9,6 +10,7 @@
  */
 
 import type { ArtworkSlotRow, ArtworkTabSlot } from "../api/backend";
+import { artworkThumbToken, heldArtworkSlots } from "./artworkSlotsStore";
 
 const LOOPBACK = "https://steamloopback.host";
 
@@ -47,6 +49,12 @@ export function coverUrls(appId: number, token = "", signature: string | null = 
     signature,
     true,
   );
+}
+
+/** The URLs of the cover Steam shows for shortcut *appId*, signed by the cover row of *romId*'s held ARTWORK read. */
+export function steamsCover(appId: number, romId: number | null): string[] {
+  const cover = heldArtworkSlots(appId, romId)?.slots?.slots.find((row) => row.slot === "cover");
+  return coverUrls(appId, artworkThumbToken(appId, "cover"), cover?.signature ?? null);
 }
 
 function thumbnailUrls(
