@@ -1,15 +1,20 @@
 """Whether what a download needs still fits in what the card has left.
 
 Pure arithmetic over numbers the caller measures — the size the server states,
-the free space it read, the bytes sibling downloads have already claimed, and
-the bytes a resumable transfer already wrote. Reading them is the download
-service's concern; what they add up to, and the two figures a refusal shows the
-user, are decided here.
+the free space it read, what other downloads have reserved and written since
+they were admitted, and the bytes a resumable transfer already wrote. Reading
+them is the download package's concern; what they add up to — how much of the
+other downloads' claims is still to be written, and whether this download fits
+beside it — and the two figures a refusal shows the user are decided here.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 # Headroom a download must leave unclaimed. An emulator writes saves, states and
 # shader caches beside the ROM it just fetched, so a transfer that fills the card
@@ -54,7 +59,7 @@ def disk_space_verdict(
     A multi-file ROM is counted **twice**: it arrives as a ZIP and is extracted
     beside it, so both exist at once. A single zip that will be unpacked is
     counted as itself plus *unpacked_size*, the sum of the member sizes RomM
-    lists, for the same reason. *reserved_bytes* is what sibling downloads
+    lists, for the same reason. *reserved_bytes* is what other downloads
     have claimed but not yet written — without it two concurrent pre-flights
     could each pass on space only one of them fits (#1053). *already_on_disk* is
     what a resumable transfer already wrote, which is not needed a second time,
@@ -89,6 +94,28 @@ def unpack_space_verdict(*, unpacked_size: int, free_space: int, reserved_bytes:
         needed_bytes=needed,
         free_mb=max(available, 0) // _BYTES_PER_MB,
     )
+
+
+def bytes_reserved_by_others(
+    reserved_bytes: Mapping[int, int], entries: Mapping[int, Mapping[str, Any]], rom_id: int
+) -> int:
+    """What downloads other than *rom_id*'s have claimed and not yet written, which free space does not lack yet.
+
+    *reserved_bytes* is each admitted download's claim and *entries* the queue's
+    entries, from which :func:`written_since_admitted` reads what each has written.
+    """
+    return sum(
+        max(reserved - written_since_admitted(entries.get(other) or {}), 0)
+        for other, reserved in reserved_bytes.items()
+        if other != rom_id
+    )
+
+
+def written_since_admitted(entry: Mapping[str, Any]) -> int:
+    """Bytes a download has put on disk since admitted: its transfer, and what it has unpacked so far."""
+    transferred = max(entry.get("_transferred", 0) - entry.get("_on_disk_at_start", 0), 0)
+    unpacked = entry.get("bytes_downloaded", 0) if entry.get("status") == "extracting" else 0
+    return transferred + unpacked
 
 
 class NotEnoughSpaceToUnpack(Exception):
