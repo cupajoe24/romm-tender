@@ -9,7 +9,7 @@
 
 import { isEndpointFailure } from "../api/backend";
 import { displaySlot, formatSaveTimeAgo } from "./saveHelpers";
-import type { StrandedVersion } from "./saveSlotFlow";
+import type { SlotSwitchPurpose, StrandedVersion } from "./saveSlotFlow";
 import type {
   CopySaveToSlotStatus,
   EndpointFailure,
@@ -198,6 +198,12 @@ export function switchSlotFailureMessage(
   if (reason === "savefiles_in_content_dir") {
     return "Can't switch — this game's saves are written beside the game file";
   }
+  if (reason === "backup_failed") {
+    return "Can't switch — a save couldn't be moved to .romm-backup, nothing was moved";
+  }
+  if (reason === "backup_folder_unusable") {
+    return "Can't switch — the .romm-backup folder can't take backups, nothing was moved";
+  }
   if (reason === "save_shape_unsupported" && message) {
     return message;
   }
@@ -205,18 +211,51 @@ export function switchSlotFailureMessage(
 }
 
 /**
- * Error message for a failed switch into a new slot. `not_installed` has a
- * sentence of its own rather than {@link switchSlotFailureMessage}'s, whose
- * "Can't switch" names an action New Slot's reader did not take.
+ * Error message for a failed switch into a new slot. A reason whose
+ * {@link switchSlotFailureMessage} sentence starts "Can't switch" gets one of
+ * its own here, since that names an action New Slot's reader did not take.
  */
 export function createSlotFailureMessage(reason: WireReason): string {
-  if (reason === "pending_uploads" || reason === "server_unreachable") {
+  if (reason === "pending_uploads") {
     return switchSlotFailureMessage(reason);
+  }
+  if (reason === "server_unreachable") {
+    return "Can't create a slot — RomM server is not reachable";
   }
   if (reason === "not_installed") {
     return "Can't create a slot — download the game first";
   }
+  if (reason === "backup_failed") {
+    return "Can't create a slot — a save couldn't be moved to .romm-backup, nothing was moved";
+  }
+  if (reason === "backup_folder_unusable") {
+    return "Can't create a slot — the .romm-backup folder can't take backups, nothing was moved";
+  }
   return "Failed to create slot";
+}
+
+/**
+ * The sentence for a switch that stopped partway, or `null` for any other
+ * failure: `switch_incomplete` switched the slot and downloaded only part of
+ * it, `switch_stopped` kept the previous slot after moving `setAside` into
+ * `.romm-backup`. A new slot has nothing to download, so only `switch_stopped`
+ * is worded by `purpose`.
+ */
+export function partialSlotSwitchMessage(
+  reason: WireReason,
+  setAside: readonly string[],
+  purpose: SlotSwitchPurpose,
+): string | null {
+  if (reason === "switch_incomplete") {
+    return "Switched slots, but not every save of the new slot downloaded. Sync Save Files to finish.";
+  }
+  if (reason === "switch_stopped") {
+    return (
+      `The slot wasn't ${purpose === "create" ? "created" : "switched"}: a save couldn't be moved to .romm-backup. ` +
+      `Already moved there: ${setAside.join(", ")}.`
+    );
+  }
+  return null;
 }
 
 export const SWITCH_SLOT_ERROR_MESSAGE = "An error occurred while switching slots";

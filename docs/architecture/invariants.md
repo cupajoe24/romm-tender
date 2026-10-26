@@ -1001,9 +1001,11 @@ Format: **invariant** — tier — enforced by.
   `rom_folders`, `bios_folder`, `saves_root` and `move_roots`, each a fresh reading of the emulator sources and a
   question to the resolver, which reads RetroDECK's settings file and ES-DE's, and a `realpath` of the answer — together
   with the services' own wrappers around them (`_rom_folder`, `_rom_folders`, `_resolve_target`, `_platform_dir`,
-  `_saves_root`), which are what the services call; the save backup's two moves, `SaveBackup.back_up_save_file` and
-  `.back_up_claimed_save_file` (a listing of `.romm-backup`, a rename, and for the ordinary backup the removal of copies
-  past its retention), with `_back_up_save`, the adoption renamer's binding of the first; and every save-transfer step
+  `_saves_root`), which are what the services call; the save backup's two moves, `SaveBackup.back_up_save_file` (a
+  creation and a listing of `.romm-backup`, a rename, and the removal of copies past its retention) and
+  `.back_up_claimed_save_file` (a creation and a listing of that folder, and a rename), with `_back_up_save`, the
+  adoption renamer's binding of the first; the save backup's check of that folder before a first move,
+  `SaveBackup.prepare_save_backup_folder` (a creation and a listing of that folder); and every save-transfer step
   (`fetch_server_copy`, `hash_server_copy`, `download_save_file`, `upload_save_file`, `acknowledge_server_head`,
   `adopt_server_head`, `record_server_head`: a RomM request, a temporary file, or a measure of the local file). The
   firmware timing is the only entry a cost was measured for; every other one is listed from reading its implementation.

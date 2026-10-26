@@ -131,9 +131,11 @@ from services.update_output import UpdateOutputService, UpdateOutputServiceConfi
 from tests.services.saves._helpers import (
     _create_save,
     _enable_sync_with_device,
+    _fail_renames_from_call,
     _file_md5,
     _install_rom,
     _seed_save_state,
+    _seed_two_synced_saves,
     _server_save,
     _server_save_with_syncs,
     make_service,
@@ -1104,6 +1106,59 @@ class TestTheSlotRefusalsOnTheWire:
             "success": False,
             "reason": "switch_incomplete",
             "message": "Switched to slot but 1 save(s) failed to download — retry",
+        }
+
+    async def test_a_switch_whose_backups_stopped_partway_answers_the_files_set_aside(self, tmp_path, monkeypatch):
+        svc, _fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _seed_two_synced_saves(svc, tmp_path)
+        _fail_renames_from_call(svc, monkeypatch, failing_call=2)
+
+        message = json.loads(await _dispatcher_over_saves(svc).dispatch(1, "switch_slot", [42, "target"]))
+
+        assert message["result"] == {
+            "success": False,
+            "reason": "switch_stopped",
+            "message": (
+                "Could not move pokemon.rtc into .romm-backup (saves folder is read-only), "
+                "so the slot was not switched. "
+                "These were already moved to .romm-backup: pokemon.srm."
+            ),
+            "set_aside": ["pokemon.srm"],
+        }
+
+    async def test_a_switch_whose_first_backup_failed_answers_backup_failed(self, tmp_path, monkeypatch):
+        svc, _fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _seed_two_synced_saves(svc, tmp_path)
+        _fail_renames_from_call(svc, monkeypatch, failing_call=1)
+
+        message = json.loads(await _dispatcher_over_saves(svc).dispatch(1, "switch_slot", [42, "target"]))
+
+        assert message["result"] == {
+            "success": False,
+            "reason": "backup_failed",
+            "message": "Could not move pokemon.srm into .romm-backup (saves folder is read-only). Nothing was moved.",
+        }
+
+    async def test_a_switch_whose_backup_folder_cannot_be_used_answers_backup_folder_unusable(
+        self, tmp_path, monkeypatch
+    ):
+        svc, _fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _seed_two_synced_saves(svc, tmp_path)
+
+        def make_dirs(_path: str) -> None:
+            raise PermissionError("saves folder is read-only")
+
+        monkeypatch.setattr(svc._save_file_store, "make_dirs", make_dirs)
+
+        message = json.loads(await _dispatcher_over_saves(svc).dispatch(1, "switch_slot", [42, "target"]))
+
+        assert message["result"] == {
+            "success": False,
+            "reason": "backup_folder_unusable",
+            "message": "Could not use the .romm-backup folder (saves folder is read-only). Nothing was moved.",
         }
 
     async def test_a_switch_over_unsynced_changes_answers_the_files(self, tmp_path):

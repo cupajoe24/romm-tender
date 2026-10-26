@@ -34,6 +34,7 @@ from services.saves.rom_info import RomInfoService, RomInfoServiceConfig
 from services.saves.save_backup import SaveBackup, SaveBackupConfig
 from services.saves.save_transfer import SaveTransfer, SaveTransferConfig
 from services.saves.slots import SlotsService, SlotsServiceConfig
+from services.saves.slots.switching import SlotSwitchBackupFailed, SlotSwitchBackupFolderUnusable, SlotSwitchStopped
 from services.saves.status import StatusService, StatusServiceConfig
 from services.saves.sync_engine import SaveSweepIncomplete, SyncEngine, SyncEngineConfig
 from services.saves.sync_engine.devices import DeviceRegistry
@@ -81,6 +82,7 @@ class SaveService:
 
     def __init__(self, *, config: SaveServiceConfig) -> None:
         self._config = config
+        self._logger = config.logger
         self._settings = config.settings
         self._save_file_store = config.save_file_store
         self._uow_factory: UnitOfWorkFactory = config.uow_factory
@@ -121,7 +123,7 @@ class SaveService:
         # Built once and handed to every service that backs a save file up or
         # moves one, so each holds the step it uses rather than the whole engine.
         self._save_backup = SaveBackup(
-            config=SaveBackupConfig(save_file_store=config.save_file_store, clock=config.clock),
+            config=SaveBackupConfig(save_file_store=config.save_file_store, clock=config.clock, logger=config.logger),
         )
         self._save_transfer = SaveTransfer(
             config=SaveTransferConfig(
@@ -407,10 +409,27 @@ class SaveService:
         """Fetch server save files for a specific slot."""
         return await self._slots.get_slot_saves(rom_id, slot)
 
-    async def switch_slot(self, rom_id: int, new_slot: str) -> dict[str, Any] | SlotSwitchIncomplete:
-        """Switch the active save slot with immediate state sync."""
+    async def switch_slot(
+        self, rom_id: int, new_slot: str
+    ) -> dict[str, Any] | SlotSwitchIncomplete | SlotSwitchStopped:
+        """Switch the active save slot with immediate state sync.
+
+        A switch refused or stopped by its backups is logged as a warning; its
+        refusal is raised and its answer returned unchanged.
+        """
         async with self._rules.hold("switch_slot", update=True, migration=True, prune=True):
-            return await self._slots.switch_slot(rom_id, new_slot)
+            try:
+                result = await self._slots.switch_slot(rom_id, new_slot)
+            except (SlotSwitchBackupFailed, SlotSwitchBackupFolderUnusable) as refusal:
+                self._logger.warning(
+                    f"Slot switch of rom {rom_id} to {new_slot!r} refused ({refusal.reason}): {refusal.message}"
+                )
+                raise
+        if isinstance(result, SlotSwitchStopped):
+            self._logger.warning(
+                f"Slot switch of rom {rom_id} to {new_slot!r} stopped ({result.reason}): {result.message}"
+            )
+        return result
 
     def is_save_tracking_configured(self, rom_id: int) -> dict[str, Any]:
         """Check if save slot tracking is configured for a game."""

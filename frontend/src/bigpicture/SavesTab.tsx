@@ -20,6 +20,7 @@ import { ConnectingIndicator } from "./saves/ConnectingIndicator";
 import { renderSaveFileRow } from "./saves/SaveFileRow";
 import { useCopyToSlot } from "./saves/useCopyToSlot";
 import { detach } from "../utils/detach";
+import { showToast } from "../utils/toast";
 import { announceSaveSync } from "../utils/saveSyncEvents";
 import { strandedVersionNotice } from "../utils/saveSlotWording";
 import { executeSlotSwitch, findStrandedVersion, type StrandedVersion } from "../utils/saveSlotFlow";
@@ -173,6 +174,12 @@ export const SavesTab: FC<SavesTabProps> = ({
             const outcome = await executeSlotSwitch(romId, name, "create");
             if (outcome.ok) {
               onSlotSwitched(name, outcome.saveStatus);
+              return;
+            }
+            if (outcome.partial) {
+              // Toasted as a slot panel toasts it, so both surfaces show a
+              // partial answer the same way.
+              showToast(outcome.message);
               return;
             }
             if (outcome.reason !== null) {

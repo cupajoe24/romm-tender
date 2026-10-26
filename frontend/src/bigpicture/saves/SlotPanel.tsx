@@ -17,6 +17,7 @@ import { InactiveSlotBody } from "./InactiveSlotBody";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 import { renderCopyToSlotButton, type CopyToSlotHandler } from "./CopyToSlotButton";
 import { detach } from "../../utils/detach";
+import { showToast } from "../../utils/toast";
 
 /**
  * Multi-file note (#908 interim guard) — replaces the Previous-Versions /
@@ -186,6 +187,13 @@ export const SlotPanel: FC<SlotPanelProps> = ({
       const outcome = await executeSlotSwitch(romId, slotName, "activate");
       if (outcome.ok) {
         onSlotSwitched(slotName, outcome.saveStatus);
+        return;
+      }
+      if (outcome.partial) {
+        // A partial answer reloads the SAVES tab. On switch_incomplete this slot
+        // becomes active and its panel remounts, taking an inline error with it;
+        // on switch_stopped it is toasted all the same, as on the SAVES tab.
+        showToast(outcome.message);
         return;
       }
       setSwitchError(outcome.message);

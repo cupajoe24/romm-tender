@@ -6,6 +6,7 @@ import {
   SWITCH_SLOT_ERROR_MESSAGE,
   copyToSlotFeedback,
   createSlotFailureMessage,
+  partialSlotSwitchMessage,
   formatSlotDeleteDescription,
   formatSlotDeleteLines,
   rollbackFeedback,
@@ -256,11 +257,14 @@ describe("switchSlotFailureMessage", () => {
 });
 
 describe("createSlotFailureMessage", () => {
-  it("words pending_uploads and server_unreachable as a switch does", () => {
+  it("words pending_uploads as a switch does", () => {
     expect(createSlotFailureMessage("pending_uploads")).toBe(
       "Sync your saves first — local changes haven't been uploaded",
     );
-    expect(createSlotFailureMessage("server_unreachable")).toBe("Can't switch — RomM server is not reachable");
+  });
+
+  it("says a slot can't be created where RomM is not reachable", () => {
+    expect(createSlotFailureMessage("server_unreachable")).toBe("Can't create a slot — RomM server is not reachable");
   });
 
   it("tells the reader to download the game first where it is not installed", () => {
@@ -450,5 +454,53 @@ describe("rollbackFeedback for a restore that RomM or this device refused", () =
       kind: "toast",
       message: `Couldn't restore the save: ${message}`,
     });
+  });
+});
+
+describe("a slot switch whose backup failed", () => {
+  it("says nothing was moved where the first backup failed", () => {
+    expect(switchSlotFailureMessage("backup_failed", "Could not move a.srm (denied). Nothing was moved.")).toBe(
+      "Can't switch — a save couldn't be moved to .romm-backup, nothing was moved",
+    );
+    expect(createSlotFailureMessage("backup_failed")).toBe(
+      "Can't create a slot — a save couldn't be moved to .romm-backup, nothing was moved",
+    );
+  });
+
+  it("names the saves a switch that stopped partway had already moved", () => {
+    expect(partialSlotSwitchMessage("switch_stopped", ["pokemon.srm", "pokemon.rtc"], "activate")).toBe(
+      "The slot wasn't switched: a save couldn't be moved to .romm-backup. " +
+        "Already moved there: pokemon.srm, pokemon.rtc.",
+    );
+  });
+
+  it("says a new slot wasn't created where creating it stopped partway", () => {
+    expect(partialSlotSwitchMessage("switch_stopped", ["pokemon.srm"], "create")).toBe(
+      "The slot wasn't created: a save couldn't be moved to .romm-backup. Already moved there: pokemon.srm.",
+    );
+  });
+
+  it("says a switch that downloaded only part of the new slot switched", () => {
+    expect(partialSlotSwitchMessage("switch_incomplete", [], "activate")).toBe(
+      "Switched slots, but not every save of the new slot downloaded. Sync Save Files to finish.",
+    );
+  });
+
+  it("has no partial sentence for any other answer", () => {
+    const reasons: WireReason[] = ["backup_failed", "pending_uploads", "server_unreachable", "not_found"];
+    for (const reason of reasons) {
+      expect(partialSlotSwitchMessage(reason, [], "activate")).toBeNull();
+    }
+  });
+});
+
+describe("a slot switch whose backup folder can't take backups", () => {
+  it("says the folder can't take backups and nothing was moved", () => {
+    expect(switchSlotFailureMessage("backup_folder_unusable", "Could not use the .romm-backup folder (denied).")).toBe(
+      "Can't switch — the .romm-backup folder can't take backups, nothing was moved",
+    );
+    expect(createSlotFailureMessage("backup_folder_unusable")).toBe(
+      "Can't create a slot — the .romm-backup folder can't take backups, nothing was moved",
+    );
   });
 });
