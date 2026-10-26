@@ -828,8 +828,26 @@ entry — why the rule exists, what breaks without it, and where it lives — is
   outside these shells — another element injected into Steam's game page, another hook on Steam's launch — gates itself
   on `useStrandedAnswer()` / `strandedAnswer()`; a Tender dialog or menu already open at the strand stays open and fails
   as before (#2275 D6)
-- **Aggregate state mutated only via verb-named methods (no field assignment)** — check —
-  `scripts/check_aggregate_field_assignment.py`
+- **Aggregate state mutated only via verb-named methods: outside them no code assigns, deletes or `setattr`s an
+  aggregate's field, or mutates one of its list, dict or set fields in place** — check + prompt-only —
+  `scripts/check_aggregate_field_assignment.py`, by field name: the fields the class body of every `@cosmic_aggregate`
+  class in `domain/` annotates, written on any receiver but bare `self` anywhere in `backend/` but `_vendor/` and
+  `native/`; a value that only shares a field name takes `# pragma: no aggregate-check`. Unseen by it: a container
+  field, or a value inside one, bound to another name, handed to a helper, or reached through a call, `getattr`, `or` or
+  `and` (`(state.files or {})[k] = v`); a container mutated through one of its dunder methods
+  (`state.files.__setitem__`); a `setattr` whose name is not a literal; a field the class body does not annotate, an
+  aggregate outside `domain/`, and the in-place mutation of a container field typed by an alias or an abstract type; a
+  store through bare `self` in any class; a subclass of an aggregate, or an aggregate bound to `self`, writing through
+  bare `self`; `tests/` and `scripts/`; a file it cannot read or parse, which it skips without a word. This list is the
+  one home of what the check misses; the script's docstring and Database Design point here. Prompt-only: those shapes,
+  and the repository's column writers, which assign no field and so are no field assignment to the check.
+  `RomRepository`'s `set_emulator_override`, `set_selected_disc`, `set_chosen_sgdb_id`, `set_artwork_checked_at` and
+  `set_applied_launch_options` each persist one column the aggregate's own verb has just set, so the sync upsert never
+  touches it — but for `set_chosen_sgdb_id(rom_id, None)` in `ArtworkSlots.discard_superseded_choices_io`, which no verb
+  precedes. Three more change aggregate state with no verb: `RomRepository.set_fs_size_bytes`
+  (`RomInstallRecorder.do_record_install`), `clear_all_applied_launch_options` (Force Full Sync, the reset the
+  `applied_launch_options` entry sanctions) and `PlatformSyncStateRepository.revoke_skip` (by design,
+  `domain/platform_sync_state.py`'s docstring)
 - **No UoW-opening seam (ActiveCoreResolver, RelaunchOptionsResolver, PlatformSystems, uow_factory) is called while a
   UoW is open on the same path** — check — `scripts/check_uow_seam_nesting.py`, first seam family (a seam reached as a
   bound method, through a helper, a local alias or a nested `def`/`lambda`, inside a UoW opened through a factory

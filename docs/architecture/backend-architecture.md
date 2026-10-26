@@ -3490,10 +3490,9 @@ call site: services may not call `datetime.now()` / `asyncio.sleep()` / `time.ti
 ### 3. Aggregate field-assignment check
 
 `scripts/check_aggregate_field_assignment.py` (also bundled into `mise run lint`) is a small custom AST linter that
-enforces the **mutation-only-via-methods** rule for aggregates — a rule no type checker can express directly. It
-collects the class names decorated with `@cosmic_aggregate` in `domain/` (the aggregate roots), then scans `services/`
-for `<aggregate>.<field> = ...` assignments and fails CI on any it finds. The escape hatch is a trailing
-`# pragma: no aggregate-check` on the offending line. Full detail in [Database Design](database-design.md).
+enforces the **mutation-only-via-methods** rule for aggregates — a rule no type checker can express directly. A trailing
+`# pragma: no aggregate-check` exempts a value that only shares an aggregate's field name. What it flags and how:
+[Database Design](database-design.md#2-ast-field-assignment-check).
 
 ### 4. Failure-shape dialect gate
 
