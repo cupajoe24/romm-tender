@@ -23,6 +23,7 @@ from domain.emulator_tag import build_emulator_tag
 from domain.save_backup import BACKUP_RETENTION
 from domain.upload_response import dedup_returned_non_head, upload_response_proves_current
 from lib.errors import DeviceWriteError, RommConflictError
+from services.saves._sync_stop import SyncStopped
 
 if TYPE_CHECKING:
     import logging
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from domain.rom_save_sync_state import RomSaveSyncState
     from domain.save_measure import SaveFileMeasure
     from services.protocols import Clock, DebugLogger, RetryStrategy, RommSaveApi, SaveFileStore
+    from services.saves._sync_stop import SyncStop
     from services.saves.save_backup import SaveBackup
 
 
@@ -131,6 +133,8 @@ class SaveTransfer:
         device_id: LiveDeviceId,
         system: str,
         default_slot: str | None = None,
+        *,
+        stop: SyncStop | None = None,
     ) -> None:
         """Download *server_save* onto *filename* in *saves_dir*, backing up the file it replaces.
 
@@ -140,6 +144,15 @@ class SaveTransfer:
         removal that fails is not reported) and raises the download's own
         failure. Then records the sync boundary and *filename*'s baseline on
         *save_state*, in memory; the caller owns the write Unit of Work.
+
+        A download that can be stopped (*stop* given) streams without RomM's
+        optimistic sync mark, which would record this device current on the
+        save at the GET, and acknowledges it (``confirm_download``, under the
+        retry strategy) only once the file is in place: a stop asked by the time
+        the content is complete raises :class:`SyncStopped` with nothing moved,
+        nothing recorded and RomM's record of this device unchanged. An
+        acknowledgement that fails raises its own failure with the file in
+        place, its backup kept and nothing recorded.
         """
         local_path = os.path.join(saves_dir, filename)
         self._save_file_store.make_dirs(saves_dir)
@@ -151,15 +164,19 @@ class SaveTransfer:
                     server_save["id"],
                     tmp_path,
                     device_id=device_id,
-                    optimistic=True,
+                    optimistic=stop is None,
                 ),
             )
+            if stop is not None and stop.stops_here():
+                raise SyncStopped
             self._backup.back_up_save_file(saves_dir, filename, keep=BACKUP_RETENTION)
             self._save_file_store.rename(tmp_path, local_path)
         except Exception:
             with contextlib.suppress(OSError):
                 self._save_file_store.remove_file(tmp_path)
             raise
+        if stop is not None:
+            self._retry.with_retry(lambda: self._romm_api.confirm_download(int(server_save["id"]), device_id))
         self._record_transferred_file(save_state, filename, server_save, local_path, system, default_slot=default_slot)
         self._log_debug(f"Downloaded save: {filename}")
 

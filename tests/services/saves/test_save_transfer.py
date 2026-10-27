@@ -11,6 +11,7 @@ import pytest
 from domain.live_device_id import LiveDeviceId
 from domain.rom_save_sync_state import RomSaveSyncState
 from lib.errors import DeviceWriteError, RommApiError, RommConflictError, RommConnectionError, RommTimeoutError
+from services.saves._sync_stop import SyncStop, SyncStopped
 from tests.services.saves._helpers import (
     _create_save,
     _do_upload,
@@ -709,6 +710,123 @@ class TestADownloadThatFailsLeavesNoTmp:
 
         assert caught.value is failure
         assert removals == [str(saves_dir / "pokemon.srm.tmp")]
+
+
+class TestADownloadItsStopEnded:
+    """#2184 D4: a download whose stop was asked by the time it finished is never put in place."""
+
+    def test_the_finished_download_is_discarded_and_the_local_file_left_as_it_was(self, tmp_path, monkeypatch):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        save_path = _create_save(tmp_path, content=b"local bytes")
+        fake.saves[100] = _server_save(save_id=100)
+        stop = SyncStop()
+        download = fake.download_save_content
+
+        def download_then_stop(save_id, dest_path, **kwargs):
+            download(save_id, dest_path, **kwargs)
+            stop.request()
+
+        monkeypatch.setattr(fake, "download_save_content", download_then_stop)
+        state = RomSaveSyncState()
+
+        download_file = svc._save_transfer.download_save_file
+        server_save, saves_dir, device_id = fake.saves[100], str(save_path.parent), LiveDeviceId("device-1")
+
+        with pytest.raises(SyncStopped):
+            download_file(server_save, saves_dir, "pokemon.srm", state, device_id, "gba", stop=stop)
+
+        assert not (save_path.parent / "pokemon.srm.tmp").exists()
+        assert save_path.read_bytes() == b"local bytes"
+        assert not (save_path.parent / ".romm-backup").exists()
+        assert state.files == {}
+        assert stop.stopped_the_sync() is True
+        assert not any(c[0] == "confirm_download" for c in fake.call_log)
+        assert fake._device_sync_ledger == {}
+
+    def test_a_stoppable_download_is_acknowledged_only_once_it_is_in_place(self, tmp_path, monkeypatch):
+        """#2184 D8: no optimistic sync mark at the GET; the acknowledgement follows the rename."""
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        saves_dir = tmp_path / "saves" / "gba"
+        fake.saves[100] = _server_save(save_id=100)
+        steps: list[str] = []
+        rename = svc._save_file_store.rename
+        confirm = fake.confirm_download
+
+        def recording_rename(src: str, dst: str) -> None:
+            rename(src, dst)
+            steps.append("placed")
+
+        def recording_confirm(save_id: int, device_id: str) -> dict[str, Any]:
+            steps.append("acknowledged")
+            return confirm(save_id, device_id)
+
+        monkeypatch.setattr(svc._save_file_store, "rename", recording_rename)
+        monkeypatch.setattr(fake, "confirm_download", recording_confirm)
+
+        svc._save_transfer.download_save_file(
+            fake.saves[100],
+            str(saves_dir),
+            "pokemon.srm",
+            RomSaveSyncState(),
+            LiveDeviceId("device-1"),
+            "gba",
+            stop=SyncStop(),
+        )
+
+        downloads = [c for c in fake.call_log if c[0] == "download_save_content"]
+        assert [c[2]["optimistic"] for c in downloads] == [False]
+        assert steps == ["placed", "acknowledged"]
+        assert fake._device_sync_ledger == {("device-1", 100): fake.saves[100]["updated_at"]}
+
+    def test_an_acknowledgement_that_fails_leaves_the_file_in_place_with_its_backup_and_records_nothing(
+        self, tmp_path, monkeypatch
+    ):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        save_path = _create_save(tmp_path, content=b"local bytes")
+        fake.saves[100] = _server_save(save_id=100)
+        failure = RommApiError("acknowledgement refused")
+
+        def failing_confirm(_save_id: int, _device_id: str) -> dict[str, Any]:
+            raise failure
+
+        monkeypatch.setattr(fake, "confirm_download", failing_confirm)
+        state = RomSaveSyncState()
+
+        download_file = svc._save_transfer.download_save_file
+        server_save, saves_dir, device_id, stop = (
+            fake.saves[100],
+            str(save_path.parent),
+            LiveDeviceId("device-1"),
+            SyncStop(),
+        )
+
+        with pytest.raises(RommApiError) as caught:
+            download_file(server_save, saves_dir, "pokemon.srm", state, device_id, "gba", stop=stop)
+
+        assert caught.value is failure
+        assert save_path.read_bytes() != b"local bytes"
+        backups = list((save_path.parent / ".romm-backup").iterdir())
+        assert [b.read_bytes() for b in backups] == [b"local bytes"]
+        assert state.files == {}
+
+    def test_a_stop_not_asked_places_the_download(self, tmp_path):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        saves_dir = tmp_path / "saves" / "gba"
+        fake.saves[100] = _server_save(save_id=100)
+        stop = SyncStop()
+        state = RomSaveSyncState()
+
+        svc._save_transfer.download_save_file(
+            fake.saves[100], str(saves_dir), "pokemon.srm", state, LiveDeviceId("device-1"), "gba", stop=stop
+        )
+
+        assert (saves_dir / "pokemon.srm").exists()
+        assert set(state.files) == {"pokemon.srm"}
+        assert stop.stopped_the_sync() is False
 
 
 class TestRecordServerHead:

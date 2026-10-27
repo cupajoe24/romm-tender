@@ -1,11 +1,14 @@
 /**
- * The words of five prompts: three a game start can raise — the emulator core
- * changed, RomM unreachable over unsynced changes, save sync unavailable — the
- * one a version switch raises over unsynced saves, and the one Stop raises over
- * a running game. Every title, sentence and button label Tender writes for them.
+ * The words of six prompts: four a game start can raise — the emulator core
+ * changed, RomM unreachable over unsynced changes, save sync unavailable, the
+ * saves still syncing — the one a version switch raises over unsynced saves,
+ * and the one Stop raises over a running game. Every title, sentence and button
+ * label Tender writes for them.
  * One home, so every surface that draws one of these prompts asks the same
  * question the same way; the drawing itself stays with each surface.
  */
+
+import type { SyncWaitReason } from "./launchGate";
 
 // ── Every prompt ──
 
@@ -48,6 +51,46 @@ export function fallbackLaunchDescription(message?: string): string {
   if (/[.!?]$/.test(reason)) return `${reason} Launch with local saves?`;
   return `${reason} — launch with local saves?`;
 }
+
+// ── Saves still syncing: the pre-launch sync has run past the launch check's limit ──
+
+export const SYNC_WAIT_TITLE = "Waiting for Save Sync";
+
+export const SYNC_WAIT_LABEL = "Wait";
+
+export const SYNC_WAIT_PLAY_ANYWAY_LABEL = "Play Anyway";
+
+const SYNC_WAIT_HOLDERS = {
+  sync_all: "Sync All Saves Now is still running.",
+  post_exit: "The save sync after the last game is still running.",
+  rom_sync: "A manual save sync is still running.",
+  pre_launch: "The save sync of another start is still running.",
+} as const;
+
+function syncWaitWhy(reason: SyncWaitReason): string {
+  switch (reason.kind) {
+    case "another_sync":
+      return SYNC_WAIT_HOLDERS[reason.holder];
+    case "this_game_busy":
+      return "Tender is still busy with this game's saves.";
+    case "syncing":
+      return "This game's saves are still syncing with RomM.";
+    case "not_answering":
+      return "Tender is not answering.";
+  }
+}
+
+/** Why the start waits, then what the choices are. */
+export function syncWaitDescription(reason: SyncWaitReason): string {
+  return `${syncWaitWhy(reason)} Wait a little longer, or play with the saves on this device?`;
+}
+
+/** What the question turns into when the sync finishes while it is open. */
+export const SYNC_READY_TITLE = "Saves Ready";
+
+export const SYNC_READY_DESCRIPTION = "Your saves are ready. Play now?";
+
+export const SYNC_READY_PLAY_LABEL = "Play";
 
 // ── Unsynced saves: switching away from a version whose saves haven't been synced to RomM ──
 
