@@ -903,8 +903,12 @@ line — the same button a game's page carries, grey when the platform is on its
 picked another. It opens a menu listing every emulator ES-DE offers for that platform — both RetroArch cores and
 **standalone emulators** (e.g. PCSX2, RPCS3, Dolphin, PPSSPP). Some entries appear **disabled** with a short reason (for
 example "script/shortcut form" or "Tender can't start this entry") when Tender can't launch them directly from Steam;
-those can't be picked. Picking an enabled emulator sets it as the default for all games on that platform. A "Switching
-cores may affect save compatibility" note is the first line of the menu.
+those can't be picked. An emulator RetroDECK does not have — a standalone emulator or a RetroArch core — reads "emulator
+not installed". Where Tender cannot tell whether it is installed, it carries "installation not established" and, where
+it is known, why: you can still pick it, and a pick you made stays, but Tender never makes it the default by itself or
+reports it missing; a page whose games launch with it says so under its header. Picking an enabled emulator sets it as
+the default for all games on that platform. A "Switching cores may affect save compatibility" note is the first line of
+the menu.
 
 Names that start exactly the same thing are one entry, named by all of them in RetroDECK's order: RetroDECK lists the
 same RetroArch core for PlayStation 2 as LRPS2 and as PCSX2, so the menu offers **LRPS2 / PCSX2** once, and the header,
@@ -921,11 +925,13 @@ before reads as that entry.
 A platform that offers one emulator says so instead of showing a button. A platform whose emulators Tender cannot pin —
 they may need setting up, or ES-DE's command for them may not be one Tender can bake — says that too, and RetroDECK
 picks one itself when a game starts. Where the emulator RetroDECK would have fallen back to is **not installed**, the
-pane names it and says nothing here can pin a different one; those games will not start until it is installed. And a
-platform RetroDECK lists **no** emulator for says so, which is a different thing again: there is nothing for RetroDECK
-to fall back to at all. If the emulator list itself cannot be established, the pane says why rather than showing an
-empty picker: no emulator source was found, every source is switched off in Settings › Emulator sources, ES-DE's systems
-file is broken, the source's list cannot be read yet (EmuDeck's today), or it is not established for another reason.
+pane names it and says nothing here can pin a different one; those games will not start until it is installed. Where
+Tender cannot tell whether it is installed, the pane names it and says so, with the reason where one is known, and the
+button stays open so you can pin it. And a platform RetroDECK lists **no** emulator for says so, which is a different
+thing again: there is nothing for RetroDECK to fall back to at all. If the emulator list itself cannot be established,
+the pane says why rather than showing an empty picker: no emulator source was found, every source is switched off in
+Settings › Emulator sources, ES-DE's systems file is broken, the source's list cannot be read yet (EmuDeck's today), or
+it is not established for another reason.
 
 Tender stores the choice in its own settings and **immediately re-applies it** to every installed game on that platform
 — the change takes effect right away, with no sync needed (games that already have a per-game core keep their own

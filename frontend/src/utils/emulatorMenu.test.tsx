@@ -146,6 +146,24 @@ describe("buildEmulatorMenu", () => {
     expect(ryubing.onClick).toBeUndefined();
   });
 
+  it("offers an entry whose installation could not be established, with its cause, never as missing", () => {
+    const onPick = vi.fn();
+    const menu = buildEmulatorMenu(
+      baseConfig({
+        emulators: [
+          libretroEmu("mgba_libretro", "mGBA", true),
+          { ...libretroEmu("genesis_plus_gx_expanded_libretro", "Paprium"), reason: "path_unseen" },
+        ],
+        onPick,
+      }),
+    );
+    const paprium = items(menu).find((i) => i.text.startsWith("Paprium"))!;
+    expect(paprium.disabled).toBeFalsy();
+    expect(paprium.text).toBe("Paprium — installation not established: ES-DE looks for it where Tender cannot see");
+    paprium.onClick!();
+    expect(onPick).toHaveBeenCalledWith("Paprium");
+  });
+
   it("dispatches a bakeable standalone emulator's label on pick", () => {
     const onPick = vi.fn();
     const menu = buildEmulatorMenu(

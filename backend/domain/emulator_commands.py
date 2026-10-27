@@ -7,6 +7,10 @@ a standalone emulator. The system-layer default is the first *safely-bakeable*
 command in document order; the emulator picker offers every command annotated
 with its bakeability and, when it cannot be baked, the reason.
 
+Whether what an entry launches is installed is not decided here: it is the
+resolver's answer, which :mod:`adapters.atlas_catalogue` reads and hands in as
+one of the reasons below.
+
 Pure compute only — takes the ``(label, text)`` pairs of one catalogue entry,
 which :mod:`adapters.atlas_catalogue` reads off ``es_systems.xml``, and returns
 value objects. The launch-bake itself (``EmulatorInvocation`` → the ``-e``
@@ -17,7 +21,7 @@ command becomes that invocation.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from domain.shortcut_data import EmulatorInvocation
@@ -49,6 +53,20 @@ _KNOWN_PLACEHOLDERS = frozenset(
     }
 )
 
+# What the resolver states about whether an entry's program is there, in
+# Tender's words. ``NOT_INSTALLED`` withholds the entry whatever its command.
+# The rest say the resolver could not establish it, each naming the cause where
+# the reading knows it and ``NOT_ESTABLISHED`` where it does not; such an entry
+# stays selectable with a note and is never the default by itself (#2195 D9).
+# The panel words each of them (``frontend/src/utils/emulatorInstallation.ts``),
+# and ``tests/domain/test_emulator_commands.py`` holds the two lists equal.
+NOT_INSTALLED = "not_installed"
+NOT_ESTABLISHED = "not_established"
+NOT_ESTABLISHED_NO_FIND_RULE = "no_find_rule"
+NOT_ESTABLISHED_FIND_RULES_UNREAD = "find_rules_unread"
+NOT_ESTABLISHED_LOOKUP_UNSUPPORTED = "lookup_unsupported"
+NOT_ESTABLISHED_PATH_UNSEEN = "path_unseen"
+
 
 @dataclass(frozen=True)
 class EmulatorOption:
@@ -65,17 +83,22 @@ class EmulatorOption:
 
     - ``"bakeable"`` — a real emulator invocation ending in ``%ROM%`` Tender
       can bake into a shortcut ``-e`` override (``reason`` is ``None``).
-    - ``"needs_setup"`` — a command that is well-formed but not launchable from
-      Steam as it stands: a ``%INJECT%`` form, which injects a file's contents
-      into the command and which Tender cannot start (reason ``"inject"``), or a
-      standalone emulator that is not installed in RetroDECK (reason
-      ``"not_installed"``, applied post-hoc by :func:`downgrade_if_not_installed`
-      from the adapter's on-disk probe).
+    - ``"needs_setup"`` — an entry that is not launchable from Steam as it
+      stands: a ``%INJECT%`` form, which injects a file's contents into the
+      command and which Tender cannot start (reason ``"inject"``), or one whose
+      program the resolver states is not installed (:data:`NOT_INSTALLED`),
+      which stands whatever the command is, ahead of every other reason.
     - ``"unbakeable"`` — cannot be baked; ``reason`` says why.
 
     ``reason`` is ``None`` when bakeable, else one of ``"inject"``,
     ``"not_installed"``, ``"shortcut_script"``, ``"no_rom_target"``,
     ``"quoting"``, ``"startdir"``, ``"unknown_placeholder"``.
+
+    ``not_established`` is the note an entry carries where the resolver could
+    not establish whether its program is there — :data:`NOT_ESTABLISHED` or a
+    named cause — and ``None`` otherwise. It leaves ``status`` to the command:
+    the entry stays a pick that resolves, and is never the default by itself
+    (:func:`select_default_option`).
 
     ``emulator`` is the resolver's identity for the emulator behind this row, and
     it is what a firmware answer is joined and scoped on — the one field that
@@ -83,6 +106,11 @@ class EmulatorOption:
     from ``label``: ES-DE lists one ``pcsx2_libretro.so`` as both ``LRPS2`` and
     ``PCSX2``, so two labels can be one emulator. ``None`` is an emulator the
     resolver could not identify, and nothing may be scoped to it.
+
+    ``launcher`` is the path inside RetroDECK's sandbox the resolver states ES-DE
+    runs for this entry — what the folder-boot bake execs directly (ADR-0019).
+    ``None`` where the reading hands none on; which launchers it does is
+    ``adapters/atlas_catalogue.py::_sandbox_launcher``'s rule.
     """
 
     label: str
@@ -92,6 +120,8 @@ class EmulatorOption:
     status: str
     reason: str | None
     emulator: str | None
+    launcher: str | None = None
+    not_established: str | None = None
 
 
 class LaunchingEmulator(Protocol):
@@ -134,19 +164,32 @@ class LaunchingEmulator(Protocol):
     def label(self) -> str | None: ...
 
 
-def classify_command(label: str, text: str, *, emulator: str | None = None) -> EmulatorOption:
+def classify_command(
+    label: str,
+    text: str,
+    *,
+    emulator: str | None = None,
+    installation: str | None = None,
+    launcher: str | None = None,
+) -> EmulatorOption:
     """Classify a single ES-DE ``<command>`` (``label`` + ``text``).
 
     Applies the bake-verdict rules in order (the first that matches wins) and
     determines the emulator kind, returning a fully-populated
     :class:`EmulatorOption`. Pure — no I/O, deterministic in its inputs.
 
-    *emulator* is the resolver's identity for the row, carried through
-    unexamined: this function classifies what a command DOES, and who the
-    emulator is is read off the catalogue entry beside it rather than parsed out
-    of the command text.
+    *emulator* and *launcher* are the resolver's identity and launcher for the
+    row, carried through unexamined: this function classifies what a command
+    DOES, and who the emulator is and what ES-DE runs for it are read off the
+    catalogue entry beside it rather than parsed out of the command text.
+
+    *installation* is what the resolver states where it does not state the
+    entry startable, ``None`` where it does. :data:`NOT_INSTALLED` takes the
+    place of the bake verdict, so the entry is neither the default nor a pick
+    that resolves, and the picker shows it disabled. Any other word is the
+    entry's ``not_established`` note, beside the bake verdict its command earns.
     """
-    status, reason = _bake_verdict(text)
+    status, reason = ("needs_setup", NOT_INSTALLED) if installation == NOT_INSTALLED else _bake_verdict(text)
     kind, core_so = _emulator_kind(text)
     return EmulatorOption(
         label=label,
@@ -156,26 +199,9 @@ def classify_command(label: str, text: str, *, emulator: str | None = None) -> E
         status=status,
         reason=reason,
         emulator=emulator,
+        launcher=launcher,
+        not_established=installation if installation not in (None, NOT_INSTALLED) else None,
     )
-
-
-def downgrade_if_not_installed(option: EmulatorOption, emulator_installed: bool) -> EmulatorOption:
-    """Downgrade a bakeable **standalone** option whose emulator is not installed.
-
-    The pure half of ADR-0020's binary-existence probe: the adapter performs the
-    on-disk / ``es_find_rules.xml`` I/O to decide whether a standalone emulator is
-    installed in RetroDECK and passes the verdict in as *emulator_installed*; this
-    rule turns a bakeable standalone whose emulator is absent into a
-    ``needs_setup`` option with reason ``"not_installed"`` so it drops out of the
-    default selection (:func:`select_default_option`) and shows disabled in the
-    picker — a system whose only bakeable command is a missing standalone then
-    plain-launches, restoring the pre-standalone behavior. Libretro options
-    (RetroArch ships with RetroDECK, so it is always installed) and options that
-    are already non-bakeable are returned unchanged.
-    """
-    if emulator_installed or option.status != "bakeable" or option.kind != "standalone":
-        return option
-    return replace(option, status="needs_setup", reason="not_installed")
 
 
 def _bake_verdict(text: str) -> tuple[str, str | None]:
@@ -222,12 +248,14 @@ def select_default_option(options: list[EmulatorOption]) -> EmulatorOption | Non
 
     ES-DE lists a system's emulators in preference order; the first one
     Tender can bake is the system-layer default. Skips ``needs_setup`` and
-    ``unbakeable`` options (the ``%INJECT%`` / shortcut / quoting forms). When
-    nothing is bakeable the caller bakes the plain RetroDECK launch and lets
-    RetroDECK resolve the emulator itself.
+    ``unbakeable`` options (the ``%INJECT%`` / shortcut / quoting forms), and an
+    option whose installation the resolver could not establish: it is a pick a
+    user may make, never one Tender makes for them. When nothing qualifies the
+    caller bakes the plain RetroDECK launch and lets RetroDECK resolve the
+    emulator itself.
     """
     for option in options:
-        if option.status == "bakeable":
+        if option.status == "bakeable" and option.not_established is None:
             return option
     return None
 
@@ -236,15 +264,16 @@ def option_to_invocation(option: EmulatorOption | None) -> EmulatorInvocation | 
     """Render a *bakeable* option into an :class:`EmulatorInvocation`, else ``None``.
 
     A libretro option yields a libretro invocation keyed on its ``core_so``; a
-    standalone option bakes its full command text verbatim. A ``None`` option,
-    or one that is not bakeable, resolves to ``None`` (the plain-launch signal).
+    standalone option bakes its full command text verbatim and carries its
+    ``launcher`` for the folder-boot fold. A ``None`` option, or one that is not
+    bakeable, resolves to ``None`` (the plain-launch signal).
     """
     if option is None or option.status != "bakeable":
         return None
     if option.kind == "libretro" and option.core_so:
         return EmulatorInvocation.libretro(option.core_so, option.label, option.emulator)
     if option.kind == "standalone" and option.command:
-        return EmulatorInvocation.standalone(option.command, option.label, option.emulator)
+        return EmulatorInvocation.standalone(option.command, option.label, option.emulator, launcher=option.launcher)
     return None
 
 
@@ -286,13 +315,16 @@ def resolve_platform_option(options: list[EmulatorOption], override: str | None)
     still names a bakeable emulator, else the es_systems default (the first
     bakeable command). A stale / no-longer-installed override degrades to the
     default — never fatal — mirroring the launch-bake resolver so what a surface
-    shows and what actually launches agree. ``None`` when the platform has no
-    BAKEABLE option — which is not the same as having none, and not a failure:
-    an empty menu, an unreadable ``es_systems.xml``, and a menu whose only
-    entries are ``needs_setup`` or uninstalled standalone emulators all answer
-    ``None`` alike. What follows is written at :func:`select_default_option`:
-    the caller bakes the plain RetroDECK launch and RetroDECK resolves the
-    emulator itself, so the games still start.
+    shows and what actually launches agree. A pinned option whose installation
+    the resolver could not establish still resolves. ``None`` when nothing is
+    pinned and the platform has no option :func:`select_default_option` takes —
+    which is not the same as having none, and not a failure: an empty menu, an
+    unreadable ``es_systems.xml``, and a menu whose only entries are
+    ``needs_setup`` (an ``%INJECT%`` form, or an emulator the resolver states is
+    not installed) or not established all answer ``None`` alike. What follows
+    is written at :func:`select_default_option`: the caller bakes the plain
+    RetroDECK launch and RetroDECK resolves the emulator itself, so the games
+    still start.
 
     **One pick, because a surface must not be able to answer for two
     emulators.** The option is returned rather than one projection of it so that
@@ -349,8 +381,11 @@ def options_to_payload(options: list[EmulatorOption]) -> list[dict[str, Any]]:
     bakeable one); ``bakeable`` is ``True`` only for a fully bakeable option
     (``needs_setup`` reads as ``bakeable: False`` with its ``reason`` —
     ``"inject"`` or ``"not_installed"`` — so the picker can disable it with a
-    distinct message). The raw ``command`` text is intentionally dropped from
-    the wire payload.
+    distinct message). A bakeable option's ``reason`` carries its
+    ``not_established`` note, where it has one, so a surface can say so beside
+    a pick it still offers; an option that cannot be baked keeps the reason it
+    cannot. The raw ``command`` text is intentionally dropped from the wire
+    payload.
 
     ``emulator`` is the identity, and it travels beside ``core_so`` rather than
     replacing it because the two answer different questions: ``core_so`` is the
@@ -376,7 +411,7 @@ def options_to_payload(options: list[EmulatorOption]) -> list[dict[str, Any]]:
                 "emulator": first.emulator,
                 "is_default": any(option is default for option in group),
                 "bakeable": first.status == "bakeable",
-                "reason": first.reason,
+                "reason": first.reason if first.reason is not None else first.not_established,
             }
         )
     return payload

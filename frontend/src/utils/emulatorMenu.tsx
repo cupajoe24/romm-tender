@@ -19,6 +19,7 @@ import { Menu, MenuItem, MenuSeparator } from "@decky/ui";
 import type { AnsweringSource, EmulatorDataReason, EmulatorOption, PlatformSystemAnswer } from "../types";
 import { emulatorDataReasonSentence } from "./emulatorSourceWording";
 import { emulatorName, entryForLabel } from "./emulatorEntries";
+import { notEstablishedNote } from "./emulatorInstallation";
 
 /** Map a backend un-bakeable reason slug to short menu copy. */
 export function reasonCopy(reason: string | null): string {
@@ -126,9 +127,11 @@ export function buildEmulatorMenu(config: EmulatorMenuConfig): ReactNode {
     // when nothing overrides, otherwise the one listing the active label.
     const isActive = activeIsDefault ? e.is_default : e.labels.includes(activeLabel);
     const isPlatformCore = platformCore === e;
+    const note = notEstablishedNote(e.reason);
+    const noteSuffix = note === null ? "" : ` — ${note}`;
     children.push(
       <MenuItem key={key} onClick={() => onPick(e.label)}>
-        {emulatorEntryLabel(e, isActive, isPlatformCore)}
+        {`${emulatorEntryLabel(e, isActive, isPlatformCore)}${noteSuffix}`}
       </MenuItem>,
     );
   }

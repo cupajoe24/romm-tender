@@ -1480,8 +1480,9 @@ it, for the focused platform:
   page that opens the menu was the same sentence twice.
 
   **The clause names the core; "Default" is not one of the names it can take.** `resolve_platform_label` answers with
-  the real label in both ordinary cases. `null` means no option is **bakeable**, which is not the same as there being
-  none, and the two are different sentences:
+  the real label in both ordinary cases. `null` means nothing is pinned and no option can be the default — none is
+  **bakeable**, or the only bakeable ones are entries whose installation could not be established — which is not the
+  same as there being none, and the two are different sentences:
 
   - **Options exist, none bakeable, and the fallback can run** — the plain RetroDECK launch is baked and RetroDECK
     resolves the emulator itself. The clause reads `RetroDECK decides` in the muted colour and the line under it says
@@ -1491,13 +1492,19 @@ it, for the focused platform:
     outcome. `run_game.sh` takes `command[1]` for the system when no alternate emulator is set and `options_to_payload`
     keeps ES-DE's document order, so `emulators[0]` **is** that command; when its own `reason` is `not_installed`, the
     fallback names a binary that is not there. The clause reads `no emulator installed` in **red** and the line names
-    the emulator RetroDECK would have used. Only `downgrade_if_not_installed` ever sets that reason, and only on an
-    otherwise-bakeable option, so the branch fires exactly where the first command's standalone emulator is missing. A
-    first command unbakeable for another reason (`quoting`) whose emulator is also missing keeps the muted sentence —
-    `macintosh` is that shape — because installedness is not established for an option that was never bakeable. **Apple
-    I is the muted case, not this one**: ES-DE gives it two live commands, both MAME, and the first is a _libretro_ one
-    whose core is installed, so it reads `RetroDECK decides` and its games start. The three standalone entries in that
-    block are commented out and are not commands at all.
+    the emulator RetroDECK would have used. The reason is the resolver's statement that what the entry launches is not
+    there, libretro core or standalone emulator, and it stands whatever the command is
+    ([core-emulator-selection.md](core-emulator-selection.md)), so the branch fires exactly where the first command's
+    emulator is missing. **Apple I is the muted case, not this one**: ES-DE gives it two live commands, both MAME, and
+    the first is a _libretro_ one whose core is installed, so it reads `RetroDECK decides` and its games start. The
+    three standalone entries in that block are commented out and are not commands at all.
+  - **No default, and the fallback is an emulator whose installation could not be established** — such an entry is
+    bakeable, but Tender never makes it the default, while a user may pin it (#2195 D9). The line names the emulator
+    RetroDECK would use and says its installation could not be established, with the cause where one is known
+    (`frontend/src/utils/emulatorInstallation.ts`); it never says the emulator is missing. The clause stays
+    `RetroDECK decides` in the muted colour and the chip stays enabled. Beside such an entry the two cases above keep
+    the chip enabled too, and their lines drop "nothing here can pin a different one". Where the platform's own pick is
+    such an entry, a line under the header says its installation could not be established.
   - **No options at all** — `get_emulator_options` answers `available: true` with an empty list for a system whose
     catalogue entry lists no command. RetroDECK's own launch then reads `command[1]` for the system, finds nothing, and
     exits 1 (`libexec/run_game.sh`). A platform with no switched-on system in the answering source is not this case: its
@@ -1505,35 +1512,37 @@ it, for the focused platform:
     ([core-emulator-selection.md](core-emulator-selection.md#a-platforms-system)). The clause reads `no emulator` in
     **red** and the line says the games will not launch, because they will not.
 
-  The chip is disabled for all three, never withheld. Printing "Default" for any of them said Tender had chosen;
-  printing `no emulator` for all three said the games would not start where they do. Both were wrong, in opposite
-  directions, and the middle state is why the split is three rather than two: it is unpinnable like the first and does
-  not start like the last.
+  The chip is disabled for the three that leave nothing to pin, never withheld. Printing "Default" for any of them said
+  Tender had chosen; printing `no emulator` for all three said the games would not start where they do. Both were wrong,
+  in opposite directions, and the middle state is why the split is three rather than two: it is unpinnable like the
+  first and does not start like the last.
 
   **The button is always rendered**, and opens a menu only when there is something to pick: the core read landed,
-  RetroDECK was found, at least one option is bakeable, and there are at least two. The platform's shortcut count is
-  deliberately not a condition: the per-platform core is a setting read when a game is resolved, so it applies to games
-  synced later too, and picking it before the first sync is the ordinary case. In every other case it is the same chip,
-  disabled, with the reason in its `title` — the ruling the Remove group already follows, and what keeps the header's
-  shape constant across panes. A disabled button is still a focus stop and the wide page's own sheet gives it Steam's
-  focus outline, so a reader walking the header lands on it and is told why.
+  RetroDECK was found, at least one option is bakeable, and there are at least two — or nothing is the default and an
+  option can be pinned. The platform's shortcut count is deliberately not a condition: the per-platform core is a
+  setting read when a game is resolved, so it applies to games synced later too, and picking it before the first sync is
+  the ordinary case. In every other case it is the same chip, disabled, with the reason in its `title` — the ruling the
+  Remove group already follows, and what keeps the header's shape constant across panes. A disabled button is still a
+  focus stop and the wide page's own sheet gives it Steam's focus outline, so a reader walking the header lands on it
+  and is told why.
 
   **Which of those cases also keeps a line under the header is a judgement about what it reports, not about the chip.**
   "Nothing to switch" states — the read in flight, one emulator on the menu — say it in the tooltip alone: a sentence
   would spend a row of the pane reporting that nothing can be done, which is what the device round asked to remove.
   States that report a PROBLEM keep their line, because a tooltip is a hover and the Deck's controller cannot perform
   one: the read failed, the answering source gives no emulator list (worded by why, § Notices and homes), **ES-DE lists
-  no emulator at all**, nothing on its menu is bakeable, and the fallback is not installed. The first two of those three
-  are the split above and they are checked in that order: an empty menu is the case where RetroDECK's own fallback fails
-  too, so it is answered before the not-bakeable one, and the surviving count branch then speaks only for a menu that
-  really does hold one bakeable option. A switch the backend refuses is reported in the same place, and the header keeps
-  naming the old core, which every shortcut following the platform's pick still launches with. A switch takes the page's
-  busy hold from the moment it is picked until it is over; an accepted one re-bakes the launch command of every bound
-  shortcut, which is why the hold has to cover the whole of it. The chip and the pane's buttons disable, another
-  platform's pane says `Working on X`, and the acting pane says `Switching to <emulator>…` in the same status line the
-  outcome lands in — a success takes that line back, a refusal replaces it, and a continuation cancelled by leaving the
-  page takes it back too, because such a switch either committed or never ran and there is no pane left to report to
-  either way.
+  no emulator at all**, nothing on its menu is bakeable, the fallback is not installed, and the fallback or the
+  platform's own pick is one whose installation could not be established. ES-DE listing no emulator and nothing on the
+  menu being bakeable are the split above, and they are checked in that order: an empty menu is the case where
+  RetroDECK's own fallback fails too, so it is answered before the not-bakeable one, and the surviving count branch then
+  speaks only for a menu that really does hold one bakeable option. A switch the backend refuses is reported in the same
+  place, and the header keeps naming the old core, which every shortcut following the platform's pick still launches
+  with. A switch takes the page's busy hold from the moment it is picked until it is over; an accepted one re-bakes the
+  launch command of every bound shortcut, which is why the hold has to cover the whole of it. The chip and the pane's
+  buttons disable, another platform's pane says `Working on X`, and the acting pane says `Switching to <emulator>…` in
+  the same status line the outcome lands in — a success takes that line back, a refusal replaces it, and a continuation
+  cancelled by leaving the page takes it back too, because such a switch either committed or never ran and there is no
+  pane left to report to either way.
 
 - **BIOS files** — the summary, which this pane words nowhere: `frontend/src/utils/biosSummary.ts` holds every state and
   a one-of group's, and answers each in two lengths, and the pane takes both — the short `status` as the section's
@@ -2070,7 +2079,7 @@ per-game pin — with only the save resolver's reading of the machine faked. The
 (`SaveService._installed_rom_ids_on_platform`); then, per ROM and under its lock, the live reading opens three —
 `RomInfo.is_content_installed`'s install row, the save answer's own install row, and
 `ActiveCoreResolver.active_emulator_for_rom`'s read of the ROM and its install, after which it resolves through
-`get_emulator_options(system)` (the heavy read, which globs each option's emulator install through the find rules) and
+`get_emulator_options(system)` (the heavy read, in which the resolver looks up each entry's emulator on the machine) and
 the resolver reads the machine for the answer itself; the follow opens two — the pending-home-migration check and the
 record's read, plus the record's write at first sight; and `find_save_files` opens one more for the install row. On a
 128-ROM platform that is 769 lock acquisitions. That cost is deliberate and is not the read's to fix: it must walk
