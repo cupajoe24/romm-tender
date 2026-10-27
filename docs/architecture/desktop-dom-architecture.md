@@ -18,6 +18,13 @@ the title, the summary and the rows `metadataRows` answers, under the labels and
 tab shows them. While it is drawn it holds two things `RomMPlaySection` holds on Big Picture's game page: the connection
 heartbeat, and the automatic artwork, whose apply in flight it cancels on leaving.
 
+While a RetroDECK migration is pending it draws the migration card
+(`frontend/src/desktop/gameview/MigrationBlockedCard.tsx`) in place of the columns, as the game page's section does on
+Big Picture (`RomMGameInfoPanel`), and goes on holding the heartbeat and the automatic artwork behind it. The card's
+sentence names Big Picture as where the Tender menu is, because the desktop client has no Quick Access menu. It asks the
+backend for the migration state again for each game page it is drawn for (`useMigrationRefresh`,
+`frontend/src/utils/migrationRefresh.ts`).
+
 ## Two windows, two realms
 
 The panel runs in Steam's **SharedJSContext**, where the backend loads it
