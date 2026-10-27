@@ -368,8 +368,11 @@ interface FirmwareFile extends FirmwareVerdict {
 
 /**
  * One ES-DE `<command>` classified for launch-bakeability (#1210), the shape the
- * backend `get_emulator_options` / picker payloads carry. `kind` is `"libretro"`
- * (`core_so` set to the bare core name) or `"standalone"` (`core_so` null).
+ * backend `get_emulator_options` / picker payloads carry. `kind` is Tender's word
+ * for what the resolver states the entry launches: `"core"` (a RetroArch core of
+ * this machine, `core_so` set to its bare name), `"program"` (an emulator program
+ * of its own) or `"foreign_core"` (a RetroArch launch naming a core this machine
+ * cannot load); `core_so` is null on the last two.
  * `bakeable` is false for the `needs_setup` (`reason: "inject"`, or
  * `"not_installed"` for an emulator the resolver states is not installed —
  * worded by `reasonCopy` in `utils/emulatorMenu.tsx`) and un-bakeable forms;
@@ -379,11 +382,11 @@ interface FirmwareFile extends FirmwareVerdict {
  * `utils/emulatorInstallation.ts`, and `null` otherwise.
  *
  * `emulator` is the resolver's identity for the emulator behind the row and the
- * only field that names one for BOTH kinds — `dolphin_libretro.so` for a
- * libretro entry, `DUCKSTATION` for a standalone one. It is what a BIOS answer's
+ * only field that names one for every kind — `dolphin_libretro.so` for a core
+ * entry, `DUCKSTATION` for a program. It is what a BIOS answer's
  * entries and rows (`EmulatorTab.emulator`, `declared_by`) are keyed on, so it is the
  * join between a picker row and a BIOS answer; `core_so` carries no extension
- * and is null for every standalone emulator, and `label` identifies an entry
+ * and is null for every program, and `label` identifies an entry
  * rather than an emulator — RetroDECK lists RPCS3 as one entry by game serial
  * and another from a folder or an ISO. `null` is an emulator the resolver could
  * not identify, which nothing may be keyed on.
@@ -402,7 +405,7 @@ export interface EmulatorOption {
   label: string;
   labels: string[];
   name: string;
-  kind: "libretro" | "standalone";
+  kind: "core" | "program" | "foreign_core";
   core_so: string | null;
   emulator: string | null;
   is_default: boolean;
