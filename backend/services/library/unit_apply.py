@@ -233,29 +233,27 @@ class UnitApplier:
         )
 
         # Read the bound-row registry once, before the build: it drives the group
-        # collapse below, and for a platform unit its persisted keys seed the
-        # component keying (a fresh member edging into a DB-resident sibling
-        # adopts its canonical summary). A delivered unit's ROMs already carry
-        # the keys stamped over every delivery, which the keying leaves alone.
+        # collapse below. The component keying reads the preview's resident keys,
+        # unbound rows' included, not the registry's (why:
+        # docs/architecture/backend-architecture.md, "Group-aware sync"). A
+        # delivered unit's ROMs already carry the keys stamped over every
+        # delivery, which the keying leaves alone.
         registry = await self._loop.run_in_executor(None, self._local_library_reader.do_read_apply_registry, unit)
-        resident_keys = {
-            int(rom_id): entry["sibling_group_key"]
-            for rom_id, entry in registry.items()
-            if entry["sibling_group_key"] is not None
-        }
+        resident_keys = await self._loop.run_in_executor(None, self._local_library_reader.do_read_resident_group_keys)
         stamp_component_group_keys(unit_roms, resident_keys)
         shortcuts_data = build_shortcuts_data(unit_roms, self._launcher_exe, installed_paths, core_overrides)
 
         # Collapse to one Steam shortcut per sibling group (ADR-0021): only the
         # representative (plus any grandfathered bound siblings) is emitted; a
         # rebinding group's entry is keyed to its vanished sibling so the
-        # frontend reuses that shortcut. A PLATFORM unit fetches a group's whole
-        # membership (a group is per-platform), so it is a complete view and may
-        # rebind; a COLLECTION unit is a partial view (it holds what it delivered
-        # and every member of a group no binding holds, but not a group's bound
-        # sibling on another/skipped platform) — the collapse then only
-        # grandfathers, never rebinds a live binding onto an uninstalled sibling
-        # (#1296).
+        # frontend reuses that shortcut. A PLATFORM unit holds every member of a
+        # group its platform listing returns (a group is per-platform), so it is
+        # a complete view and may rebind; a version hidden in RomM is not among
+        # them, so a bound one is collapsed as one gone from RomM. A COLLECTION
+        # unit is a partial view (it holds what it delivered and every member of
+        # a group no binding holds, but not a group's bound sibling on
+        # another/skipped platform) — the collapse then only grandfathers, never
+        # rebinds a live binding onto an uninstalled sibling (#1296).
         emitted = collapse_sibling_groups(
             shortcuts_data,
             registry,
