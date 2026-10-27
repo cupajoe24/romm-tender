@@ -1,7 +1,7 @@
 """Tests for ChunkDispatcher — the per-unit emit → ack → commit round-trip.
 
 The dispatcher is reached through the library façade
-(``library.sync._chunk_dispatcher``) so every test drives the same
+(``library.chunk_dispatcher``) so every test drives the same
 instance the unit applier holds, over the shared state box the chunk
 coordination lands on.
 
@@ -28,7 +28,7 @@ import pytest
 
 from domain.sync_state import SyncState
 from domain.work_unit import WorkUnit
-from tests.services.library._helpers import _fake_wait_set_event, _seed_platform, _seed_rom_row, _use_fake_romm
+from tests.services.library._helpers import _fake_wait_set_event, _seed_platform, _seed_rom_row
 
 
 class TestApplyChunking:
@@ -42,14 +42,16 @@ class TestApplyChunking:
     """
 
     @pytest.mark.asyncio
-    async def test_large_unit_emits_one_event_and_commit_per_chunk(self, library, fake_romm_api, monkeypatch, emit):
+    async def test_large_unit_emits_one_event_and_commit_per_chunk(
+        self, make_library, fake_romm_api, monkeypatch, emit
+    ):
         """Five singletons at chunk size 2 → three ``sync_apply_unit`` events with
         continuous unit-wide chunk fields, and one commit per chunk carrying only
         that chunk's rows."""
 
         from services.library import chunk_dispatcher
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 2)
 
         _seed_platform(
@@ -68,13 +70,13 @@ class TestApplyChunking:
             commit_rows.append([r["id"] for r in chunk_rows])
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         library.sync._box.sync_state = SyncState.RUNNING
         library.sync._box.current_sync_id = "run-chunk"
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=5)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -95,12 +97,12 @@ class TestApplyChunking:
         assert commit_rows == [[1, 2], [3, 4], [5]]
 
     @pytest.mark.asyncio
-    async def test_the_final_chunk_s_stamp_checksums_every_chunk_s_ids(self, library, fake_romm_api, monkeypatch):
+    async def test_the_final_chunk_s_stamp_checksums_every_chunk_s_ids(self, make_library, fake_romm_api, monkeypatch):
         """The stamp the final chunk carries names the whole fetch, not that chunk's rows (#743 D2)."""
         from domain.platform_skip import rom_id_checksum
         from services.library import chunk_dispatcher
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 2)
 
         _seed_platform(
@@ -119,13 +121,13 @@ class TestApplyChunking:
             stamps.append(platform_stamp)
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         library.sync._box.sync_state = SyncState.RUNNING
         library.sync._box.current_sync_id = "run-chunk"
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=5)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -141,11 +143,11 @@ class TestApplyChunking:
         assert stamps[2].rom_id_checksum == rom_id_checksum(range(1, 6))
 
     @pytest.mark.asyncio
-    async def test_small_unit_emits_exactly_one_chunk(self, library, fake_romm_api, emit):
+    async def test_small_unit_emits_exactly_one_chunk(self, make_library, fake_romm_api, emit):
         """A unit under the chunk size emits a single chunk — regression guard that
         the chunk fields collapse to the today's one-shot behaviour."""
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
 
         _seed_platform(
             fake_romm_api,
@@ -156,13 +158,13 @@ class TestApplyChunking:
         )
 
         library.sync._reporter.commit_unit_results = AsyncMock()  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         library.sync._box.sync_state = SyncState.RUNNING
         library.sync._box.current_sync_id = "run-single"
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=3)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -182,12 +184,12 @@ class TestApplyChunking:
         assert len(event["shortcuts"]) == 3
 
     @pytest.mark.asyncio
-    async def test_user_cancel_between_chunks_keeps_committed_chunks(self, library, fake_romm_api, monkeypatch):
+    async def test_user_cancel_between_chunks_keeps_committed_chunks(self, make_library, fake_romm_api, monkeypatch):
         """A user cancel during chunk 1's wait discards the rest but leaves chunk 0
         committed — the whole point of chunking (#1025)."""
         from services.library import chunk_dispatcher
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 2)
 
         _seed_platform(
@@ -206,7 +208,7 @@ class TestApplyChunking:
             commit_rows.append([r["id"] for r in chunk_rows])
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
         box = library.sync._box
 
         async def wait(_unit, event):
@@ -216,12 +218,12 @@ class TestApplyChunking:
             box.sync_state = SyncState.CANCELLING  # user cancel during chunk 1
             return None
 
-        library.sync._chunk_dispatcher._wait_for_unit_complete = wait
+        library.chunk_dispatcher._wait_for_unit_complete = wait
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-cancel-chunk"
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=5)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -240,7 +242,9 @@ class TestApplyChunking:
         assert box.abandoned_chunk is None
 
     @pytest.mark.asyncio
-    async def test_cancel_in_inter_chunk_window_never_emits_next_chunk(self, library, fake_romm_api, monkeypatch, emit):
+    async def test_cancel_in_inter_chunk_window_never_emits_next_chunk(
+        self, make_library, fake_romm_api, monkeypatch, emit
+    ):
         """A cancel landing AFTER chunk 0's commit but BEFORE chunk 1's emit stops
         the unit at the top of the loop: chunk 1 is never emitted, chunk 0's commit
         persists, staging cleared. Complements
@@ -251,7 +255,7 @@ class TestApplyChunking:
 
         from services.library import chunk_dispatcher
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 2)
 
         _seed_platform(
@@ -275,13 +279,13 @@ class TestApplyChunking:
                 box.sync_state = SyncState.CANCELLING
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-inter-chunk"
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=5)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -307,12 +311,12 @@ class TestApplyChunking:
         assert box.abandoned_chunk is None
 
     @pytest.mark.asyncio
-    async def test_heartbeat_timeout_on_chunk_stashes_only_that_chunk(self, library, fake_romm_api, monkeypatch):
+    async def test_heartbeat_timeout_on_chunk_stashes_only_that_chunk(self, make_library, fake_romm_api, monkeypatch):
         """A heartbeat timeout on chunk 1 stashes ONLY chunk 1's rows (not the whole
         unit) under chunk 1's identity, so a late ack commits just that chunk."""
         from services.library import chunk_dispatcher
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 2)
 
         _seed_platform(
@@ -324,7 +328,7 @@ class TestApplyChunking:
         )
 
         library.sync._reporter.commit_unit_results = AsyncMock()  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
         box = library.sync._box
 
         async def wait(_unit, event):
@@ -333,12 +337,12 @@ class TestApplyChunking:
                 return {}
             return None  # heartbeat timeout on chunk 1 (no cancel)
 
-        library.sync._chunk_dispatcher._wait_for_unit_complete = wait
+        library.chunk_dispatcher._wait_for_unit_complete = wait
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-timeout-chunk"
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=5)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -367,10 +371,10 @@ class TestWaitForUnitComplete:
         event = asyncio.Event()
         event.set()
         library.sync._box.sync_state = SyncState.RUNNING
-        library.sync._sync_last_heartbeat = library.sync._chunk_dispatcher._clock.monotonic()
+        library.sync._sync_last_heartbeat = library.chunk_dispatcher._clock.monotonic()
         library.sync._box.last_unit_results = {"10": 9000}
 
-        results = await library.sync._chunk_dispatcher._wait_for_unit_complete(unit, event)
+        results = await library.chunk_dispatcher._wait_for_unit_complete(unit, event)
         assert results == {"10": 9000}
 
     @pytest.mark.asyncio
@@ -378,9 +382,9 @@ class TestWaitForUnitComplete:
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=1)
         event = asyncio.Event()
         library.sync._box.sync_state = SyncState.CANCELLING
-        library.sync._sync_last_heartbeat = library.sync._chunk_dispatcher._clock.monotonic()
+        library.sync._sync_last_heartbeat = library.chunk_dispatcher._clock.monotonic()
 
-        results = await library.sync._chunk_dispatcher._wait_for_unit_complete(unit, event)
+        results = await library.chunk_dispatcher._wait_for_unit_complete(unit, event)
         assert results is None
 
     @pytest.mark.asyncio
@@ -389,9 +393,9 @@ class TestWaitForUnitComplete:
         event = asyncio.Event()
         library.sync._box.sync_state = SyncState.RUNNING
         # Heartbeat is way too old — should timeout immediately on first loop check
-        library.sync._sync_last_heartbeat = library.sync._chunk_dispatcher._clock.monotonic() - 999.0
+        library.sync._sync_last_heartbeat = library.chunk_dispatcher._clock.monotonic() - 999.0
 
-        results = await library.sync._chunk_dispatcher._wait_for_unit_complete(unit, event)
+        results = await library.chunk_dispatcher._wait_for_unit_complete(unit, event)
         assert results is None
 
 
@@ -399,22 +403,22 @@ class TestWaitForUnitCompleteCancelled:
     """Tests for asyncio.CancelledError in _wait_for_unit_complete."""
 
     @pytest.mark.asyncio
-    async def test_cancelled_error_during_sleep_is_logged_and_reraised(self, library):
+    async def test_cancelled_error_during_sleep_is_logged_and_reraised(self, make_library):
         """If the inner sleep is cancelled, log + re-raise so the outer loop sees the cancel."""
 
         class _CancellingSleeper:
             async def sleep(self, _seconds: float) -> None:
                 raise asyncio.CancelledError()
 
-        library.sync._chunk_dispatcher._sleeper = _CancellingSleeper()
+        library = make_library(sleeper=_CancellingSleeper())
         library.sync._box.sync_state = SyncState.RUNNING
-        library.sync._sync_last_heartbeat = library.sync._chunk_dispatcher._clock.monotonic()
+        library.sync._sync_last_heartbeat = library.chunk_dispatcher._clock.monotonic()
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=1)
         event = asyncio.Event()  # never set — wait will enter the sleep path
 
         with pytest.raises(asyncio.CancelledError):
-            await library.sync._chunk_dispatcher._wait_for_unit_complete(unit, event)
+            await library.chunk_dispatcher._wait_for_unit_complete(unit, event)
 
 
 class TestWholeUnitStaging:
@@ -430,8 +434,8 @@ class TestWholeUnitStaging:
     """
 
     @pytest.mark.asyncio
-    async def test_delta_and_full_set_are_staged_into_their_own_fields(self, library, fake_romm_api):
-        _use_fake_romm(library, fake_romm_api)
+    async def test_delta_and_full_set_are_staged_into_their_own_fields(self, make_library, fake_romm_api):
+        library = make_library(romm_api=fake_romm_api)
         # rom 10 is content-unchanged (skipped from the delta); rom 11 changed its
         # name, so the delta is {11} while the built set is {10, 11}.
         _seed_platform(
@@ -447,8 +451,8 @@ class TestWholeUnitStaging:
         library.settings["enabled_platforms"] = {"1": True}
         _seed_rom_row(library, 10, app_id=1010, platform_slug="n64", name="Keep", fs_name="keep.z64")
         _seed_rom_row(library, 11, app_id=1011, platform_slug="n64", name="Old Name", fs_name="changed.z64")
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={11: "/covers/11.png"})
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.cover_preparer._download_artwork = AsyncMock(return_value={11: "/covers/11.png"})
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         box = library.sync._box
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-staging"
@@ -465,7 +469,7 @@ class TestWholeUnitStaging:
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
 
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=2)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -514,7 +518,7 @@ class TestFinalChunkCollectionStamp:
             stamps.append(collection_stamp)
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         box = library.sync._box
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-collection-stamp"
@@ -528,7 +532,7 @@ class TestFinalChunkCollectionStamp:
             collection_kind="standard",
             collection_updated_at="2025-01-01T00:00:00",
         )
-        await library.sync._chunk_dispatcher.apply_unit_in_chunks(
+        await library.chunk_dispatcher.apply_unit_in_chunks(
             unit,
             unit_index=0,
             total_units=1,
@@ -572,7 +576,7 @@ class TestFinalChunkCollectionStamp:
             return None  # heartbeat timeout on the final chunk
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._chunk_dispatcher._wait_for_unit_complete = wait
+        library.chunk_dispatcher._wait_for_unit_complete = wait
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-collection-timeout"
 
@@ -585,7 +589,7 @@ class TestFinalChunkCollectionStamp:
             collection_kind="standard",
             collection_updated_at="2025-01-01T00:00:00",
         )
-        await library.sync._chunk_dispatcher.apply_unit_in_chunks(
+        await library.chunk_dispatcher.apply_unit_in_chunks(
             unit,
             unit_index=0,
             total_units=1,
@@ -610,7 +614,7 @@ class TestFinalChunkCollectionStamp:
             stamps.append(collection_stamp)
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         box = library.sync._box
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-virtual-stamp"
@@ -625,7 +629,7 @@ class TestFinalChunkCollectionStamp:
             virtual_type="franchise",
         )
         emitted = [{"rom_id": 1, "sibling_group_key": None}]
-        await library.sync._chunk_dispatcher.apply_unit_in_chunks(
+        await library.chunk_dispatcher.apply_unit_in_chunks(
             unit,
             unit_index=0,
             total_units=1,
@@ -653,11 +657,11 @@ class TestFinalChunkCollectionStamp:
             stamps.append(collection_stamp)
 
         library.sync._reporter.commit_unit_results = capture_commit  # type: ignore[method-assign]
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         box = library.sync._box
         box.sync_state = SyncState.RUNNING
         box.current_sync_id = "run-collection-stamp"
-        await library.sync._chunk_dispatcher.apply_unit_in_chunks(
+        await library.chunk_dispatcher.apply_unit_in_chunks(
             unit,
             unit_index=0,
             total_units=1,
@@ -797,7 +801,7 @@ class TestAckIdentityPrecedesTheEmit:
         from services.library import chunk_dispatcher
 
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 1)
-        dispatcher = library.sync._chunk_dispatcher
+        dispatcher = library.chunk_dispatcher
         box = library.sync._box
         emitted = [
             {"rom_id": 1, "sibling_group_key": None},
@@ -856,10 +860,12 @@ class TestInterChunkCancelGuard:
     """
 
     @pytest.mark.asyncio
-    async def test_cancel_near_the_ceiling_is_recorded_as_cancelled(self, library, fake_romm_api, monkeypatch, emit):
+    async def test_cancel_near_the_ceiling_is_recorded_as_cancelled(
+        self, make_library, fake_romm_api, monkeypatch, emit
+    ):
         from services.library import chunk_dispatcher
 
-        _use_fake_romm(library, fake_romm_api)
+        library = make_library(romm_api=fake_romm_api)
         _seed_platform(
             fake_romm_api,
             platform_id=1,
@@ -868,9 +874,9 @@ class TestInterChunkCancelGuard:
             roms=[{"id": 10, "name": "Alpha"}, {"id": 11, "name": "Beta"}],
         )
         library.settings["enabled_platforms"] = {"1": True}
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
         monkeypatch.setattr(chunk_dispatcher, "_APPLY_CHUNK_SIZE", 1)
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
 
         # Just under the ceiling: the run's first chunk projects against the cliff
         # and proceeds, a second chunk would project against the ceiling and pause.
@@ -914,15 +920,14 @@ class TestThePlaceholderIcon:
     """Each chunk names the placeholder icon the frontend gives the shortcuts it mints."""
 
     async def _apply_one_unit(self, library, fake_romm_api) -> None:
-        _use_fake_romm(library, fake_romm_api)
         _seed_platform(fake_romm_api, platform_id=1, name="N64", slug="n64", roms=[{"id": 1, "name": "G1"}])
         library.sync._reporter.commit_unit_results = AsyncMock()  # type: ignore[method-assign]
-        library.sync._cover_preparer._download_artwork = AsyncMock(return_value={})
-        library.sync._chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
+        library.cover_preparer._download_artwork = AsyncMock(return_value={})
+        library.chunk_dispatcher._wait_for_unit_complete = _fake_wait_set_event
         library.sync._box.sync_state = SyncState.RUNNING
         library.sync._box.current_sync_id = "run-placeholder"
         unit = WorkUnit(type="platform", id=1, name="N64", slug="n64", rom_count=1)
-        await library.sync._unit_applier.apply_unit(
+        await library.unit_applier.apply_unit(
             unit,
             sources=library.emulator_sources.read(),
             unit_index=0,
@@ -933,14 +938,16 @@ class TestThePlaceholderIcon:
         )
 
     @pytest.mark.asyncio
-    async def test_a_chunk_names_the_shortcut_artwork_jobs_placeholder(self, library, fake_romm_api, emit):
+    async def test_a_chunk_names_the_shortcut_artwork_jobs_placeholder(self, make_library, fake_romm_api, emit):
+        library = make_library(romm_api=fake_romm_api)
         await self._apply_one_unit(library, fake_romm_api)
 
         (event,) = [c[0][1] for c in emit.call_args_list if c[0][0] == "sync_apply_unit"]
         assert event["icon_placeholder_path"] == "/grid/tender-icon-placeholder.png"
 
     @pytest.mark.asyncio
-    async def test_a_chunk_names_none_where_there_is_no_placeholder(self, library, fake_romm_api, emit):
+    async def test_a_chunk_names_none_where_there_is_no_placeholder(self, make_library, fake_romm_api, emit):
+        library = make_library(romm_api=fake_romm_api)
         library.artwork_job.placeholder = None
 
         await self._apply_one_unit(library, fake_romm_api)
