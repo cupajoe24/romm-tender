@@ -192,14 +192,16 @@ without a slot). Tap it to copy that save into another slot:
 - If the save can't be fetched onto your device, the copy fails and your active slot stays as it was.
 - If the save is copied onto your device but can't be uploaded to RomM, you're told so: the destination slot is active
   with the copied save, and the next sync uploads it. Where the destination slot already holds a save this device is not
-  up to date with, or one more than twice the copy's size, the next sync asks you which to keep instead.
+  up to date with, or one more than twice the copy's size, the next sync asks you which to keep instead. If the
+  destination slot held no save of this file and another device puts a different file of this game's save into it at the
+  same moment, the next sync reports an error for the copied file instead.
 
 Common uses: promote a save from the Manual archive into a named slot, or bring a save from one slot onto another so you
 can continue it there.
 
 The button is unavailable while RomM is offline. If the game's current slot has an unresolved conflict, resolve it first
-(you'll be prompted). If the destination slot has newer changes from another device, sync that slot first, then copy
-again.
+(you'll be prompted). If the destination slot has newer changes from another device, nothing is copied and your active
+slot and save stay as they were: activate that slot with **Activate Slot**, which syncs it, then copy again.
 
 A game whose save Tender does not sync is refused here too, and so are switching its slot and restoring an older version
 — for example a memory card every game shares (standalone PCSX2's, even though Tender knows its folder), a save written

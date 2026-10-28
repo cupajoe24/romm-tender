@@ -133,11 +133,13 @@ describe("useCopyToSlot", () => {
     );
   });
 
-  it("target_slot_busy: toasts to resolve the target slot first, no refresh", async () => {
+  it("target_slot_busy: toasts to activate the target slot first, no refresh", async () => {
     await runCopy({ status: "target_slot_busy", message: "busy" }, { target: "promoted" });
 
     expect(toaster.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ body: expect.stringContaining("sync it first") }),
+      expect.objectContaining({
+        body: "Slot 'promoted' has newer changes from another device. Nothing was copied — activate that slot first, then copy again.",
+      }),
     );
     expect(dataChanged).not.toHaveBeenCalled();
   });
