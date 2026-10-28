@@ -67,6 +67,32 @@ confirmed is [no longer available on RomM](managing-games.md#the-switch-version-
 local files and saves, but it cannot be selected; the Saves tab skips it and continues looking for unsynced saves on
 later live inactive versions.
 
+### While a game is running
+
+Tender does not change the saves of a game Steam lists as running — starting, running or exiting: the emulator still has
+them, and a save swapped under it would be written over by the game, or sent to RomM later in place of another device's
+newer one. The game's saves sync before it starts and after you quit it, as always. Tender asks Steam over the same
+connection it loads its panel through; when it cannot ask, it treats no game as running. A game Steam does not list yet,
+in the moment after you start it, does not count either, and a RetroDECK home migration moves a game's saves whether it
+runs or not. While a game runs:
+
+- **Sync All Saves Now** syncs every other game and names the one it left out: "_\<game\>_ was skipped because it is
+  running".
+- On the running game's page, **Sync Save Files** and **Delete Local Saves** in the **RomM Actions** menu, switching,
+  creating or deleting a slot, **Copy to slot**, restoring a version, resolving a conflict and the setup's copy of older
+  saves into a slot are refused: "_\<game\>_ is running. Quit it first." A version switch that first syncs the version
+  you leave says the same.
+- Deleting all local saves of a platform keeps the running game's saves and names it.
+- **Clean Up Removed RomM Games** leaves a removed game that is running as it is — its shortcut, its files and its saves
+  — and offers it again the next time.
+- Starting a game with **Play Anyway** while **Sync All Saves Now** or **Sync Save Files** is syncing that game stops
+  that game's sync; the rest of a **Sync All Saves Now** goes on.
+- A conflict you resolve in the check before a game starts is not refused, even where Steam still lists a start that
+  check held back.
+
+When a press is refused and no game is running, see
+[A save action says the game is running](troubleshooting.md#a-save-action-says-the-game-is-running).
+
 ## Important: Use Your Own RomM Account
 
 Save files in RomM are tied to the authenticated user account. If multiple people share the same RomM account, their

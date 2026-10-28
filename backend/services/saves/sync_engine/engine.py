@@ -62,7 +62,7 @@ from services.saves._messages import (
     SAVE_SYNC_DISABLED,
     SAVE_SYNC_IN_CONTENT_DIR,
 )
-from services.saves._refusals import SavefilesInContentDir
+from services.saves._refusals import SavefilesInContentDir, game_running
 from services.saves._save_state import read_save_state_or_new, write_save_state
 from services.saves._settings import (
     autocleanup_limit,
@@ -82,7 +82,10 @@ from services.saves.sync_engine._gate import (
     SaveSyncTimeoutError,
 )
 from services.saves.sync_engine._pre_launch import PreLaunchRuns, PreLaunchState, stopped_refusal
+from services.saves.sync_engine._result_message import summarize_sync_result
+from services.saves.sync_engine._running_game import RomSyncStops, RunningGameGuard, RunningSkips
 from services.saves.sync_engine._shape_refusal import ContentDirTally, live_save_answer, refuse_unsyncable
+from services.saves.sync_engine._sweep_step import sweep_reading, sweep_rom
 from services.saves.sync_engine._sweep_stop import SaveSweepIncomplete
 from services.saves.sync_engine.matrix import MatrixExecutor, MatrixOutcome
 from services.saves.sync_engine.rollback import RollbackOrchestrator
@@ -104,6 +107,7 @@ if TYPE_CHECKING:
         ResolveUploadConflictFn,
         RetryStrategy,
         RommSyncApi,
+        RunningRomIdsFn,
         SaveFileStore,
         SaveInventoryBuilderFn,
         UnitOfWorkFactory,
@@ -123,57 +127,6 @@ __all__ = ["MatrixOutcome", "SyncEngine", "SyncEngineConfig"]
 NEGOTIATE_ROM_IDS_CAP = 500
 
 
-def _first_error_reason(errors: list[str]) -> str:
-    """Return the classified reason of the first sync error, stripped of its source.
-
-    Per-file dispatch records each failure as ``"<source>: <reason>"`` where
-    ``<source>`` is the save filename (or a fixed label like ``"Failed to fetch
-    saves"``) and ``<reason>`` is the :func:`lib.errors.classify_error` message.
-    Split on the LAST ``": "`` (``rpartition``): the source can itself contain a
-    colon — a save filename derives from the ROM name, which may include one
-    (e.g. ``"Grand Theft Auto: San Andreas.srm"``) — so splitting on the last
-    separator keeps that colon on the source side and isolates the reason.
-
-    Tradeoff, stated honestly: a ``<reason>`` that itself contained ``": "``
-    would be truncated to its final segment. Every classified ``classify_error``
-    message (auth, forbidden, SSL, timeout, connection, rate limit, server,
-    refused request, not-found, unsupported) uses an em-dash separator or none
-    and never contains ``": "`` of its own, and the fixed dispatch labels don't
-    either — so the common cases are exact; only the ``detail`` RomM reports
-    with its own 5xx and the rare ``str(exc)`` fallback (UNKNOWN / status-less
-    ``RommApiError``) can carry an internal ``": "`` and lose their head. Falls
-    back to the whole entry when there is no ``": "`` separator. *errors* must
-    be non-empty.
-    """
-    _source, sep, reason = errors[0].rpartition(": ")
-    return reason if sep and reason else errors[0]
-
-
-def _summarize_sync_result(base: str, *, synced: int, errors: list[str], conflicts: int) -> str:
-    """Compose a sync use case's result ``message``, surfacing the failure reason (#1334).
-
-    A total failure (``synced == 0`` with errors) leads with the first error's
-    classified reason — never the "Uploaded 0 save(s), 1 error(s)" count summary
-    that buries it in ``errors[0]`` — and appends ``"(+N more)"`` when other files
-    also failed. A partial run (some transferred, some failed) keeps the ``base``
-    count summary and appends the first reason after an em-dash. A clean run
-    returns ``base`` unchanged. A surfaced-conflict count is appended after the
-    error clause in every case, preserving the pre-#1334 conflict suffix.
-    """
-    if errors:
-        reason = _first_error_reason(errors)
-        if synced == 0:
-            extra = len(errors) - 1
-            msg = f"{reason} (+{extra} more)" if extra else reason
-        else:
-            msg = f"{base}, {len(errors)} error(s) — {reason}"
-    else:
-        msg = base
-    if conflicts:
-        msg += f", {conflicts} conflict(s)"
-    return msg
-
-
 @dataclass(frozen=True)
 class SyncEngineConfig:
     """Frozen wiring bundle handed to ``SyncEngine.__init__``.
@@ -189,8 +142,9 @@ class SyncEngineConfig:
     clock), the Protocol-typed filesystem adapter, the ``DebugLogger`` seam,
     the per-ROM active-core resolver, the hostname and machine-id providers
     passed through to device registration, the update-in-progress and
-    migration-pending callbacks its sync backstops and follow ask, and the
-    save backup and save transfer the save service built for every peer.
+    migration-pending callbacks its sync backstops and follow ask, the
+    reading of which ROMs' games are running, and the save backup and save
+    transfer the save service built for every peer.
     """
 
     settings: dict[str, Any]
@@ -212,6 +166,7 @@ class SyncEngineConfig:
     is_update_in_progress: UpdateInProgressFn
     is_retrodeck_migration_pending: MigrationPendingFn
     build_inventory: SaveInventoryBuilderFn
+    running_rom_ids: RunningRomIdsFn
     save_backup: SaveBackup
     save_transfer: SaveTransfer
 
@@ -281,6 +236,10 @@ class SyncEngine:
         # run body.
         self._device_gate = SaveSyncGate()
         self._pre_launch_runs = PreLaunchRuns()
+        self._rom_stops = RomSyncStops()
+        self._running = RunningGameGuard(
+            running_rom_ids=config.running_rom_ids, uow_factory=config.uow_factory, loop=config.loop
+        )
         # Innermost: nothing is taken under it, so a holder of ``rom_lock`` or
         # the device gate may wait for it.
         self._registration_lock = asyncio.Lock()
@@ -467,7 +426,9 @@ class SyncEngine:
     # Public sync orchestration use cases
     # ------------------------------------------------------------------
 
-    async def follow_save_directory(self, rom_id: int, answer: SaveAnswer | None) -> None:
+    async def follow_save_directory(
+        self, rom_id: int, answer: SaveAnswer | None, *, while_running: bool = False
+    ) -> None:
         """Carry this ROM's save files to the directory *answer* names, where it moved.
 
         The caller holds ``rom_lock``, hands over the reading it already took,
@@ -475,12 +436,18 @@ class SyncEngine:
         the peer services' write, delete, count and status paths and the
         local-save check follow first as well; ``resolve_sync_conflict`` does
         so here. It does nothing while
-        save sync is off, an update is being installed, or a RetroDECK home
-        migration is pending or still running — why is
+        save sync is off, an update is being installed, a RetroDECK home
+        migration is pending or still running, or the ROM's game is running —
+        unless *while_running*: the sync before a start, the one after a game
+        and a conflict resolved before a start follow while the game is listed,
+        and the sweep asked under the same lock a moment before — why is
         ``docs/architecture/save-file-sync-architecture.md``'s. A failure is
         logged and leaves the record as it was, so the next caller tries again.
         """
         if answer is None or not self.is_save_sync_enabled():
+            return
+        if not while_running and await self._running.is_running(rom_id):
+            self._log_debug(f"follow_save_directory: rom {rom_id}: its game is running; not following")
             return
         if self._is_update_in_progress():
             self._log_debug(f"follow_save_directory: rom {rom_id}: an update is being installed; not following")
@@ -536,6 +503,22 @@ class SyncEngine:
                     self._logger.exception("Recording the save directory of rom %d failed", rom_id)
         return all_recorded
 
+    async def is_game_running(self, rom_id: int) -> bool:
+        """Whether Steam lists this ROM's game as running, read afresh. Public (peer-called)."""
+        return await self._running.is_running(rom_id)
+
+    async def game_name(self, rom_id: int) -> str:
+        """The name a sentence calls this ROM's game by. Public (peer-called)."""
+        return await self._running.name_of(rom_id)
+
+    async def refuse_while_running(self, rom_id: int, **details: Any) -> None:
+        """Raise ``game_running`` with *details* while this ROM's game runs. Public (peer-called).
+
+        A press that would change the game's saves calls it under ``rom_lock``,
+        before it follows a moved save directory.
+        """
+        await self._running.refuse_if_running(rom_id, **details)
+
     async def read_save_answer(self, rom_id: int) -> SaveAnswer | None:
         """This ROM's save answer, read live, or ``None`` when it is not installed.
 
@@ -580,6 +563,7 @@ class SyncEngine:
         session_counts: list[int] | None = None,
         save_answer: SaveAnswer | None = None,
         content_dir_tally: ContentDirTally | None = None,
+        running_skips: RunningSkips | None = None,
         stop: SyncStop | None = None,
     ) -> tuple[int, int, list[str], list[dict[str, Any]]]:
         """Read inputs → sync in executor → persist, for one ROM under its lock.
@@ -610,7 +594,10 @@ class SyncEngine:
         whose slot the user has not confirmed is skipped entirely — no transfer,
         no write — so a never-configured ROM's possibly-stale local save can't be
         auto-uploaded into the default slot and overwrite another device's newer
-        progress (#1055). The single-ROM entry points leave it unset.
+        progress (#1055). The single-ROM entry points leave it unset. The
+        sweep also passes over a ROM whose game is running, into
+        *running_skips*, and ends one whose *stop* was asked before it follows
+        a moved save directory with :class:`SyncStopped`.
 
         Detection is always the local ``compute_sync_action`` matrix
         (``do_sync_rom_saves``); ADR-0017 collapsed the old routing fork. A
@@ -632,12 +619,18 @@ class SyncEngine:
             self._log_debug(f"_run_rom_sync({rom_id}): slot not confirmed, skipping bulk sync")
             return 0, 0, [], []
         if save_answer is None:
-            # The whole-library sweep's per-ROM step: its one reading follows a
-            # moved directory and is then handed down.
-            save_answer = await self._loop.run_in_executor(None, live_save_answer, self._rom_info, rom_id)
-            await self.follow_save_directory(rom_id, save_answer)
-            if content_dir_tally is not None:
-                content_dir_tally.count(save_answer)
+            passed_over, save_answer = await sweep_reading(
+                rom_id,
+                running=self._running,
+                read_answer=functools.partial(self.read_save_answer, rom_id),
+                follow=functools.partial(self.follow_save_directory, rom_id, while_running=True),
+                running_skips=running_skips,
+                stop=stop,
+                content_dir_tally=content_dir_tally,
+                log_debug=self._log_debug,
+            )
+            if passed_over:
+                return 0, 0, [], []
         core_so = await self._loop.run_in_executor(None, self.resolve_core, rom_id)
         default_slot = resolve_default_slot(self._settings)
         cleanup_limit = autocleanup_limit(self._settings)
@@ -788,7 +781,7 @@ class SyncEngine:
         save_answer = await self._loop.run_in_executor(None, live_save_answer, self._rom_info, rom_id)
         if stop.stops_here():
             raise SyncStopped
-        await self.follow_save_directory(rom_id, save_answer)
+        await self.follow_save_directory(rom_id, save_answer, while_running=True)
         # Before the refusal: a launch is never asked about a sync the
         # user switched off, as the post-exit sync is never toasted for one.
         if not sync_before_launch(self._settings):
@@ -833,11 +826,15 @@ class SyncEngine:
     def stop_pre_launch_sync(self, rom_id: int) -> dict[str, Any]:
         """Stop every sync before a start of *rom_id*; ``stopped`` says whether one was under way.
 
-        No other sync is stopped.
+        A sweep's or a Sync Saves' sync of *rom_id* is stopped too, since the
+        game is about to start; no sync of another ROM is.
         """
         rom_id = int(rom_id)
         stopped = self._pre_launch_runs.stop(rom_id)
-        self._logger.info("pre_launch_sync of rom %d: stop asked (one under way: %s)", rom_id, stopped)
+        others = self._rom_stops.stop(rom_id)
+        self._logger.info(
+            "pre_launch_sync of rom %d: stop asked (one under way: %s; another sync of it: %s)", rom_id, stopped, others
+        )
         return {"success": True, "stopped": stopped}
 
     async def post_exit_sync(self, rom_id: int) -> dict[str, Any]:
@@ -872,7 +869,7 @@ class SyncEngine:
                     return {"success": True, "message": "Post-exit sync disabled", "synced": 0}
 
                 save_answer = await self._loop.run_in_executor(None, live_save_answer, self._rom_info, rom_id)
-                await self.follow_save_directory(rom_id, save_answer)
+                await self.follow_save_directory(rom_id, save_answer, while_running=True)
                 try:
                     refuse_unsyncable(save_answer)
                 except Refused as refusal:
@@ -900,7 +897,7 @@ class SyncEngine:
                     len(conflicts),
                 )
 
-                msg = _summarize_sync_result(
+                msg = summarize_sync_result(
                     f"Uploaded {synced} save(s)", synced=synced, errors=errors, conflicts=len(conflicts)
                 )
                 return {
@@ -933,39 +930,10 @@ class SyncEngine:
             raise Refused("sync_disabled", SAVE_SYNC_DISABLED, synced=0)
 
         try:
-            async with (
-                self._device_gate.held_by(GateHolder.ROM_SYNC, max_wait=SYNC_ROM_GATE_TIMEOUT),
-                self.rom_lock(rom_id),
-            ):
-                # Defense in depth: the use case asked the update rule before
-                # this waited for the gate, and its operation on the prune
-                # conflicts makes a press wait from then on; a caller that
-                # reached the engine some other way is refused here.
-                if self._is_update_in_progress():
-                    raise Refused("blocked_by_update", UPDATE_MESSAGE, synced=0)
-                save_answer = await self._loop.run_in_executor(None, live_save_answer, self._rom_info, rom_id)
-                await self.follow_save_directory(rom_id, save_answer)
-                refuse_unsyncable(save_answer)
-
-                device_id = await self.live_device_id()
-
-                uploaded, downloaded, errors, conflicts = await self._run_rom_sync(
-                    rom_id, device_id=device_id, save_answer=save_answer
-                )
-                synced = uploaded + downloaded
-
-                msg = _summarize_sync_result(
-                    f"Synced {synced} save(s)", synced=synced, errors=errors, conflicts=len(conflicts)
-                )
-                return {
-                    "success": len(errors) == 0,
-                    "message": msg,
-                    "synced": synced,
-                    "uploaded": uploaded,
-                    "downloaded": downloaded,
-                    "errors": errors,
-                    "conflicts": list(conflicts),
-                }
+            with self._rom_stops.track(rom_id) as stop:
+                return await self._sync_rom_saves_tracked(rom_id, stop)
+        except SyncStopped as e:
+            raise game_running(await self._running.name_of(rom_id), synced=0) from e
         except SaveSyncTimeoutError as e:
             # Another save-sync run held the device gate past the bounded wait.
             raise SyncBusy(SAVE_SYNC_BUSY, synced=0) from e
@@ -973,6 +941,50 @@ class SyncEngine:
             # RomM has save sync disabled for this device server-side — surface it
             # as a policy stop; the game-detail toast renders ``message`` (#1489).
             raise DeviceSyncDisabled(DEVICE_SYNC_DISABLED, synced=0) from e
+
+    async def _sync_rom_saves_tracked(self, rom_id: int, stop: SyncStop) -> dict[str, Any]:
+        """The sync of one ROM's saves the game page asked for, which a start of that game stops."""
+        async with (
+            self._device_gate.held_by(GateHolder.ROM_SYNC, max_wait=SYNC_ROM_GATE_TIMEOUT),
+            self.rom_lock(rom_id),
+        ):
+            # Defense in depth: the use case asked the update rule before
+            # this waited for the gate, and its operation on the prune
+            # conflicts makes a press wait from then on; a caller that
+            # reached the engine some other way is refused here.
+            if self._is_update_in_progress():
+                raise Refused("blocked_by_update", UPDATE_MESSAGE, synced=0)
+            await self._running.refuse_if_running(rom_id, synced=0)
+            save_answer = await self._loop.run_in_executor(None, live_save_answer, self._rom_info, rom_id)
+            if stop.stops_here():
+                raise SyncStopped
+            await self.follow_save_directory(rom_id, save_answer)
+            refuse_unsyncable(save_answer)
+
+            device_id = await self.live_device_id()
+
+            uploaded, downloaded, errors, conflicts = await self._run_rom_sync(
+                rom_id, device_id=device_id, save_answer=save_answer, stop=stop
+            )
+            synced = uploaded + downloaded
+            if stop.stopped_the_sync():
+                self._logger.info("sync_rom_saves of rom %d stopped by its start: synced=%d", rom_id, synced)
+                raise game_running(
+                    await self._running.name_of(rom_id), synced=synced, uploaded=uploaded, downloaded=downloaded
+                )
+
+            msg = summarize_sync_result(
+                f"Synced {synced} save(s)", synced=synced, errors=errors, conflicts=len(conflicts)
+            )
+            return {
+                "success": len(errors) == 0,
+                "message": msg,
+                "synced": synced,
+                "uploaded": uploaded,
+                "downloaded": downloaded,
+                "errors": errors,
+                "conflicts": list(conflicts),
+            }
 
     def _first_retroarch_rom(self, rom_ids: list[int]) -> int | None:
         """The first of *rom_ids* that launches with a RetroArch core, or ``None``."""
@@ -1059,6 +1071,7 @@ class SyncEngine:
                     session_id = await self._bulk_pre_negotiate(device_id)
                     session_counts = [0, 0]
                     content_dir_tally = ContentDirTally()
+                    running_skips = RunningSkips()
 
                     total_synced = 0
                     total_errors: list[str] = []
@@ -1072,15 +1085,24 @@ class SyncEngine:
                     try:
                         for rom_id_int in rom_ids:
                             rom_count += 1
-                            async with self.rom_lock(rom_id_int):
-                                uploaded, downloaded, errors, conflicts = await self._run_rom_sync(
-                                    rom_id_int,
-                                    device_id=device_id,
-                                    require_confirmed=True,
-                                    session_id=session_id,
-                                    session_counts=session_counts if session_id is not None else None,
-                                    content_dir_tally=content_dir_tally,
-                                )
+                            sync = functools.partial(
+                                self._run_rom_sync,
+                                rom_id_int,
+                                device_id=device_id,
+                                require_confirmed=True,
+                                session_id=session_id,
+                                session_counts=session_counts if session_id is not None else None,
+                                content_dir_tally=content_dir_tally,
+                                running_skips=running_skips,
+                            )
+                            uploaded, downloaded, errors, conflicts = await sweep_rom(
+                                rom_id_int,
+                                stops=self._rom_stops,
+                                lock=self.rom_lock(rom_id_int),
+                                sync=sync,
+                                running=self._running,
+                                running_skips=running_skips,
+                            )
                             total_synced += uploaded + downloaded
                             total_errors.extend(errors)
                             all_conflicts.extend(conflicts)
@@ -1091,7 +1113,9 @@ class SyncEngine:
                         # far (#1489). The finally still closes any bulk session.
                         return SaveSweepIncomplete(
                             reason="device_sync_disabled",
-                            message=f"{DEVICE_SYNC_DISABLED} — stopped after syncing {total_synced} save(s)",
+                            message=running_skips.annotate(
+                                f"{DEVICE_SYNC_DISABLED} — stopped after syncing {total_synced} save(s)"
+                            ),
                             synced=total_synced,
                             conflicts=len(all_conflicts),
                             conflicts_list=list(all_conflicts),
@@ -1115,7 +1139,7 @@ class SyncEngine:
                 content_dir_tally.refuse_if_all_beside_content(roms_checked=rom_count)
                 conflicts_count = len(all_conflicts)
                 msg = content_dir_tally.annotate(
-                    _summarize_sync_result(
+                    summarize_sync_result(
                         f"Synced {total_synced} save(s) across {rom_count} ROM(s)",
                         synced=total_synced,
                         errors=total_errors,
@@ -1124,12 +1148,13 @@ class SyncEngine:
                 )
                 return {
                     "success": len(total_errors) == 0,
-                    "message": msg,
+                    "message": running_skips.annotate(msg),
                     "synced": total_synced,
                     "conflicts": conflicts_count,
                     "conflicts_list": list(all_conflicts),
                     "roms_checked": rom_count,
                     "errors": total_errors,
+                    "skipped_running": running_skips.as_list(),
                 }
         except SaveSyncTimeoutError as e:
             # Another save-sync run held the device gate past the bounded wait.
@@ -1146,6 +1171,8 @@ class SyncEngine:
         filename: str,
         server_save_id: int,
         action: str,
+        *,
+        before_start: bool = False,
     ) -> dict[str, Any]:
         """Resolve a pending sync conflict (true two-sided divergence).
 
@@ -1166,16 +1193,23 @@ class SyncEngine:
           (POST overwrite=true). When the local content already matches the
           server's content hash we adopt it silently without re-uploading.
         - ``"use_server"`` — download the current server save, replacing local.
+
+        Refused with ``game_running`` while the game runs, unless
+        *before_start*: the launch check resolves a conflict its sync before a
+        start found, before the game starts — while Steam may still list a
+        start it cancelled for that check.
         """
         rom_id_int = int(rom_id)
         async with self.rom_lock(rom_id_int):
+            if not before_start:
+                await self._running.refuse_if_running(rom_id_int)
             # The emulator writes this game's save beside its content — both
             # keep_local (POST after reading the local file) and use_server
             # (download into the save directory) act on a directory the sync
             # leaves alone. Refuse before the orchestrator does any server fetch
             # or file write.
             save_answer = await self.read_save_answer(rom_id_int)
-            await self.follow_save_directory(rom_id_int, save_answer)
+            await self.follow_save_directory(rom_id_int, save_answer, while_running=before_start)
             if self.content_dir_blocked(rom_id_int, save_answer, "resolve_sync_conflict"):
                 raise SavefilesInContentDir(SAVE_SYNC_IN_CONTENT_DIR)
             return await self._rollback.resolve(

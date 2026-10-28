@@ -55,6 +55,7 @@ from services.relaunch_options_resolver import RelaunchOptionsResolver, Relaunch
 from services.rom_adoption import RomAdoptionService, RomAdoptionServiceConfig
 from services.rom_install_recorder import RomInstallRecorder, RomInstallRecorderConfig
 from services.rom_removal import RomRemovalService, RomRemovalServiceConfig
+from services.running_games import RunningGames, RunningGamesConfig
 from services.saves import SaveService, SaveServiceConfig
 from services.session_lifecycle import SessionLifecycleService, SessionLifecycleServiceConfig
 from services.settings import SettingsService, SettingsServiceConfig
@@ -360,6 +361,15 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
     )
     migration_pending_binding.set(migration_service.is_retrodeck_migration_pending)
 
+    running_games = RunningGames(
+        config=RunningGamesConfig(
+            steam=cfg.runtime.steam,
+            uow_factory=cfg.callbacks.uow_factory,
+            loop=cfg.runtime.loop,
+            log_debug=cfg.callbacks.log_debug,
+        ),
+    )
+
     save_service_config = SaveServiceConfig(
         romm_api=cfg.adapters.romm_api,
         retry=cfg.adapters.http_adapter,
@@ -382,6 +392,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
         is_update_in_progress=update_in_progress_binding.get,
         is_retrodeck_migration_pending=migration_service.is_retrodeck_migration_pending,
         conflict_rules=conflict_rules,
+        running_rom_ids=running_games.running_rom_ids,
         uow_factory=cfg.callbacks.uow_factory,
     )
     save_sync_service = SaveService(config=save_service_config)
@@ -840,6 +851,7 @@ def wire_services(cfg: WiringConfig) -> ServicesBundle:
             save_coordinator=save_sync_service.prune_support,
             active_downloads=download_service.active_download_rom_ids,
             drift_probe=save_sync_service.check_local_drift,
+            running_rom_ids=running_games.running_rom_ids,
             remove_installed_files=rom_removal_service.delete_rom_files,
             settings=cfg.stores.settings,
             run_claim=prune_conflicts,

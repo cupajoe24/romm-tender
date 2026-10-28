@@ -481,6 +481,19 @@ class ActiveDownloadRomIdsFn(Protocol):
     def __call__(self) -> set[int]: ...
 
 
+class RunningRomIdsFn(Protocol):
+    """The ROMs whose shortcut Steam lists as running, consumed by the save services and the removed-game cleanup.
+
+    The composition root satisfies this with ``RunningGames.running_rom_ids``.
+    Each call is one fresh reading of ``SteamInterfaceReader.running_apps``,
+    matched to ROMs by ``roms.shortcut_app_id``; what counts as running is
+    ``docs/architecture/save-file-sync-architecture.md``'s, "Is the game
+    running". Where no reading could be taken, the answer is empty. Never raises.
+    """
+
+    async def __call__(self) -> frozenset[int]: ...
+
+
 class PruneSaveCoordinator(Protocol):
     """Exact-path save inventory, locking, and backup consumed by prune.
 

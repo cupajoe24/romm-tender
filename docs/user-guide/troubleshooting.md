@@ -532,6 +532,19 @@ source's settings file.
 it is readable, or reset that emulator in RetroDECK. Tender syncs no save at a place the emulator's own settings did not
 name ([Save Sync](save-sync.md#save-file-location)).
 
+### A save action says the game is running
+
+**Symptom**: **Sync All Saves Now** ends with "_\<game\>_ was skipped because it is running", or a press on a game's
+page — **Sync Save Files** or **Delete Local Saves** in the **RomM Actions** menu, or a slot or a version on the
+**Saves** tab — says "_\<game\>_ is running. Quit it first."
+
+**What happened**: Steam lists that game as starting, running or exiting, and Tender changes no save of a game while it
+runs ([While a game is running](save-sync.md#while-a-game-is-running)).
+
+**Fix**: Quit the game. Its saves sync after it exits, as long as **Sync after exit** is on; then the press works again.
+A press refused right after you quit may have found the game still listed as exiting; try again a moment later. If no
+game is running and the message still names one, Steam's list could not be read the way Tender expects: restart Steam.
+
 ### Auto-sync is disabled
 
 **Fix**: Go to **Save Sync** in the QAM and make sure both "Sync before launch" and "Sync after exit" are toggled on.
