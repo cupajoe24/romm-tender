@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { recheckStranded, toaster } from "../api/host";
 import { setStrandedAnswer } from "../test-utils/stranded-panel";
+import { coreInfo, emulatorStart, standaloneEmu } from "../test-utils/coreFixtures";
 import * as backend from "../api/backend";
 import * as rommAppIds from "./rommAppIds";
 import * as launchGate from "./launchGate";
@@ -36,6 +37,14 @@ vi.mock("../api/backend", () => ({
   renewPruneConflictLease: vi.fn(),
   logInfo: vi.fn(),
   logError: vi.fn(),
+  // The game's emulator, read before the gate; a refused start is the page's own sentence.
+  getPlatformCoreInfo: vi.fn(() =>
+    Promise.resolve({
+      start: { state: "starts", reason: null, entry: null, folder_entry: null },
+      emulators: [],
+      active_core_label: null,
+    }),
+  ),
   // Called by runPreLaunchSync during the watcher's pre-launch sync (D6) and
   // by connectionState transitions.
   debugLog: vi.fn(),
@@ -924,6 +933,40 @@ describe("launchInterceptor — full funnel watcher", () => {
       await flush();
 
       expect(sessionManager.refreshAppIdMap).not.toHaveBeenCalled();
+      expect(launchGate.runLaunchGate).toHaveBeenCalledWith(APP_ID, 42, expect.anything());
+    });
+  });
+
+  describe("an emulator that cannot start the game (#2195 D7)", () => {
+    it("refuses the start with the game page's own words and does NOT relaunch", async () => {
+      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValueOnce(
+        coreInfo({
+          start: emulatorStart({ state: "cannot_start", reason: "not_installed", entry: "Ryubing (Standalone)" }),
+          emulators: [
+            standaloneEmu("Ryubing (Standalone)", true, { bakeable: false, reason: "not_installed" }),
+            standaloneEmu("Ryujinx (Standalone)"),
+          ],
+          active_core_label: "Ryubing (Standalone)",
+        }),
+      );
+      register();
+      captureHandler()(77, GAME_ID, "LaunchApp", DEEP_LINK_SOURCE);
+      await flush();
+
+      expect(SteamClient.Apps.CancelGameAction).toHaveBeenCalledWith(77);
+      expect(toaster.toast).toHaveBeenCalledWith({
+        title: "Tender",
+        body: "Ryubing (Standalone) is not installed, so this game cannot start. Choose another emulator in the emulator menu.",
+      });
+      expect(launchGate.runLaunchGate).not.toHaveBeenCalled();
+      expect(runGameMock()).not.toHaveBeenCalled();
+    });
+
+    it("runs the gate where the emulator starts the game", async () => {
+      register();
+      captureHandler()(77, GAME_ID, "LaunchApp", DEEP_LINK_SOURCE);
+      await flush();
+
       expect(launchGate.runLaunchGate).toHaveBeenCalledWith(APP_ID, 42, expect.anything());
     });
   });

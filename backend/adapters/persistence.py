@@ -13,9 +13,10 @@ import os
 from typing import Any, Protocol
 
 from adapters.system_clock import SystemClock
+from domain.emulator_pick import StoredPick, platform_pick
 from domain.state_migrations import unreadable_settings
 
-_SETTINGS_VERSION = 13
+_SETTINGS_VERSION = 14
 _LOCK_EXT = ".lock"
 
 # The settings file's name, and the only spelling of it in the codebase.
@@ -332,5 +333,5 @@ class PlatformCoreReaderAdapter:
     def __init__(self, settings: dict[str, Any]) -> None:
         self._settings = settings
 
-    def get_platform_core(self, platform_slug: str) -> str | None:
-        return self._settings.get("platform_cores", {}).get(platform_slug)
+    def get_platform_core(self, platform_slug: str) -> StoredPick | None:
+        return platform_pick(self._settings.get("platform_cores", {}).get(platform_slug))

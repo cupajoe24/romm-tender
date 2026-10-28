@@ -1,13 +1,20 @@
+---
+status: accepted
+decided: 2026-07-04
+updated: 2026-10-28
+amended-by: [0030]
+---
+
 # The live `es_systems.xml` is the sole source for per-system emulator resolution; the curated `core_defaults.json` snapshot is deleted
 
-## Status
+## Relations
 
-Accepted. **Refines [ADR-0012](0012-plugin-owns-core-selection-always-e-no-gamelist.md):** §3's precedence chain loses
-its bottom `core_defaults.json` layer, and the "es_systems default" it resolves changes meaning from _the first
-RetroArch libretro command_ to _the first safely-bakeable command in document order_ (which may itself be a standalone
-emulator). It also **completes** the two follow-ups ADR-0012 flagged as out of scope: the emulator picker now lists
-**standalone** emulators alongside libretro cores, and per-game / per-platform pins may name either. Builds on the
-standalone-emulator seam ([#129](https://github.com/danielcopper/decky-romm-sync/issues/129), epic
+**Refines [ADR-0012](0012-plugin-owns-core-selection-always-e-no-gamelist.md):** §3's precedence chain loses its bottom
+`core_defaults.json` layer, and the "es_systems default" it resolves changes meaning from _the first RetroArch libretro
+command_ to _the first safely-bakeable command in document order_ (which may itself be a standalone emulator). It also
+**completes** the two follow-ups ADR-0012 flagged as out of scope: the emulator picker now lists **standalone**
+emulators alongside libretro cores, and per-game / per-platform pins may name either. Builds on the standalone-emulator
+seam ([#129](https://github.com/danielcopper/decky-romm-sync/issues/129), epic
 [#914](https://github.com/danielcopper/decky-romm-sync/issues/914)). ADR-0011 §1 (the per-game override is a LABEL on
 the `Rom` aggregate), the always-`-e` bake ([ADR-0009](0009-launcher-pure-exec-wrapper-baked-launch-options.md)), and
 the never-touch-the-gamelist ownership rule (ADR-0012) are unchanged. Tracked under
@@ -301,3 +308,16 @@ baked-`launch_options` model + the `resolve_emulator_invocation` seam),
 reads on the same bake), [Core and Emulator Selection](../architecture/core-emulator-selection.md) (the resolver,
 precedence, classifier, and picker in detail), [Config Source Parsers](../architecture/config-source-parsers.md)
 (`es_systems.xml` as the sole core/emulator source).
+
+## Amendment — the default is the first entry in declared order, nothing skipped
+
+The default is the entry a system's catalogue declares first, read off the resolver's `declared_index`, whatever Tender
+can do with it ([#2195](https://github.com/danielcopper/romm-tender/issues/2195) D7). The rule above, "the first
+safely-bakeable command in document order", passed over an entry Tender could not bake for a later one it could, so a
+game started with an emulator neither the user nor the system's own order had chosen. Now nothing is skipped: an entry
+that cannot start at all — not installed, or one RetroDECK's start script runs nothing for — is said so and its game's
+Play is disabled, and one whose installation cannot be established leaves the game without a default until the user
+picks one. A choice made inside ES-DE (`alternativeEmulator`, a per-game `altemulator`) still never becomes the default
+(ADR-0012 stands); it is shown beside Tender's own choice. The effective default, which follows those choices, was not
+chosen: what the user sets in ES-DE is ES-DE's, and Tender's choice is made in Tender. The rows the picker lists are
+every entry, in the resolver's order, two labels that run one command included (D8).

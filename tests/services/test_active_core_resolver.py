@@ -11,6 +11,7 @@ emulator; and the retired ES-DE gamelist is never consulted.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,8 @@ from fakes.fake_core_info_provider import (
 from fakes.fake_platform_systems import RETRODECK_SOURCE, FakePlatformSystems
 from fakes.fake_unit_of_work import FakeUnitOfWork, FakeUnitOfWorkFactory
 
+from domain.emulator_choice import DEFAULT, GAME_PICK
+from domain.emulator_pick import StoredPick
 from domain.platform_system import NO_SYSTEM, PlatformSystem
 from domain.rom import Rom
 from domain.rom_install import RomInstall
@@ -36,7 +39,7 @@ if TYPE_CHECKING:
 class FakePlatformCoreReader:
     """In-memory ``PlatformCoreReader`` mapping platform slugs to core labels.
 
-    Returns the configured label for a slug, or ``None`` when absent. Records
+    Returns the configured label for a slug as RetroDECK's pick, or ``None`` when absent. Records
     each queried slug so a test can assert the per-platform layer was consulted
     (or skipped when a per-game override already resolved).
     """
@@ -45,9 +48,10 @@ class FakePlatformCoreReader:
         self.mapping = mapping if mapping is not None else {}
         self.calls: list[str] = []
 
-    def get_platform_core(self, platform_slug: str) -> str | None:
+    def get_platform_core(self, platform_slug: str) -> StoredPick | None:
         self.calls.append(platform_slug)
-        return self.mapping.get(platform_slug)
+        label = self.mapping.get(platform_slug)
+        return StoredPick(label=label, source="retrodeck") if label is not None else None
 
 
 def _seed_rom(
@@ -57,7 +61,7 @@ def _seed_rom(
     platform_slug: str,
     emulator_override: str | None = None,
 ) -> None:
-    """Seed one ``Rom`` (optionally pinned to ``emulator_override``) into the UoW."""
+    """Seed one ``Rom`` (optionally pinned to ``emulator_override``, RetroDECK's pick) into the UoW."""
     uow.roms.save(
         Rom(
             rom_id=rom_id,
@@ -67,6 +71,7 @@ def _seed_rom(
             shortcut_app_id=rom_id,
             last_synced_at="2026-01-01T00:00:00+00:00",
             emulator_override=emulator_override,
+            emulator_override_source="retrodeck" if emulator_override is not None else None,
         )
     )
 
@@ -439,12 +444,13 @@ def test_per_platform_standalone_label_resolves_standalone() -> None:
     assert resolver.active_emulator_for_rom(61) == _RPCS3
 
 
-def test_stale_standalone_pin_degrades_to_default(caplog: pytest.LogCaptureFixture) -> None:
-    """A per-game pin to a standalone label that is now un-bakeable degrades + warns.
+def test_a_standalone_pin_that_cannot_be_baked_stands_and_renders_no_invocation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A per-game pin to a label that still exists stands whatever its state (#2195 D23).
 
-    ``label_to_invocation`` returns ``None`` for a matched-but-un-bakeable option
-    exactly as for an unknown label, so the degrade path is uniform across
-    libretro and standalone kinds.
+    The entry cannot be baked, so it renders no invocation — never another
+    emulator the user did not choose — and nothing is passed over.
     """
     uow = FakeUnitOfWork()
     _seed_rom(uow, rom_id=62, platform_slug="ps3", emulator_override="RPCS3 Shortcut (Standalone)")
@@ -462,9 +468,8 @@ def test_stale_standalone_pin_degrades_to_default(caplog: pytest.LogCaptureFixtu
     with caplog.at_level(logging.WARNING, logger="test"):
         result = resolver.active_emulator_for_rom(62)
 
-    # Degrades to the system default (the bakeable RPCS3 Directory), never raises.
-    assert result == _RPCS3
-    assert any("RPCS3 Shortcut (Standalone)" in r.message and "degrading" in r.message for r in caplog.records)
+    assert result is None
+    assert not caplog.records
 
 
 # --- folder-boot direct rewrite: standalone → sandbox launch (ADR-0019 / #1212) -
@@ -613,3 +618,135 @@ def test_an_installed_game_launches_with_its_install_records_system() -> None:
     resolver.active_emulator_for_rom(9)
 
     assert core_info.emulator_options_calls == ["naomi"]
+
+
+# --- the choice and what stands in its way (#2195 D7, D21, D23) -----------------
+
+_SHORTCUT = standalone_option(
+    "%ENABLESHORTCUTS% %EMULATOR_OS-SHELL% %ROM%",
+    "RPCS3 Shortcut (Standalone)",
+    status="unbakeable",
+    reason="shortcut_script",
+)
+
+
+def test_a_folder_game_whose_default_cannot_be_baked_is_folder_unstartable() -> None:
+    """The shipped default bakes nothing, so nothing starts the folder; no later entry is taken instead."""
+    uow = FakeUnitOfWork()
+    _seed_rom(uow, rom_id=80, platform_slug="ps3")
+    _seed_install(uow, rom_id=80, file_path=_PS3_EBOOT, rom_dir=_PS3_ROM_DIR)
+    core_info = FakeCoreInfoProvider(
+        options=[_SHORTCUT, standalone_option(_RPCS3_COMMAND, _RPCS3_LABEL, launcher=_RPCS3_LAUNCHER)]
+    )
+    resolver, _ = _make_resolver(uow=uow, core_info=core_info)
+
+    resolved = resolver.resolve_rom(80)
+
+    assert resolved is not None
+    assert resolved.choice.option is not None
+    assert resolved.choice.option.label == "RPCS3 Shortcut (Standalone)"
+    assert (resolved.invocation, resolved.folder_unstartable) == (None, True)
+
+
+def test_a_folder_game_with_rpcs3_directory_picked_starts_it_directly() -> None:
+    uow = FakeUnitOfWork()
+    _seed_rom(uow, rom_id=81, platform_slug="ps3", emulator_override=_RPCS3_LABEL)
+    _seed_install(uow, rom_id=81, file_path=_PS3_EBOOT, rom_dir=_PS3_ROM_DIR)
+    core_info = FakeCoreInfoProvider(
+        options=[_SHORTCUT, standalone_option(_RPCS3_COMMAND, _RPCS3_LABEL, launcher=_RPCS3_LAUNCHER)]
+    )
+    resolver, _ = _make_resolver(uow=uow, core_info=core_info)
+
+    resolved = resolver.resolve_rom(81)
+
+    assert resolved is not None
+    assert resolved.folder_unstartable is False
+    assert resolved.invocation == EmulatorInvocation.direct(_RPCS3_COMMAND, _RPCS3_LAUNCHER, _RPCS3_LABEL)
+
+
+def test_a_game_not_installed_as_a_folder_is_never_folder_unstartable() -> None:
+    uow = FakeUnitOfWork()
+    _seed_rom(uow, rom_id=82, platform_slug="ps3")
+    _seed_install(uow, rom_id=82, file_path="/roms/ps3/Game.iso", rom_dir="/roms/ps3/Game")
+    core_info = FakeCoreInfoProvider(options=[_SHORTCUT])
+    resolver, _ = _make_resolver(uow=uow, core_info=core_info)
+
+    resolved = resolver.resolve_rom(82)
+
+    assert resolved is not None
+    assert resolved.folder_unstartable is False
+
+
+def test_a_pin_to_an_entry_not_installed_stands() -> None:
+    uow = FakeUnitOfWork()
+    _seed_rom(uow, rom_id=83, platform_slug="gba", emulator_override="Missing")
+    missing = standalone_option("%EMULATOR_MISSING% %ROM%", "Missing", status="needs_setup", reason="not_installed")
+    core_info = FakeCoreInfoProvider(options=[libretro_option("mgba_libretro", "mGBA"), missing])
+    resolver, _ = _make_resolver(uow=uow, core_info=core_info)
+
+    resolved = resolver.resolve_rom(83)
+
+    assert resolved is not None
+    assert resolved.choice.option is not None
+    assert (resolved.choice.option.label, resolved.choice.layer, resolved.invocation) == ("Missing", "game", None)
+
+
+def test_a_vanished_pin_is_named_with_its_source_beside_the_default() -> None:
+    uow = FakeUnitOfWork()
+    uow.roms.save(
+        Rom(
+            rom_id=84,
+            platform_slug="gba",
+            name="rom-84",
+            fs_name="rom-84.gba",
+            shortcut_app_id=84,
+            last_synced_at="2026-01-01T00:00:00+00:00",
+            emulator_override="Gone",
+            emulator_override_source="retrodeck",
+        )
+    )
+    core_info = FakeCoreInfoProvider(options=[libretro_option("mgba_libretro", "mGBA")])
+    resolver, _ = _make_resolver(uow=uow, core_info=core_info)
+
+    resolved = resolver.resolve_rom(84)
+
+    assert resolved is not None
+    assert resolved.choice.vanished is not None
+    assert (resolved.choice.vanished.pick.label, resolved.choice.vanished.pick.source) == ("Gone", "retrodeck")
+    assert resolved.choice.option is not None
+    assert resolved.choice.option.label == "mGBA"
+
+
+def test_a_retrodeck_pin_while_retrodeck_is_switched_off_waits_for_it(caplog: pytest.LogCaptureFixture) -> None:
+    """The default applies, the pin is kept and nothing is said; once RetroDECK is on, the pin applies (#2222 D5).
+
+    The label is in the list that answers meanwhile, so only the pin's source keeps it from applying.
+    """
+    uow = FakeUnitOfWork()
+    _seed_rom(uow, rom_id=90, platform_slug="gba", emulator_override="mGBA")
+    core_info = FakeCoreInfoProvider(
+        options=[
+            dataclasses.replace(libretro_option("vba_next_libretro", "VBA Next"), declared_index=0),
+            dataclasses.replace(libretro_option("mgba_libretro", "mGBA"), declared_index=1),
+        ],
+        source={"kind": "emudeck", "starts_games": False},
+    )
+    resolver, _ = _make_resolver(uow=uow, core_info=core_info)
+
+    with caplog.at_level(logging.WARNING):
+        off = resolver.resolve_rom(90)
+
+    assert off is not None
+    assert off.choice.option is not None
+    assert (off.choice.option.label, off.choice.layer, off.choice.vanished) == ("VBA Next", DEFAULT, None)
+    assert "no longer resolves" not in caplog.text
+    pinned = uow.roms.get(90)
+    assert pinned is not None
+    assert (pinned.emulator_override, pinned.emulator_override_source) == ("mGBA", "retrodeck")
+
+    core_info.source = {"kind": "retrodeck", "starts_games": True}
+    on = resolver.resolve_rom(90)
+
+    assert on is not None
+    assert on.choice.option is not None
+    assert (on.choice.option.label, on.choice.layer) == ("mGBA", GAME_PICK)

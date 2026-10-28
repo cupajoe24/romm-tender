@@ -1405,15 +1405,15 @@ listing they need fails.
 
 The detail offers no sync control of its own — the row already is one, focus is already there and A works the toggle,
 and the list's two header buttons act on every row at once — so it opens with a two-line header instead of a Sync
-section. The first line is the platform's name alone, with the core picker's icon button right-aligned beside it; the
-second, in the platform page's 10 px small print and muted, is
-`<core name> · N versions on RomM · M versions in Steam · <source> system: <system>`. Each part of that line keeps
-itself on one line and carries its `·` in front, so the line wraps only between parts and never cuts one: with the name
-beside the facts, the Deck's width squeezed a two-word name onto two lines over the counts and broke
-`RetroDECK system snes` after its first word. The system part names the system the platform is in the answering source
-and its source (`RetroDECK system: psx`, worded by `platformSystemClause`); it is absent where no system was taken,
-which is when the line under the header says why
-([core-emulator-selection.md](core-emulator-selection.md#a-platforms-system)). **That line, the notes under the BIOS
+section. The first line is the platform's name alone, with the core picker's icon button right-aligned beside it. Under
+it, in the platform page's 10 px small print and muted, stand up to three lines
+([#2195](https://github.com/danielcopper/romm-tender/issues/2195) D25): the emulator in effect (`platform-facts`); one
+line per enabled source whose user chose an emulator inside ES-DE (`platform-frontend-choices`, "Gearsystem chosen in
+ES-DE", "RetroDECK: Gearsystem chosen in ES-DE" where more than one source is listed), absent where no source has such a
+choice; and `N versions on RomM · M versions in Steam` (`platform-counts`). Each part of the counts line keeps itself on
+one line and carries its `·` in front, so the line wraps only between parts and never cuts one. The system a platform is
+in is not named while one is found; it shows only in the line that says why there is none or why it is switched off
+([core-emulator-selection.md](core-emulator-selection.md#a-platforms-system)). **Those lines, the notes under the BIOS
 heading and the lines under each BIOS file's name share one size**, `NOTE_FONT` (10 px), below the 11 px
 `SECONDARY_FONT` the other panes' secondary lines keep: on the Deck the three read as large as the rows' file names at
 11 px, and set apart they looked like three different sizes. The BIOS table's rows and its column names are set at 12
@@ -1422,7 +1422,7 @@ all, so a file name one pixel above the description under it did not read as a n
 size read as notes rather than as a table head. Two pixels is the gap that shows. The row buttons keep their own 11 px
 label, so focus and press sizes are unchanged.
 
-**Both counts on the second line are ROM files**, and the line says so: it reads "`N` versions on RomM · `M` versions in
+**Both counts on the counts line are ROM files**, and the line says so: it reads "`N` versions on RomM · `M` versions in
 Steam" ("1 version" on either half) — "version" is the glossary's word for one ROM, so it reads apart from the shortcut
 count on the Remove button. `M` is not claimed to be a part of `N`, because it need not be one (below). `N` is RomM's
 own `rom_count` for the platform; `M` is `reachable_count` — the platform's reachable ROMs (every member of a sibling
@@ -1482,52 +1482,41 @@ it, for the focused platform:
   scarce thing. The caveat is not lost — `buildEmulatorMenu` renders it as the menu's first item, so the copy on the
   page that opens the menu was the same sentence twice.
 
-  **The clause names the core; "Default" is not one of the names it can take.** `resolve_platform_label` answers with
-  the real label in both ordinary cases. `null` means nothing is pinned and no option can be the default — none is
-  **bakeable**, or the only bakeable ones are entries whose installation could not be established — which is not the
-  same as there being none, and the two are different sentences:
+  **The clause names the core; "Default" is not one of the names it can take.** `active_core_label` names the platform's
+  pick, else Tender's default (the entry the first enabled source ships first,
+  [core-emulator-selection.md](core-emulator-selection.md#per-platform-coreserviceset_system_core)), whatever its state
+  — a default Tender cannot bake is named like any other. The clause is red where the games cannot start
+  (`frontend/src/utils/emulatorClause.ts`):
 
-  - **Options exist, none bakeable, and the fallback can run** — the plain RetroDECK launch is baked and RetroDECK
-    resolves the emulator itself. The clause reads `RetroDECK decides` in the muted colour and the line under it says
-    Tender cannot pin one; neither promises a launch, because what the fallback then finds is between RetroDECK and the
-    machine.
-  - **Options exist, none bakeable, and the fallback is not installed** — the same unpinnable state, with the opposite
-    outcome. `run_game.sh` takes `command[1]` for the system when no alternate emulator is set and `options_to_payload`
-    keeps ES-DE's document order, so `emulators[0]` **is** that command; when its own `reason` is `not_installed`, the
-    fallback names a binary that is not there. The clause reads `no emulator installed` in **red** and the line names
-    the emulator RetroDECK would have used. The reason is the resolver's statement that what the entry launches is not
-    there, libretro core or standalone emulator, and it stands whatever the command is
-    ([core-emulator-selection.md](core-emulator-selection.md)), so the branch fires exactly where the first command's
-    emulator is missing. **Apple I is the muted case, not this one**: ES-DE gives it two live commands, both MAME, and
-    the first is a _libretro_ one whose core is installed, so it reads `RetroDECK decides` and its games start. The
-    three standalone entries in that block are commented out and are not commands at all.
-  - **No default, and the fallback is an emulator whose installation could not be established** — such an entry is
-    bakeable, but Tender never makes it the default, while a user may pin it (#2195 D9). The line names the emulator
-    RetroDECK would use and says its installation could not be established, with the cause where one is known
-    (`frontend/src/utils/emulatorInstallation.ts`); it never says the emulator is missing. The clause stays
-    `RetroDECK decides` in the muted colour and the chip stays enabled. Beside such an entry the two cases above keep
-    the chip enabled too, and their lines drop "nothing here can pin a different one". Where the platform's own pick is
-    such an entry, a line under the header says its installation could not be established.
+  - **The emulator cannot start them** — `start` says `cannot_start`: it is not installed, or RetroDECK's start script
+    cannot start it. The clause names it in **red** and the line under it says why
+    (`frontend/src/utils/emulatorStart.ts`, the same sentence a game's page and a refused start use); the chip stays
+    open, and the line points at the emulator menu, only where another entry can be pinned.
+  - **No default** — the entry the source ships first could not be established installed, so it is never the default by
+    itself ([#2195](https://github.com/danielcopper/romm-tender/issues/2195) D9). The clause reads `no default` in
+    **red**, the line asks for a choice with the cause where one is known, and the chip stays open where an entry can be
+    pinned.
   - **No options at all** — `get_emulator_options` answers `available: true` with an empty list for a system whose
-    catalogue entry lists no command. RetroDECK's own launch then reads `command[1]` for the system, finds nothing, and
-    exits 1 (`libexec/run_game.sh`). A platform with no switched-on system in the answering source is not this case: its
-    list is not available, with the reason `no_platform_system` or `platform_system_off`
+    catalogue entry lists no command. A platform with no switched-on system in the answering source is not this case:
+    its list is not available, with the reason `no_platform_system` or `platform_system_off`
     ([core-emulator-selection.md](core-emulator-selection.md#a-platforms-system)). The clause reads `no emulator` in
     **red** and the line says the games will not launch, because they will not.
 
-  The chip is disabled for the three that leave nothing to pin, never withheld. Printing "Default" for any of them said
-  Tender had chosen; printing `no emulator` for all three said the games would not start where they do. Both were wrong,
-  in opposite directions, and the middle state is why the split is three rather than two: it is unpinnable like the
-  first and does not start like the last.
+  Under them stand, where they apply, the pick whose name no longer exists in its source ("Your choice '_label_' no
+  longer exists in _source_; the default '_default_' is used", or "there is no default to use instead", D5). Each
+  source's own default is not repeated on the page; the emulator menu marks it (D4). Where Tender's default comes from a
+  source games do not start through, none of the starting source's own lines stands under it — no refusal, no vanished
+  pick, no "lists no emulator", no red — and the clause names that default in the default's colour, also where the
+  starting source lists no emulator (D24).
 
   **The button is always rendered**, and opens a menu only when there is something to pick: the core read landed,
-  RetroDECK was found, at least one option is bakeable, and there are at least two — or nothing is the default and an
-  option can be pinned. The platform's shortcut count is deliberately not a condition: the per-platform core is a
-  setting read when a game is resolved, so it applies to games synced later too, and picking it before the first sync is
-  the ordinary case. In every other case it is the same chip, disabled, with the reason in its `title` — the ruling the
-  Remove group already follows, and what keeps the header's shape constant across panes. A disabled button is still a
-  focus stop and the wide page's own sheet gives it Steam's focus outline, so a reader walking the header lands on it
-  and is told why.
+  RetroDECK was found, and there are at least two options, one of them a bakeable entry other than the one in effect —
+  or nothing is the default and an option can be pinned. The platform's shortcut count is deliberately not a condition:
+  the per-platform core is a setting read when a game is resolved, so it applies to games synced later too, and picking
+  it before the first sync is the ordinary case. In every other case it is the same chip, disabled, with the reason in
+  its `title` — the ruling the Remove group already follows, and what keeps the header's shape constant across panes. A
+  disabled button is still a focus stop and the wide page's own sheet gives it Steam's focus outline, so a reader
+  walking the header lands on it and is told why.
 
   **Which of those cases also keeps a line under the header is a judgement about what it reports, not about the chip.**
   "Nothing to switch" states — the read in flight, one emulator on the menu — say it in the tooltip alone: a sentence
@@ -1697,16 +1686,16 @@ it, for the focused platform:
   `active_core_label` only where no entry is the launching emulator's — the pick those very counts were filtered by,
   never the core read beside it on the page. That is the emulator's name; the platform header prints the launch entry's,
   and the two can differ
-  ([core-emulator-selection.md](core-emulator-selection.md#standalone-emulator-selection-first-safely-bakeable), "The
-  BIOS part names the emulator; the launch places name the entry"). An empty `required_count` is worded "`<emulator>`
-  marks none of its BIOS files as required" and a one-of group with no image in place "`<emulator>` cannot start this
-  system without a BIOS image", because both are statements about one emulator's declaration. Whether the console itself
-  starts without an image is the resolver's to weigh into the verdict, and it is said of the console in a sentence of
-  its own (`console_needs_image`), so a subjectless sentence would state the count's conclusion as though the console
-  had been asked. Where the pick has no label the sentences name the role instead ("The launching emulator …"), and the
-  short `status` beside `BIOS FILES` stays subjectless because it is a heading, with the sentence under it where a name
-  fits. "Emulator" and never "core": what a platform launches with can be a STANDALONE emulator, which is not a core,
-  and the whole answer is keyed on the emulator's identity for that reason.
+  ([core-emulator-selection.md](core-emulator-selection.md#the-default-the-first-in-declared-order), "The BIOS part
+  names the emulator; the launch places name the entry"). An empty `required_count` is worded "`<emulator>` marks none
+  of its BIOS files as required" and a one-of group with no image in place "`<emulator>` cannot start this system
+  without a BIOS image", because both are statements about one emulator's declaration. Whether the console itself starts
+  without an image is the resolver's to weigh into the verdict, and it is said of the console in a sentence of its own
+  (`console_needs_image`), so a subjectless sentence would state the count's conclusion as though the console had been
+  asked. Where the pick has no label the sentences name the role instead ("The launching emulator …"), and the short
+  `status` beside `BIOS FILES` stays subjectless because it is a heading, with the sentence under it where a name fits.
+  "Emulator" and never "core": what a platform launches with can be a STANDALONE emulator, which is not a core, and the
+  whole answer is keyed on the emulator's identity for that reason.
 
   **The game page's BIOS tab is among its tabs for every game from the moment the page opens**, and no answer takes it
   away. The cached detail carries no BIOS answer, so the tab's comes from the live `get_bios_status` read a moment

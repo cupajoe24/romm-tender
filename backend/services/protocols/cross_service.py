@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
     from domain.artwork_slot import ArtworkSlot
     from domain.disc_selection import Disc
+    from domain.emulator_choice import ResolvedEmulator
     from domain.emulator_commands import LaunchingEmulator
     from domain.emulator_sources import SourcesReading
     from domain.rom_install import RomInstall
@@ -279,9 +280,12 @@ class ActiveCoreReader(Protocol):
     libretro core (core-change detection and the upload's emulator tag):
     ``(None, None)`` / ``(None, label)`` means no libretro core (unconfigured, or a
     standalone emulator) and they degrade. Both draw from the same resolution, so
-    no read diverges from the launch. ``reading`` is a run's one reading of the
-    emulator sources, handed down by a run that resolves many ROMs; a caller
-    without one leaves it out and the call asks fresh.
+    no read diverges from the launch. ``resolve_rom`` answers the choice behind
+    both — the entry, the layer it came from, a stored pick passed over because
+    its label is gone, and whether a folder install cannot start — for a surface
+    that says what stands in the game's way. ``reading`` is a run's one reading
+    of the emulator sources, handed down by a run that resolves many ROMs; a
+    caller without one leaves it out and the call asks fresh.
     """
 
     def active_core_for_rom(self, rom_id: int) -> tuple[str | None, str | None]: ...
@@ -289,6 +293,8 @@ class ActiveCoreReader(Protocol):
     def active_emulator_for_rom(
         self, rom_id: int, *, reading: SourcesReading | None = None
     ) -> EmulatorInvocation | None: ...
+
+    def resolve_rom(self, rom_id: int, *, reading: SourcesReading | None = None) -> ResolvedEmulator | None: ...
 
 
 class DiscResolver(Protocol):

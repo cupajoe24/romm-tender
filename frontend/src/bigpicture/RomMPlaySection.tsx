@@ -32,7 +32,7 @@ import { DiscSelector } from "./DiscSelector";
 import { VersionPicker } from "./VersionPicker";
 import { VanishedVersionBanner } from "./VanishedVersionBanner";
 import { WarningCard } from "./WarningCard";
-import { Muted } from "./layout/pane";
+import { Muted, SELECTION_ACCENT } from "./layout/pane";
 import { activeEmulatorNote } from "../utils/emulatorInstallation";
 import { useTriggerHandler } from "./emulatorStepping";
 import { useBumperHandler, usePlayRowRef } from "./tabStepping";
@@ -67,7 +67,12 @@ import {
   releasePruneLeasesByOwner,
 } from "../utils/pruneLease";
 import { executeGameCoreChange } from "../utils/coreOverride";
-import { emulatorName } from "../utils/emulatorEntries";
+import {
+  emulatorStartRefusal,
+  frontendChoiceSentence,
+  gameCanPickAnother,
+  vanishedPickSentence,
+} from "../utils/emulatorStart";
 import { useGamePlaytime } from "../utils/playtimeReconcile";
 import { buildEmulatorMenu } from "../utils/emulatorMenu";
 import { formatBytes } from "../utils/formatters";
@@ -660,7 +665,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     await executeGameCoreChange({
       romId,
       coreLabel,
-      coreName: emulatorName(detail.emulators, coreLabel),
+      coreName: coreLabel,
       leaseOwner: `game-detail:${appId}`,
       onSuccess: () => refreshCoreDisplay(platformSlug),
       logTag: "handleChangeGameCore",
@@ -692,6 +697,7 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
         emulatorSource: detail.emulatorSource,
         emulatorPlatformSystem: detail.emulatorPlatformSystem,
         activeLabel: detail.activeCoreLabel,
+        activeColor: SELECTION_ACCENT,
         platformCoreLabel: detail.platformCoreLabel,
         followSystem: {
           hasGameOverride: detail.hasGameOverride,
@@ -928,6 +934,19 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
     );
   }
 
+  // Why the game's emulator cannot start it: Play is disabled, and the same
+  // sentence stands behind the warning sign on a line of its own under the
+  // row's controls, inside the play row. Not on a stranded panel, and not for a
+  // download whose file is missing, where the row says that instead.
+  const emulatorRefusal =
+    stranded || fileMissing || detail.emulatorStart === null
+      ? null
+      : emulatorStartRefusal(
+          detail.emulatorStart,
+          "this game",
+          gameCanPickAnother(detail.emulators, detail.activeCoreLabel),
+        );
+
   const playSectionRow = (
     <Focusable
       key="play-row"
@@ -945,66 +964,85 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
       onFocus={scrollToTop}
       style={{
         display: "flex",
-        alignItems: "center",
-        gap: "20px",
+        flexDirection: "column",
+        gap: "10px",
         padding: "16px 2.8vw",
         background: "rgba(14, 20, 27, 0.33)",
         boxSizing: "border-box",
       }}
     >
-      {/* Play button on the left */}
-      <CustomPlayButton appId={appId} />
-      {/* Disc picker for multi-disc ROMs — renders nothing otherwise (#865), and
-          nothing for a download whose discs are missing */}
-      {fileMissing || stranded ? null : <DiscSelector appId={appId} />}
-      {/* Version picker for multi-version sibling groups — renders nothing otherwise (#1297) */}
-      {stranded ? null : <VersionPicker appId={appId} />}
-      {/* Info items row */}
-      <div
-        className="romm-info-items"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "20px",
-          flexWrap: "nowrap",
-          overflow: "hidden",
-        }}
-      >
-        {infoItems}
-      </div>
-      {/* Gear icon buttons pushed to the far right; a stranded panel offers none */}
-      {stranded ? null : (
+      {/* The controls on one line; why the game cannot start goes on its own
+          line under them, inside the same band. */}
+      <div data-testid="play-row-controls" style={{ display: "flex", alignItems: "center", gap: "20px" }}>
+        {/* Play button on the left */}
+        <CustomPlayButton appId={appId} emulatorRefusal={emulatorRefusal} />
+        {/* Disc picker for multi-disc ROMs — renders nothing otherwise (#865), and
+            nothing for a download whose discs are missing */}
+        {fileMissing || stranded ? null : <DiscSelector appId={appId} />}
+        {/* Version picker for multi-version sibling groups — renders nothing otherwise (#1297) */}
+        {stranded ? null : <VersionPicker appId={appId} />}
+        {/* Info items row */}
         <div
+          className="romm-info-items"
           style={{
-            marginLeft: "auto",
             display: "flex",
             alignItems: "center",
-            gap: "8px",
-            flexShrink: 0,
+            gap: "20px",
+            flexWrap: "nowrap",
+            overflow: "hidden",
           }}
         >
-          {/* RomM actions button */}
-          <DialogButton className="romm-gear-btn" onClick={showRomMMenu} onFocus={scrollToTop} title="RomM Actions">
-            <FaGamepad size={18} color="#553e98" />
-          </DialogButton>
-          {/* Core selection button: where there are emulators to choose between,
-              and where the emulator list could not be established, whose menu
-              then says why. Never for a download whose file is missing. */}
-          {(detail.emulators.length > 1 || !detail.emulatorDataAvailable) && !fileMissing ? (
-            <DialogButton
-              key="core-btn"
-              className="romm-gear-btn"
-              onClick={showCoreMenu}
-              onFocus={scrollToTop}
-              title="Emulator Core"
-            >
-              <FaMicrochip size={18} color={detail.activeCoreIsDefault ? "#8f98a0" : "#d4a72c"} />
+          {infoItems}
+        </div>
+        {/* Gear icon buttons pushed to the far right; a stranded panel offers none */}
+        {stranded ? null : (
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flexShrink: 0,
+            }}
+          >
+            {/* RomM actions button */}
+            <DialogButton className="romm-gear-btn" onClick={showRomMMenu} onFocus={scrollToTop} title="RomM Actions">
+              <FaGamepad size={18} color="#553e98" />
             </DialogButton>
-          ) : null}
-          {/* Steam properties button */}
-          <DialogButton className="romm-gear-btn" onClick={showSteamMenu} onFocus={scrollToTop} title="Steam Properties">
-            <FaCog size={18} color="#8f98a0" />
-          </DialogButton>
+            {/* Core selection button: where there are emulators to choose between,
+                and where the emulator list could not be established, whose menu
+                then says why. Never for a download whose file is missing. */}
+            {(detail.emulators.length > 1 || !detail.emulatorDataAvailable) && !fileMissing ? (
+              <DialogButton
+                key="core-btn"
+                className="romm-gear-btn"
+                onClick={showCoreMenu}
+                onFocus={scrollToTop}
+                title="Emulator Core"
+              >
+                <FaMicrochip size={18} color={detail.activeCoreIsDefault ? "#8f98a0" : "#d4a72c"} />
+              </DialogButton>
+            ) : null}
+            {/* Steam properties button */}
+            <DialogButton className="romm-gear-btn" onClick={showSteamMenu} onFocus={scrollToTop} title="Steam Properties">
+              <FaCog size={18} color="#8f98a0" />
+            </DialogButton>
+          </div>
+        )}
+      </div>
+      {emulatorRefusal === null ? null : (
+        <div
+          data-testid="emulator-refusal"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            fontSize: "12px",
+            color: "#ffaa00",
+          }}
+        >
+          <FaExclamationTriangle size={12} style={{ flexShrink: 0 }} />
+          <span>{emulatorRefusal}</span>
         </div>
       )}
     </Focusable>
@@ -1026,6 +1064,15 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
   // button drops back to "loading" and re-runs its init (#1682). A Fragment adds
   // no DOM node, so the row stays a direct child of the injected panel either way.
   const emulatorNote = activeEmulatorNote(detail.emulators, detail.activeCoreLabel);
+  // The pick that no longer exists and the user's own choice in ES-DE — each
+  // said once, under the row.
+  const emulatorLines =
+    stranded || fileMissing
+      ? []
+      : [
+          detail.vanishedPick === null ? null : vanishedPickSentence(detail.vanishedPick),
+          frontendChoiceSentence(detail.emulators, detail.activeCoreLabel),
+        ].filter((line): line is string => line !== null);
   return (
     <Fragment>
       {detail.savefilesInContentDir === true && detail.saveSyncEnabled ? (
@@ -1038,6 +1085,9 @@ export const RomMPlaySection: FC<RomMPlaySectionProps> = ({ appId }) => { // NOS
       <VanishedVersionBanner key="vanished-version-banner" appId={appId} installed={detail.installed} />
       {playSectionRow}
       {emulatorNote === null ? null : <Muted key="emulator-installation-note">{emulatorNote}</Muted>}
+      {emulatorLines.map((line) => (
+        <Muted key={line}>{line}</Muted>
+      ))}
     </Fragment>
   );
 };

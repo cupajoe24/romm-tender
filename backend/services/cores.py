@@ -20,7 +20,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from domain.emulator_commands import label_to_invocation, options_to_payload, resolve_platform_label
+from domain.emulator_choice import (
+    NO_ENTRY,
+    PLATFORM_PICK,
+    EmulatorChoice,
+    choose_emulator,
+    start_payload,
+    unspoken_start,
+    vanished_payload,
+)
+from domain.emulator_commands import default_option, label_to_invocation, options_to_payload, shipped_default
+from domain.emulator_pick import pick_for, platform_pick, platform_pick_value, source_kind
 from domain.shortcut_data import (
     EmulatorInvocation,
     build_launch_options,
@@ -130,6 +140,14 @@ class CoreService:
         record's system for an installed ROM, which no source was asked for.
         When ``rom_id`` is unknown the emulator list is empty and the active
         emulator is ``(None, None)``.
+
+        The list is asked with the installed game's path, so the entry the user
+        chose for this game inside ES-DE is marked ``chosen_in_frontend``.
+        ``active_core`` and ``active_core_label`` name the entry the game starts
+        with, whether or not Tender can bake it. ``start`` is what starting with
+        it comes to (:func:`domain.emulator_choice.start_payload`), and
+        ``vanished_pick`` the stored pick whose label no longer exists, ``None``
+        where none was passed over (:func:`domain.emulator_choice.vanished_payload`).
         """
         return await self._loop.run_in_executor(None, self._platform_core_info_io, rom_id)
 
@@ -146,20 +164,33 @@ class CoreService:
                 "active_core_label": None,
                 "platform_core_label": None,
                 "has_game_override": False,
+                "start": start_payload(_NO_CHOICE, []),
+                "vanished_pick": None,
             }
         platform = self._platform_systems.rom_system(rom.platform_slug, install)
-        options = self._emulator_options(platform)
-        emulator = self._active_core.active_emulator_for_rom(rom_id)
+        options = self._emulator_options(platform, content_path=install.file_path if install is not None else None)
+        resolved = self._active_core.resolve_rom(rom_id)
+        choice = resolved.choice if resolved is not None else _NO_CHOICE
+        option = choice.option
+        stored = pick_for(
+            platform_pick(self._settings.get("platform_cores", {}).get(rom.platform_slug)), source_kind(options)
+        )
         return {
             "emulators": options_to_payload(options["options"]),
             "emulator_data_available": options["available"],
             "emulator_data_reason": options["reason"],
             "emulator_source": options["source"],
             "platform_system": platform.payload(),
-            "active_core": emulator.emulator if emulator is not None else None,
-            "active_core_label": emulator.label if emulator is not None else None,
-            "platform_core_label": self._settings.get("platform_cores", {}).get(rom.platform_slug),
+            "active_core": option.emulator if option is not None else None,
+            "active_core_label": option.label if option is not None else None,
+            "platform_core_label": stored.label if stored is not None else None,
             "has_game_override": rom.emulator_override is not None,
+            "start": start_payload(
+                choice,
+                resolved.options if resolved is not None else [],
+                folder_unstartable=resolved is not None and resolved.folder_unstartable,
+            ),
+            "vanished_pick": vanished_payload(choice),
         }
 
     async def get_system_core_info(self, platform_slug: str) -> dict[str, Any]:
@@ -173,9 +204,19 @@ class CoreService:
         ``emulator_data_reason`` and ``emulator_source`` as in
         :meth:`get_platform_core_info`), ``platform_system`` the system the
         platform is in the answering source, and
-        ``active_core_label`` is the platform-layer resolution — the per-platform
-        override when it still resolves, else the es_systems default — so the
-        label and a launch from this platform agree.
+        ``active_core_label`` names the per-platform pick while its label still
+        names an entry, else Tender's default: the default of the first enabled
+        source in the user's order that offers one (#2195 D4); ``None`` where
+        nothing is picked and Tender's default names no entry — no source offers
+        one, or the one it offers could not be established installed. ``start``
+        and ``vanished_pick`` are as in :meth:`get_platform_core_info`, for the
+        platform's own choice in the answering source. ``source_defaults`` is every enabled source in the
+        user's order with the entry it ships as default for the platform, the
+        one the user chose in it inside ES-DE where that differs, and why there
+        is no default where there is none; ``tender_default`` names the source
+        and entry Tender's default is, ``None`` where no source offers one;
+        ``default_elsewhere`` is whether that default, with nothing picked,
+        comes from a source games do not start through (#2195 D24).
 
         Distinct from :meth:`get_platform_core_info`, which answers the same
         question for one ROM and layers that ROM's ``emulator_override`` on top;
@@ -187,25 +228,102 @@ class CoreService:
     def _system_core_info_io(self, platform_slug: str) -> dict[str, Any]:
         platform = self._platform_systems.platform_system(platform_slug)
         options = self._emulator_options(platform)
+        stored = pick_for(
+            platform_pick(self._settings.get("platform_cores", {}).get(platform_slug)), source_kind(options)
+        )
+        choice = choose_emulator(options["options"], game=None, platform=stored)
+        source_defaults = self._source_defaults(platform_slug, answered=(platform, options))
+        tender_default = next(
+            ({"kind": entry["kind"], "label": entry["default"]} for entry in source_defaults if entry["offers"]),
+            None,
+        )
+        picked = choice.layer == PLATFORM_PICK and choice.option is not None
+        if picked and choice.option is not None:
+            active_label: str | None = choice.option.label
+        elif tender_default is not None:
+            active_label = tender_default["label"]
+        else:
+            active_label = None
+        # Tender's default from a source games do not start through: the page
+        # shows that default and none of the starting source's own lines beneath
+        # it, which would contradict it (#2195 D24).
+        elsewhere = not picked and tender_default is not None and tender_default["kind"] != source_kind(options)
         return {
             "emulators": options_to_payload(options["options"]),
             "emulator_data_available": options["available"],
             "emulator_data_reason": options["reason"],
             "emulator_source": options["source"],
             "platform_system": platform.payload(),
-            "active_core_label": resolve_platform_label(
-                options["options"], self._settings.get("platform_cores", {}).get(platform_slug)
-            ),
+            "active_core_label": active_label,
+            "start": (unspoken_start(active_label) if elsewhere else start_payload(choice, options["options"])),
+            "vanished_pick": None if elsewhere else vanished_payload(choice),
+            "source_defaults": [
+                {key: entry[key] for key in ("kind", "default", "chosen_in_frontend", "reason")}
+                for entry in source_defaults
+            ],
+            "tender_default": tender_default,
+            "default_elsewhere": elsewhere,
         }
+
+    def _source_defaults(
+        self, platform_slug: str, *, answered: tuple[PlatformSystem, dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Every enabled source in the user's order, with its own default for *platform_slug*.
+
+        ``offers`` says the source lists an entry for the platform's system that
+        it ships as default; ``default`` is that entry's label, ``None`` where
+        its installation is not established (``reason`` then carries its
+        note), and ``chosen_in_frontend`` the entry the user chose in that
+        source inside ES-DE where it differs. A source with no list answers its
+        refusal in ``reason``. *answered* is the answering source's platform
+        system and list, already asked, so that source is not asked twice.
+        """
+        reading = self._core_info.sources_reading()
+        entries: list[dict[str, Any]] = []
+        for source in reading.sources:
+            if not source.enabled:
+                continue
+            if source.kind == source_kind(answered[1]):
+                answer = answered[1]
+            else:
+                platform = self._platform_systems.platform_system(platform_slug, source=source.kind, reading=reading)
+                answer = (
+                    platform.unavailable_options()
+                    if platform.taken is None
+                    else self._core_info.get_emulator_options(platform.taken, reading=reading, source=source.kind)
+                )
+            options = answer["options"]
+            shipped = shipped_default(options)
+            default = default_option(options)
+            chosen = next((option.label for option in options if option.chosen_in_frontend), None)
+            if not answer["available"]:
+                reason = answer["reason"]
+            elif shipped is None:
+                reason = NO_ENTRY
+            else:
+                reason = shipped.not_established
+            entries.append(
+                {
+                    "kind": source.kind,
+                    "offers": shipped is not None,
+                    "default": default.label if default is not None else None,
+                    "chosen_in_frontend": chosen,
+                    "reason": reason,
+                }
+            )
+        return entries
 
     def _set_system_core_io(self, platform_slug: str, core_label: str) -> list[dict[str, Any]]:
         """Write the per-platform core selection and re-bake the affected shortcuts.
 
-        Mutates ``settings["platform_cores"]`` — stores *core_label* under
-        *platform_slug* when non-empty, pops the slug when blank (revert to the
-        es_systems default) — and persists ``settings.json`` through the
-        injected persister. The persister holds the same live dict, so the fan-out
-        that follows resolves the freshly-written value.
+        Mutates ``settings["platform_cores"]`` — stores ``{label, source}`` under
+        *platform_slug* when *core_label* is non-empty, ``source`` the kind of
+        the emulator source answering for the platform, and pops the slug when
+        blank (revert to the default) — and persists ``settings.json`` through
+        the injected persister. A label with no source answering for the
+        platform is refused with ``core_unavailable`` and nothing is written.
+        The persister holds the same live dict, so the fan-out that follows
+        resolves the freshly-written value.
 
         Returns one ``{"app_id", "launch_options"}`` entry per installed+bound ROM
         on the platform whose active core is the new per-platform selection. ROMs
@@ -218,42 +336,9 @@ class CoreService:
         reverting to disc 1 / the m3u (a single-disc ROM bakes its ``file_path``
         unchanged).
         """
-        platform_cores = self._settings["platform_cores"]
-        previous = platform_cores.get(platform_slug)
-        if core_label:
-            platform_cores[platform_slug] = core_label
-        else:
-            platform_cores.pop(platform_slug, None)
-        try:
-            self._settings_persister.save_settings()
-        except OSError as e:
-            if previous is None:
-                platform_cores.pop(platform_slug, None)
-            else:
-                platform_cores[platform_slug] = previous
-            self._logger.error(f"Failed to set system core: {e}")
-            raise Refused("save_failed", f"Save failed: {e}") from e
-
-        # Snapshot the installed+bound, non-overridden (rom, install) pairs in one
-        # short read UoW, then close it before resolving each ROM's active core:
-        # active_emulator_for_rom opens its own UoW, and the per-connection
-        # BEGIN IMMEDIATE write lock is not re-entrant — resolving inside the
-        # iteration UoW would block on the lock until busy_timeout then raise
-        # "database is locked" (#1134). This read UoW performs no writes.
-        pending: list[tuple[Rom, RomInstall]] = []
-        with self._uow_factory() as uow:
-            for rom in uow.roms.iter_by_platform(platform_slug):
-                if rom.emulator_override is not None:
-                    continue
-                if rom.shortcut_app_id is None:
-                    continue
-                install = uow.rom_installs.get(rom.rom_id)
-                if install is None:
-                    continue
-                pending.append((rom, install))
-
+        self._store_platform_pick(platform_slug, core_label)
         rebake_items: list[dict[str, Any]] = []
-        for rom, install in pending:
+        for rom, install in self._installed_rows_following_the_platform(platform_slug):
             emulator = self._active_core.active_emulator_for_rom(rom.rom_id)
             invocation = resolve_emulator_invocation({}, emulator)
             # Fold the ROM's persisted disc pick over the install so a
@@ -267,6 +352,49 @@ class CoreService:
                 }
             )
         return rebake_items
+
+    def _store_platform_pick(self, platform_slug: str, core_label: str) -> None:
+        """Store *core_label* as the platform's pick, or drop the pick when blank, and persist it.
+
+        The previous value is put back where the save fails.
+        """
+        platform_cores = self._settings["platform_cores"]
+        previous = platform_cores.get(platform_slug)
+        if core_label:
+            source = source_kind(self._emulator_options(self._platform_systems.platform_system(platform_slug)))
+            if source is None:
+                raise Refused("core_unavailable", f"No emulator source answers for {platform_slug}")
+            platform_cores[platform_slug] = platform_pick_value(core_label, source)
+        else:
+            platform_cores.pop(platform_slug, None)
+        try:
+            self._settings_persister.save_settings()
+        except OSError as e:
+            if previous is None:
+                platform_cores.pop(platform_slug, None)
+            else:
+                platform_cores[platform_slug] = previous
+            self._logger.error(f"Failed to set system core: {e}")
+            raise Refused("save_failed", f"Save failed: {e}") from e
+
+    def _installed_rows_following_the_platform(self, platform_slug: str) -> list[tuple[Rom, RomInstall]]:
+        """The installed, bound ROMs of *platform_slug* with no per-game pin, with their installs.
+
+        Read in one short UoW that is closed before any ROM's active core is
+        resolved: active_emulator_for_rom opens its own UoW, and the
+        per-connection BEGIN IMMEDIATE write lock is not re-entrant — resolving
+        inside the iteration UoW would block on the lock until busy_timeout then
+        raise "database is locked" (#1134). This read UoW performs no writes.
+        """
+        pending: list[tuple[Rom, RomInstall]] = []
+        with self._uow_factory() as uow:
+            for rom in uow.roms.iter_by_platform(platform_slug):
+                if rom.emulator_override is not None or rom.shortcut_app_id is None:
+                    continue
+                install = uow.rom_installs.get(rom.rom_id)
+                if install is not None:
+                    pending.append((rom, install))
+        return pending
 
     async def set_system_core(self, platform_slug: str, core_label: str) -> dict[str, Any]:
         """Set or clear the per-platform core selection for a platform.
@@ -299,8 +427,9 @@ class CoreService:
         The picked LABEL is resolved to a bakeable :class:`EmulatorInvocation`
         FIRST (against the emulators ES-DE lists for the ROM's platform, libretro
         OR standalone). A label that does not resolve to a bakeable emulator —
-        unknown, ``needs_setup``, or otherwise un-bakeable — is refused with
-        ``core_unavailable`` and **nothing is written**, so the DB never holds a
+        unknown, ``needs_setup``, or otherwise un-bakeable — or for which no
+        emulator source answers is refused with ``core_unavailable`` and
+        **nothing is written**, so the DB never holds a
         label no consumer can bake; an unknown ROM is refused with
         ``not_found``. On success the pin is written via the Unit-of-Work and
         the response carries the freshly-baked ``launch_options`` (the ``-e``
@@ -328,8 +457,9 @@ class CoreService:
         # a UoW holds SQLite's BEGIN IMMEDIATE write lock — file I/O inside one
         # stalls every other writer for its duration.
         options = self._emulator_options(self._platform_systems.rom_system(platform_slug, install))
+        source = source_kind(options)
         invocation = label_to_invocation(options["options"], label)
-        if invocation is None:
+        if invocation is None or source is None:
             # Refuse BEFORE any write — never persist a label that does not
             # resolve to a bakeable emulator (unknown / needs_setup / un-bakeable).
             raise Refused("core_unavailable", f"Emulator '{label}' is not available for {platform_slug}")
@@ -357,8 +487,8 @@ class CoreService:
             # Enforce the aggregate invariant (strip / reject blank) via the
             # verb method, then persist the resulting label through the pin-only
             # write path (never the sync UPSERT).
-            rom.pin_emulator_override(label)
-            uow.roms.set_emulator_override(rom_id, rom.emulator_override)
+            rom.pin_emulator_override(label, source=source)
+            uow.roms.set_emulator_override(rom_id, rom.emulator_override, rom.emulator_override_source)
             install = uow.rom_installs.get(rom_id)
         # Bake outside the committed write UoW, uniform with the clear path (the
         # pinned override is the just-resolved emulator, so there is no resolver
@@ -398,7 +528,7 @@ class CoreService:
             if rom is None:
                 raise Refused("not_found", f"ROM {rom_id} is not tracked")
             rom.clear_emulator_override()
-            uow.roms.set_emulator_override(rom_id, rom.emulator_override)
+            uow.roms.set_emulator_override(rom_id, rom.emulator_override, rom.emulator_override_source)
             install = uow.rom_installs.get(rom_id)
         # Cleared pin → follow the per-platform/system default. The write UoW has
         # committed, so the resolver's own UoW now reads the landed NULL and
@@ -450,8 +580,14 @@ class CoreService:
         with self._uow_factory() as uow:
             return uow.roms.get(rom_id), uow.rom_installs.get(rom_id)
 
-    def _emulator_options(self, platform: PlatformSystem) -> dict[str, Any]:
+    def _emulator_options(self, platform: PlatformSystem, *, content_path: str | None = None) -> dict[str, Any]:
         """The emulator options for *platform*'s system, or the unavailable answer where it has none."""
         if platform.taken is None:
             return platform.unavailable_options()
-        return self._core_info.get_emulator_options(platform.taken)
+        if content_path is None:
+            return self._core_info.get_emulator_options(platform.taken)
+        return self._core_info.get_emulator_options(platform.taken, content_path=content_path)
+
+
+# A ROM with no system to ask has no choice to make.
+_NO_CHOICE = EmulatorChoice(option=None, layer=None, vanished=None)

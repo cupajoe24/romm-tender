@@ -41,7 +41,7 @@ import * as saveStatusUtils from "../utils/saveStatus";
 import * as formatters from "../utils/formatters";
 import { getGameDetail } from "../utils/gameDetailStore";
 import { resetBoundAvailability } from "../utils/vanishedBinding";
-import { libretroEmu, sharedBy } from "../test-utils/coreFixtures";
+import { libretroEmu, standaloneEmu } from "../test-utils/coreFixtures";
 import { makeConflict } from "../test-utils/saveFixtures";
 import { BIOS_MISSING_RED } from "../utils/biosColor";
 import { useVersionError } from "../utils/connectionState";
@@ -170,6 +170,7 @@ vi.mock("../utils/metadataPatches", () => ({
   updatePlaytimeDisplay: vi.fn(),
 }));
 import { updatePlaytimeDisplay } from "../utils/metadataPatches";
+import { coreInfo as coreInfoFixture } from "../test-utils/coreFixtures";
 
 // ----- @decky/ui — global stub from test-setup.ts covers Focusable,
 // DialogButton (with disabled), Menu, MenuItem, showContextMenu, showModal,
@@ -393,6 +394,8 @@ describe("RomMPlaySection", () => {
       emulators: [],
       platformCoreLabel: null,
       hasGameOverride: false,
+      emulatorStart: null,
+      vanishedPick: null,
     });
     // refreshCoreInfoInBackground (mocked) merges the current extractCoreInfo
     // mock result into state so the core button / menu render as in production,
@@ -400,17 +403,19 @@ describe("RomMPlaySection", () => {
     // extractCoreInfo mock ignores its argument, so the dummy CoreInfo is fine.
     vi.mocked(sectionRefresh.refreshCoreInfoInBackground).mockImplementation((_romId, cancelled, setter) => {
       if (cancelled()) return;
-      const coreFields = playSectionUtils.extractCoreInfo({
-        emulator_data_available: true,
-        emulator_data_reason: null,
-        emulator_source: { kind: "retrodeck", starts_games: true },
-        platform_system: null,
-        emulators: [],
-        active_core: null,
-        active_core_label: null,
-        platform_core_label: null,
-        has_game_override: false,
-      });
+      const coreFields = playSectionUtils.extractCoreInfo(
+        coreInfoFixture({
+          emulator_data_available: true,
+          emulator_data_reason: null,
+          emulator_source: { kind: "retrodeck", starts_games: true },
+          platform_system: null,
+          emulators: [],
+          active_core: null,
+          active_core_label: null,
+          platform_core_label: null,
+          has_game_override: false,
+        }),
+      );
       act(() => {
         setter((prev) => ({ ...prev, ...coreFields }));
       });
@@ -421,17 +426,19 @@ describe("RomMPlaySection", () => {
     // the unconfirmed (false) branch per case.
     vi.mocked(setLaunchOptionsConfirmed).mockResolvedValue(true);
     // Default core-info path — empty cores. Tests opt into specific shapes.
-    vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue({
-      emulator_data_available: true,
-      emulator_data_reason: null,
-      emulator_source: { kind: "retrodeck", starts_games: true },
-      platform_system: null,
-      emulators: [],
-      active_core: null,
-      active_core_label: null,
-      platform_core_label: null,
-      has_game_override: false,
-    });
+    vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue(
+      coreInfoFixture({
+        emulator_data_available: true,
+        emulator_data_reason: null,
+        emulator_source: { kind: "retrodeck", starts_games: true },
+        platform_system: null,
+        emulators: [],
+        active_core: null,
+        active_core_label: null,
+        platform_core_label: null,
+        has_game_override: false,
+      }),
+    );
 
     // Steam globals — appStore for the synchronous overview read.
     stubAppStore({ [testAppId]: {} });
@@ -2520,40 +2527,42 @@ describe("RomMPlaySection", () => {
 
       // Core data comes from the dedicated path (#923), keyed on the rom_id so
       // the active core reflects a per-game DB override (epic #945).
-      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue({
-        active_core: "blastem.so",
-        active_core_label: "BlastEm",
-        platform_core_label: null,
-        has_game_override: false,
-        emulator_data_available: true,
-        emulator_data_reason: null,
-        emulator_source: { kind: "retrodeck", starts_games: true },
-        platform_system: null,
-        emulators: [
-          {
-            label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
-            kind: "core",
-            core_so: "snes9x.so",
-            emulator: "snes9x.so",
-            is_default: true,
-            bakeable: true,
-            reason: null,
-          },
-          {
-            label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
-            kind: "core",
-            core_so: "blastem.so",
-            emulator: "blastem.so",
-            is_default: false,
-            bakeable: true,
-            reason: null,
-          },
-        ],
-      });
+      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue(
+        coreInfoFixture({
+          active_core: "blastem.so",
+          active_core_label: "BlastEm",
+          platform_core_label: null,
+          has_game_override: false,
+          emulator_data_available: true,
+          emulator_data_reason: null,
+          emulator_source: { kind: "retrodeck", starts_games: true },
+          platform_system: null,
+          emulators: [
+            {
+              label: "Snes9x",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "snes9x.so",
+              emulator: "snes9x.so",
+              is_default: true,
+              bakeable: true,
+              reason: null,
+            },
+            {
+              label: "BlastEm",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "blastem.so",
+              emulator: "blastem.so",
+              is_default: false,
+              bakeable: true,
+              reason: null,
+            },
+          ],
+        }),
+      );
       // BIOS level/label come from the (now core-free) BIOS status.
       vi.mocked(backend.getBiosStatus).mockResolvedValue({
         bios_status: {
@@ -2596,40 +2605,42 @@ describe("RomMPlaySection", () => {
       // Switch to a core whose BIOS is missing — getBiosStatus now returns a
       // populated bios_status + missing level. The badge must appear: biosNeeded
       // is re-derived from the refreshed status, not the (stale) mount value.
-      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue({
-        active_core: "blastem.so",
-        active_core_label: "BlastEm",
-        platform_core_label: null,
-        has_game_override: false,
-        emulator_data_available: true,
-        emulator_data_reason: null,
-        emulator_source: { kind: "retrodeck", starts_games: true },
-        platform_system: null,
-        emulators: [
-          {
-            label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
-            kind: "core",
-            core_so: "snes9x.so",
-            emulator: "snes9x.so",
-            is_default: true,
-            bakeable: true,
-            reason: null,
-          },
-          {
-            label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
-            kind: "core",
-            core_so: "blastem.so",
-            emulator: "blastem.so",
-            is_default: false,
-            bakeable: true,
-            reason: null,
-          },
-        ],
-      });
+      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue(
+        coreInfoFixture({
+          active_core: "blastem.so",
+          active_core_label: "BlastEm",
+          platform_core_label: null,
+          has_game_override: false,
+          emulator_data_available: true,
+          emulator_data_reason: null,
+          emulator_source: { kind: "retrodeck", starts_games: true },
+          platform_system: null,
+          emulators: [
+            {
+              label: "Snes9x",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "snes9x.so",
+              emulator: "snes9x.so",
+              is_default: true,
+              bakeable: true,
+              reason: null,
+            },
+            {
+              label: "BlastEm",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "blastem.so",
+              emulator: "blastem.so",
+              is_default: false,
+              bakeable: true,
+              reason: null,
+            },
+          ],
+        }),
+      );
       vi.mocked(backend.getBiosStatus).mockResolvedValue({
         bios_status: {
           platform_slug: "snes",
@@ -3693,40 +3704,42 @@ describe("RomMPlaySection", () => {
       });
       // Core data is sourced from the dedicated get_platform_core_info path (#923),
       // which feeds extractCoreInfo. The core button gates on availableCores > 1.
-      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue({
-        active_core: "snes9x.so",
-        active_core_label: "Snes9x",
-        platform_core_label: null,
-        has_game_override: false,
-        emulator_data_available: true,
-        emulator_data_reason: null,
-        emulator_source: { kind: "retrodeck", starts_games: true },
-        platform_system: null,
-        emulators: [
-          {
-            label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
-            kind: "core",
-            core_so: "snes9x.so",
-            emulator: "snes9x.so",
-            is_default: true,
-            bakeable: true,
-            reason: null,
-          },
-          {
-            label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
-            kind: "core",
-            core_so: "blastem.so",
-            emulator: "blastem.so",
-            is_default: false,
-            bakeable: true,
-            reason: null,
-          },
-        ],
-      });
+      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue(
+        coreInfoFixture({
+          active_core: "snes9x.so",
+          active_core_label: "Snes9x",
+          platform_core_label: null,
+          has_game_override: false,
+          emulator_data_available: true,
+          emulator_data_reason: null,
+          emulator_source: { kind: "retrodeck", starts_games: true },
+          platform_system: null,
+          emulators: [
+            {
+              label: "Snes9x",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "snes9x.so",
+              emulator: "snes9x.so",
+              is_default: true,
+              bakeable: true,
+              reason: null,
+            },
+            {
+              label: "BlastEm",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "blastem.so",
+              emulator: "blastem.so",
+              is_default: false,
+              bakeable: true,
+              reason: null,
+            },
+          ],
+        }),
+      );
       vi.mocked(playSectionUtils.extractCoreInfo).mockReturnValue({
         activeCoreLabel: "Snes9x",
         activeCoreIsDefault: true,
@@ -3737,8 +3750,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -3748,8 +3761,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -3760,6 +3773,8 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: null,
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
     }
 
@@ -3863,7 +3878,7 @@ describe("RomMPlaySection", () => {
       expect(vi.mocked(toaster.toast)).toHaveBeenCalledWith(expect.objectContaining({ body: "Core set to BlastEm" }));
     });
 
-    it("stores the first label of an entry several labels share, and names all of them in its toast", async () => {
+    it("stores the chosen entry's label, two labels that run one command being two entries, and names it in its toast", async () => {
       await setupCoreAction();
       vi.mocked(playSectionUtils.extractCoreInfo).mockReturnValue({
         activeCoreLabel: "Snes9x",
@@ -3873,11 +3888,14 @@ describe("RomMPlaySection", () => {
         emulatorSource: { kind: "retrodeck", starts_games: true },
         emulatorPlatformSystem: null,
         emulators: [
-          sharedBy(libretroEmu("snes9x", "Snes9x", true), ["Snes9x"]),
-          sharedBy(libretroEmu("blastem", "BlastEm"), ["BlastEm", "BlastEm Next"]),
+          libretroEmu("snes9x", "Snes9x", true),
+          libretroEmu("blastem", "BlastEm"),
+          libretroEmu("blastem", "BlastEm Next"),
         ],
         platformCoreLabel: null,
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       vi.mocked(backend.setGameCore).mockResolvedValue({ success: true });
       render(<RomMPlaySection appId={testAppId} />);
@@ -3888,9 +3906,7 @@ describe("RomMPlaySection", () => {
         await coreItems[BLASTEM_IDX]!.props.onClick?.();
       });
       expect(vi.mocked(backend.setGameCore)).toHaveBeenCalledWith(expect.anything(), "BlastEm");
-      expect(vi.mocked(toaster.toast)).toHaveBeenCalledWith(
-        expect.objectContaining({ body: "Core set to BlastEm / BlastEm Next" }),
-      );
+      expect(vi.mocked(toaster.toast)).toHaveBeenCalledWith(expect.objectContaining({ body: "Core set to BlastEm" }));
     });
 
     it("core_unavailable: {success:false} → toasts result.message", async () => {
@@ -4006,40 +4022,42 @@ describe("RomMPlaySection", () => {
         biosLabel: "OK",
         biosRequiredMissing: false,
       });
-      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue({
-        active_core: "blastem.so",
-        active_core_label: "BlastEm",
-        platform_core_label: null,
-        has_game_override: true,
-        emulator_data_available: true,
-        emulator_data_reason: null,
-        emulator_source: { kind: "retrodeck", starts_games: true },
-        platform_system: null,
-        emulators: [
-          {
-            label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
-            kind: "core",
-            core_so: "snes9x.so",
-            emulator: "snes9x.so",
-            is_default: true,
-            bakeable: true,
-            reason: null,
-          },
-          {
-            label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
-            kind: "core",
-            core_so: "blastem.so",
-            emulator: "blastem.so",
-            is_default: false,
-            bakeable: true,
-            reason: null,
-          },
-        ],
-      });
+      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue(
+        coreInfoFixture({
+          active_core: "blastem.so",
+          active_core_label: "BlastEm",
+          platform_core_label: null,
+          has_game_override: true,
+          emulator_data_available: true,
+          emulator_data_reason: null,
+          emulator_source: { kind: "retrodeck", starts_games: true },
+          platform_system: null,
+          emulators: [
+            {
+              label: "Snes9x",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "snes9x.so",
+              emulator: "snes9x.so",
+              is_default: true,
+              bakeable: true,
+              reason: null,
+            },
+            {
+              label: "BlastEm",
+              declared_index: null,
+              chosen_in_frontend: false,
+              kind: "core",
+              core_so: "blastem.so",
+              emulator: "blastem.so",
+              is_default: false,
+              bakeable: true,
+              reason: null,
+            },
+          ],
+        }),
+      );
       // A per-game core (BlastEm) is pinned (hasGameOverride=true), so the
       // "Use System Override" item carries no ✓ but still clears the pin.
       vi.mocked(playSectionUtils.extractCoreInfo).mockReturnValue({
@@ -4052,8 +4070,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4063,8 +4081,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4075,6 +4093,8 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: null,
         hasGameOverride: true,
+        emulatorStart: null,
+        vanishedPick: null,
       });
     }
 
@@ -4100,7 +4120,7 @@ describe("RomMPlaySection", () => {
       const coreItems = await openCoreMenuAndGetItems(testAppId);
       // The reset item is the dedicated clear path. A per-game core is pinned
       // (hasGameOverride=true), so the item carries NO ✓; the fallback label is
-      // the es_systems default (Snes9x) since no per-platform override is set.
+      // the shipped default (Snes9x) since no per-platform override is set.
       expect(coreItems[FOLLOW_SYSTEM_IDX]!.props.children).toBe("Use System Override (Snes9x)");
       vi.mocked(toaster.toast).mockClear();
       vi.mocked(backend.getPlatformCoreInfo).mockClear();
@@ -4243,8 +4263,8 @@ describe("RomMPlaySection", () => {
       emulators: [
         {
           label: "Snes9x",
-          labels: ["Snes9x"],
-          name: "Snes9x",
+          declared_index: null,
+          chosen_in_frontend: false,
           kind: "core",
           core_so: "snes9x.so",
           emulator: "snes9x.so",
@@ -4254,8 +4274,8 @@ describe("RomMPlaySection", () => {
         },
         {
           label: "BlastEm",
-          labels: ["BlastEm"],
-          name: "BlastEm",
+          declared_index: null,
+          chosen_in_frontend: false,
           kind: "core",
           core_so: "blastem.so",
           emulator: "blastem.so",
@@ -4266,6 +4286,8 @@ describe("RomMPlaySection", () => {
       ],
       platformCoreLabel: null,
       hasGameOverride: false,
+      emulatorStart: null,
+      vanishedPick: null,
     });
 
     const renderWith = async (fileMissingAt: string | null) => {
@@ -4355,8 +4377,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4366,8 +4388,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4382,6 +4404,8 @@ describe("RomMPlaySection", () => {
         emulatorPlatformSystem: null,
         platformCoreLabel: null,
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       vi.mocked(backend.getDiscSelection).mockReset();
       vi.mocked(backend.getDiscSelection).mockResolvedValue({
@@ -4514,8 +4538,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4525,8 +4549,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4537,6 +4561,8 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: null,
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       // 1 disabled compat note + Use System Override + 2 core items (both
       // separators filtered out by isMenuItem).
@@ -4545,11 +4571,11 @@ describe("RomMPlaySection", () => {
       expect(items.filter((i) => i.props.disabled === true)).toHaveLength(1);
       expect(items[0]!.props.disabled).toBe(true);
       // The reset item carries the ✓ (no per-game override) and the fallback
-      // label is the es_systems default (no per-platform override set).
-      expect(items[1]!.props.children).toBe("Use System Override (Snes9x) ✓");
+      // label is the shipped default (no per-platform override set).
+      expect(itemText(items[1]!)).toBe("Use System Override (Snes9x) ✓");
       // The active default core ALSO carries the ✓ (in effect).
-      expect(items[2]!.props.children).toBe("Snes9x (default) ✓");
-      expect(items[3]!.props.children).toBe("BlastEm");
+      expect(itemText(items[2]!)).toBe("Snes9x (default) ✓");
+      expect(itemText(items[3]!)).toBe("BlastEm");
     });
 
     it("showCoreMenu marks the pinned non-default core with ✓ (not the default entry, not the reset item) (#945/#211)", async () => {
@@ -4563,8 +4589,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4574,8 +4600,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4586,14 +4612,16 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: null,
         hasGameOverride: true,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       expect(items).toHaveLength(4);
       // A per-game core is pinned → the reset item has NO ✓ …
-      expect(items[1]!.props.children).toBe("Use System Override (Snes9x)");
+      expect(itemText(items[1]!)).toBe("Use System Override (Snes9x)");
       // … the default entry has no ✓ …
-      expect(items[2]!.props.children).toBe("Snes9x (default)");
+      expect(itemText(items[2]!)).toBe("Snes9x (default)");
       // … and only the pinned core carries it.
-      expect(items[3]!.props.children).toBe("BlastEm ✓");
+      expect(itemText(items[3]!)).toBe("BlastEm ✓");
     });
 
     it("showCoreMenu marks the per-platform override core with (system), and only that core (#954)", async () => {
@@ -4610,8 +4638,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4621,8 +4649,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4633,17 +4661,19 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: "BlastEm",
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       expect(items).toHaveLength(4);
       // The per-platform override core carries (system); a different core does not.
-      expect(items[3]!.props.children).toBe("BlastEm (system)");
-      expect(items[2]!.props.children).toBe("Snes9x (default) ✓");
-      expect(items[2]!.props.children).not.toContain("(system)");
+      expect(itemText(items[3]!)).toBe("BlastEm (system)");
+      expect(itemText(items[2]!)).toBe("Snes9x (default) ✓");
+      expect(itemText(items[2]!)).not.toContain("(system)");
     });
 
     it("Use System Override fallback label is the per-platform override when one is set (#211)", async () => {
       // A per-platform override (BlastEm) is set → the reset item's fallback
-      // label is the per-platform core, NOT the es_systems default. No per-game
+      // label is the per-platform core, NOT the shipped default. No per-game
       // override → the reset item carries the ✓.
       const items = await setupCoreMenuStructure({
         activeCoreLabel: "BlastEm",
@@ -4655,8 +4685,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4666,8 +4696,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4678,8 +4708,10 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: "BlastEm",
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
-      expect(items[1]!.props.children).toBe("Use System Override (BlastEm) ✓");
+      expect(itemText(items[1]!)).toBe("Use System Override (BlastEm) ✓");
     });
 
     it("following the system: BOTH the reset item AND the resolved active core carry ✓ (#211)", async () => {
@@ -4696,8 +4728,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4707,8 +4739,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4719,13 +4751,15 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: "BlastEm",
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
-      expect(items[1]!.props.children).toContain("✓");
-      expect(items[1]!.props.children).toBe("Use System Override (BlastEm) ✓");
+      expect(itemText(items[1]!)).toContain("✓");
+      expect(itemText(items[1]!)).toBe("Use System Override (BlastEm) ✓");
       // The resolved active core carries (system) + ✓.
-      expect(items[3]!.props.children).toBe("BlastEm (system) ✓");
+      expect(itemText(items[3]!)).toBe("BlastEm (system) ✓");
       // The default (not active) carries neither.
-      expect(items[2]!.props.children).toBe("Snes9x (default)");
+      expect(itemText(items[2]!)).toBe("Snes9x (default)");
     });
 
     it("per-game core pinned: only the pinned core carries ✓, the reset item does not (#211)", async () => {
@@ -4741,8 +4775,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Snes9x",
-            labels: ["Snes9x"],
-            name: "Snes9x",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "snes9x.so",
             emulator: "snes9x.so",
@@ -4752,8 +4786,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "BlastEm",
-            labels: ["BlastEm"],
-            name: "BlastEm",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "blastem.so",
             emulator: "blastem.so",
@@ -4764,10 +4798,12 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: "BlastEm",
         hasGameOverride: true,
+        emulatorStart: null,
+        vanishedPick: null,
       });
-      expect(items[1]!.props.children).not.toContain("✓");
-      expect(items[1]!.props.children).toBe("Use System Override (BlastEm)");
-      expect(items[3]!.props.children).toBe("BlastEm (system) ✓");
+      expect(itemText(items[1]!)).not.toContain("✓");
+      expect(itemText(items[1]!)).toBe("Use System Override (BlastEm)");
+      expect(itemText(items[3]!)).toBe("BlastEm (system) ✓");
     });
 
     it("showSteamMenu Properties → SteamClient.Apps.OpenAppSettingsDialog(appId, 'general')", async () => {
@@ -5028,8 +5064,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "OnlyOne",
-            labels: ["OnlyOne"],
-            name: "OnlyOne",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core",
             core_so: "x.so",
             emulator: "x.so",
@@ -5040,6 +5076,8 @@ describe("RomMPlaySection", () => {
         ],
         platformCoreLabel: null,
         hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       const { queryByTitle } = render(<RomMPlaySection appId={testAppId} />);
       await flushAsync();
@@ -5059,6 +5097,8 @@ describe("RomMPlaySection", () => {
       emulators: [],
       platformCoreLabel: null,
       hasGameOverride: false,
+      emulatorStart: null,
+      vanishedPick: null,
     });
 
     it.each<[EmulatorDataReason, AnsweringSource | null]>([
@@ -5109,7 +5149,7 @@ describe("RomMPlaySection", () => {
 
   describe("an emulator whose installation could not be established", () => {
     function coreWithActive(reason: string | null) {
-      return {
+      return coreInfoFixture({
         active_core: "genesis_plus_gx_expanded_libretro",
         active_core_label: "Paprium",
         platform_core_label: null,
@@ -5121,8 +5161,8 @@ describe("RomMPlaySection", () => {
         emulators: [
           {
             label: "Genesis Plus GX",
-            labels: ["Genesis Plus GX"],
-            name: "Genesis Plus GX",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core" as const,
             core_so: "genesis_plus_gx_libretro",
             emulator: "genesis_plus_gx_libretro.so",
@@ -5132,8 +5172,8 @@ describe("RomMPlaySection", () => {
           },
           {
             label: "Paprium",
-            labels: ["Paprium"],
-            name: "Paprium",
+            declared_index: null,
+            chosen_in_frontend: false,
             kind: "core" as const,
             core_so: "genesis_plus_gx_expanded_libretro",
             emulator: "genesis_plus_gx_expanded_libretro.so",
@@ -5142,7 +5182,7 @@ describe("RomMPlaySection", () => {
             reason,
           },
         ],
-      };
+      });
     }
 
     async function mountWith(reason: string | null) {
@@ -5164,6 +5204,8 @@ describe("RomMPlaySection", () => {
         emulators: core.emulators,
         platformCoreLabel: null,
         hasGameOverride: true,
+        emulatorStart: null,
+        vanishedPick: null,
       });
       const view = render(<RomMPlaySection appId={testAppId} />);
       await flushAsync();
@@ -5182,6 +5224,106 @@ describe("RomMPlaySection", () => {
       // The row is there, so the absence is the note's own.
       expect(container.querySelector('[title="Emulator Core"]')).not.toBeNull();
       expect(container.textContent).not.toContain("could not be established");
+    });
+  });
+
+  describe("what stands in the way of the game's emulator (#2195 D5, D7, D21)", () => {
+    async function mountWith(fields: Partial<ReturnType<typeof playSectionUtils.extractCoreInfo>>) {
+      vi.mocked(cachedStore.getCachedGameDetail).mockResolvedValue({
+        found: true,
+        rom_id: 61,
+        platform_slug: "ps3",
+        rom_file: "game",
+      });
+      vi.mocked(backend.getPlatformCoreInfo).mockResolvedValue(coreInfoFixture({}));
+      vi.mocked(playSectionUtils.extractCoreInfo).mockReturnValue({
+        activeCoreLabel: "RPCS3 Shortcut (Standalone)",
+        activeCoreIsDefault: true,
+        emulatorDataAvailable: true,
+        emulatorDataReason: null,
+        emulatorSource: { kind: "retrodeck", starts_games: true },
+        emulatorPlatformSystem: null,
+        emulators: [],
+        platformCoreLabel: null,
+        hasGameOverride: false,
+        emulatorStart: null,
+        vanishedPick: null,
+        ...fields,
+      });
+      const view = render(<RomMPlaySection appId={testAppId} />);
+      await flushAsync();
+      return view;
+    }
+
+    it("says why the game cannot start under the play row's controls, inside the row, behind the warning sign, and hands Play the same words", async () => {
+      const { container } = await mountWith({
+        emulators: [standaloneEmu("RPCS3 Shortcut (Standalone)", true), standaloneEmu("RPCS3 Directory (Standalone)")],
+        emulatorStart: {
+          state: "cannot_start",
+          reason: "folder_install",
+          entry: "RPCS3 Shortcut (Standalone)",
+          folder_entry: "RPCS3 Directory (Standalone)",
+        },
+      });
+      const sentence =
+        "RPCS3 Shortcut (Standalone) cannot start a game installed as a folder. RPCS3 Directory (Standalone) can — choose it in the emulator menu.";
+      const refusal = container.querySelector<HTMLElement>('.romm-play-section-row [data-testid="emulator-refusal"]');
+      const controls = container.querySelector<HTMLElement>('.romm-play-section-row [data-testid="play-row-controls"]');
+      expect(refusal?.textContent).toBe(sentence);
+      // On a line of its own after the controls, not among them.
+      expect(controls!.contains(refusal)).toBe(false);
+      expect(controls!.compareDocumentPosition(refusal!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(refusal!.style.color).toBe("#ffaa00");
+      expect(refusal!.querySelector("svg")).not.toBeNull();
+      // Said once: in the row, not again under it.
+      expect(container.textContent!.split(sentence)).toHaveLength(2);
+      expect(capturedPlayButton[capturedPlayButton.length - 1]!.emulatorRefusal).toBe(sentence);
+    });
+
+    it("points at no emulator menu where the page offers none", async () => {
+      const { container } = await mountWith({
+        emulators: [standaloneEmu("RPCS3 Shortcut (Standalone)", true)],
+        emulatorStart: {
+          state: "cannot_start",
+          reason: "folder_install",
+          entry: "RPCS3 Shortcut (Standalone)",
+          folder_entry: "RPCS3 Directory (Standalone)",
+        },
+      });
+      const sentence = "RPCS3 Shortcut (Standalone) cannot start a game installed as a folder.";
+      expect(container.textContent).toContain(sentence);
+      expect(container.textContent).not.toContain("emulator menu");
+      expect(capturedPlayButton[capturedPlayButton.length - 1]!.emulatorRefusal).toBe(sentence);
+    });
+
+    it("names a pick that no longer exists, and the user's choice in ES-DE that Tender does not start with", async () => {
+      const { container } = await mountWith({
+        activeCoreLabel: "Genesis Plus GX",
+        emulators: [
+          { ...libretroEmu("gearsystem_libretro", "Gearsystem"), chosen_in_frontend: true },
+          libretroEmu("genesis_plus_gx_libretro", "Genesis Plus GX", true),
+        ],
+        emulatorStart: { state: "starts", reason: null, entry: "Genesis Plus GX", folder_entry: null },
+        vanishedPick: {
+          label: "Gone",
+          source: "retrodeck",
+          layer: "game",
+          used: "Genesis Plus GX",
+          used_layer: "default",
+        },
+      });
+      expect(container.textContent).toContain(
+        "Your choice 'Gone' no longer exists in RetroDECK; the default 'Genesis Plus GX' is used.",
+      );
+      expect(container.textContent).toContain("Gearsystem is chosen in ES-DE");
+    });
+
+    it("says nothing and hands Play no refusal where the emulator starts the game", async () => {
+      const { container } = await mountWith({
+        emulatorStart: { state: "starts", reason: null, entry: "RPCS3 Shortcut (Standalone)", folder_entry: null },
+      });
+      expect(container.textContent).not.toContain("cannot start");
+      expect(capturedPlayButton[capturedPlayButton.length - 1]!.emulatorRefusal).toBeNull();
     });
   });
 
@@ -6007,6 +6149,15 @@ async function openRomMMenuAndGetItems(_appId: number): Promise<MenuItemElement[
   const el = calls[calls.length - 1]?.[0] as ReactElement | undefined;
   if (!el) throw new Error("No context menu shown");
   return getMenuItemsFromElement(el).filter(isMenuItem);
+}
+
+/** A menu item's text, read through the coloured span the entry that starts is drawn in. */
+function itemText(item: MenuItemElement): unknown {
+  const child = item.props.children;
+  if (typeof child === "object" && child !== null && "props" in child) {
+    return (child as ReactElement<{ children?: unknown }>).props.children;
+  }
+  return child;
 }
 
 async function openCoreMenuAndGetItems(_appId: number): Promise<MenuItemElement[]> {
