@@ -170,8 +170,10 @@ three lanes:
   whether or not the old version is installed. The shortcut, its artwork, its collection membership, and its playtime
   all survive; only the DB binding moves onto the new `rom_id`, and no duplicate is minted. A vanished bound sibling
   with no such member keeps its binding and its shortcut (ADR-0021 §2's amendment): another version of the game is one
-  the user did not choose, and the game page says the bound one is gone. _(The domain behavior is unit-pinned in
-  `tests/domain/test_sync_diff.py`; on-device confirmation of the end-to-end path is still pending.)_
+  the user did not choose, and the game page says the bound one is gone. The exception is a group that holds another
+  bound shortcut, which converges ([A game with more than one shortcut](#a-game-with-more-than-one-shortcut)). _(The
+  domain behavior is unit-pinned in `tests/domain/test_sync_diff.py`; on-device confirmation of the end-to-end path is
+  still pending.)_
 - **Changed / absent group keys → a second shortcut.** If the re-import changes or drops the `sibling_group_key` (the
   game rematches to a different metadata entry, or its identity is lost), the group no longer resolves to the old bound
   sibling, so the fresh `rom_id` takes the **new** lane: a fresh `AddShortcut` with a **new** appId. The old shortcut
@@ -219,14 +221,40 @@ member's, through the same rebind entry the re-import case uses: keyed by the bo
 collections and playtime survive, and carrying `bind_rom_id` → the sibling. An equal stem means the file was replaced in
 place — a rescan that turns `Game (USA).zip` into a folder `Game (USA)`. A sibling whose name differs in any part
 (language, region, version, a hack or a patch) never takes over: it is another version the user did not choose, and RomM
-parses some of those dimensions, such as `(v1.1)`, without sending them. The target must hold no shortcut of its own
-(grandfathered duplicates), and two bound members never move onto one target; of several candidates the chain's order
-picks. Otherwise the shortcut stays on the member without a file, and its play button says **No file on RomM**.
+parses some of those dimensions, such as `(v1.1)`, without sending them. The target must hold no shortcut of its own,
+not even one the same sync converges away ([A game with more than one shortcut](#a-game-with-more-than-one-shortcut)),
+and two bound members never move onto one target; of several candidates the chain's order picks. Otherwise the shortcut
+stays on the member without a file, and its play button says **No file on RomM**.
 
 `classify_roms` counts an entry carrying `bind_rom_id` as changed — this rebind and the re-import one alike — because
 the apply moves a binding for it even when the shortcut's name and launch command stay the same. Without that, a rebind
 alone left the preview at "Everything is up to date" with no Apply to press. The exception is an entry keyed by a row of
 a unit the run skipped: the apply moves no binding for a skipped unit, so the preview counts none.
+
+### A game with more than one shortcut
+
+A sibling group holding more than one bound shortcut converges to one on the next complete-view sync (#2645), unless one
+of its shortcuts is running then: which one stays, and how the sync gets there, is
+[Backend Architecture](backend-architecture.md), "Convergence". The others reach the panel in `sync_stale` like any
+stale shortcut, each entry naming the shortcut its game keeps (`kept_app_id`, `kept_rom_id`), and are removed by the
+same paced `RemoveShortcut` loop. Before that loop, `frontend/src/utils/shortcutCarryOver.ts` hands the kept shortcut
+what Steam lets a running session move:
+
+- the user's collections in `collectionStore.userCollections` that hold the removed appId, each on its own, and not
+  Tender's own `RomM: …` collections, which the run's collection maps file the kept shortcut in; that Favorites is among
+  them is not measured on a device;
+- Hidden, through `collectionStore.BIsHidden` / `SetAppsAsHidden`, which the panel reads apart from the user collections
+  and skips where Steam has neither; neither call is measured on a device;
+- every image but the icon the ARTWORK read (`get_artwork_slots`) calls set in Steam on the removed shortcut, where the
+  kept one has none set in Steam, read from the loopback URL Steam shows it at and written with
+  `SetCustomArtworkForApp`.
+
+Each part is best effort: one that fails is logged, and the removal still runs, since the backend unbinds the row
+whatever the panel does. What a session cannot move stays behind with the removed shortcut: its icon (a path in
+`shortcuts.vdf`), its Steam playtime, screenshots and last-played time, and a controller layout under a name the kept
+shortcut does not share. After the loop the panel calls `report_converged_removals` with the removed appIds, which
+resets each one's Steam Input setting and deletes its grid images, as a removal the user starts does; the per-ROM cover
+cache stays, because the ROM is still a version of a game with a shortcut.
 
 ### Retained-row availability in the version picker
 

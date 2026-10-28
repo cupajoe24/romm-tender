@@ -13,6 +13,7 @@ slices as primitive parameters and returns primitives or NamedTuple results.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from domain.collection_name import fold_collection_name
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 # Marker key a rebind entry carries so the per-unit commit moves the DB binding
 # from the bound sibling it is keyed by (the entry's ``rom_id``, kept so the
 # frontend reuses its existing shortcut) onto the same dump under the sibling it
-# names. Absent on normal / grandfathered entries. See
+# names. Absent on new and bound entries. See
 # :func:`collapse_sibling_groups`.
 BIND_ROM_ID_KEY = "bind_rom_id"
 
@@ -210,6 +211,7 @@ def collapse_sibling_groups(
     *,
     complete_group_view: bool | AbstractSet[str | None],
     preferred_region: str = AUTO_REGION,
+    converged: Collection[int] = (),
 ) -> list[dict[str, Any]]:
     """Collapse per-ROM shortcut entries to one Steam shortcut per sibling group.
 
@@ -237,12 +239,15 @@ def collapse_sibling_groups(
     Returns the subset of entries to actually emit as shortcuts, one lane per
     group:
 
-    * **Grandfathered** — the group holds a binding: every surviving bound
-      sibling keeps its own entry (ADR-0021 §5). No new shortcut is minted, and
-      an unbound fetched sibling becomes a tracked row with no shortcut. A bound
+    * **Bound** — the group holds a binding: every surviving bound sibling
+      outside *converged* keeps its own entry. No new shortcut is minted, and an
+      unbound fetched sibling becomes a tracked row with no shortcut. A bound
       sibling that vanished from the server emits nothing here and keeps its
       shortcut and its binding: the stale removal keeps it too, and the game page
-      says the version is gone.
+      says the version is gone. *converged* names the bound rows
+      :func:`converge_bound_groups` takes the shortcut off; such a row emits
+      nothing, and its shortcut still counts as held, so no other sibling's
+      shortcut moves onto it in the same run.
     * **Rebind onto the same dump** (complete view only) — a bound sibling moves
       its binding onto a fetched sibling that has a file, holds no shortcut
       (its own, or one rebound to it earlier in this group) and carries the same
@@ -261,7 +266,7 @@ def collapse_sibling_groups(
       ``name`` replaced by :func:`canonical_group_name` — the region-preferred
       member's name mints the sticky Steam shortcut (ADR-0021 §2/§3), while the
       representative's ``rom_id`` / launch bake stay the bind target. This is the
-      only lane that renames: an already-bound group (grandfathered / rebind)
+      only lane that renames: an already-bound group (bound / rebind)
       carries its persisted name verbatim, so a live shortcut is never renamed.
     * **Grandfathered untouched** (partial view only) — the group holds a binding
       that is not in THIS fetch: emit nothing. Absence from a partial view is not
@@ -275,7 +280,7 @@ def collapse_sibling_groups(
 
     Bound rows are grouped by their FETCHED sibling key when the row is in this
     fetch (so a legacy row whose stored key is still NULL is placed in its real
-    group and grandfathered rather than churned), falling back to the stored key
+    group and kept bound rather than churned), falling back to the stored key
     for a vanished bound row.
 
     *preferred_region* re-heads the region ranking that both the representative
@@ -314,16 +319,144 @@ def collapse_sibling_groups(
         # A partial view (collection unit) may not read a bound sibling's absence
         # as absence from the server: the group's platform unit owns it.
         whole = _holds_whole(complete_group_view, group_key)
+        keeping = [item for item in bound_here if item[0] not in converged]
         emitted.extend(
             _bound_sibling_entries(
                 members,
-                surviving=[item for item in bound_here if item[0] in fetched_ids],
-                vanished=[item for item in bound_here if item[0] not in fetched_ids] if whole else [],
+                surviving=[item for item in keeping if item[0] in fetched_ids],
+                vanished=[item for item in keeping if item[0] not in fetched_ids] if whole else [],
                 chain=_GroupChain(installed_rom_ids, bound_rom_ids, fileless, preferred_region),
                 complete_group_view=whole,
             )
         )
     return emitted
+
+
+class ConvergedBinding(NamedTuple):
+    """A bound row :func:`converge_bound_groups` takes the shortcut off, with the row and appId its game keeps."""
+
+    rom_id: int
+    app_id: int
+    kept_rom_id: int
+    kept_app_id: int
+
+
+def groups_to_converge(bound_group_keys: Iterable[str | None]) -> frozenset[str]:
+    """The sibling-group keys more than one of *bound_group_keys* carries, one key per bound row.
+
+    The groups :func:`converge_bound_groups` converges, and so the one predicate
+    the platform skip gate and its plan-time prediction ask over a platform's
+    stored rows: a platform holding such a group is fetched in full until it
+    has converged. A NULL key relates its row to nothing
+    (:func:`domain.sibling_resolution.group_rows`), so it is never a group.
+    """
+    counts = Counter(key for key in bound_group_keys if key is not None)
+    return frozenset(key for key, count in counts.items() if count > 1)
+
+
+def converge_bound_groups(
+    listed: Sequence[dict[str, Any]],
+    registry: dict[str, dict[str, Any]],
+    installed_rom_ids: AbstractSet[int],
+    *,
+    platform_slugs: AbstractSet[str],
+    preferred_region: str = AUTO_REGION,
+    running_rom_ids: AbstractSet[int] = frozenset(),
+) -> list[ConvergedBinding]:
+    """Every bound row of *platform_slugs* whose group keeps another row's shortcut (#2645).
+
+    *listed* is the built entry of every ROM the platform listings of
+    *platform_slugs* returned — a complete view of those platforms, since a
+    sibling group is per-platform. *registry* is the bound ``roms`` rows as
+    :func:`collapse_sibling_groups` takes it, grouped as that collapse groups
+    them; a row on another platform is left alone. *installed_rom_ids* must
+    cover the bound rows the listings left out as well as the listed ones.
+
+    A group :func:`groups_to_converge` names keeps the shortcut bound to, in
+    order: an installed listed version, the resolution chain ranking several;
+    else an installed unlisted one; else a listed one, by the chain over the
+    group's bound listed versions, so one RomM holds a file for comes first;
+    else the unlisted one with the lowest ``rom_id`` — also when RomM lists no
+    version of the game at all. The listing cannot tell a version hidden in
+    RomM from one deleted there, so an unlisted version is ranked by its
+    install alone. Every other bound row of the group is answered, in
+    ``rom_id`` order.
+
+    A group one of whose bound rows is in *running_rom_ids* is left out: its
+    shortcut is not removed under a game Steam lists as running, and the group
+    converges on a later run (#2645 D5).
+    """
+    members_by_id = {sd["rom_id"]: sd for sd in listed}
+    bound_by_group = _bound_rows_by_group(
+        {rom_id: sd.get("sibling_group_key") for rom_id, sd in members_by_id.items()},
+        {rid: reg for rid, reg in registry.items() if reg.get("platform_slug") in platform_slugs},
+    )
+    converging = groups_to_converge(key for key, rows in bound_by_group.items() for _row in rows)
+    bindings: list[ConvergedBinding] = []
+    for key in sorted(converging):
+        bound = sorted(bound_by_group[key], key=lambda item: item[0])
+        if any(rom_id in running_rom_ids for rom_id, _reg in bound):
+            continue
+        kept_id = _kept_rom_id([rom_id for rom_id, _reg in bound], members_by_id, installed_rom_ids, preferred_region)
+        kept_app_id = int(dict(bound)[kept_id]["app_id"])
+        bindings.extend(
+            ConvergedBinding(rom_id, int(reg["app_id"]), kept_id, kept_app_id)
+            for rom_id, reg in bound
+            if rom_id != kept_id
+        )
+    return bindings
+
+
+def without_running_groups(
+    converged: Sequence[ConvergedBinding], running_rom_ids: AbstractSet[int]
+) -> list[ConvergedBinding]:
+    """*converged* less every group one of whose shortcuts *running_rom_ids* names, the kept one's included (#2645 D6).
+
+    The bindings of one group share the shortcut it keeps (``kept_app_id``);
+    such a group keeps all its shortcuts and converges on a later run.
+    """
+    running_groups = {
+        binding.kept_app_id
+        for binding in converged
+        if binding.rom_id in running_rom_ids or binding.kept_rom_id in running_rom_ids
+    }
+    return [binding for binding in converged if binding.kept_app_id not in running_groups]
+
+
+def with_kept_rows_rebound(
+    converged: Sequence[ConvergedBinding], emitted: Sequence[dict[str, Any]]
+) -> list[ConvergedBinding]:
+    """*converged*, each ``kept_rom_id`` moved to the row :func:`collapse_sibling_groups` rebinds it onto in *emitted*.
+
+    The kept shortcut stays; a rebind entry keyed by the kept row moves its
+    binding onto the same dump under another id (``bind_rom_id``), and that row
+    is the one bound to the kept shortcut once the run commits.
+    """
+    targets = {entry["rom_id"]: entry[BIND_ROM_ID_KEY] for entry in emitted if BIND_ROM_ID_KEY in entry}
+    return [
+        binding._replace(kept_rom_id=targets.get(binding.kept_rom_id, binding.kept_rom_id)) for binding in converged
+    ]
+
+
+def _kept_rom_id(
+    bound_ids: list[int],
+    members_by_id: Mapping[int, dict[str, Any]],
+    installed_rom_ids: AbstractSet[int],
+    preferred_region: str,
+) -> int:
+    """The ``rom_id`` among one group's *bound_ids* that keeps the shortcut, by :func:`converge_bound_groups`' order."""
+    listed = [members_by_id[rom_id] for rom_id in bound_ids if rom_id in members_by_id]
+    unlisted = [rom_id for rom_id in bound_ids if rom_id not in members_by_id]
+    installed_listed = [m for m in listed if m["rom_id"] in installed_rom_ids]
+    if installed_listed:
+        return resolve_group_representative(installed_listed, set(installed_rom_ids), set(), preferred_region)
+    installed_unlisted = [rom_id for rom_id in unlisted if rom_id in installed_rom_ids]
+    if installed_unlisted:
+        return min(installed_unlisted)
+    if listed:
+        fileless = {m["rom_id"] for m in listed if not has_file_on_romm(m)}
+        return resolve_group_representative(listed, set(), set(), preferred_region, fileless_rom_ids=fileless)
+    return min(unlisted)
 
 
 def gather_unbound_groups(

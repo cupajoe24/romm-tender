@@ -126,6 +126,10 @@ declare var collectionStore: {
   GetCollectionIDByUserTag(tag: string): string | null;
   GetUserCollectionsByName(name: string): SteamCollection[];
   NewUnsavedCollection(tag: string, filter?: unknown, overviews?: SteamAppOverview[]): SteamCollection;
+  // Steam's Hidden, asked for and set apart from the user collections. Optional,
+  // because neither call has been measured on a device.
+  BIsHidden?(appId: number): boolean;
+  SetAppsAsHidden?(appIds: number[], hidden: boolean): void;
 };
 
 declare var appStore: {

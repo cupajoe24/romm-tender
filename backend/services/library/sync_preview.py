@@ -31,6 +31,7 @@ from domain.sync_run_kind import SyncRunKind
 from domain.sync_stage import SyncStage
 from domain.sync_state import SyncCancelled
 from lib.errors import Refused, classify_error
+from services.library._convergence import converge_unless_running
 from services.library._preview_union import collapse_counting_platform_rebinds
 from services.library._stale_rows import preview_group_keys, settle_stale_rows, stale_rows_of, with_kept_platform_names
 from services.library._state import SYNC_CANCELLED, SYNC_IN_PROGRESS
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
     from services.library.session_budget import SessionBudgetMonitor
     from services.library.shortcut_launch_resolver import ShortcutLaunchResolver
     from services.library.sync_progress import SyncProgress
-    from services.protocols import Clock, ShortcutArtworkJob, UuidGen
+    from services.protocols import Clock, RunningRomIdsFn, ShortcutArtworkJob, UuidGen
 
 
 @dataclass(frozen=True)
@@ -70,8 +71,9 @@ class SyncPreviewConfig:
     device's own record of the library goes to, the :class:`SessionBudgetMonitor`
     the post-preview prognosis is asked of, the :class:`CoverPreparer` that
     counts the cover-only work, the :class:`SyncProgress` the preview's frames go
-    out through, and the ``artwork_job``, asked for a run when the preview ends:
-    it stops while a run is in flight.
+    out through, the ``artwork_job``, asked for a run when the preview ends:
+    it stops while a run is in flight, and the ``running_rom_ids`` reading the
+    convergence leaves a running game out by.
     """
 
     settings: dict[str, Any]
@@ -89,6 +91,7 @@ class SyncPreviewConfig:
     cover_preparer: CoverPreparer
     progress: SyncProgress
     artwork_job: ShortcutArtworkJob
+    running_rom_ids: RunningRomIdsFn
 
 
 class SyncPreview:
@@ -108,6 +111,7 @@ class SyncPreview:
         self._cover_preparer = config.cover_preparer
         self._progress = config.progress
         self._artwork_job = config.artwork_job
+        self._running_rom_ids = config.running_rom_ids
 
     async def sync_preview(self):
         """Read-only preview: paginate every unit, classify, return the summary.
@@ -209,7 +213,24 @@ class SyncPreview:
             # complete here), and one only collections reach is the partial view a
             # collection unit has (#2536). A row a collection skip rebuilt in a
             # group a platform unit delivers is collapsed as that unit has it.
+            # A group holding more than one bound shortcut converges as the
+            # apply's platform unit converges it: over that unit's listing, so
+            # only on a platform the preview fetched in full (#2645).
             whole_groups = {sd.get("sibling_group_key") for sd in shortcuts_data if sd["rom_id"] in platform_rom_ids}
+            listed_ids = {rom["id"] for roms in full_fetched_platforms.values() for rom in roms}
+            preferred_region = self._settings.get("preferred_region", AUTO_REGION)
+            converged_ids = {
+                binding.rom_id
+                for binding in await converge_unless_running(
+                    [sd for sd in shortcuts_data if sd["rom_id"] in listed_ids],
+                    registry,
+                    set(installed_paths),
+                    platform_slugs=set(full_fetched_platforms),
+                    preferred_region=preferred_region,
+                    running_rom_ids=self._running_rom_ids,
+                    logger=self._logger,
+                )
+            }
             emitted, classify_skipped = collapse_counting_platform_rebinds(
                 shortcuts_data,
                 lambda entries: collapse_sibling_groups(
@@ -217,7 +238,8 @@ class SyncPreview:
                     registry,
                     set(installed_paths),
                     complete_group_view=whole_groups,
-                    preferred_region=self._settings.get("preferred_region", AUTO_REGION),
+                    preferred_region=preferred_region,
+                    converged=converged_ids,
                 ),
                 skipped_rom_ids=skipped_rom_ids,
                 platform_rom_ids=platform_rom_ids,
@@ -233,7 +255,7 @@ class SyncPreview:
             )
             # The marks are discarded: docs/architecture/backend-architecture.md,
             # "The stale removal keeps a game gone from RomM".
-            stale_rows = stale_rows_of(stale, registry)
+            stale_rows = stale_rows_of([rid for rid in stale if rid not in converged_ids], registry)
             removals, kept, _marks = await settle_stale_rows(
                 stale_rows,
                 ask_romm=self._fetcher.ask_romm_for_roms,
@@ -243,7 +265,7 @@ class SyncPreview:
                 collection_listed_rom_ids=collection_listed,
                 synced_group_keys=preview_group_keys(synced_rom_ids, resident_keys, all_roms),
             )
-            removed_ids = {row.rom_id for row in removals}
+            removed_ids = {row.rom_id for row in removals} | converged_ids
             kept_ids = {row.rom_id for row in kept}
             left_bound = [row for row in stale_rows if row.rom_id not in removed_ids and row.rom_id not in kept_ids]
             stale = [rid for rid in stale if rid in removed_ids]

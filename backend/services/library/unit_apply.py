@@ -16,8 +16,15 @@ from typing import TYPE_CHECKING, Any
 
 from domain.shortcut_data import build_shortcuts_data
 from domain.sibling_resolution import AUTO_REGION
-from domain.sync_diff import BIND_ROM_ID_KEY, classify_roms, collapse_sibling_groups, gather_unbound_groups
+from domain.sync_diff import (
+    BIND_ROM_ID_KEY,
+    classify_roms,
+    collapse_sibling_groups,
+    gather_unbound_groups,
+    with_kept_rows_rebound,
+)
 from domain.sync_stage import SyncStage
+from services.library._convergence import converge_unless_running
 from services.library._unit_roms import (
     collection_membership_key,
     record_collection_membership,
@@ -30,6 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from domain.emulator_sources import SourcesReading
+    from domain.sync_diff import ConvergedBinding
     from domain.work_unit import WorkUnit
     from services.library._state import CollectionMembership, LibrarySyncStateBox
     from services.library.chunk_dispatcher import ChunkDispatcher
@@ -38,7 +46,7 @@ if TYPE_CHECKING:
     from services.library.fetcher import LibraryFetcher
     from services.library.local_library_reader import LocalLibraryReader
     from services.library.shortcut_launch_resolver import ShortcutLaunchResolver
-    from services.protocols import Clock, UnitOfWorkFactory
+    from services.protocols import Clock, RunningRomIdsFn, UnitOfWorkFactory
 
     EmitProgressFn = Callable[..., Awaitable[None]]
 
@@ -58,8 +66,10 @@ class UnitApplierConfig:
     :class:`LocalLibraryReader` the bound-row registry and the resident group
     keys are read through,
     the :class:`CoverPreparer` that holds the unit's covers, the
-    :class:`ChunkDispatcher` that takes the built delta the rest of the way, and
-    the ``emit_progress`` callback the unit's coarse frame goes out through.
+    :class:`ChunkDispatcher` that takes the built delta the rest of the way, the
+    ``emit_progress`` callback the unit's coarse frame goes out through, and the
+    ``running_rom_ids`` reading a platform unit's convergence leaves a running
+    game out by.
     """
 
     settings: dict[str, Any]
@@ -76,6 +86,7 @@ class UnitApplierConfig:
     cover_preparer: CoverPreparer
     chunk_dispatcher: ChunkDispatcher
     emit_progress: EmitProgressFn
+    running_rom_ids: RunningRomIdsFn
 
 
 class UnitApplier:
@@ -94,6 +105,7 @@ class UnitApplier:
         self._cover_preparer = config.cover_preparer
         self._chunk_dispatcher = config.chunk_dispatcher
         self._emit_progress = config.emit_progress
+        self._running_rom_ids = config.running_rom_ids
 
     def _clear_platform_stamp_io(self, platform_slug: str) -> None:
         """Delete *platform_slug*'s completion stamp in one short write UoW.
@@ -242,25 +254,53 @@ class UnitApplier:
         resident_keys = await self._loop.run_in_executor(None, self._local_library_reader.do_read_resident_group_keys)
         stamp_component_group_keys(unit_roms, resident_keys)
         shortcuts_data = build_shortcuts_data(unit_roms, self._launcher_exe, installed_paths, core_overrides)
+        preferred_region = self._settings.get("preferred_region", AUTO_REGION)
+
+        # A platform unit's listing is a complete view of its groups, so a group
+        # holding more than one bound shortcut converges here (#2645); the
+        # finalize of a run that was not stopped removes the others.
+        installed = set(installed_paths)
+        converged: list[ConvergedBinding] = []
+        if unit.type == "platform" and unit.slug:
+            unlisted = {int(rid) for rid in registry} - {rom["id"] for rom in unit_roms}
+            installed |= await self._loop.run_in_executor(
+                None, self._local_library_reader.do_read_installed_rom_ids, unlisted
+            )
+            converged = await converge_unless_running(
+                shortcuts_data,
+                registry,
+                installed,
+                platform_slugs={unit.slug},
+                preferred_region=preferred_region,
+                running_rom_ids=self._running_rom_ids,
+                logger=self._logger,
+            )
+        converged_ids = {binding.rom_id for binding in converged}
 
         # Collapse to one Steam shortcut per sibling group (ADR-0021): only the
-        # representative (plus any grandfathered bound siblings) is emitted; a
-        # rebinding group's entry is keyed to its vanished sibling so the
-        # frontend reuses that shortcut. A PLATFORM unit holds every member of a
-        # group its platform listing returns (a group is per-platform), so it is
-        # a complete view and may rebind; a version hidden in RomM is not among
-        # them, so a bound one is collapsed as one gone from RomM. A COLLECTION
-        # unit is a partial view (it holds what it delivered and every member of
-        # a group no binding holds, but not a group's bound sibling on
-        # another/skipped platform) — the collapse then only grandfathers, never
-        # rebinds a live binding onto an uninstalled sibling (#1296).
+        # representative, or the group's bound siblings outside the converged
+        # ones, is emitted; a rebinding group's entry is keyed to its vanished
+        # sibling so the frontend reuses that shortcut. A PLATFORM unit holds
+        # every member of a group its platform listing returns (a group is
+        # per-platform), so it is a complete view and may rebind; a version
+        # hidden in RomM is not among them, so a bound one is collapsed as one
+        # gone from RomM. A COLLECTION unit is a partial view (it holds what it
+        # delivered and every member of a group no binding holds, but not a
+        # group's bound sibling on another/skipped platform) — the collapse then
+        # only grandfathers, never rebinds a live binding onto an uninstalled
+        # sibling (#1296).
         emitted = collapse_sibling_groups(
             shortcuts_data,
             registry,
-            set(installed_paths),
+            installed,
             complete_group_view=(unit.type == "platform"),
-            preferred_region=self._settings.get("preferred_region", AUTO_REGION),
+            preferred_region=preferred_region,
+            converged=converged_ids,
         )
+        # What follows reads the registry without the converged rows, so no
+        # cover is pushed onto a shortcut the finalize removes.
+        box.run_converged.update((binding.rom_id, binding) for binding in with_kept_rows_rebound(converged, emitted))
+        registry = {rid: reg for rid, reg in registry.items() if int(rid) not in converged_ids}
 
         # Delta-restricted apply (#1383 / #1382-M3): split the collapsed entries
         # against the recorded applied state and emit ONLY new + changed. An

@@ -32,7 +32,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from domain.session_budget import post_run_advisory, session_memory_delta
-from domain.sync_diff import StaleRow, group_keys_of, rebuilt_rows_filed_as_kept
+from domain.sync_diff import (
+    StaleRow,
+    group_keys_of,
+    rebuilt_rows_filed_as_kept,
+    select_stale_removals,
+    without_running_groups,
+)
 from domain.sync_run_kind import SyncRunKind
 from domain.sync_stage import SyncStage
 from domain.sync_state import SyncCancelled
@@ -60,6 +66,7 @@ if TYPE_CHECKING:
         Clock,
         ConflictRules,
         EventEmitter,
+        RunningRomIdsFn,
         ShortcutArtworkJob,
         UuidGen,
     )
@@ -94,7 +101,9 @@ class SyncOrchestratorConfig:
     over as a method call. The ``conflict_rules`` are what a ``sync_stale``
     event that removes shortcuts takes its lease through. The ``artwork_job`` is
     asked for a run at every run's end: it stops while a run is in flight. The
-    ``progress`` part emits the run's ``sync_progress`` frames.
+    ``progress`` part emits the run's ``sync_progress`` frames. The
+    ``running_rom_ids`` reading is taken once more before the finalize removes
+    a converged shortcut.
     """
 
     loop: asyncio.AbstractEventLoop
@@ -113,6 +122,7 @@ class SyncOrchestratorConfig:
     conflict_rules: ConflictRules
     artwork_job: ShortcutArtworkJob
     progress: SyncProgress
+    running_rom_ids: RunningRomIdsFn
 
 
 @dataclass(frozen=True)
@@ -151,6 +161,7 @@ class SyncOrchestrator:
         self._rules = config.conflict_rules
         self._artwork_job = config.artwork_job
         self._progress = config.progress
+        self._running_rom_ids = config.running_rom_ids
         self._tasks = BackgroundTasks(logger=config.logger)
 
     # ── Sync control ─────────────────────────────────────────────
@@ -535,9 +546,13 @@ class SyncOrchestrator:
         # stays bound and in its platform's Steam collection, and so does one a
         # collection skip rebuilt (``rebuilt_rows_filed_as_kept``), which no
         # unit left stale. A stopped run files neither in its platform's Steam
-        # collection.
+        # collection. A row a platform unit converged is no stale row, so the
+        # stale sort never keeps it: it goes as a removal of its own that names
+        # the shortcut its game keeps, so the panel carries its state over — on
+        # a run that was not stopped, and never over an appId this run bound.
         candidates: list[StaleRow] = []
         group_keys: dict[int, str] = {}
+        converged = [] if cancelled else list(self._sync_state.run_converged.values())
         if not cancelled:
             candidates = await self._loop.run_in_executor(
                 None,
@@ -545,6 +560,7 @@ class SyncOrchestrator:
                 synced_rom_ids,
                 set(self._sync_state.committed_app_ids),
             )
+            candidates = [row for row in candidates if row.rom_id not in self._sync_state.run_converged]
         if candidates:
             group_keys = await self._loop.run_in_executor(None, self._local_library_reader.do_read_resident_group_keys)
         stale, kept, gone_marks = await settle_stale_rows(
@@ -559,7 +575,22 @@ class SyncOrchestrator:
         platform_rom_ids.update(row.rom_id for row in kept)
         rebuilt = {} if cancelled else self._sync_state.run_skip_rebuilt_rows
         platform_rom_ids.update(rebuilt_rows_filed_as_kept(rebuilt, processed_platform_slugs, platform_rom_ids))
+        removable = set(
+            select_stale_removals(
+                [(binding.rom_id, binding.app_id) for binding in converged], set(self._sync_state.committed_app_ids)
+            )
+        )
+        converged = [binding for binding in converged if (binding.rom_id, binding.app_id) in removable]
+        if converged:
+            # A platform unit's own reading may be minutes old by now: a group
+            # one of whose shortcuts runs at this point keeps them all (#2645 D6).
+            left = without_running_groups(converged, await self._running_rom_ids())
+            if len(left) < len(converged):
+                kept_for_now = len(converged) - len(left)
+                self._logger.info(f"Convergence: {kept_for_now} shortcut(s) of a running game stay until a later sync")
+            converged = left
         remove = [{"rom_id": row.rom_id, "app_id": row.app_id} for row in stale]
+        remove += [binding._asdict() for binding in converged]
         if remove:
             await self._rules.emit_under_lease(
                 "sync_stale",
@@ -599,7 +630,7 @@ class SyncOrchestrator:
             pending_platform_rom_ids=platform_rom_ids,
             platform_names=dict(self._sync_state.run_listed_platform_names),
             processed_platform_slugs=processed_platform_slugs,
-            stale_rom_ids=[row.rom_id for row in stale],
+            stale_rom_ids=[row.rom_id for row in stale] + [binding.rom_id for binding in converged],
             gone_marks=gone_marks,
         )
         return FinalizeOutcome(
