@@ -10,6 +10,7 @@ from lib.url_host import (
     is_valid_server_url,
     normalize_origin,
     same_origin,
+    with_https_added,
     without_userinfo,
 )
 
@@ -231,6 +232,34 @@ class TestIsValidServerUrl:
 
     def test_trims_before_validating(self):
         assert is_valid_server_url("\t https://romm.local \n") is True
+
+
+class TestWithHttpsAdded:
+    @pytest.mark.parametrize(
+        ("url", "completed"),
+        [
+            ("romm.local", "https://romm.local"),
+            ("romm.local:8080", "https://romm.local:8080"),
+            ("romm.local:8080/romm", "https://romm.local:8080/romm"),
+            ("192.168.1.5:8080/romm", "https://192.168.1.5:8080/romm"),
+            ("[::1]:8080", "https://[::1]:8080"),
+            ("[fe80::1]", "https://[fe80::1]"),
+            ("host/path:/x", "https://host/path:/x"),
+            ("romm.local:8080?q=a:/b", "https://romm.local:8080?q=a:/b"),
+            ("localhost:8080/:/", "https://localhost:8080/:/"),
+            ("://nohost", "https://://nohost"),
+        ],
+    )
+    def test_a_url_with_no_scheme_gets_https(self, url, completed):
+        assert with_https_added(url) == completed
+
+    @pytest.mark.parametrize("url", ["http://romm.local", "https://romm.local", "ftp://romm.local", "romm.local:/x"])
+    def test_a_url_with_a_scheme_is_left_alone(self, url):
+        assert with_https_added(url) is None
+
+    @pytest.mark.parametrize("url", ["http:/romm.local", "https:/romm.local:8080", "ftp:/romm.local"])
+    def test_a_scheme_typed_with_one_slash_is_left_alone(self, url):
+        assert with_https_added(url) is None
 
 
 class TestUserinfo:

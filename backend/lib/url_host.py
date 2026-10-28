@@ -8,17 +8,20 @@ URL into that canonical key and answers whether two URLs name the same server.
 plaintext is a different (and hostile) destination, not the same one.
 
 Anything that needs to decide "is this URL the same server as that one?",
-"is this a usable http(s) server URL?" or "does this URL carry a user name or
-password?" belongs here. Stdlib-only (``urllib``); no I/O, no network — purely
-lexical.
+"is this a usable http(s) server URL?", "does this URL carry a user name or
+password?" or "what is a URL typed without a scheme offered as?" belongs here.
+Stdlib-only (``urllib``); no I/O, no network — purely lexical.
 """
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 from typing import Any
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+# A scheme as RFC 3986 spells one, followed by at least one slash, at the start of the text.
+_LEADING_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:/")
 
 
 def normalize_origin(url: str) -> str | None:
@@ -97,6 +100,24 @@ def is_valid_server_url(url: str) -> bool:
     rejected.
     """
     return normalize_origin(url.strip()) is not None
+
+
+def with_https_added(url: str) -> str | None:
+    """*url* with ``https://`` in front where it names no scheme at all, else ``None``.
+
+    *url* names a scheme only when it BEGINS with one followed by ``:/``; what
+    comes later — a ``:/`` in a path, query or fragment
+    (``romm.local:8080?q=a:/b``) — names none. The test is that leading match,
+    not ``urllib.parse.urlsplit``, which reads ``romm.local:8080`` as the
+    scheme ``romm.local``. One slash is enough, so a scheme typed with one
+    slash too few (``http:/romm.local``) is left to be refused as an invalid
+    URL instead of being completed to ``https://http:/romm.local``; a host
+    with a port (``romm.local:8080/romm``) does not match, since a port is no
+    slash, and is completed, while ``romm.local:/x`` matches and is left alone.
+    Https, not http, because sign-in sends the RomM password to this address:
+    a wrong https only fails, a wrong http sends it unencrypted.
+    """
+    return None if _LEADING_SCHEME.match(url) else f"https://{url}"
 
 
 # urllib takes no credentials from an address, so none reaches RomM. With a

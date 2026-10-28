@@ -1639,6 +1639,14 @@ the answer by `_build_save_schema`, and depends on whether the request names a d
   synced reads as not current.
 - **Without `device_id`** — `device_syncs` is empty, whatever rows are stored.
 
+The sync decision reads the placeholder, so the RomM adapter keeps it. What the SAVES tab is shown does not: a save
+row's and each version's `device_syncs` leave out the entry that names this device with the placeholder's shape —
+`is_current` false while `last_synced_at` is at or after the save's `updated_at`, which RomM's own `is_current` rule
+never answers for a stored row (`domain/save_status_builders.py::shown_device_syncs`). Without that, the placeholder,
+listed first and stamped with the same time as the row of the device that really uploaded the save, would be the one the
+"last synced by" name is taken from, and name this device on a save it never synced. A save row's `is_current` is still
+read off RomM's list as it came, so a save this device never synced still reads as not current.
+
 The rows that make a save current for a device are written only by:
 
 - an upload, a download, and the `POST /api/saves/{id}/downloaded` ack — see the sections below;
@@ -2271,6 +2279,14 @@ fresh device, so the restored cross-device timestamp is the truthful one. When `
 no session for the ROM yet, or the reconcile ran local-only) the display falls back to Steam's value, so there is no
 regression before any server data exists. This is display-only — Tender does not write the restored value back into
 Steam's `rt_last_time_played` (#1294).
+
+A session's end on an open page is the one time Steam's value wins over a restored one. Every playtime write goes
+through `updatePlaytimeDisplay`, and the `romm_playtime_changed` signal it fires says whether the write also set
+`rt_last_time_played` to now (`lastPlayedWritten`), which only the session's end does. On such a signal the page drops
+the restored value it holds and shows Steam's, so LAST PLAYED names the session just played; on any other signal — the
+reconcile's own write, a bulk pass at load or after a sync — the restored value still wins. A session's end sets Steam's
+time and sends the signal even when the game's whole recorded total is under a minute, and then leaves the playtime as
+Steam shows it; any other write under a minute writes nothing and sends no signal.
 
 ## Save-Sync State — the `RomSaveSyncState` aggregate
 
