@@ -214,6 +214,23 @@ class MissingConfiguredImage:
 
 
 @dataclass(frozen=True)
+class ConfiguredImageNotOffered:
+    """An emulator's core option names a file in its folder declaration that the core does not offer.
+
+    RetroArch hands the core only a value it offered (atlas's
+    ``firmware-configured-image-not-offered``), so the core starts with its
+    default — a BIOS from the folder's own listing — and the folder's
+    verdict is what its launch rests on: it is the setting that is passed over,
+    never the requirement. ``emulator_label`` is the label of the entry the
+    row's reading came from and ``file_name`` the name the option holds —
+    either ``None`` where the answer did not state it.
+    """
+
+    emulator_label: str | None
+    file_name: str | None
+
+
+@dataclass(frozen=True)
 class RefusedDeclaration:
     """A declaration the resolver would not follow to a destination, and why.
 
@@ -458,12 +475,14 @@ class FirmwarePlacement:
 
     ``declaration`` is the resolver's own word for HOW the entry ``description``
     came from stated what it wants — ``read`` off a libretro core's own ``.info``
-    beside it, ``packaged`` out of the card that stands in for an emulator
-    shipping none. It rides here because the two speak in different registers:
-    a ``.info``'s prose is a packager's label for what the file IS
-    (``(PS1 JP BIOS)``), a card's is atlas explaining the requirement in whole
-    sentences, and a surface that shows one may not want the other. It is the
-    declaration of the entry this placement was read from (``emulator``).
+    beside it, ``packaged`` out of the declaration atlas packages in place of
+    one the machine lacks — a standalone emulator's card, or a libretro core's
+    declaration where its ``.info`` is missing. It rides here because the two
+    speak in different registers: a ``.info``'s prose is a packager's label for
+    what the file IS (``(PS1 JP BIOS)``), atlas's is the requirement explained
+    in whole sentences, and a surface that shows one may not want the other. It
+    is the declaration of the entry this placement was read from
+    (``emulator``).
 
     ``checked`` is what became of the BYTES at that destination, in the
     resolver's own stable vocabulary, and it is read off the same entry
@@ -481,7 +500,9 @@ class FirmwarePlacement:
 
     ``missing_configured_image`` is set where the emulator the reading came
     from is configured to open a file in this folder that is not there
-    (:class:`MissingConfiguredImage`). It is never a verdict either.
+    (:class:`MissingConfiguredImage`), and ``configured_image_not_offered``
+    where its core option names a file there the core does not offer
+    (:class:`ConfiguredImageNotOffered`). Neither is ever a verdict.
 
     On a folder declaration, ``folder_md5s`` are the checksums the packaged
     table files under the folder, which a library file is recognised as valid
@@ -520,6 +541,7 @@ class FirmwarePlacement:
     supplied_by: str | None = None
     checked: str | None = None
     missing_configured_image: MissingConfiguredImage | None = None
+    configured_image_not_offered: ConfiguredImageNotOffered | None = None
     emulator: str | None = None
     satisfied: bool | None = None
     place: str | None = None

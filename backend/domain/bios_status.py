@@ -122,7 +122,9 @@ class BiosFileEntry:
 
     ``declaration`` is the resolver's own word for how the emulator that supplied
     ``description`` stated what it wants — ``read`` off its own ``.info``,
-    ``packaged`` out of the card standing in for one that ships none — and it is
+    ``packaged`` out of the declaration atlas packages in place of one the
+    machine lacks: a standalone emulator's card, or a libretro core's
+    declaration where its ``.info`` is missing — and it is
     what a surface reads to decide whether that prose is the packager's label for
     the file or atlas explaining the requirement in sentences. ``None`` for a row
     no emulator declared, whose ``description`` is the file name itself.
@@ -178,6 +180,10 @@ class BiosFileEntry:
     # emulator's own setting names a file in this folder that is not there —
     # ``FirmwarePlacement.missing_configured_image``. Never a verdict.
     missing_configured_image: dict[str, str | None] | None = None
+    # The same shape where the emulator's core option names a file in this
+    # folder the core does not offer —
+    # ``FirmwarePlacement.configured_image_not_offered``. Never a verdict.
+    configured_image_not_offered: dict[str, str | None] | None = None
     # The identity of the emulator whose requirement this row is, ``None`` for
     # a library file no emulator claims. A surface shows a row with its own
     # emulator, and an unclaimed one in the library's own section.
@@ -275,6 +281,7 @@ def format_bios_status(
                 images=tuple(f.get("images", ())),
                 checked=f.get("checked"),
                 missing_configured_image=f.get("missing_configured_image"),
+                configured_image_not_offered=f.get("configured_image_not_offered"),
                 declared_by=f.get("declared_by"),
             )
             for f in raw_files
@@ -333,6 +340,7 @@ def build_file_entry(
     }
     active = _active_core_answer(cores, launching_emulator)
     stale = placement.missing_configured_image if placement is not None else None
+    passed_over = placement.configured_image_not_offered if placement is not None else None
     return BiosFileEntry(
         file_name=file_name,
         downloaded=downloaded,
@@ -355,6 +363,11 @@ def build_file_entry(
         checked=placement.checked if placement is not None else None,
         missing_configured_image=(
             {"emulator_label": stale.emulator_label, "file_name": stale.file_name} if stale is not None else None
+        ),
+        configured_image_not_offered=(
+            {"emulator_label": passed_over.emulator_label, "file_name": passed_over.file_name}
+            if passed_over is not None
+            else None
         ),
         declared_by=placement.emulator if placement is not None else None,
     )

@@ -76,9 +76,11 @@ from typing import TYPE_CHECKING, Any
 
 from _vendor.atlas import (
     AVAILABILITY_NOT_INSTALLED,
+    CAVEAT_CORE_INFO_PACKAGED,
     CAVEAT_CORE_MODE_UNESTABLISHED,
     CAVEAT_EMULATOR_CATALOGUE_SEALED,
     CAVEAT_FIRMWARE_CONFIGURED_IMAGE_MISSING,
+    CAVEAT_FIRMWARE_CONFIGURED_IMAGE_NOT_OFFERED,
     CAVEAT_FIRMWARE_DIRECTORY_HOLDS_NO_IMAGE,
     CAVEAT_FIRMWARE_FILE_LINKED_OUTSIDE_ROOT,
     CAVEAT_FIRMWARE_IMAGE_AMBIGUOUS,
@@ -108,6 +110,7 @@ from domain.firmware_wants import (
     NOTE_BIOS_UNCHOSEN,
     NOTE_IMAGES_TIED,
     NOTE_SEARCH_FOUND_NOTHING,
+    ConfiguredImageNotOffered,
     CoreFirmwareVerdict,
     EmulatorNote,
     FirmwareCatalogue,
@@ -132,12 +135,19 @@ if TYPE_CHECKING:
 # installation — a libretro ``.info`` read from the machine.
 _DECLARATION_READ = "read"
 
-# The state in which a packaged rule card stands in for an emulator that ships
-# no declaration. It is stated ONLY together with a requirement: a card may
-# identify its image by content, so ``packaged`` with an empty list means the
-# card exists and this query established nothing — the same unasked question a
-# missing ``.info`` leaves, and never "this emulator needs no firmware".
+# The state in which atlas's packaged declaration stands in for one the machine
+# does not carry — a standalone emulator's rule card, or a libretro core
+# installed without its ``.info`` (``core-info-packaged`` beside it). It is
+# stated ONLY together with a requirement: a card may identify its image by
+# content, so ``packaged`` with an empty list means the card exists and this
+# query established nothing — the same unasked question a missing ``.info``
+# leaves, and never "this emulator needs no firmware".
 _DECLARATION_PACKAGED = "packaged"
+
+# Statements an entry carries beside its declaration that change nothing read
+# here (#2644 D3): ``core-info-packaged`` is the provenance of
+# :data:`_DECLARATION_PACKAGED` above.
+_NOTES_THAT_CHANGE_NOTHING = frozenset({CAVEAT_CORE_INFO_PACKAGED})
 
 # The keys a caveat names an emulator under. Three, because the resolver states
 # the owner in whichever vocabulary the finding came from: ``core_so`` the core
@@ -439,9 +449,10 @@ def _stated(core: Any) -> bool:
 
     Two states say yes and every other one says the emulator was not asked.
     ``read`` is its own declaration off the machine, and an empty one there is
-    the finished answer that it needs nothing. ``packaged`` is a rule card
-    standing in for an emulator that ships none, and it is an answer only where
-    it named something: a card may identify its image by CONTENT, so a card with
+    the finished answer that it needs nothing. ``packaged`` is atlas's packaged
+    declaration standing in for one the machine lacks
+    (:data:`_DECLARATION_PACKAGED`), and it is an answer only where it named
+    something: a card may identify its image by CONTENT, so a card with
     no requirement in hand has stated nothing about what the emulator wants —
     which is not the same as no verdict: such a card can still be answered not
     met (``docs/architecture/backend-architecture.md``, FirmwareService notes,
@@ -734,7 +745,7 @@ def _declared_location(requirement: Any, place: str, root: str) -> str | None:
 
     A FILE requirement whose ``declared`` is a FOLDER its core declares goes in
     that folder under its own name: LRPS2 declares ``pcsx2/bios`` and, with its
-    ``pcsx2_bios`` option set, the resolver states the requirement as the file
+    ``pcsx2_bios`` option set to a name the core offers, the resolver states the requirement as the file
     that option names while keeping the folder as ``declared``, so the location
     as it stands would place the file where the folder is. Whether ``declared``
     is such a folder is the resolver's own table's answer
@@ -908,6 +919,7 @@ def _placement_for(
         supplied_by=supplied.label if supplied is not None else None,
         checked=requirement.checked,
         missing_configured_image=_missing_configured_image(core, speaking),
+        configured_image_not_offered=_configured_image_not_offered(core, speaking),
         emulator=identity,
         satisfied=requirement.satisfied,
         place=place,
@@ -978,6 +990,22 @@ def _missing_configured_image(core: Any, speaking: tuple[Any, ...]) -> MissingCo
         if caveat.code == CAVEAT_FIRMWARE_CONFIGURED_IMAGE_MISSING:
             name = caveat.data.get("name")
             return MissingConfiguredImage(
+                emulator_label=core.label, file_name=name if isinstance(name, str) and name else None
+            )
+    return None
+
+
+def _configured_image_not_offered(core: Any, speaking: tuple[Any, ...]) -> ConfiguredImageNotOffered | None:
+    """The core option a row's statements name that the core does not offer, with the label of its emulator.
+
+    Read off the row's own statements as :func:`_missing_configured_image` is:
+    LRPS2's ``pcsx2_bios`` naming a file its listing drops, on its
+    ``pcsx2/bios`` row.
+    """
+    for caveat in speaking:
+        if caveat.code == CAVEAT_FIRMWARE_CONFIGURED_IMAGE_NOT_OFFERED:
+            name = caveat.data.get("name")
+            return ConfiguredImageNotOffered(
                 emulator_label=core.label, file_name=name if isinstance(name, str) and name else None
             )
     return None

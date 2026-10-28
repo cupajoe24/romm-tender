@@ -52,8 +52,8 @@ The [emu-atlas](https://github.com/danielcopper/emu-atlas) resolver — the conf
 extracted from this plugin.
 
 - **Upstream:** <https://github.com/danielcopper/emu-atlas>
-- **Version:** 0.28.0 — tag `v0.28.0`, from the release's `emu_atlas-0.28.0-py3-none-any.whl`
-  (`sha256:02496f683770e8f340c24f9e10e44aec4153e61bc88e38c8b1067ad1bbc176e6`)
+- **Version:** 0.29.0 — tag `v0.29.0`, from the release's `emu_atlas-0.29.0-py3-none-any.whl`
+  (`sha256:02ba81b068d274773ed37d3523ccc9025436ca43d74e53ee86b8e4a02d9e8e5d`)
 - **License:** MIT — see [`atlas.LICENSE`](atlas.LICENSE)
 - **Local patches:** none. Upstream made the package relocatable in
   [emu-atlas#327](https://github.com/danielcopper/emu-atlas/issues/327) — no absolute self-imports, no `files("atlas")`
@@ -66,12 +66,10 @@ verbatim as `atlas.SHA256SUMS`. That keeps `atlas/` exactly equal to the manifes
 exceptions. The equality half is not optional: `sha256sum -c --ignore-missing` exits 0 after a vendored file is deleted,
 so a plain checksum sweep would pass a half-copied tree.
 
-`_vendor.atlas` is consumed by three adapters: `adapters/atlas_firmware.py` (the firmware seams behind
-`services.protocols.FirmwareResolver` and `FirmwareFolderVerdictFn`), `adapters/atlas_catalogue.py` (the emulator
-catalogue behind `CoreInfoProvider`, `SystemSupportedExtensionsFn`, `SystemM3uSupportFn` and `SystemKnownFn`), and
-`adapters/atlas_saves.py` (where one ROM's save lives and what it consists of, behind `SaveLocationReader`).
-`tests/test_vendored_atlas.py` additionally imports it and asserts the pinned version, so the copy is proven to resolve
-and not merely to hash correctly even if all three adapters ever stop importing it.
+`_vendor.atlas` is imported by the reading modules `scripts/check_resolver_reading.py` names (`READING_MODULES`), the
+adapters that put each kind of question to it, and by `adapters/atlas_zstd.py`, which hands it the zstd codec
+(`IMPORT_GRANTS`). `tests/test_vendored_atlas.py` additionally imports it and asserts the pinned version, so the copy is
+proven to resolve and not merely to hash correctly even if every adapter ever stops importing it.
 
 ### How to update atlas
 

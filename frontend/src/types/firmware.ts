@@ -30,9 +30,10 @@ export type FirmwareDeclaredKind = "file" | "directory";
  * `"read"` is a libretro core's own `.info`, read off the machine beside it, and
  * its description is the packager's LABEL for the file — `"(PS1 JP BIOS)"` on a
  * row named `scph5500.bin`, which is a region the name does not state.
- * `"packaged"` is the card atlas keeps for an emulator
- * shipping no declaration of its own, and its description is atlas explaining
- * the REQUIREMENT in whole sentences — "a PlayStation BIOS image — the console
+ * `"packaged"` is the declaration atlas packages in place of one the machine
+ * lacks — a standalone emulator's card, or a libretro core's declaration where
+ * its `.info` is missing — and its description is atlas explaining the
+ * REQUIREMENT in whole sentences — "a PlayStation BIOS image — the console
  * runs it before any disc, and DuckStation starts nothing without one". The two
  * are the same field and are not the same kind of prose, which is the whole
  * reason this value travels.
@@ -147,6 +148,17 @@ export interface MissingConfiguredImage {
 }
 
 /**
+ * A core option of the emulator names a file inside its folder declaration
+ * that the core does not offer — so the core starts with a BIOS from the
+ * folder's own listing. Not a verdict: the row's own verdict stands as it is.
+ * Either half is `null` where the resolver did not state it.
+ */
+export interface ConfiguredImageNotOffered {
+  emulator_label: string | null;
+  file_name: string | null;
+}
+
+/**
  * The reading's answer about one row, carried on both row shapes.
  *
  * `satisfied` is the verdict and the axis the REQUIRED counts key off: the
@@ -188,6 +200,8 @@ interface FirmwareVerdict {
   fetch_for_required?: boolean;
   /** See {@link MissingConfiguredImage}. Absent or `null` claims nothing. */
   missing_configured_image?: MissingConfiguredImage | null;
+  /** See {@link ConfiguredImageNotOffered}. Absent or `null` claims nothing. */
+  configured_image_not_offered?: ConfiguredImageNotOffered | null;
   /** The identity of the emulator whose requirement this row is, `null` for a
    *  library file no emulator claims. A row is shown with its own emulator
    *  ({@link EmulatorTab}), and an unclaimed one in the library's own section. */
