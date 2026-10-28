@@ -1,12 +1,13 @@
 """Tests for the atlas platforms adapter — a RomM platform's system, asked of one source at a time.
 
-Two halves. The first drives the REAL resolver over a fabricated RetroDECK
-deploy under ``tmp_path``, whose catalogue declares the systems and their
-platform tags, so what is checked is the resolver's own answer read through
-the adapter: the main system among regional ones, a system switched off only
-in the catalogue's comments, and an id nothing maps. The second uses stand-in
-installations, which is the only way to have two sources answer differently
-for one platform.
+Three parts. The first drives the REAL resolver over a fabricated
+RetroDECK deploy under ``tmp_path``, whose catalogue declares the
+systems and their platform tags, so what is checked is the resolver's own
+answer read through the adapter: the system named like the platform among
+regional ones, a system switched off only in the catalogue's comments, and an
+id nothing maps. The second uses stand-in installations, which is the only way
+to have two sources answer differently for one platform. The third holds the
+adapter's vocabulary and status tables to what the resolver exports.
 """
 
 from __future__ import annotations
@@ -16,16 +17,22 @@ import os
 from typing import Any
 
 import pytest
+from _vendor import atlas
+from _vendor.atlas import (
+    KNOWN_PLATFORM_VOCABULARIES,
+    PLATFORM_STATUS_ABSENT,
+    PLATFORM_STATUS_DECLARED,
+    PLATFORM_STATUS_DISABLED,
+)
 from _vendor.atlas.installations import PlatformSystemMatch, PlatformSystemsAnswer
 
-from adapters.atlas_platforms import AtlasPlatformSystemsAdapter
+from adapters.atlas_platforms import _STATUS_OF, _VOCABULARY_OF_FIELD, AtlasPlatformSystemsAdapter
 from adapters.emulator_sources import EmulatorSourcesAdapter
 from domain.emulator_sources import CATALOGUE_UNAVAILABLE, NO_SOURCE_DETECTED, SWITCHED_OFF_SETTING
 from domain.platform_system import (
     FOUND,
+    ID_FIELDS,
     NO_SYSTEM,
-    STATUS_DECLARED,
-    STATUS_DISABLED,
     SWITCHED_OFF,
     UNASKED,
     PlatformIds,
@@ -105,7 +112,7 @@ def _ask(adapter: AtlasPlatformSystemsAdapter, ids: PlatformIds, slug: str, **kw
 
 
 class TestTheRealResolverOverARealTree:
-    def test_the_main_system_is_taken_not_a_regional_one(self, tmp_path, traces):
+    def test_the_system_named_like_the_platform_is_taken_not_a_regional_one(self, tmp_path, traces):
         platform = _ask(_real(tmp_path, traces), PlatformIds(igdb_id=19), "snes")
 
         assert (platform.state, platform.system, _kind(platform)) == (FOUND, "snes", "retrodeck")
@@ -153,7 +160,7 @@ class _Installation:
         return answer
 
 
-def _matched(vocabulary: str, value: str, system: str, status: str = STATUS_DECLARED) -> PlatformSystemsAnswer:
+def _matched(vocabulary: str, value: str, system: str, status: str = PLATFORM_STATUS_DECLARED) -> PlatformSystemsAnswer:
     return PlatformSystemsAnswer(
         vocabulary,
         value,
@@ -300,7 +307,37 @@ class TestOneReading:
         ]
 
 
-def test_the_status_vocabulary_is_the_resolvers():
-    from _vendor.atlas.installations import PLATFORM_STATUS_DECLARED, PLATFORM_STATUS_DISABLED
+class TestTheResolversVocabulariesAreReadHere:
+    def test_every_id_field_is_asked_in_a_vocabulary_of_the_resolvers_and_each_vocabulary_once(self):
+        assert set(_VOCABULARY_OF_FIELD) == set(ID_FIELDS)
+        assert sorted(_VOCABULARY_OF_FIELD.values()) == sorted(KNOWN_PLATFORM_VOCABULARIES)
 
-    assert (STATUS_DECLARED, STATUS_DISABLED) == (PLATFORM_STATUS_DECLARED, PLATFORM_STATUS_DISABLED)
+    def test_every_status_the_resolver_exports_is_read(self):
+        stated = {getattr(atlas, name) for name in atlas.__all__ if name.startswith("PLATFORM_STATUS_")}
+
+        assert set(_STATUS_OF) == stated
+
+    @pytest.mark.parametrize(
+        ("status", "state", "system"),
+        [
+            (PLATFORM_STATUS_DECLARED, FOUND, "genesis"),
+            (PLATFORM_STATUS_DISABLED, SWITCHED_OFF, "genesis"),
+            (PLATFORM_STATUS_ABSENT, NO_SYSTEM, None),
+        ],
+    )
+    def test_each_status_decides_as_it_states(self, traces, status, state, system):
+        retrodeck = _Installation("retrodeck", {("igdb", "29"): _matched("igdb", "29", "genesis", status)})
+        adapter, _ = _adapter([retrodeck], traces)
+
+        platform = _ask(adapter, _IDS, "genesis")
+
+        assert (platform.state, platform.system) == (state, system)
+
+    def test_a_status_the_adapter_does_not_read_establishes_no_system(self, traces):
+        retrodeck = _Installation("retrodeck", {("igdb", "29"): _matched("igdb", "29", "genesis", "pending")})
+        adapter, _ = _adapter([retrodeck], traces)
+
+        platform = _ask(adapter, _IDS, "genesis")
+
+        assert (platform.state, platform.unasked, platform.system) == (UNASKED, CATALOGUE_UNAVAILABLE, None)
+        assert any("'pending'" in line for line in traces)
