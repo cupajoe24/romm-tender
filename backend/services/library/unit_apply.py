@@ -25,6 +25,7 @@ from domain.sync_diff import (
 )
 from domain.sync_stage import SyncStage
 from services.library._convergence import converge_unless_running
+from services.library._followed_keys import with_followed_keys
 from services.library._unit_roms import (
     collection_membership_key,
     record_collection_membership,
@@ -252,17 +253,22 @@ class UnitApplier:
         # delivery, which the keying leaves alone.
         registry = await self._loop.run_in_executor(None, self._local_library_reader.do_read_apply_registry, unit)
         resident_keys = await self._loop.run_in_executor(None, self._local_library_reader.do_read_resident_group_keys)
-        stamp_component_group_keys(unit_roms, resident_keys)
+        complete_view = unit.type == "platform" and bool(unit.slug)
+        unlisted = {int(rid) for rid in registry} - {rom["id"] for rom in unit_roms}
+        # A platform unit's listing is a complete view of its groups, so the rows
+        # it left out follow their groups' keys, and the convergence and the
+        # collapse below group them by the keys the commit records.
+        followed_keys = self._stamp_unit_group_keys(unit_roms, resident_keys, unlisted, complete_view=complete_view)
+        registry = with_followed_keys(registry, followed_keys)
         shortcuts_data = build_shortcuts_data(unit_roms, self._launcher_exe, installed_paths, core_overrides)
         preferred_region = self._settings.get("preferred_region", AUTO_REGION)
 
-        # A platform unit's listing is a complete view of its groups, so a group
-        # holding more than one bound shortcut converges here (#2645); the
-        # finalize of a run that was not stopped removes the others.
+        # A group holding more than one bound shortcut converges in a complete
+        # view (#2645); the finalize of a run that was not stopped removes the
+        # others.
         installed = set(installed_paths)
         converged: list[ConvergedBinding] = []
-        if unit.type == "platform" and unit.slug:
-            unlisted = {int(rid) for rid in registry} - {rom["id"] for rom in unit_roms}
+        if complete_view:
             installed |= await self._loop.run_in_executor(
                 None, self._local_library_reader.do_read_installed_rom_ids, unlisted
             )
@@ -382,7 +388,7 @@ class UnitApplier:
         # the chunks re-mark rows with this run's generation, and a kept stamp
         # naming the old one would make removed-game discovery read every
         # re-marked row as gone from RomM.
-        if unit.type == "platform" and unit.slug:
+        if complete_view:
             await self._loop.run_in_executor(None, self._clear_platform_stamp_io, unit.slug)
 
         # A collection unit's final chunk stamps a CollectionSyncState over its
@@ -408,8 +414,23 @@ class UnitApplier:
             cover_refreshes=cover_refreshes,
             collection_member_ids=collection_member_ids,
             fetch_started_at=fetch_started_at,
+            followed_keys=followed_keys,
         )
         return len(skip_ids) + applied_count
+
+    @staticmethod
+    def _stamp_unit_group_keys(
+        unit_roms: list[dict[str, Any]], resident_keys: dict[int, str], unlisted: set[int], *, complete_view: bool
+    ) -> dict[int, str]:
+        """Stamp *unit_roms*' group keys; in a *complete_view*, answer the key each of the *unlisted* rows follows."""
+        if not complete_view:
+            return stamp_component_group_keys(unit_roms, resident_keys)
+        return stamp_component_group_keys(
+            unit_roms,
+            resident_keys,
+            complete_rom_ids={rom["id"] for rom in unit_roms},
+            unfetched_bound_ids=unlisted,
+        )
 
     async def _sync_platform_unit(
         self,
