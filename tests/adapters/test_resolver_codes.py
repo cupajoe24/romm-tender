@@ -67,8 +67,9 @@ def _classified() -> frozenset[str]:
 # The codes no reading module classifies today. The list only shrinks: a code a
 # reading module comes to classify leaves it, and a code the resolver adds is
 # classified rather than added here — except a code of an answer no reading
-# module reads yet (``launch_command``'s refusals), which waits here with that
-# answer's other codes until its reading module classifies them (#2644 D1).
+# module reads yet (``launch_command``'s codes), which waits here with that
+# answer's other codes until its reading module classifies them (#2644 D1,
+# #2658 D1).
 _UNCLASSIFIED = frozenset(
     {
         "CAVEAT_APPENDED_CONFIG_NOT_READ",
@@ -160,6 +161,7 @@ _UNCLASSIFIED = frozenset(
         "CAVEAT_LAUNCH_COMMAND_ROM_ROOT_UNESTABLISHED",
         "CAVEAT_LAUNCH_COMMAND_SECOND_SHELL_UNSAFE",
         "CAVEAT_LAUNCH_COMMAND_SHELL_SYNTAX",
+        "CAVEAT_LAUNCH_ENVIRONMENT_UNPINNED",
         "CAVEAT_NO_CORE",
         "CAVEAT_NO_FIRMWARE_DECLARATION",
         "CAVEAT_NO_FIRMWARE_REQUIREMENT",
