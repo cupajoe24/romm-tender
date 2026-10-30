@@ -5,8 +5,8 @@
  * the right of DiscSelector (its structural twin, #865): a single DialogButton
  * that opens an anchored `showContextMenu` list of every version in the group.
  * Each row is
- * marked — the active version (✓ + tint), the default (the version the
- * resolution chain + Preferred-region setting would pick), downloaded versions,
+ * marked — the active version (✓ + tint), the default (the version RomM holds
+ * as the default, and none where RomM holds none), downloaded versions,
  * and versions that exist on the server but aren't synced locally yet. Per-row
  * covers load lazily from the per-ROM cover cache (cache-first fetchCoverBase64,
  * #1346), so each version shows its own art rather than the group's shared grid
@@ -62,6 +62,9 @@ const BADGE_COLORS: Record<"accent" | "muted" | "good", { bg: string; fg: string
 
 /** The label a row (or a singleton binding) carries once RomM 404s its exact id. */
 const VANISHED_HINT = "No longer available on RomM";
+
+/** The label of a row another shortcut of this game is on. */
+const BOUND_ELSEWHERE_HINT = "On another shortcut of this game";
 
 /** Accessible name of the trash affordance that opens the cleanup confirmation. */
 const REMOVE_LOCAL_DATA_LABEL = "Remove local data";
@@ -280,10 +283,11 @@ export const VersionPicker: FC<VersionPickerProps> = ({ appId }) => {
 
   const versions = versionList.versions;
   const active = versions.find((v) => v.active);
-  // Accent the trigger when the bound version isn't the group's natural default
+  // Accent the trigger when RomM holds a default and the bound version isn't it
   // (mirrors DiscSelector's "pinned ≠ default" accent) — an instant "this game is
-  // on a non-default version" read; neutral when it is the default.
-  const activeIsDefault = active?.is_default ?? false;
+  // on a non-default version" read; neutral when it is the default, and where
+  // RomM holds none, since there is no default to differ from.
+  const offDefault = versions.some((v) => v.is_default) && !(active?.is_default ?? false);
 
   const rowCover = (v: VersionInfo): ReactNode => {
     const base64 = covers[v.rom_id];
@@ -301,6 +305,9 @@ export const VersionPicker: FC<VersionPickerProps> = ({ appId }) => {
 
   const rowAvailabilityHint = (v: VersionInfo): ReactNode => {
     if (v.vanished) return <AvailabilityHint text={VANISHED_HINT} />;
+    // Ahead of the no-file label: an installed version without a file is
+    // otherwise selectable, so that label alone would read as an offer.
+    if (v.bound_elsewhere) return <AvailabilityHint text={BOUND_ELSEWHERE_HINT} />;
     if (v.no_file) return <AvailabilityHint text={NO_FILE_ON_ROMM_LABEL} />;
     if (!v.switchable) return <AvailabilityHint text="conflicting metadata match in RomM" />;
     return null;
@@ -336,7 +343,7 @@ export const VersionPicker: FC<VersionPickerProps> = ({ appId }) => {
                   width: "100%",
                   color: v.active ? ACTIVE_ACCENT : undefined,
                   // Unavailable/conflicting rows stay visible as retained context,
-                  // but are dimmed until RomM offers a usable target.
+                  // but are dimmed while they cannot be switched to.
                   opacity: isSelectable(v) ? undefined : 0.55,
                 }}
               >
@@ -369,7 +376,7 @@ export const VersionPicker: FC<VersionPickerProps> = ({ appId }) => {
       title="Version"
       style={switching ? { opacity: 0.55 } : {}}
     >
-      <FaLayerGroup size={20} color={activeIsDefault ? NEUTRAL_GREY : ACTIVE_ACCENT} />
+      <FaLayerGroup size={20} color={offDefault ? ACTIVE_ACCENT : NEUTRAL_GREY} />
       {switching ? (
         <span className="romm-throbber" style={{ width: "14px", height: "14px" }} />
       ) : (

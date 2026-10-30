@@ -51,10 +51,12 @@ art** (so two regions of the same game are told apart at a glance; a version who
 icon), with markers for:
 
 - **✓ (active)** — the version currently bound to the shortcut. This is exactly what the Download button will fetch.
-- **Default** — the version Tender would pick on its own, following the default version you chose in RomM
-  (`is_main_sibling`) and, failing that, your [Preferred region](configuration.md) setting. It's a suggestion, not a
-  lock. A default version you choose in RomM shows here the next time you open the game's page, without a sync, as long
-  as RomM can be reached.
+- **Default** — the default version you chose in RomM, and nothing else: a game you chose none for in RomM shows no
+  **Default**, and Tender never puts its own pick under that name. It's a label, not a lock, and it stays on that
+  version when the version is gone from RomM, has no file there, is on another shortcut or is dimmed as a conflicting
+  metadata match. A default version you choose in RomM shows here the next time you open the game's page, without a
+  sync, as long as RomM can be reached. The version control's icon is tinted while the shortcut is on a version other
+  than RomM's default, and stays neutral where RomM holds none.
 - **Downloaded** — a version you already have on disk.
 - **not synced** — a version RomM has that isn't in your local library yet. Selecting it records it on the spot — unless
   it's dimmed as a conflicting metadata match (see below).
@@ -69,12 +71,18 @@ a not-yet-synced version whose match conflicts, are both shown (so you know they
 either would move the shortcut onto a different game. To make one selectable, fix its metadata match in RomM so it
 agrees with this game's, then re-sync.
 
+A version another Steam shortcut of the same game is on is dimmed too, labelled _"On another shortcut of this game"_,
+and cannot be selected: moving it onto this shortcut would leave the other one with no version. A game has a second
+shortcut only until a sync leaves it one, or for good where only a collection brings it in or RomM no longer lists its
+platform ([Multiple versions of a game](syncing-your-library.md#multiple-versions-of-a-game)). To use that version here,
+switch the other shortcut to another version first.
+
 A retained local version that RomM has positively confirmed it no longer has is also shown dimmed, with the separate
 label _"No longer available on RomM"_, and it cannot be switched to: selecting it instead opens the cleanup confirmation
 described under [Cleaning up versions removed from RomM](#cleaning-up-versions-removed-from-romm). Its **active** and
-**Downloaded** markers remain visible so it is clear what the shortcut and local files still refer to, but it never
-receives the **Default** badge. If the shortcut is still active on that unavailable id, choose any live alternative in
-the same list to recover the game.
+**Downloaded** markers remain visible so it is clear what the shortcut and local files still refer to, and so does
+**Default** where RomM holds it as the default. If the shortcut is still active on that unavailable id, choose any live
+alternative in the same list to recover the game.
 
 When the version the shortcut is bound to is the one confirmed gone, the **Download** button is greyed out as well — it
 stays visible, like the version row, but downloading it could only ever fail. Pick a live version in the version list to
@@ -110,11 +118,11 @@ get a trustworthy answer. A ROM-specific 404 also does not make the rest of Tend
 A version RomM still lists but has **no file** for carries the label _"No file on RomM"_. That happens when its file has
 left RomM's disk — a rescan that turned `Game (USA).zip` into a folder `Game (USA)` leaves the old entry behind beside
 the new one — and for a physical game, which never had a file. Unlike the check above, for a version already synced this
-is what the last sync stored, not a fresh answer. Such a version never receives the **Default** badge. It is dimmed and
-cannot be selected unless it is downloaded on this device; a downloaded one stays selectable and plays from your local
-copy. It offers no cleanup, because a rescan in RomM can bring a moved file back. When the shortcut is bound to such a
-version and it is not downloaded, the **Download** button reads _"No file on RomM"_ and stays greyed out. If its file
-was moved or renamed, rescan the library in RomM and sync; otherwise pick another version.
+is what the last sync stored, not a fresh answer. It is dimmed and cannot be selected unless it is downloaded on this
+device; a downloaded one stays selectable and plays from your local copy. It offers no cleanup, because a rescan in RomM
+can bring a moved file back. When the shortcut is bound to such a version and it is not downloaded, the **Download**
+button reads _"No file on RomM"_ and stays greyed out. If its file was moved or renamed, rescan the library in RomM and
+sync; otherwise pick another version.
 
 The next sync moves a shortcut off a version without a file by itself only onto **the same file in a new shape**: a
 version whose file name, without its extension, is exactly the same — the folder `Game (USA)` for `Game (USA).zip`. The
@@ -206,15 +214,17 @@ version is a line under its row.
 The modal loads the rest of the list by itself, one page after another, and the confirm button refuses until every entry
 has arrived, saying how many have. If a page fails to load, the modal says why and offers **Retry loading**, beside the
 confirm button, which carries on from the entries already loaded. The confirmation run checks every exact RomM id again.
-Only a confirmed 404 can be removed. Offline, timeout, authentication, server, malformed-response, active-download, and
-ambiguous multi-shortcut cases are skipped and reported without deleting data. A run never removes more than the
-dialog's counts: a version it finds still on RomM is kept, and where it finds every version of a game gone but the game
-holds a version the dialog did not offer for removal, it leaves the whole game as it is and says _Another version of
-this game is gone from RomM too. Scan again to review it._ A game the dialog showed as gone entirely is removed whole or
-not at all: where the check finds one of its versions on RomM again, the run leaves it as it is and says _A version of
-this game is back on RomM. Scan again to review it._ A game Steam lists as running — starting, running or exiting — is
-left as it is too, its shortcut, its files and its saves, with _This game is running, so it was left as it is. Quit it
-and scan again to remove it._ Either way the next scan lists every version the run found gone.
+Only a confirmed 404 can be removed. Offline, timeout, authentication, server, malformed-response and active-download
+cases are skipped and reported without deleting data. A game with more than one Steam shortcut is skipped too, with
+_This game has more than one shortcut in Steam, so it was left as it is. Delete either of them in Steam, run a sync,
+then scan again._ A run never removes more than the dialog's counts: a version it finds still on RomM is kept, and where
+it finds every version of a game gone but the game holds a version the dialog did not offer for removal, it leaves the
+whole game as it is and says _Another version of this game is gone from RomM too. Scan again to review it._ A game the
+dialog showed as gone entirely is removed whole or not at all: where the check finds one of its versions on RomM again,
+the run leaves it as it is and says _A version of this game is back on RomM. Scan again to review it._ A game Steam
+lists as running — starting, running or exiting — is left as it is too, its shortcut, its files and its saves, with
+_This game is running, so it was left as it is. Quit it and scan again to remove it._ Either way the next scan lists
+every version the run found gone.
 
 The confirmation options apply to this run only:
 
@@ -382,8 +392,8 @@ the same game (its [sibling group](#versions)) is already on disk, Tender remove
 downloads the new one — no prompt. **Use Existing Files** ([below](#when-the-game-is-already-on-your-device)) removes
 the old install the same way, just before it records the files you are using, unless those files are the old install
 itself. This keeps a multi-version game to a single copy on disk. Your **save files are never touched** by this cleanup,
-so switching back and re-downloading the earlier version rejoins its saves. Games that still carry a separate shortcut
-per version from an older release are left untouched.
+so switching back and re-downloading the earlier version rejoins its saves. A version another Steam shortcut of the same
+game is on is left untouched ([The Switch-version control](#the-switch-version-control) says when a game has one).
 
 ### When the game is already on your device
 

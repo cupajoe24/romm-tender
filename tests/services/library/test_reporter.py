@@ -1117,7 +1117,7 @@ class TestGroupAwareCommit:
         `_persist_synced_rom` fallback (`existing.shortcut_app_id`) is load-bearing.
 
         Regression guard for the single most dangerous line in #1296: a
-        grandfathered group has rom 11 already bound (app 7777) while rom 10 is the
+        group holding two shortcuts has rom 11 already bound (app 7777) while rom 10 is the
         emitted representative bound this cycle (app 9001). Only rom 10 is acked, so
         the commit must PRESERVE rom 11's 7777 from the existing row — the broken
         `binding.get(rom_id)` variant (no existing fallback) would silently unbind
@@ -1126,7 +1126,7 @@ class TestGroupAwareCommit:
         this one seeds the prior binding and only passes with it.
         """
         uow = library.uow
-        # rom 11 already carries a shortcut (grandfathered duplicate of group "g").
+        # rom 11 already carries a shortcut (a second shortcut of group "g").
         _seed_rom(uow, 11, app_id=7777, platform_slug="n64", name="Game (JP)", group_key="g")
         box = library.sync._box
         rep = {
@@ -1804,6 +1804,29 @@ class TestFinalizePerUnitRun:
 
         payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
         # rom 2 is unbound, but its group's bound sibling (rom 1 → 1001) stands in.
+        assert payload["romm_collection_app_ids"] == {"Faves": [1001]}
+
+    @pytest.mark.asyncio
+    async def test_romm_collection_group_fallback_takes_the_smallest_bound_rom_id(self, library, emit):
+        """A group still holding two shortcuts files an unbound sibling under the
+        shortcut of its smallest bound rom_id, so the filing does not move between runs."""
+
+        uow = library.uow
+        # Rom 3 is seeded first, so a first-seen rule would file under 3003.
+        _seed_rom(uow, 3, app_id=3003, platform_slug="n64", name="Game (EU)", group_key="g")
+        _seed_rom(uow, 1, app_id=1001, platform_slug="n64", name="Game (USA)", group_key="g")
+        _seed_rom(uow, 2, app_id=None, platform_slug="n64", name="Game (JP)", group_key="g")
+
+        await library.sync._reporter.finalize_per_unit_run(
+            pending_collection_memberships={
+                ("standard", "7"): CollectionMembership(name="Faves", rom_ids=[2], kind="standard")
+            },
+            pending_platform_rom_ids={1, 3},
+            platform_names={"n64": "Nintendo 64"},
+            processed_platform_slugs={"n64"},
+        )
+
+        payload = next(c for c in emit.call_args_list if c[0][0] == "sync_collections")[0][1]
         assert payload["romm_collection_app_ids"] == {"Faves": [1001]}
 
     @pytest.mark.asyncio

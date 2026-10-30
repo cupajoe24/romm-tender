@@ -234,7 +234,8 @@ a unit the run skipped: the apply moves no binding for a skipped unit, so the pr
 ### A game with more than one shortcut
 
 A sibling group holding more than one bound shortcut converges to one on the next complete-view sync (#2645), unless one
-of its shortcuts is running then: which one stays, and how the sync gets there, is
+of its shortcuts is running then; a game only collections bring in, its platform turned off, and a game on a platform
+RomM no longer lists keep theirs, since no platform unit reads them. Which one stays, and how the sync gets there, is
 [Backend Architecture](backend-architecture.md), "Convergence". The others reach the panel in `sync_stale` like any
 stale shortcut, each entry naming the shortcut its game keeps (`kept_app_id`, `kept_rom_id`), and are removed by the
 same paced `RemoveShortcut` loop. Before that loop, `frontend/src/utils/shortcutCarryOver.ts` hands the kept shortcut
@@ -279,11 +280,11 @@ individually. That entity-specific 404 is not fed into the global connection sto
 server-unreachable result still is. Cover and save endpoints are not liveness authorities.
 
 Vanished rows stay visible with their active and downloaded markers, but cannot be switched to — selecting one opens its
-cleanup — and are excluded before the existing default-resolution kernel runs. `vanished` does not change `switchable`
-or `domain.sibling_group.target_in_sibling_group`: availability and sibling membership remain separate verdicts. This
-lets a shortcut still bound to a vanished id show the retained context while the user selects a live alternative. The
-Saves tab likewise skips positively vanished inactive installs before checking for unsynced saves, then continues
-through later live candidates.
+cleanup — and keep the Default badge where RomM holds them as the default. `vanished` does not change `switchable` or
+`domain.sibling_group.target_in_sibling_group`: availability and sibling membership remain separate verdicts. This lets
+a shortcut still bound to a vanished id show the retained context while the user selects a live alternative. The Saves
+tab likewise skips positively vanished inactive installs before checking for unsynced saves, then continues through
+later live candidates.
 
 The list verdict is advisory UI state, not authority for a later write. Immediately before `switch_version` moves the
 binding onto an already-local target, it checks that exact target id again through the same three-second, single-attempt
@@ -302,11 +303,11 @@ unavoidable cross-system interval after a successful response: the liveness chec
 transaction with RomM.
 
 A version RomM still lists but holds no file for carries `no_file` — for a local row the column the last sync stored,
-for a server-only one the fetched detail — and the row reads **No file on RomM**. It is never the Default, and unlike a
-vanished row it offers no local cleanup, since a rescan in RomM can bring back a file that was moved or renamed. The row
-is selectable only where that version is installed here, and `switch_version` refuses any other switch to it with
-`no_file_on_romm`. A download refuses the same way on RomM's live answer, read when it starts, so a file a rescan
-brought back since the last sync downloads, and one that left since does not.
+for a server-only one the fetched detail — and the row reads **No file on RomM**. It keeps the Default badge where RomM
+holds it as the default, and unlike a vanished row it offers no local cleanup, since a rescan in RomM can bring back a
+file that was moved or renamed. The row is selectable only where that version is installed here, and `switch_version`
+refuses any other switch to it with `no_file_on_romm`. A download refuses the same way on RomM's live answer, read when
+it starts, so a file a rescan brought back since the last sync downloads, and one that left since does not.
 
 ## Explicit cleanup of vanished versions
 
