@@ -25,6 +25,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
+# The ``kv_config`` key the cache is kept under.
+PLATFORM_NAMES_KEY = "platform_names"
+
 
 def decode_platform_names(raw: str | None) -> dict[str, str]:
     """Decode the cached ``platform_slug → name`` mapping.

@@ -24,8 +24,12 @@ from services.library import (
     LibraryService,
     LibraryServiceConfig,
     LibrarySyncStateBox,
+    LibraryViews,
+    LibraryViewsConfig,
     LocalLibraryReader,
     LocalLibraryReaderConfig,
+    RunFinalizer,
+    RunFinalizerConfig,
     SessionBudgetMonitor,
     SessionBudgetMonitorConfig,
     ShortcutLaunchResolver,
@@ -116,6 +120,8 @@ class LibraryParts:
     shortcut_launch_resolver: ShortcutLaunchResolver
     session_budget: SessionBudgetMonitor
     reporter: SyncReporter
+    run_finalizer: RunFinalizer
+    views: LibraryViews
     chunk_dispatcher: ChunkDispatcher
     cover_preparer: CoverPreparer
     sync_run_recorder: SyncRunRecorder
@@ -184,15 +190,26 @@ def wire_library(wiring: LibraryWiring) -> LibraryParts:
             settings=wiring.settings,
             loop=wiring.loop,
             logger=wiring.logger,
-            emit=wiring.emit,
             clock=wiring.clock,
             uow_factory=wiring.uow_factory,
             sync_state_box=box,
-            emit_progress=progress.emit_progress,
             artwork=wiring.artwork,
+        )
+    )
+
+    run_finalizer = RunFinalizer(
+        config=RunFinalizerConfig(
+            settings=wiring.settings,
+            loop=wiring.loop,
+            emit=wiring.emit,
+            uow_factory=wiring.uow_factory,
+            sync_state_box=box,
+            emit_progress=progress.emit_progress,
             conflict_rules=wiring.conflict_rules,
         )
     )
+
+    views = LibraryViews(config=LibraryViewsConfig(settings=wiring.settings, uow_factory=wiring.uow_factory))
 
     chunk_dispatcher = ChunkDispatcher(
         config=ChunkDispatcherConfig(
@@ -273,7 +290,7 @@ def wire_library(wiring: LibraryWiring) -> LibraryParts:
             sync_state_box=box,
             fetcher=fetcher,
             unit_applier=unit_applier,
-            reporter=reporter,
+            run_finalizer=run_finalizer,
             shortcut_launch_resolver=shortcut_launch_resolver,
             local_library_reader=local_library_reader,
             session_budget=session_budget,
@@ -292,6 +309,7 @@ def wire_library(wiring: LibraryWiring) -> LibraryParts:
             progress=progress,
             session_budget=session_budget,
             reporter=reporter,
+            views=views,
             preview=preview,
             orchestrator=orchestrator,
             conflict_rules=wiring.conflict_rules,
@@ -308,6 +326,8 @@ def wire_library(wiring: LibraryWiring) -> LibraryParts:
         shortcut_launch_resolver=shortcut_launch_resolver,
         session_budget=session_budget,
         reporter=reporter,
+        run_finalizer=run_finalizer,
+        views=views,
         chunk_dispatcher=chunk_dispatcher,
         cover_preparer=cover_preparer,
         sync_run_recorder=sync_run_recorder,
