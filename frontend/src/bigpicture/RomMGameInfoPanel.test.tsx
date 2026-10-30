@@ -27,6 +27,7 @@ import { getBiosStatusShared, _resetSharedReadsForTests } from "../api/sharedRea
 import * as slotState from "../utils/slotState";
 import { isStopObserved } from "../utils/sessionManager";
 import { setSettingsResetState } from "../utils/settingsResetStore";
+import { lineWithText, throbberIn } from "../test-utils/throbber";
 import { resetUpdateInstallStoreForTests, setUpdateInstallAttempt } from "../utils/updateInstallStore";
 import {
   installDomEventListenerSpy,
@@ -414,6 +415,13 @@ describe("RomMGameInfoPanel", () => {
       expect(container.textContent).toContain("Loading...");
       // loadData stays pending by design, but the sibling refreshMigrationState
       // effect does resolve — its store writes have to land inside act.
+      await flushAsync();
+    });
+
+    it("puts the throbber beside Loading... before loadData resolves", async () => {
+      vi.mocked(cachedStore.getCachedGameDetail).mockReturnValue(new Promise(() => {}));
+      const { container } = render(<RomMGameInfoPanel appId={testAppId} />);
+      expect(throbberIn(lineWithText(container, "Loading..."))).not.toBeNull();
       await flushAsync();
     });
 
@@ -4133,7 +4141,7 @@ describe("RomMGameInfoPanel", () => {
   });
 
   describe("biosStatusFromCache + saveStatusFromCache (cache-first rendering)", () => {
-    it("biosStatusFromCache(null) yields no biosStatus → the BIOS tab shows Steam's spinner and Checking…", async () => {
+    it("biosStatusFromCache(null) yields no biosStatus → the BIOS tab shows the throbber and Checking…", async () => {
       vi.mocked(cachedStore.getCachedGameDetail).mockResolvedValue({
         found: true,
         rom_id: 1,

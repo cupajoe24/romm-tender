@@ -4,10 +4,12 @@
 // not got. styleInjector.test.ts pins the TEXT of one family of those rules —
 // the vanished-version trash, whose colour a component can only reference by
 // class name — and bigpicture/bios/rowStopFocus.test.ts the BIOS row stop's
-// focus rule against the values it copies; nothing else the file injects is
-// pinned: a drift lock on those rules, not coverage of the stylesheet or of
-// its effect.
+// focus rule against the values it copies; styleInjector.test.ts also pins
+// that the throbber's sheet reaches the play row's document. Nothing else the
+// file injects is pinned: a drift lock on those rules, not coverage of the
+// stylesheet or of its effect.
 import { findSP } from "./deckyUiInternals";
+import { ensureThrobberStyle } from "./throbberStyle";
 
 const ROMM_PLAY_HIDE_ID = "romm-hide-native-play";
 const ROMM_FOCUS_STYLES_ID = "romm-focus-styles";
@@ -34,6 +36,9 @@ export function hideNativePlaySection(playSectionClass: string) {
 }`;
     sp.window.document.head.appendChild(style);
   }
+
+  // The play row draws its own throbbers in this document.
+  ensureThrobberStyle(sp.window.document);
 
   // Inject .gpfocus styles for our custom buttons — Steam applies this class
   // automatically during gamepad navigation to indicate focus
@@ -102,19 +107,6 @@ export function hideNativePlaySection(playSectionClass: string) {
   border-color: rgba(26, 159, 255, 0.9) !important;
   outline: 2px solid #1a9fff !important;
   outline-offset: 2px;
-}
-@keyframes romm-spin {
-  to { transform: rotate(360deg); }
-}
-.romm-throbber {
-  display: inline-block;
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: romm-spin 0.8s linear infinite;
-  flex-shrink: 0;
 }
 @keyframes romm-dl-pulse {
   0%, 100% { box-shadow: 0 0 4px var(--romm-pulse-color, rgba(26,159,255,0.3)); }

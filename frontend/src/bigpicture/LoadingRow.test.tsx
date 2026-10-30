@@ -3,27 +3,22 @@ import { render } from "@testing-library/react";
 import { createElement as ce } from "react";
 import { LoadingRow, LOADING_SPINNER_SIZE } from "./LoadingRow";
 
-// Re-mock @decky/ui so the Spinner echoes its width/height — LoadingRow exists
-// to pin a small fixed size, so the test must be able to see those props (the
-// global stub in test-setup.ts drops them). Per-file mock hoisting wins.
 vi.mock("@decky/ui", () => {
   type AnyProps = Record<string, unknown> & { children?: unknown };
   return {
     PanelSectionRow: (p: AnyProps) => ce("div", { "data-testid": "panel-row" }, p.children as never),
-    Spinner: (p: { width?: number; height?: number }) =>
-      ce("div", { "data-testid": "spinner", "data-width": p.width, "data-height": p.height }),
   };
 });
 
-describe("LoadingRow (#1414)", () => {
+describe("LoadingRow", () => {
   it("renders a spinner constrained to the fixed LOADING_SPINNER_SIZE", () => {
     const { getByTestId } = render(<LoadingRow />);
     const spinner = getByTestId("spinner");
-    expect(spinner.getAttribute("data-width")).toBe(String(LOADING_SPINNER_SIZE));
-    expect(spinner.getAttribute("data-height")).toBe(String(LOADING_SPINNER_SIZE));
+    expect(spinner.style.width).toBe(`${LOADING_SPINNER_SIZE}px`);
+    expect(spinner.style.height).toBe(`${LOADING_SPINNER_SIZE}px`);
   });
 
-  it("pins a small size so the SVG can't fill the row (guards the oversized-spinner regression)", () => {
+  it("keeps the loading row's throbber within 32px", () => {
     expect(LOADING_SPINNER_SIZE).toBeGreaterThan(0);
     expect(LOADING_SPINNER_SIZE).toBeLessThanOrEqual(32);
   });

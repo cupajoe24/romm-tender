@@ -532,7 +532,7 @@ export const SettingsPage: FC<SettingsPageProps> = ({ onBack, section }) => {
     // device.
     if (applyingSteamInput) return;
     setApplyingSteamInput(true);
-    setSteamInputStatus("Applying...");
+    setSteamInputStatus("");
     try {
       const result = await applySteamInputSetting();
       setSteamInputStatus(result.message);

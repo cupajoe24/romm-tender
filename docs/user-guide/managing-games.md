@@ -947,9 +947,9 @@ repeated: most emulators treat a second one as "quit right now" and skip writing
 the file the first request was in the middle of saving. If you want to be certain your progress is kept, save in-game
 first, then stop.
 
-Because of that, the menu item greys out and reads **Stopping…** while it works. Those few seconds of nothing visibly
-happening are normal — the emulator is writing your save. Pressing Stop again would be the very thing that discards it,
-so Tender ignores a second press until the first one finishes.
+Because of that, a spinner takes the chevron's place and the menu item greys out and reads **Stopping…** beside one
+while it works. Those few seconds of nothing visibly happening are normal — the emulator is writing your save. Pressing
+Stop again would be the very thing that discards it, so Tender ignores a second press until the first one finishes.
 
 ---
 
