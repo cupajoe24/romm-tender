@@ -1,0 +1,227 @@
+"""The sync before a start sends ``pre_launch_sync_started`` once save sync, Sync
+before launch, the save answer's refusal and RomM's heartbeat have passed, and
+once its first request that RomM can refuse for this device has passed without
+that refusal — the ``negotiate`` session, or where none is opened, the sync
+itself; no other sync sends it. Each absence case stands beside its control —
+parametrized, or a test of its own — in which the one condition flipped sends
+the event, so an engine that sends nothing turns a test red.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+
+from domain.save_answer import SaveAnswer
+from lib.errors import RommConnectionError, ServerUnreachable
+from services.saves._refusals import SaveShapeUnsupported
+from tests.services.saves._helpers import (
+    _create_save,
+    _enable_sync_with_device,
+    _install_rom,
+    _seed_save_state_dict,
+    _server_save,
+    make_service,
+)
+
+if TYPE_CHECKING:
+    from fakes.fake_save_api import FakeSaveApi
+    from fakes.fake_save_location_reader import FakeSaveLocationReader
+
+    from services.saves import SaveService
+
+_STARTED = ("pre_launch_sync_started", {"rom_id": 42})
+
+
+class _Heard:
+    """An emitter that records every event, with the RomM calls made before it."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object]] = []
+        self.calls_before: list[list[str]] = []
+        self.fake: FakeSaveApi | None = None
+
+    async def __call__(self, event: str, payload: object, /) -> bool:
+        self.events.append((event, payload))
+        assert self.fake is not None
+        self.calls_before.append([call[0] for call in self.fake.call_log])
+        return True
+
+    def started(self) -> list[tuple[str, object]]:
+        return [event for event in self.events if event[0] == _STARTED[0]]
+
+
+def _service(tmp_path) -> tuple[SaveService, FakeSaveApi, _Heard]:
+    """A ROM whose saves sync, with save sync on, a device bound and a save on RomM."""
+    heard = _Heard()
+    svc, fake = make_service(tmp_path, emit=heard)
+    heard.fake = fake
+    _enable_sync_with_device(svc)
+    _install_rom(svc, tmp_path)
+    _create_save(tmp_path)
+    _seed_save_state_dict(svc, 42, {"active_slot": "default", "slot_confirmed": True})
+    fake.saves[100] = _server_save()
+    return svc, fake, heard
+
+
+def _refusing() -> SaveAnswer:
+    """A save shared by many games, which a sync refuses as a skip."""
+    return SaveAnswer(
+        state="shared",
+        unestablished=None,
+        emulator="PCSX2 (Standalone)",
+        directory="/saves/ps2/pcsx2/memcards",
+        backing_directory=None,
+        granularity="shared-card",
+        needs=(),
+        components=(),
+        caveats=(),
+        content_installed=True,
+    )
+
+
+class TestASyncThatProceedsIsAnnounced:
+    @pytest.mark.asyncio
+    async def test_the_event_names_the_rom_once_after_the_session_romm_could_refuse_and_before_the_sync(self, tmp_path):
+        svc, fake, heard = _service(tmp_path)
+
+        result = await svc.pre_launch_sync(42)
+
+        assert result["success"] is True
+        assert heard.started() == [_STARTED]
+        [before] = heard.calls_before
+        assert before[-1] == "negotiate_sync"
+        assert "list_saves" not in before
+        assert any(call[0] == "list_saves" for call in fake.call_log)
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_could_not_be_opened_is_announced_before_the_sync_it_goes_on_without(
+        self, tmp_path, monkeypatch
+    ):
+        svc, fake, heard = _service(tmp_path)
+
+        def negotiate_fails(*_args: object, **_kwargs: object) -> dict[str, Any]:
+            fake.call_log.append(("negotiate_sync", (), {}))
+            raise RommConnectionError("Connection reset")
+
+        monkeypatch.setattr(fake, "negotiate_sync", negotiate_fails)
+
+        await svc.pre_launch_sync(42)
+
+        assert heard.started() == [_STARTED]
+        [before] = heard.calls_before
+        assert "negotiate_sync" in before
+        assert "list_saves" not in before
+        assert any(call[0] == "list_saves" for call in fake.call_log)
+
+    @pytest.mark.asyncio
+    async def test_a_slot_not_confirmed_opens_no_session_and_is_announced_before_the_sync(self, tmp_path):
+        svc, fake, heard = _service(tmp_path)
+        _seed_save_state_dict(svc, 42, {"active_slot": "default", "slot_confirmed": False})
+
+        await svc.pre_launch_sync(42)
+
+        assert heard.started() == [_STARTED]
+        [before] = heard.calls_before
+        assert "list_saves" not in before
+        assert not any(call[0] == "negotiate_sync" for call in fake.call_log)
+        assert any(call[0] == "list_saves" for call in fake.call_log)
+
+
+class TestNoEventWhereNoSyncRuns:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("enabled", [False, True], ids=["save-sync-off", "control-on"])
+    async def test_save_sync_switched_off(self, tmp_path, enabled: bool):
+        svc, _fake, heard = _service(tmp_path)
+        svc._config.settings["save_sync_enabled"] = enabled
+
+        await svc.pre_launch_sync(42)
+
+        assert heard.started() == ([_STARTED] if enabled else [])
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("before_launch", [False, True], ids=["sync-before-launch-off", "control-on"])
+    async def test_sync_before_launch_switched_off(self, tmp_path, before_launch: bool):
+        svc, _fake, heard = _service(tmp_path)
+        svc._config.settings["sync_before_launch"] = before_launch
+
+        await svc.pre_launch_sync(42)
+
+        assert heard.started() == ([_STARTED] if before_launch else [])
+
+    @pytest.mark.asyncio
+    async def test_a_game_whose_saves_cannot_sync(self, tmp_path):
+        svc, _fake, heard = _service(tmp_path)
+        cast("FakeSaveLocationReader", svc._rom_info._save_locations).answer_with("gba", _refusing())
+        sync = svc.pre_launch_sync(42)
+
+        with pytest.raises(SaveShapeUnsupported):
+            await sync
+
+        assert heard.started() == []
+
+    @pytest.mark.asyncio
+    async def test_the_control_a_game_whose_saves_sync(self, tmp_path):
+        svc, _fake, heard = _service(tmp_path)
+
+        await svc.pre_launch_sync(42)
+
+        assert heard.started() == [_STARTED]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("disabled", [True, False], ids=["romm-sync-off-for-this-device", "control-on"])
+    async def test_romm_s_own_sync_switched_off_for_this_device(self, tmp_path, disabled: bool):
+        svc, fake, heard = _service(tmp_path)
+        fake.negotiate_sync_disabled = disabled
+
+        result = await svc.pre_launch_sync(42)
+
+        assert result["success"] is True
+        assert any(call[0] == "negotiate_sync" for call in fake.call_log)
+        assert heard.started() == ([] if disabled else [_STARTED])
+
+    @pytest.mark.asyncio
+    async def test_romm_not_answering(self, tmp_path):
+        svc, fake, heard = _service(tmp_path)
+        fake.heartbeat_raises = RommConnectionError("Connection refused")
+        sync = svc.pre_launch_sync(42)
+
+        with pytest.raises(ServerUnreachable):
+            await sync
+
+        assert heard.started() == []
+
+    @pytest.mark.asyncio
+    async def test_the_control_romm_answering(self, tmp_path):
+        svc, fake, heard = _service(tmp_path)
+        fake.heartbeat_raises = None
+
+        await svc.pre_launch_sync(42)
+
+        assert heard.started() == [_STARTED]
+
+
+class TestOnlyTheSyncBeforeAStartSendsIt:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entry", "args"),
+        [("sync_rom_saves", (42,)), ("sync_all_saves", ()), ("post_exit_sync", (42,))],
+        ids=["sync-saves", "sync-all-saves", "after-a-game"],
+    )
+    async def test_another_sync_that_runs_sends_nothing(self, tmp_path, entry: str, args: tuple[Any, ...]):
+        svc, fake, heard = _service(tmp_path)
+
+        await getattr(svc, entry)(*args)
+
+        assert any(call[0] == "list_saves" for call in fake.call_log), "the sync must have run"
+        assert heard.started() == []
+
+    @pytest.mark.asyncio
+    async def test_the_control_the_sync_before_a_start_on_the_same_game(self, tmp_path):
+        svc, fake, heard = _service(tmp_path)
+
+        await svc.pre_launch_sync(42)
+
+        assert any(call[0] == "list_saves" for call in fake.call_log)
+        assert heard.started() == [_STARTED]

@@ -408,15 +408,15 @@ To find the files, open the game's detail page — the **ROM File** section show
 
 ### Play asks whether to launch with local saves
 
-**Symptom**: You start a game — with **Play** on its detail page, where the button reads **Checking saves...**, or with
+**Symptom**: You start a game — with **Play** on its detail page, where the button reads **Preparing...**, or with
 Steam's own Play or a link — and after a wait a **Save Sync Unavailable** dialog asks "Couldn't check your saves in time
 — launch with local saves?".
 
-**What happened**: Before a game starts, Tender checks its saves, and every step of that check but the save sync itself
-has a time limit — about fifteen seconds for reading how the game's saves are set up on RomM, about five for every other
-step. A step that got no answer in time ends in this dialog, so a start never waits without end. Either Tender's backend
-is not answering, or RomM is slow. A save sync that takes long asks a different question — see
-[Play is waiting for a save sync](#play-is-waiting-for-a-save-sync).
+**What happened**: Before a game starts, Tender checks what the start needs, its saves among them, and every step of
+that check but the save sync itself has a time limit — about fifteen seconds for reading how the game's saves are set up
+on RomM, about five for every other step. A step that got no answer in time ends in this dialog, so a start never waits
+without end. Either Tender's backend is not answering, or RomM is slow. A save sync that takes long asks a different
+question — see [Play is waiting for a save sync](#play-is-waiting-for-a-save-sync).
 
 **Fix**: **Launch Anyway** starts the game on the save already on the device; the sync after the game compares that save
 with the server's; where both changed, it tells you, and you choose which to keep before the next start. **Cancel**
@@ -426,9 +426,9 @@ backend is not running or not answering, or RomM is too slow to answer in time. 
 
 ### Play is waiting for a save sync
 
-**Symptom**: You start a game — with **Play** on its detail page, where the button reads **Syncing saves...**, or with
-Steam's own Play or a link — and after about fifteen seconds a **Waiting for Save Sync** dialog names why the start is
-held up and offers **Wait**, **Play Anyway** and **Cancel**.
+**Symptom**: You start a game — with **Play** on its detail page, where the button reads **Preparing...** or, once the
+sync has begun, **Syncing saves...**, or with Steam's own Play or a link — and after about fifteen seconds a **Waiting
+for Save Sync** dialog names why the start is held up and offers **Wait**, **Play Anyway** and **Cancel**.
 
 **What happened**: The save sync before the start is not done yet. The dialog says why: another save sync is still
 running (**Sync All Saves Now**, the sync after the last game, a manual sync, or the sync of another start), Tender is

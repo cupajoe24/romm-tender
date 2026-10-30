@@ -81,7 +81,7 @@ from services.saves.sync_engine._gate import (
     SaveSyncGate,
     SaveSyncTimeoutError,
 )
-from services.saves.sync_engine._pre_launch import PreLaunchRuns, PreLaunchState, stopped_refusal
+from services.saves.sync_engine._pre_launch import PreLaunchRuns, PreLaunchState, completed_answer, stopped_refusal
 from services.saves.sync_engine._result_message import summarize_sync_result
 from services.saves.sync_engine._running_game import RomSyncStops, RunningGameGuard, RunningSkips
 from services.saves.sync_engine._shape_refusal import SweepTally, live_save_answer, refuse_unsyncable
@@ -92,7 +92,7 @@ from services.saves.sync_engine.rollback import RollbackOrchestrator
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Callable, Iterator
+    from collections.abc import Awaitable, Callable, Iterator
 
     from domain.rom_save_sync_state import RomSaveSyncState
     from domain.save_answer import SaveAnswer, SaveComponent
@@ -101,6 +101,7 @@ if TYPE_CHECKING:
         Clock,
         ComputeSyncActionFn,
         DebugLogger,
+        EventEmitter,
         HostnameReader,
         MachineIdReader,
         MigrationPendingFn,
@@ -143,8 +144,9 @@ class SyncEngineConfig:
     the per-ROM active-core resolver, the hostname and machine-id providers
     passed through to device registration, the update-in-progress and
     migration-pending callbacks its sync backstops and follow ask, the
-    reading of which ROMs' games are running, and the save backup and save
-    transfer the save service built for every peer.
+    reading of which ROMs' games are running, the save backup and save
+    transfer the save service built for every peer, and the event emitter
+    that tells the panel a sync before a start has begun.
     """
 
     settings: dict[str, Any]
@@ -169,6 +171,7 @@ class SyncEngineConfig:
     running_rom_ids: RunningRomIdsFn
     save_backup: SaveBackup
     save_transfer: SaveTransfer
+    emit: EventEmitter
 
 
 class SyncEngine:
@@ -193,6 +196,7 @@ class SyncEngine:
         self._is_update_in_progress = config.is_update_in_progress
         self._is_retrodeck_migration_pending = config.is_retrodeck_migration_pending
         self._build_inventory = config.build_inventory
+        self._emit = config.emit
         # Per-rom lock dict — serializes concurrent sync operations on the
         # same rom_id (pre_launch_sync, post_exit_sync, manual sync, resolve).
         self._rom_sync_locks: dict[int, asyncio.Lock] = {}
@@ -564,6 +568,7 @@ class SyncEngine:
         sweep_tally: SweepTally | None = None,
         running_skips: RunningSkips | None = None,
         stop: SyncStop | None = None,
+        on_sync_begins: Callable[[], Awaitable[object]] | None = None,
     ) -> tuple[int, int, list[str], list[dict[str, Any]]]:
         """Read inputs → sync in executor → persist, for one ROM under its lock.
 
@@ -610,6 +615,15 @@ class SyncEngine:
         threaded in (this call does not open its own) and *session_counts* (the
         shared ``[completed, failed]`` accumulator) collects the run's tallies;
         the bulk run completes that session once after the loop.
+
+        *on_sync_begins* is awaited once the sync's first request that RomM can
+        refuse for this device has passed without that refusal: once the
+        ``negotiate`` request has answered without RomM refusing the sync,
+        whether or not it opened a session, and where this call sends none,
+        just before the matrix runs. A ``negotiate`` that
+        raises :class:`RommSyncDisabledError` never reaches it, and neither does
+        a ROM not installed or passed over. Only the sync before a start passes
+        it.
         """
         if not await self._loop.run_in_executor(None, self._rom_info.is_content_installed, rom_id):
             self._log_debug(f"_run_rom_sync({rom_id}): ROM not installed, skipping")
@@ -648,6 +662,8 @@ class SyncEngine:
             errors: list[str] = []
             conflicts: list[dict[str, Any]] = []
             try:
+                if on_sync_begins is not None:
+                    await on_sync_begins()
                 uploaded, downloaded, errors, conflicts = await self._loop.run_in_executor(
                     None,
                     functools.partial(
@@ -796,28 +812,21 @@ class SyncEngine:
 
         device_id = await self.live_device_id()
 
+        # The panel reads this event as a sync of the game having begun;
+        # _run_rom_sync says when it is sent.
         uploaded, downloaded, errors, conflicts = await self._run_rom_sync(
-            rom_id, device_id=device_id, save_answer=save_answer, stop=stop
+            rom_id,
+            device_id=device_id,
+            save_answer=save_answer,
+            stop=stop,
+            on_sync_begins=lambda: self._emit("pre_launch_sync_started", {"rom_id": rom_id}),
         )
         if stop.stopped_the_sync():
             self._logger.info(
                 "pre_launch_sync of rom %d stopped: uploaded=%d, downloaded=%d", rom_id, uploaded, downloaded
             )
             raise stopped_refusal(uploaded=uploaded, downloaded=downloaded)
-        synced = uploaded + downloaded
-
-        msg = f"Downloaded {synced} save(s)"
-        if errors:
-            msg += f", {len(errors)} error(s)"
-        return {
-            "success": len(errors) == 0,
-            "message": msg,
-            "synced": synced,
-            "uploaded": uploaded,
-            "downloaded": downloaded,
-            "errors": errors,
-            "conflicts": list(conflicts),
-        }
+        return completed_answer(uploaded, downloaded, errors, conflicts)
 
     def pre_launch_sync_state(self, rom_id: int) -> dict[str, Any]:
         """What the sync before a start of *rom_id* is doing (``PreLaunchState``), and whom it waits for."""
