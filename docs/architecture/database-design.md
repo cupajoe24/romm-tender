@@ -298,23 +298,25 @@ of the additional pending homes, oldest→newest, so files under an intermediate
 [#1042](https://github.com/danielcopper/romm-tender/issues/1042)), `save_directories_recorded` (present once the
 one-time pass that records the answered save directories of the installed ROMs has finished over a detected emulator
 installation with no ROM failing), `shortcut_launcher_relocated` (present once a reading of Steam's shortcut file found
-no shortcut of ours naming a launcher outside the launcher's home), `playtime_scope_notice` (present while RomM refuses
-the token the playtime read needs, cleared by a later read that succeeds or a fresh sign-in), `update_check_last_seen`
-(what the release checks last established), `last_run_version` (the version the previous start ran as),
-`update_available_seen_version` (the release the user has seen in Settings › Updates), and the three marks of an update
-toast already raised — `update_available_toasted_version` (the release told about), `update_failure_toasted_at` (the
-installer's record of a failed update) and `update_stopped_toasted_at` (an installer found stopped) — the truly
-miscellaneous singleton scalars. The `platform_names` cache is a single JSON blob the library sync refreshes every run
-so five reads need no RomM: the game-detail platform name, a platform removal's answer, whose name the frontend finds
-that platform's Steam collection by, the next sync's name, in its preview as in its apply, for the Steam collection of a
-platform RomM no longer lists, whose kept games stay in it, a BIOS row a link of Tender's into another platform's store
-folder serves, and the [platform system](core-emulator-selection.md#a-platforms-system) (`PlatformSystemService`), whose
-name its `no_platform_system` refusal, the pages that show the system, and a download's queue entry and every frame and
-event it sends, `download_failed` included, carry ([#2573](https://github.com/danielcopper/romm-tender/issues/2573) D1).
-Each refresh writes the name of every platform the run's own platform listing names, its sync on in Tender or not —
-RomM's `name`, never a custom name set in RomM ([#2564](https://github.com/danielcopper/romm-tender/issues/2564) D1, D2)
-— and keeps the cached name of every other platform a bound game is still on, a stopped run's refresh included. The
-schema version is **not** a `kv_config` key — it is tracked in `PRAGMA user_version` by the
+no shortcut of ours naming a launcher outside the launcher's home), `ps3_folders_to_name` (the JSON list of the rom_ids
+whose PS3 folder the one-time naming step renames, fixed at its first pass) and `ps3_folders_named` (present once that
+step left none of them to rename), `playtime_scope_notice` (present while RomM refuses the token the playtime read
+needs, cleared by a later read that succeeds or a fresh sign-in), `update_check_last_seen` (what the release checks last
+established), `last_run_version` (the version the previous start ran as), `update_available_seen_version` (the release
+the user has seen in Settings › Updates), and the three marks of an update toast already raised —
+`update_available_toasted_version` (the release told about), `update_failure_toasted_at` (the installer's record of a
+failed update) and `update_stopped_toasted_at` (an installer found stopped) — the truly miscellaneous singleton scalars.
+The `platform_names` cache is a single JSON blob the library sync refreshes every run so five reads need no RomM: the
+game-detail platform name, a platform removal's answer, whose name the frontend finds that platform's Steam collection
+by, the next sync's name, in its preview as in its apply, for the Steam collection of a platform RomM no longer lists,
+whose kept games stay in it, a BIOS row a link of Tender's into another platform's store folder serves, and the
+[platform system](core-emulator-selection.md#a-platforms-system) (`PlatformSystemService`), whose name its
+`no_platform_system` refusal, the pages that show the system, and a download's queue entry and every frame and event it
+sends, `download_failed` included, carry ([#2573](https://github.com/danielcopper/romm-tender/issues/2573) D1). Each
+refresh writes the name of every platform the run's own platform listing names, its sync on in Tender or not — RomM's
+`name`, never a custom name set in RomM ([#2564](https://github.com/danielcopper/romm-tender/issues/2564) D1, D2) — and
+keeps the cached name of every other platform a bound game is still on, a stopped run's refresh included. The schema
+version is **not** a `kv_config` key — it is tracked in `PRAGMA user_version` by the
 [migration runner](#the-migration-framework) ([#781](https://github.com/danielcopper/romm-tender/issues/781)).
 
 `SyncRun` is a **history** table, not a single "last run" row: a 1-row table would let a newly-started run
@@ -685,14 +687,8 @@ whether the system can act on the install's `file_path` at all
 so a download none of its format rules recognise still produces a `file_path`, and that path became the shortcut's
 launch command with nothing checking it; the reported case is a PS3 title shipped as `.pkg` + `.rap`, where the PKG is
 an installer and the game is still sealed inside it ([#1582](https://github.com/danielcopper/romm-tender/issues/1582)).
-The verdict is decided once at download-complete and recorded here; the behavior it drives is in
-[Launch-target validation](backend-architecture.md#launch-target-validation).
-
-`NOT NULL DEFAULT 1` — existing rows are launchable **by assumption, not by re-assessment**. They were downloaded under
-the old behaviour and their shortcuts work (or do not) exactly as before; flipping any of them to `0` would need an
-accept-list this DDL cannot consult. A ROM re-downloaded after the migration gets a real verdict. Unlaunchable is always
-a proven verdict, never the absence of one — the same reason the aggregate field and the check's unknown-system branch
-both default to launchable.
+`NOT NULL DEFAULT 1`: existing rows were launchable by assumption, since flipping any of them to `0` would have needed
+an accept-list the DDL could not consult. Rung 040 drops the column.
 
 `024_add_answered_save_directories.sql` (`user_version = 24`) creates `answered_save_directories` — one row per ROM, the
 save directory the resolver last answered for it ([ADR-0041](../adr/0041-the-save-directory-is-the-resolvers-answer.md);
@@ -844,6 +840,13 @@ column to `roms` beside `emulator_override` ([#2195](https://github.com/danielco
 kind of the emulator source a per-game pick was chosen from, so a label that no longer exists there can be named with
 it. No backfill: nothing recorded which source an existing pick came from, and such a pick is read against the source
 the game starts through. Written only with the pick, through `set_emulator_override`.
+
+`040_drop_rom_install_launchable.sql` (`user_version = 40`) drops `rom_installs.launchable` again
+([#2195](https://github.com/danielcopper/romm-tender/issues/2195) D13, D26, D28). Whether an installed game's file
+starts is the resolver's answer, asked with the entry Tender starts the game through, when its page, its emulator menu
+or a press on Steam's own Play reads it; a stored yes or no would go stale with the emulator choice and with the
+resolver's next release. The sync writes the start command for every installed game whatever the answer
+([Launch-target validation](backend-architecture.md#launch-target-validation)).
 
 ## The runtime Unit of Work
 

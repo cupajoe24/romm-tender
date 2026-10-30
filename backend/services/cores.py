@@ -31,6 +31,8 @@ from domain.emulator_choice import (
 )
 from domain.emulator_commands import default_option, label_to_invocation, options_to_payload, shipped_default
 from domain.emulator_pick import pick_for, platform_pick, platform_pick_value, source_kind
+from domain.platform_names import PLATFORM_NAMES_KEY, platform_display_name
+from domain.rom_files import folder_boot_root
 from domain.shortcut_data import (
     EmulatorInvocation,
     build_launch_options,
@@ -42,6 +44,7 @@ if TYPE_CHECKING:
     import asyncio
     import logging
 
+    from domain.emulator_choice import ResolvedEmulator
     from domain.platform_system import PlatformSystem
     from domain.rom import Rom
     from domain.rom_install import RomInstall
@@ -165,6 +168,7 @@ class CoreService:
                 "platform_core_label": None,
                 "has_game_override": False,
                 "start": start_payload(_NO_CHOICE, []),
+                "launch": None,
                 "vanished_pick": None,
             }
         platform = self._platform_systems.rom_system(rom.platform_slug, install)
@@ -190,8 +194,71 @@ class CoreService:
                 resolved.options if resolved is not None else [],
                 folder_unstartable=resolved is not None and resolved.folder_unstartable,
             ),
+            "launch": self._chosen_launch(rom, install, resolved),
             "vanished_pick": vanished_payload(choice),
         }
+
+    def _chosen_launch(
+        self, rom: Rom, install: RomInstall | None, resolved: ResolvedEmulator | None
+    ) -> dict[str, Any] | None:
+        """Whether the installed game's file starts with the entry it starts with, or ``None`` where nothing is asked.
+
+        Nothing is asked for a game that is not installed, has no system to
+        ask, or has no entry chosen — no default and no pick (#2195 D7): its
+        start is refused for that reason already.
+        """
+        if install is None or resolved is None or resolved.choice.option is None:
+            return None
+        path = _asked_path(install, rom, self._disc_resolver)
+        verdict = self._core_info.launchability(install.system, path, label=resolved.choice.option.label)
+        return verdict.payload(platform_name=self._platform_name(rom.platform_slug))
+
+    async def get_emulator_launches(self, rom_id: int) -> list[dict[str, Any]]:
+        """Whether each emulator entry of ``rom_id``'s system starts the game's installed file.
+
+        One verdict per entry, in the order the picker lists them, each asked
+        with that entry's label (:meth:`~services.protocols.CoreInfoProvider.launchability`)
+        — those not established included — so the emulator menu shows which
+        entries can start the game and why the others cannot (#2195 D22, D29).
+        Empty for a ROM that is not installed or has no system to ask.
+        Asked when the menu is opened, for one game: a verdict may read its
+        entry's core, which the first time costs a probe (#2195 D31).
+        """
+        return await self._loop.run_in_executor(None, self._emulator_launches_io, rom_id)
+
+    def _emulator_launches_io(self, rom_id: int) -> list[dict[str, Any]]:
+        question = self._launch_question(rom_id)
+        if question is None:
+            return []
+        system, path, resolved, platform_name = question
+        reading = self._core_info.sources_reading()
+        return [
+            self._core_info.launchability(system, path, label=option.label, reading=reading).payload(
+                platform_name=platform_name
+            )
+            for option in resolved.options
+        ]
+
+    def _launch_question(self, rom_id: int) -> tuple[str, str, ResolvedEmulator, str] | None:
+        """What ``rom_id``'s question is asked with, and the platform name its answers carry.
+
+        The system, the path (:func:`_asked_path`), the emulator resolution and
+        the platform's name.
+
+        ``None`` for a ROM that is not installed or has no system to ask.
+        """
+        rom, install = self._read_rom_and_install(rom_id)
+        if rom is None or install is None:
+            return None
+        resolved = self._active_core.resolve_rom(rom_id)
+        if resolved is None:
+            return None
+        return (
+            install.system,
+            _asked_path(install, rom, self._disc_resolver),
+            resolved,
+            self._platform_name(rom.platform_slug),
+        )
 
     async def get_system_core_info(self, platform_slug: str) -> dict[str, Any]:
         """Return the emulators available for *platform_slug* + the active one.
@@ -576,6 +643,11 @@ class CoreService:
         bake_path = self._disc_resolver.resolve_for_install(install, rom.selected_disc)
         return (build_launch_options(invocation, bake_path), app_id)
 
+    def _platform_name(self, platform_slug: str | None) -> str:
+        """The name the game page shows *platform_slug* under, which a launch answer's sentences name (#2195 D36)."""
+        with self._uow_factory() as uow:
+            return platform_display_name(uow.kv_config.get(PLATFORM_NAMES_KEY), platform_slug)
+
     def _read_rom_and_install(self, rom_id: int) -> tuple[Rom | None, RomInstall | None]:
         with self._uow_factory() as uow:
             return uow.roms.get(rom_id), uow.rom_installs.get(rom_id)
@@ -587,6 +659,18 @@ class CoreService:
         if content_path is None:
             return self._core_info.get_emulator_options(platform.taken)
         return self._core_info.get_emulator_options(platform.taken, content_path=content_path)
+
+
+def _asked_path(install: RomInstall, rom: Rom, disc_resolver: DiscResolver) -> str:
+    """The path a launchability question for an installed game is asked with.
+
+    The one the shortcut starts — the disc pick folded over the install —
+    except for a game kept as a folder, whose folder is asked about as ES-DE
+    scans it (#2195 D11).
+    """
+    if install.rom_dir is not None and folder_boot_root(install.file_path, install.rom_dir) is not None:
+        return install.rom_dir
+    return disc_resolver.resolve_for_install(install, rom.selected_disc)
 
 
 # A ROM with no system to ask has no choice to make.

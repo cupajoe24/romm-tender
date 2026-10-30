@@ -28,6 +28,7 @@ from domain.rom_files import (
     folder_boot_layout_root,
     is_multi_file_download,
     needs_m3u,
+    ps3_folder_rename,
 )
 from domain.served_shape import holds_disc_image, is_zip_name, served_shapes, wrapper_prefix
 
@@ -36,7 +37,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from models.adoption import ArchiveMemberInfo
-    from services.protocols import DownloadFileStore, RetroDeckFolders, RomInstallRecorder, SystemM3uSupportFn
+    from services.protocols import (
+        DownloadFileStore,
+        RetroDeckFolders,
+        RomInstallRecorder,
+        SystemM3uSupportFn,
+        SystemSupportedExtensionsFn,
+    )
 
     ProgressCallback = Callable[[int, int], None]
 
@@ -49,6 +56,7 @@ class DownloadUnpackerConfig:
     retrodeck_folders: RetroDeckFolders
     install_recorder: RomInstallRecorder
     m3u_support: SystemM3uSupportFn
+    system_extensions: SystemSupportedExtensionsFn
     logger: logging.Logger
 
 
@@ -65,6 +73,7 @@ class DownloadUnpacker:
         self._retrodeck_folders = config.retrodeck_folders
         self._install_recorder = config.install_recorder
         self._m3u_support = config.m3u_support
+        self._system_extensions = config.system_extensions
         self._logger = config.logger
 
     def kept_download_complete(self, target_path: str, rom_detail: dict[str, Any]) -> bool:
@@ -289,6 +298,7 @@ class DownloadUnpacker:
             # auto-generated above), so the rename happens here, last of all the
             # filesystem work, so a later failure cleans up the renamed dir.
             extract_dir, launch_file = self._es_de_collapse(extract_dir, launch_file)
+            extract_dir, launch_file = self._ps3_folder_name(extract_dir, launch_file, system)
         except BaseException:
             self._remove_extract_dir(extract_dir)
             raise
@@ -382,6 +392,26 @@ class DownloadUnpacker:
                 "ES-DE collapse rename skipped: target '%s' already exists; keeping staging dir '%s'",
                 new_rom_dir,
                 extract_dir,
+            )
+            return (extract_dir, launch_file)
+        self._download_file_store.move_dir(extract_dir, new_rom_dir)
+        return (new_rom_dir, new_launch_file)
+
+    def _ps3_folder_name(self, extract_dir: str, launch_file: str, system: str) -> tuple[str, str]:
+        """Name a folder-boot game's folder ``<game>.ps3``, as ES-DE scans it (:func:`ps3_folder_rename`).
+
+        Returns ``(rom_dir, launch_file)`` — the renamed pair when the move
+        applied, or the originals unchanged: for any other layout, and on
+        collision, where the folder keeps its name and a warning is logged
+        rather than an existing folder being clobbered or merged.
+        """
+        rename = ps3_folder_rename(extract_dir, launch_file, self._system_extensions(system))
+        if rename is None:
+            return (extract_dir, launch_file)
+        new_rom_dir, new_launch_file = rename
+        if self._download_file_store.exists(new_rom_dir):
+            self._logger.warning(
+                "PS3 folder rename skipped: target '%s' already exists; keeping '%s'", new_rom_dir, extract_dir
             )
             return (extract_dir, launch_file)
         self._download_file_store.move_dir(extract_dir, new_rom_dir)

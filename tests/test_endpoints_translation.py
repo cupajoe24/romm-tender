@@ -2041,10 +2041,8 @@ def _dispatcher_over_adoption(world: _AdoptionWorld) -> CallDispatcher:
     uow_factory = FakeUnitOfWorkFactory(world.uow)
     recorder = RomInstallRecorder(
         config=RomInstallRecorderConfig(
-            logger=LOGGER,
             clock=FakeClock(),
             uow_factory=uow_factory,
-            system_extensions=lambda system_name, reading=None: frozenset(),
             active_core=FakeActiveCoreResolver(default=(None, None)),
             disc_resolver=FakeDiscResolver(),
         )
@@ -2083,6 +2081,7 @@ def _dispatcher_over_adoption(world: _AdoptionWorld) -> CallDispatcher:
             retrodeck_folders=folders,
             install_recorder=recorder,
             m3u_support=lambda system_name: True,
+            system_extensions=lambda system_name, reading=None: frozenset(),
             logger=LOGGER,
         )
     )

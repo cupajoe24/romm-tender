@@ -18,7 +18,6 @@ vi.mock("../api/backend", () => ({
   checkStartSource: vi.fn(),
   confirmSlotChoice: vi.fn(),
   debugLog: vi.fn(() => Promise.resolve()),
-  getInstalledRom: vi.fn(),
   getSaveSetupInfo: vi.fn(),
   isSaveTrackingConfigured: vi.fn(),
   logError: vi.fn(),
@@ -539,14 +538,6 @@ describe("makeLaunchGateOps", () => {
   it("migrationPending reads the migration store", () => {
     vi.mocked(getMigrationState).mockReturnValueOnce({ pending: true } as ReturnType<typeof getMigrationState>);
     expect(makeLaunchGateOps(ROM_ID, options()).migrationPending()).toBe(true);
-  });
-
-  it("hasLaunchTarget asks for this ROM, and logs a failed check with the tag", async () => {
-    vi.mocked(backend.getInstalledRom).mockRejectedValue(new Error("net"));
-
-    expect(await makeLaunchGateOps(ROM_ID, options()).hasLaunchTarget()).toBe(true);
-    expect(backend.getInstalledRom).toHaveBeenCalledWith(ROM_ID);
-    expect(backend.logError).toHaveBeenCalledWith(expect.stringContaining(`${TAG} launch-target check threw`));
   });
 
   it("readStartingSource asks with the tag, and the unchecked-source question is the path's own", async () => {

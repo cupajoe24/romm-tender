@@ -166,11 +166,9 @@ class TestBuildLaunchOptions:
         assert result == "flatpak run --nosocket=wayland net.retrodeck.retrodeck '/roms/dc/My Game.chd'"
 
     def test_empty_path_yields_no_launch_command(self):
-        # An empty path is the "no launch target" signal — not downloaded, or
-        # downloaded with nothing the system can boot. Quoting it would hand the
-        # emulator a bare "" argument, which is the failure #1652 exists to
-        # prevent; the shortcut gets the same empty command an uninstalled ROM's
-        # carries instead.
+        # An empty path is the signal for a ROM not downloaded. Quoting it would
+        # hand the emulator a bare "" argument, which is the failure #1652
+        # exists to prevent; the shortcut gets the empty command instead.
         assert build_launch_options(RETRODECK_INVOCATION, "") == ""
 
     def test_folder_boot_direct_composes_full_mgs4_command(self):
@@ -447,19 +445,18 @@ class TestBuildShortcutsData:
         )
         assert result[1]["launch_options"] == ""
 
-    def test_installed_rom_with_no_launch_target_gets_empty_launch_options(self):
-        # The install resolved to the empty path (launchable is False, #1652). It
-        # is still IN the map — it IS downloaded — but its shortcut carries the
-        # same empty launch command an un-downloaded ROM's does, never a command
-        # composed around a bare "".
-        roms = [{"id": 1, "name": "Sealed In A PKG"}]
+    def test_a_rom_mapped_to_the_empty_path_gets_empty_launch_options(self):
+        # The bake writes no empty path into the map any more (#2195 D28); one
+        # there still gets the empty launch command an un-downloaded ROM's does,
+        # never a command composed around a bare "".
+        roms = [{"id": 1, "name": "Some Game"}]
         result = build_shortcuts_data(roms, _LAUNCHER, {1: ""}, {})
         assert result[0]["launch_options"] == ""
 
-    def test_no_launch_target_beats_a_core_override(self):
-        # An emulator override cannot resurrect a launch command for content the
-        # system cannot boot — no ``-e`` form is composed either.
-        roms = [{"id": 1, "name": "Sealed In A PKG"}]
+    def test_the_empty_path_beats_a_core_override(self):
+        # An emulator override composes no ``-e`` form around an empty path
+        # either.
+        roms = [{"id": 1, "name": "Some Game"}]
         overrides = {1: _core("pcsx_rearmed_libretro")}
         result = build_shortcuts_data(roms, _LAUNCHER, {1: ""}, overrides)
         assert result[0]["launch_options"] == ""
