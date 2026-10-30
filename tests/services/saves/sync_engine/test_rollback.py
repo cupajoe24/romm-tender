@@ -6,24 +6,35 @@ timeline rollbacks (older save versions) belong to VersionsService and are
 tested under tests/services/saves/test_versions.py.
 """
 
+import hashlib
 import os
 
 import pytest
 from fakes.fake_save_location_reader import FakeSaveLocationReader
 
 from domain.rom_save_sync_state import FileSyncState, RomSaveSyncState
-from lib.errors import NotInstalled, Refused, RommApiError, RommConnectionError, RommNotFoundError, RommServerError
+from lib.errors import (
+    NotInstalled,
+    Refused,
+    RommAcknowledgementNotTaken,
+    RommApiError,
+    RommConnectionError,
+    RommNotFoundError,
+    RommServerError,
+)
 from services.saves._refusals import SavefilesInContentDir, SaveShapeUnsupported
 from services.saves.sync_engine.rollback import StaleConflict
 from tests.services.saves._helpers import (
     _create_save,
     _enable_sync_with_device,
+    _fail_save_backups,
     _file_md5,
     _get_save_state,
     _install_rom,
     _no_save_directory,
     _require_save_state,
     _seed_save_state,
+    _seed_save_state_dict,
     _server_save_with_syncs,
     make_service,
 )
@@ -579,6 +590,178 @@ class TestResolveSyncConflictTransferFailures:
             await resolving
 
 
+class TestUseServerMarksThisDeviceOnlyOnceItPlaced:
+    """#2664 D1/D3: Use Server downloads without RomM's mark and acknowledges only a placed file."""
+
+    _HEAD = b"newer from device B"
+
+    def _seed_a_conflict(self, svc, fake, tmp_path):
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        save_path = _create_save(tmp_path, content=b"played here")
+        base_hash = hashlib.md5(b"last synced").hexdigest()
+        _seed_save_state_dict(
+            svc,
+            42,
+            {
+                "active_slot": "default",
+                "slot_confirmed": True,
+                "files": {
+                    "pokemon.srm": {
+                        "last_sync_hash": base_hash,
+                        "last_sync_server_hash": base_hash,
+                        "tracked_save_id": 90,
+                        "last_sync_server_save_id": 90,
+                    }
+                },
+            },
+        )
+        fake.seed_foreign_save(42, save_id=101, updated_at="2026-03-01T00:00:00Z", content=self._HEAD)
+        fake.saves[101]["content_hash"] = hashlib.md5(self._HEAD).hexdigest()
+        return save_path
+
+    @pytest.mark.asyncio
+    async def test_a_download_it_could_not_place_leaves_romm_s_record_and_the_next_sync_asks_again(
+        self, tmp_path, monkeypatch
+    ):
+        svc, fake = make_service(tmp_path)
+        save_path = self._seed_a_conflict(svc, fake, tmp_path)
+        record_before = dict(fake._device_sync_ledger)
+        _fail_save_backups(svc, monkeypatch)
+
+        with pytest.raises(Refused) as caught:
+            await svc.resolve_sync_conflict(42, "pokemon.srm", 101, "use_server")
+
+        assert caught.value.reason == "resolve_failed"
+        assert [c[2]["optimistic"] for c in fake.call_log if c[0] == "download_save_content"] == [False]
+        assert not any(c[0] == "confirm_download" for c in fake.call_log)
+        assert fake._device_sync_ledger == record_before
+        assert save_path.read_bytes() == b"played here"
+
+        monkeypatch.undo()
+        result = await svc.sync_rom_saves(42)
+
+        assert [c["server_save_id"] for c in result["conflicts"]] == [101]
+        assert not any(c[0] == "upload_save" for c in fake.call_log)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure",
+        [RommServerError("upstream 502"), RommAcknowledgementNotTaken(101)],
+        ids=["romm-error", "not-taken"],
+    )
+    async def test_a_placed_file_whose_acknowledgement_failed_is_done_and_the_next_sync_adopts_and_acknowledges_it(
+        self, tmp_path, monkeypatch, caplog, failure
+    ):
+        """#2664 D7: the choice is carried out on this device, so the dialog closes as on success."""
+        svc, fake = make_service(tmp_path)
+        save_path = self._seed_a_conflict(svc, fake, tmp_path)
+
+        def refused_confirm(_save_id: int, _device_id: str, **_kwargs: object) -> dict[str, object]:
+            raise failure
+
+        monkeypatch.setattr(fake, "confirm_download", refused_confirm)
+
+        result = await svc.resolve_sync_conflict(42, "pokemon.srm", 101, "use_server")
+
+        assert result == {"success": True, "action": "use_server"}
+        assert save_path.read_bytes() == self._HEAD
+        assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 90
+        assert any(r.levelname == "WARNING" and "pokemon.srm" in r.getMessage() for r in caplog.records)
+
+        monkeypatch.undo()
+        fake.call_log.clear()
+        synced = await svc.sync_rom_saves(42)
+
+        assert synced["conflicts"] == []
+        assert not any(c[0] in ("download_save_content", "upload_save") for c in fake.call_log)
+        assert [c[1] for c in fake.call_log if c[0] == "confirm_download"] == [(101, "device-1")]
+        assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 101
+
+    @pytest.mark.asyncio
+    async def test_without_the_head_s_hash_a_failed_acknowledgement_still_answers_its_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Whether the server save is in place is told by its hash; with none, the failure is answered as before."""
+        svc, fake = make_service(tmp_path)
+        self._seed_a_conflict(svc, fake, tmp_path)
+        del fake.saves[101]["content_hash"]
+        failure = RommServerError("upstream 502")
+
+        def refused_confirm(_save_id: int, _device_id: str, **_kwargs: object) -> dict[str, object]:
+            raise failure
+
+        monkeypatch.setattr(fake, "confirm_download", refused_confirm)
+
+        with pytest.raises(RommServerError) as caught:
+            await svc.resolve_sync_conflict(42, "pokemon.srm", 101, "use_server")
+
+        assert caught.value is failure
+
+
+class TestKeepLocalWhoseAcknowledgementWasNotTaken:
+    """#2664 D9: Keep Local over a server save the device already holds counts as done when RomM refuses its ack."""
+
+    _BYTES = b"the same on both sides"
+
+    def _setup(self, tmp_path, *, with_content_hash: bool = True):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        _create_save(tmp_path, content=self._BYTES)
+        fake.seed_foreign_save(42, save_id=100, slot=None, updated_at="2026-03-01T00:00:00Z", content=self._BYTES)
+        if with_content_hash:
+            fake.saves[100]["content_hash"] = hashlib.md5(self._BYTES).hexdigest()
+        earlier = FileSyncState(tracked_save_id=90, last_sync_hash="an-earlier-baseline")
+        _seed_save_state(svc, 42, RomSaveSyncState(files={"pokemon.srm": earlier}))
+        return svc, fake, earlier
+
+    @staticmethod
+    def _refuse_acknowledgements(fake, monkeypatch, failure: Exception) -> None:
+        def refused_confirm(_save_id: int, _device_id: str, **_kwargs: object) -> dict[str, object]:
+            raise failure
+
+        monkeypatch.setattr(fake, "confirm_download", refused_confirm)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure",
+        [RommServerError("upstream 502"), RommAcknowledgementNotTaken(100)],
+        ids=["romm-error", "not-taken"],
+    )
+    async def test_it_is_done_and_the_next_sync_adopts_and_acknowledges(self, tmp_path, monkeypatch, caplog, failure):
+        svc, fake, earlier = self._setup(tmp_path)
+        self._refuse_acknowledgements(fake, monkeypatch, failure)
+
+        result = await svc.resolve_sync_conflict(42, "pokemon.srm", 100, "keep_local")
+
+        assert result == {"success": True, "action": "keep_local"}
+        assert not any(c[0] == "upload_save" for c in fake.call_log)
+        assert _require_save_state(svc, 42).files["pokemon.srm"] == earlier
+        assert any(r.levelname == "WARNING" and "pokemon.srm" in r.getMessage() for r in caplog.records)
+
+        monkeypatch.undo()
+        fake.call_log.clear()
+        synced = await svc.sync_rom_saves(42)
+
+        assert synced["conflicts"] == []
+        assert not any(c[0] in ("download_save_content", "upload_save") for c in fake.call_log)
+        assert [c[1] for c in fake.call_log if c[0] == "confirm_download"] == [(100, "device-1")]
+        assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 100
+
+    @pytest.mark.asyncio
+    async def test_without_the_head_s_hash_the_failure_is_answered(self, tmp_path, monkeypatch):
+        svc, fake, earlier = self._setup(tmp_path, with_content_hash=False)
+        failure = RommServerError("upstream 502")
+        self._refuse_acknowledgements(fake, monkeypatch, failure)
+
+        with pytest.raises(RommServerError) as caught:
+            await svc.resolve_sync_conflict(42, "pokemon.srm", 100, "keep_local")
+
+        assert caught.value is failure
+        assert _require_save_state(svc, 42).files["pokemon.srm"] == earlier
+
+
 class TestResolveSyncConflictStaleConflict:
     """Round-trip validation of ``server_save_id`` guards against a third-device
     race: another device PUTs into the slot while the conflict modal is open,
@@ -959,10 +1142,11 @@ class TestKeepLocalAdoptAcknowledges:
     @pytest.mark.asyncio
     async def test_a_failed_acknowledgement_records_nothing(self, tmp_path, monkeypatch):
         svc, fake, _path = self._setup(tmp_path)
+        del fake.saves[100]["content_hash"]
         earlier = FileSyncState(tracked_save_id=90, last_sync_hash="an-earlier-baseline")
         _seed_save_state(svc, 42, RomSaveSyncState(files={"pokemon.srm": earlier}))
 
-        def confirm_download(save_id, device_id):
+        def confirm_download(save_id, device_id, **_kwargs):
             raise RommServerError("upstream 502")
 
         monkeypatch.setattr(fake, "confirm_download", confirm_download)

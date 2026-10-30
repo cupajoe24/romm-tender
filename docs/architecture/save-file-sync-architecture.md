@@ -265,12 +265,14 @@ a failure answer, `pending_uploads` names the changed files in `files`, and a Ro
    overwrites through the same save backup.
 4. The flipped slot + tracking are persisted once, **regardless of partial download failure**: a failed leg still
    persists this coherent state and answers the partial failure `SlotSwitchIncomplete` (`reason="switch_incomplete"`) so
-   the caller can retry — the completed targets are already correct. On the next sync a failed target with a baseline
-   re-resolves as `Download` (row 10b), or adopts the head when the local file is byte-identical to it (row 10a); one
-   with no local file re-resolves as `Download`; a never-synced local file at a target's name has no baseline, so the
-   next sync answers a conflict (row 11b), or adopts the head when the file is byte-identical to it (row 11a) —
-   [row 11](#why-row-11-splits-into-adopt-11a-vs-conflict-11b) gives why. Saves are never carried between slots; the
-   switch only downloads or backs up, never uploads.
+   the caller can retry — the completed targets are already correct. A target whose acknowledgement failed is one of the
+   failed downloads, with its file in place
+   ([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)).
+   On the next sync a failed target with a baseline re-resolves as `Download` (row 10b), or adopts the head when the
+   local file is byte-identical to it (row 10a); one with no local file re-resolves as `Download`; a never-synced local
+   file at a target's name has no baseline, so the next sync answers a conflict (row 11b), or adopts the head when the
+   file is byte-identical to it (row 11a) — [row 11](#why-row-11-splits-into-adopt-11a-vs-conflict-11b) gives why. Saves
+   are never carried between slots; the switch only downloads or backs up, never uploads.
 
 A backup that fails in step 1 ends the switch there, with the previous slot still active and nothing downloaded. Where
 nothing was moved yet it refuses, and the state is not written: with `backup_folder_unusable`
@@ -648,11 +650,13 @@ for an adopt that needs no acknowledgement) measures the file and runs the steps
 Keep Local alike. No core is recorded: an adopt transfers nothing, so which core wrote the bytes is unknown, and the one
 the last upload recorded stays for the core-change warning to compare against. An adopt is recorded only if the file
 still hashes to what the decision saw; one that no longer does is neither acknowledged nor recorded. An adopt that must
-be acknowledged then sends `POST /api/saves/{id}/downloaded` with the device id, through the retry strategy every RomM
-request in the sync uses, and records the baseline from that measure only after that succeeded: without it RomM keeps
-this device not current on the head, and the next local edit would read as one under a head that moved past it — a
-conflict nobody caused. Where the acknowledgement still fails, nothing is recorded, the file is reported as an error of
-that sync with its reason — not a conflict — and the next sync decides the same way again.
+be acknowledged then sends `POST /api/saves/{id}/downloaded` with the device id and the local file's content hash
+([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)),
+through the retry strategy every RomM request in the sync uses, and records the baseline from that measure only after
+that succeeded: without it RomM keeps this device not current on the head, and the next local edit would read as one
+under a head that moved past it — a conflict nobody caused. Where the acknowledgement still fails, nothing is recorded,
+the file is reported as an error of that sync with its reason — not a conflict — and the next sync decides the same way
+again.
 
 The mutating sync path (`SyncEngine.do_sync_rom_saves`) records every adopt. The read-only status path
 (`StatusService._get_save_status_io`) records only one that needs no acknowledgement, and leaves the other to the next
@@ -1355,20 +1359,33 @@ endpoint calls. The façade delegates to `SyncEngine.resolve_sync_conflict`, who
      through the retry strategy), then recorded with the sync boundary and without re-uploading — after the user
      resolved the conflict this device must be current on the head. A file that no longer hashes as it did by the time
      the adopt measures it again is uploaded instead, as one that differs is; recording nothing would bring the resolved
-     conflict back. Otherwise the local file is POSTed as a new version with `overwrite=true` — the user's deliberate
-     overwrite bypasses the 409 gate (#1276). The POST's own `device_save_sync` upsert leaves us `is_current=true`, so
-     the redundant `confirm_download` ack is skipped (#1458). The comparison only spares an upload: a server copy this
+     conflict back. Where RomM does not take that acknowledgement but the local file holds the head's bytes (by its
+     `content_hash`, as for Use Server below), the resolution answers success all the same, with a warning logged and
+     nothing recorded: the device already holds the head, and the next sync adopts and acknowledges it
+     ([#2664](https://github.com/danielcopper/romm-tender/issues/2664) D9); a head without a `content_hash` answers the
+     error. Otherwise the local file is POSTed as a new version with `overwrite=true` — the user's deliberate overwrite
+     bypasses the 409 gate (#1276). The POST's own `device_save_sync` upsert leaves us `is_current=true`, so the
+     redundant `confirm_download` ack is skipped (#1458). The comparison only spares an upload: a server copy this
      device cannot write (a full disk) is logged as a warning and any other failure to fetch it passed over, and either
      way the local file is uploaded.
-   - `use_server` → `_resolve_conflict_use_server` downloads the picked save and writes it to the local path.
+   - `use_server` → `_resolve_conflict_use_server` downloads the picked save, writes it to the local path and
+     acknowledges it once it is in place
+     ([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)).
+     Where the file is in place but RomM did not take the acknowledgement, the resolution answers success all the same,
+     with a warning logged and nothing recorded for the file: the choice is carried out on this device, and the next
+     sync adopts and acknowledges the file ([#2664](https://github.com/danielcopper/romm-tender/issues/2664) D7). Kept
+     open with the error, the dialog would offer Keep Local, which would claim to keep and upload a local save the
+     device no longer holds. The file counts as in place when it hashes to the picked save's `content_hash`; a save
+     without one answers the error.
 
 The modal only accepts `keep_local` or `use_server`; `cancel` never reaches the backend. A wrong action string is
 refused before the server is asked anything.
 
 Before it lists, the resolution takes its device id from `SyncEngine.live_device_id` and refuses as it does
-(`device_not_registered` or `server_unreachable`). A RomM error from fetching the list, from the transfer or from that
-acknowledgement answers `classify_error`'s reason and message. An `OSError` on the local side — a local save missing at
-the canonical path among them — refuses with `resolve_failed`. Anything else is a transport error.
+(`device_not_registered` or `server_unreachable`). A RomM error from fetching the list, from the transfer or from an
+acknowledgement answers `classify_error`'s reason and message — but for Use Server's and Keep Local's acknowledgement
+once the file holds the head's bytes, above. An `OSError` on the local side — a local save missing at the canonical path
+among them — refuses with `resolve_failed`. Anything else is a transport error.
 
 ### Why no defer state
 
@@ -1521,7 +1538,8 @@ the actual file/server writes go through `SaveTransfer`:
 
 1. **Download target**: GET the chosen older save's content and overwrite local. `download_save_file` updates
    `tracked_save_id` and `last_sync_hash` to the target version, so even if step 2 fails the local view is consistent
-   with the target.
+   with the target. The download is not acknowledged: step 2 records this device on RomM
+   ([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)).
 2. **PUT to bump `updated_at`**: re-upload local content via `upload_save_file(server_save=target_save)`. This issues a
    PUT against the target save id with byte-identical content. RomM fires the SQLAlchemy `onupdate=utc_now` hook on
    every PUT regardless of whether the content changed, so `save.updated_at` becomes NOW; the same request also upserts
@@ -1610,9 +1628,9 @@ neither in place):
    cannot be established (a time that does not parse, or a tie with a save that has no id) is left to RomM's 409. The
    toast tells the user to activate that slot — which syncs it — and copy again.
 8. `SaveCopyService._copy_save_to_slot_io` then: `SaveTransfer.download_save_file` (the chosen content onto the
-   canonical local file, backing the current local file up first, #965; a local file this device cannot write is
-   `copy_failed`, and a RomM error is not caught here — either way the active slot stays as it was) →
-   `confirm_slot(target)` (creates the slot if new, switches active + confirms) →
+   canonical local file, backing the current local file up first, #965, and not acknowledged, since the POST records
+   this device; a local file this device cannot write is `copy_failed`, and a RomM error is not caught here — either way
+   the active slot stays as it was) → `confirm_slot(target)` (creates the slot if new, switches active + confirms) →
    `upload_save_file(server_save=None, overwrite=False)` — a POST into the now-active target slot. Any upload error is
    `upload_failed`, a **409** included — another device's upload landed in the target slot between the step-7 check and
    the POST, or the check could not establish the slot's newest save — and undoing the download and the slot change
@@ -1724,10 +1742,12 @@ false (`_build_save_schema`). So a copy reads the gate off its listing before it
 
 Read in RomM's source at 5.3.0: both `POST /api/saves` (`add_save`) and `PUT /api/saves/{id}` (`update_save`) bump
 `save.updated_at` to the server's NOW **and**, for a request that names a device — every upload Tender sends does —
-upsert the calling device's `device_save_sync.last_synced_at = updated_at`. Both build their response **after** that
-upsert, so the body's `device_syncs` shows us `is_current = true` (equality counts) the moment it returns. The skip
-logic is fail-open regardless: a response that proves us current skips the ack, anything else (including a bare body)
-still sends the idempotent ack.
+upsert the calling device's `device_save_sync.last_synced_at = updated_at`. From 5.4 that row also holds the
+`content_hash` the request names, which every upload Tender sends carries
+([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)).
+Both build their response **after** that upsert, so the body's `device_syncs` shows us `is_current = true` (equality
+counts) the moment it returns. The skip logic is fail-open regardless: a response that proves us current skips the ack,
+anything else (including a bare body) still sends the idempotent ack.
 
 This makes the dedicated `POST /api/saves/{id}/downloaded` ack **redundant on the normal upload path** — the upload
 skips it when the upload response already shows this device `is_current` (`SaveTransfer.upload_save_file`, #1458),
@@ -1748,29 +1768,64 @@ legacy saves into a slot. There a dedup onto an older save is acked when it answ
 writer of this device's sync row on that save. The ack stays best-effort — failures are logged at debug and never fail
 the upload.
 
-### GET `/content?optimistic=true` auto-upserts the sync row
+### A download is acknowledged once placed, never marked at the GET
 
-`GET /api/saves/{id}/content?device_id=X&optimistic=true` (default `true`) is the canonical download endpoint. It
-auto-upserts `device_save_sync` for the calling device with `last_synced_at = save.updated_at`. After a successful
-download our `is_current` evaluates `true` without an extra round-trip.
+`GET /api/saves/{id}/content?device_id=X&optimistic=true` (`optimistic` defaults to `true`) upserts `device_save_sync`
+for the calling device with `last_synced_at = save.updated_at` when it answers the GET, before the file is anywhere on
+this device, recording the save's hash as the row's server hash and no device hash. `POST /api/saves/{id}/downloaded`
+writes the row by the `content_hash` its body names (RomM 5.4.0 and 5.4.1, `confirm_download`; RomM 5.3 reads no hash
+and always stamps `updated_at`). A row that holds a server hash and no device hash — what an optimistic GET leaves, and
+what every upload an older Tender sent without a hash left — keeps its own `last_synced_at` and server hash and takes
+the named hash, so the device stays exactly as current as that row was. Any other row, and a device with none, is
+stamped with `updated_at`: with both hashes where the named one equals the save's own, with neither where it does not.
 
 `download_save_content` in `adapters/romm/romm_api.py` always passes `device_id`, and every download passes
-`optimistic=true` but the sync before a start's. That one can be stopped between a finished download and putting it in
-place, and RomM's mark at the GET would then record this device current on a save it never placed — the exit sync would
-read its changed local save as an edit on top of that head and upload over the other device's newer save without a 409.
-So it passes `optimistic=false` and acknowledges with `POST /api/saves/{id}/downloaded` only once the file is in place
-([Pre-launch sync](#pre-launch-sync), [#2184](https://github.com/danielcopper/romm-tender/issues/2184) D8). The
-non-optimistic legacy `download_save(save_id, dest_path)` is retained for use cases that must not touch sync state but
-is not used by the sync flow.
+`optimistic=false` (`SaveTransfer.download_save_file`). The mark at the GET records this device current before the file
+is placed, so a file that then is not placed — a backup or a rename that fails, a full disk, a stop — would leave RomM
+holding this device current on a save the disk does not hold. The next sync would read the old local file as in step
+with the newer head (`Skip(synced)`) and, once the game is played on it, upload over the other device's newer save
+without a 409; after Use Server it would upload the local save the user chose to discard. So a download is acknowledged
+with `POST /api/saves/{id}/downloaded`, through the retry strategy, only once the file is in place — one more request
+per download ([#2664](https://github.com/danielcopper/romm-tender/issues/2664) D1, D2). Two downloads send no
+acknowledgement: a version restore's and a copy to a slot's, whose upload right after records this device on RomM
+itself. There an acknowledgement could only add a failure: their callers catch only a local `OSError` from the download,
+so one that failed would end the operation before that upload, and the next sync would upload the downloaded save into
+the slot still active.
+
+Every acknowledgement names the content hash of the file this device holds — the download it placed, the local file an
+adopt records, the file an upload sent — computed as RomM computes a save's `content_hash`
+(`SaveFileStore.content_hash`: the MD5 of the bytes, or of a zip's entries)
+([#2664](https://github.com/danielcopper/romm-tender/issues/2664) D4). Every upload and in-place update names the hash
+of the file it sends as the `content_hash` query parameter, which RomM records as the row's device hash (D5), so a row
+Tender leaves no longer has the shape above. A row an older Tender left still takes the first acknowledgement without
+moving its sync time, so where RomM's answer to an acknowledgement still shows this device not current,
+`SaveTransfer._acknowledge` sends exactly one more, which RomM then records (D6) — but only where that answer states the
+save still holds the hash Tender named: a client that replaced the save between the download and the acknowledgement
+would otherwise have the second one mark this device current on bytes it does not hold, so there the acknowledgement
+counts as not taken; an answer that does not name the device says nothing either way and is taken as it is. Measured on
+RomM 5.4.1, after another client replaced a save in place: a download and one acknowledgement with the hash leave this
+device current where its upload carried the hash, and a second acknowledgement is needed where it did not.
+
+An acknowledgement that fails — a RomM error, a first answer that shows this device not current and names other bytes,
+or a second answer that still shows this device not current (`RommAcknowledgementNotTaken`, which `classify_error`
+answers `server_error`) — raises with the file in place, its backup kept and nothing recorded
+([#2184](https://github.com/danielcopper/romm-tender/issues/2184) D8): the sync reports the file as an error, a slot
+switch counts it among the downloads that failed (`switch_incomplete`), and Use Server and Keep Local's adopt count as
+done where the file holds the head's bytes ([resolve_sync_conflict endpoint](#resolve_sync_conflict-endpoint)). The next
+sync finds the file identical to a head this device is not current on, and adopts and acknowledges it (rows 11a and
+12a); where another client replaced the head meanwhile, it decides against that newer head as any sync does.
+
+`download_save(save_id, dest_path)` names no device: it fetches a server copy to compare
+(`SaveTransfer.fetch_server_copy`) and records nothing.
 
 ### Implication for the sync algorithm
 
 Because `is_current` is computed and the only ways Tender makes it `true` are a PUT/POST (which upserts the uploader's
-sync row directly), a `GET /content?optimistic=true`, or the `POST /api/saves/{id}/downloaded` ack — the other writers
-are listed under [`GET /api/saves` writes no sync row](#get-apisaves-writes-no-sync-row) — the algorithm can trust
-`is_current` as authoritative about the server side without further hashing. It is no statement about the local file:
-row 8 (no baseline yet, `is_current=true`, local exists) adopts the local file as the baseline only where it is the
-head's bytes (8a), and asks the user otherwise (8b) — see
+sync row directly) or the `POST /api/saves/{id}/downloaded` ack — the other writers are listed under
+[`GET /api/saves` writes no sync row](#get-apisaves-writes-no-sync-row) — the algorithm can trust `is_current` as
+authoritative about the server side without further hashing. It is no statement about the local file: row 8 (no baseline
+yet, `is_current=true`, local exists) adopts the local file as the baseline only where it is the head's bytes (8a), and
+asks the user otherwise (8b) — see
 [Why row 8 splits into adopt (8a) vs conflict (8b)](#why-row-8-splits-into-adopt-8a-vs-conflict-8b).
 
 ## Sync Flows
@@ -1897,17 +1952,13 @@ them, before it follows a moved save directory. One that runs checks its stop (`
 `services/saves/_sync_stop.py`) at three points: before it follows a moved save directory, before each file, and between
 a finished download and putting it in place. A download finished after the stop is discarded with its `.tmp`, and the
 local file is neither backed up nor replaced; what was placed before the stop stays placed and is recorded, since
-`write_save_state` still runs. Its downloads stream without RomM's optimistic sync mark and are acknowledged
-(`confirm_download`) only once in place, so a discarded download leaves RomM's record of this device unchanged and the
-exit sync still sees the conflict
-([GET `/content?optimistic=true` auto-upserts the sync row](#get-contentoptimistictrue-auto-upserts-the-sync-row)). An
-acknowledgement that fails leaves the file in place and its backup kept, reports the file as an error of the sync and
-records nothing for it; the next sync finds the file identical to a head this device is not current on, and adopts and
-acknowledges it (rows 11a and 12a). A file whose placing began before the stop is still placed, and none begins after
-it; a transfer already under way in the executor runs to its end, which is why the stop is a check inside the sync
-rather than a cancellation message in the socket protocol, which could not reach that transfer either. The stopped call
-is refused with `pre_launch_sync_stopped`, its details carrying what it moved; the panel, which has gone on to start the
-game, only reads it as a late answer.
+`write_save_state` still runs. A download is acknowledged only once in place, so a discarded download leaves RomM's
+record of this device unchanged and the exit sync still sees the conflict
+([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)).
+A file whose placing began before the stop is still placed, and none begins after it; a transfer already under way in
+the executor runs to its end, which is why the stop is a check inside the sync rather than a cancellation message in the
+socket protocol, which could not reach that transfer either. The stopped call is refused with `pre_launch_sync_stopped`,
+its details carrying what it moved; the panel, which has gone on to start the game, only reads it as a late answer.
 
 The romId comes from `sessionManager`'s appId → romId map, re-read at the moments
 [App ID to ROM ID mapping](#app-id-to-rom-id-mapping) lists, while `rommAppIds` learns a shortcut as soon as a sync
@@ -2072,9 +2123,10 @@ over `RunningRomIdsFn`; what counts as running, and how long a reading may take,
   and a Sync Saves of it under way at the press, through a `SyncStop` each registers per ROM (`RomSyncStops`). Each
   checks it before it follows a moved save directory and wherever the sync before a start does (above). The sweep goes
   on with the next ROM and names the stopped one as running; a stopped Sync Saves is refused with `game_running`, its
-  details carrying what it moved. So their downloads stream without RomM's optimistic mark and are acknowledged once
-  placed, as the sync before a start's are — one more request per download. Without it a game started with Play Anyway
-  while a sweep was on it could have its save swapped seconds after its start.
+  details carrying what it moved, and a download it discarded leaves RomM's record of this device unchanged
+  ([A download is acknowledged once placed, never marked at the GET](#a-download-is-acknowledged-once-placed-never-marked-at-the-get)).
+  Without it a game started with Play Anyway while a sweep was on it could have its save swapped seconds after its
+  start.
 
 The RetroDECK home migration does not wait for a running game;
 [#2226](https://github.com/danielcopper/romm-tender/issues/2226) decided to remove it. A game Steam does not list yet —

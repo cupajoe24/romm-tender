@@ -52,6 +52,7 @@ from tests.services.saves._helpers import (
     _create_save,
     _do_sync,
     _enable_sync_with_device,
+    _fail_save_backups,
     _get_device_id,
     _get_save_state,
     _install_rom,
@@ -1056,7 +1057,7 @@ class TestSyncUseCaseErrorMessages:
 
         assert result["success"] is False
         # A total failure leads with the bare reason, not "Uploaded 0 save(s)".
-        assert result["message"] == "timeout"
+        assert result["message"] == "Timeout"
 
     @pytest.mark.asyncio
     async def test_post_exit_sync_partial_keeps_count_and_appends_reason(self, tmp_path):
@@ -1089,7 +1090,7 @@ class TestSyncUseCaseErrorMessages:
 
         result = await svc.post_exit_sync(42)
 
-        assert result["message"] == "timeout (+2 more)"
+        assert result["message"] == "Timeout (+2 more)"
 
     @pytest.mark.asyncio
     async def test_sync_rom_saves_promotes_reason_when_nothing_synced(self, tmp_path):
@@ -1231,7 +1232,7 @@ class TestSummarizeSyncResult:
 
     def test_total_failure_counts_the_extra_failures(self):
         msg = _summarize_sync_result("Uploaded 0 save(s)", synced=0, errors=["a: x", "b: y", "c: z"], conflicts=0)
-        assert msg == "x (+2 more)"
+        assert msg == "X (+2 more)"
 
     def test_partial_run_keeps_count_then_appends_reason(self):
         msg = _summarize_sync_result("Uploaded 2 save(s)", synced=2, errors=["a.srm: timeout"], conflicts=0)
@@ -1243,7 +1244,21 @@ class TestSummarizeSyncResult:
 
     def test_conflicts_suffix_after_promoted_reason(self):
         msg = _summarize_sync_result("Uploaded 0 save(s)", synced=0, errors=["a: boom"], conflicts=1)
-        assert msg == "boom, 1 conflict(s)"
+        assert msg == "Boom, 1 conflict(s)"
+
+    def test_a_total_failure_opens_with_the_reason_capitalised(self):
+        reason = "saved on this device, but RomM did not record it yet; the next sync will"
+        one = _summarize_sync_result("Uploaded 0 save(s)", synced=0, errors=[f"a.srm: {reason}"], conflicts=0)
+        two = _summarize_sync_result(
+            "Uploaded 0 save(s)", synced=0, errors=[f"a.srm: {reason}", f"b.srm: {reason}"], conflicts=0
+        )
+        assert one == "Saved on this device, but RomM did not record it yet; the next sync will"
+        assert two == "Saved on this device, but RomM did not record it yet; the next sync will (+1 more)"
+
+    def test_a_partial_run_keeps_the_reason_as_it_is_after_the_count(self):
+        reason = "saved on this device, but RomM did not record it yet; the next sync will"
+        msg = _summarize_sync_result("Uploaded 1 save(s)", synced=1, errors=[f"a.srm: {reason}"], conflicts=0)
+        assert msg == f"Uploaded 1 save(s), 1 error(s) — {reason}"
 
     def test_first_error_reason_strips_the_filename_prefix(self):
         assert _first_error_reason(["pokemon.srm: Access denied — nope"]) == "Access denied — nope"
@@ -2101,7 +2116,7 @@ class TestTheSyncBeforeAStartAcknowledgesOnlyWhatItPlaced:
         fake.set_server_save_content(100, content)
         confirm = fake.confirm_download
 
-        def refused_confirm(_save_id: int, _device_id: str) -> dict[str, Any]:
+        def refused_confirm(_save_id: int, _device_id: str, **_kwargs: object) -> dict[str, Any]:
             raise RommApiError("acknowledgement refused")
 
         monkeypatch.setattr(fake, "confirm_download", refused_confirm)
@@ -2123,6 +2138,151 @@ class TestTheSyncBeforeAStartAcknowledgesOnlyWhatItPlaced:
         assert not any(c[0] == "download_save_content" for c in fake.call_log)
         assert [c[1] for c in fake.call_log if c[0] == "confirm_download"] == [(100, "test-device")]
         assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 100
+
+
+class TestTheSyncAfterAGameMarksThisDeviceOnlyOnceItPlaced:
+    """#2664 D1/D3: the sync after a game downloads without RomM's mark and acknowledges only a placed file."""
+
+    _NEWER = b"newer from device B"
+
+    def _seed_a_newer_head(self, svc, fake, tmp_path) -> dict[str, Any]:
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        save_path = _create_save(tmp_path, content=b"last synced")
+        local_hash = hashlib.md5(b"last synced").hexdigest()
+        _seed_save_state_dict(
+            svc,
+            42,
+            {
+                "active_slot": "default",
+                "slot_confirmed": True,
+                "files": {
+                    "pokemon.srm": {
+                        "last_sync_hash": local_hash,
+                        "last_sync_server_hash": local_hash,
+                        "tracked_save_id": 90,
+                        "last_sync_server_save_id": 90,
+                    }
+                },
+            },
+        )
+        head = fake.seed_foreign_save(42, save_id=101, updated_at="2026-03-01T00:00:00Z", content=self._NEWER)
+        fake.saves[101]["content_hash"] = hashlib.md5(self._NEWER).hexdigest()
+        return {"head": head, "save_path": save_path}
+
+    @pytest.mark.asyncio
+    async def test_a_download_it_could_not_place_leaves_romm_s_record_and_the_next_sync_downloads_the_head(
+        self, tmp_path, monkeypatch
+    ):
+        svc, fake = make_service(tmp_path)
+        seeded = self._seed_a_newer_head(svc, fake, tmp_path)
+        record_before = dict(fake._device_sync_ledger)
+        _fail_save_backups(svc, monkeypatch)
+
+        first = await svc.post_exit_sync(42)
+
+        assert first["success"] is False
+        assert [c[2]["optimistic"] for c in fake.call_log if c[0] == "download_save_content"] == [False]
+        assert not any(c[0] == "confirm_download" for c in fake.call_log)
+        assert fake._device_sync_ledger == record_before
+        assert seeded["save_path"].read_bytes() == b"last synced"
+
+        monkeypatch.undo()
+        second = await svc.sync_rom_saves(42)
+
+        assert second["success"] is True
+        assert seeded["save_path"].read_bytes() == self._NEWER
+        assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 101
+
+    @pytest.mark.asyncio
+    async def test_a_placed_file_whose_acknowledgement_failed_is_adopted_by_the_next_sync(self, tmp_path, monkeypatch):
+        svc, fake = make_service(tmp_path)
+        seeded = self._seed_a_newer_head(svc, fake, tmp_path)
+
+        def refused_confirm(_save_id: int, _device_id: str, **_kwargs: object) -> dict[str, Any]:
+            raise RommApiError("acknowledgement refused")
+
+        monkeypatch.setattr(fake, "confirm_download", refused_confirm)
+        first = await svc.post_exit_sync(42)
+
+        assert first["success"] is False
+        assert seeded["save_path"].read_bytes() == self._NEWER
+        assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 90
+
+        monkeypatch.undo()
+        fake.call_log.clear()
+        second = await svc.sync_rom_saves(42)
+
+        assert second["success"] is True
+        assert second["conflicts"] == []
+        assert not any(c[0] == "download_save_content" for c in fake.call_log)
+        assert [c[1] for c in fake.call_log if c[0] == "confirm_download"] == [(101, "device-1")]
+        assert _require_save_state(svc, 42).files["pokemon.srm"].tracked_save_id == 101
+
+
+class TestADownloadAfterAnotherClientReplacedTheSaveInPlace:
+    """#2664 D4/D6: the download and its acknowledgement leave this device current, a row left without a hash too."""
+
+    _REPLACED = b"replaced in place by another client"
+
+    def _replace_in_place(self, fake, tmp_path, save_id: int) -> None:
+        other = tmp_path / "other-client.srm"
+        other.write_bytes(self._REPLACED)
+        fake.upload_save(42, str(other), "retroarch", save_id)
+        fake.saves[save_id]["content_hash"] = hashlib.md5(self._REPLACED).hexdigest()
+
+    def _is_current(self, fake, save_id: int) -> bool:
+        listed = next(s for s in fake.list_saves(42, device_id="device-1") if s["id"] == save_id)
+        return listed["device_syncs"][0]["is_current"]
+
+    @pytest.mark.asyncio
+    async def test_after_this_device_uploaded_it(self, tmp_path):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        save_path = _create_save(tmp_path, content=b"uploaded here")
+        await svc.sync_rom_saves(42)
+        (save_id,) = fake.saves
+        self._replace_in_place(fake, tmp_path, save_id)
+
+        result = await svc.sync_rom_saves(42)
+
+        assert result["success"] is True
+        assert save_path.read_bytes() == self._REPLACED
+        assert self._is_current(fake, save_id) is True
+
+    @pytest.mark.asyncio
+    async def test_where_its_row_was_left_without_a_hash(self, tmp_path):
+        svc, fake = make_service(tmp_path)
+        _enable_sync_with_device(svc)
+        _install_rom(svc, tmp_path)
+        save_path = _create_save(tmp_path, content=b"uploaded by an older Tender")
+        uploaded_hash = hashlib.md5(b"uploaded by an older Tender").hexdigest()
+        fake.saves[100] = {**_server_save(save_id=100, slot="default"), "content_hash": uploaded_hash}
+        fake.stage_device_sync(100, "device-1", "2026-02-17T06:00:00Z", last_sync_server_hash=uploaded_hash)
+        _seed_save_state_dict(
+            svc,
+            42,
+            {
+                "active_slot": "default",
+                "slot_confirmed": True,
+                "files": {
+                    "pokemon.srm": {
+                        "last_sync_hash": uploaded_hash,
+                        "last_sync_server_hash": uploaded_hash,
+                        "tracked_save_id": 100,
+                        "last_sync_server_save_id": 100,
+                    }
+                },
+            },
+        )
+        self._replace_in_place(fake, tmp_path, 100)
+
+        result = await svc.sync_rom_saves(42)
+
+        assert result["success"] is True
+        assert save_path.read_bytes() == self._REPLACED
+        assert self._is_current(fake, 100) is True
 
 
 class TestRunRomSyncSession:

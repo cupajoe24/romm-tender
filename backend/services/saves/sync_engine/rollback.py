@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from domain.iso_time import parse_iso_to_epoch
 from domain.save_path import sanitize_save_filename
 from domain.save_slot import filter_saves_to_slot
-from lib.errors import DeviceWriteError, NamedRefused, NotInstalled, Refused
+from lib.errors import DeviceWriteError, NamedRefused, NotInstalled, Refused, RommApiError
 from services.saves._helpers import local_save_target
 from services.saves._refusals import shape_refusal
 from services.saves._save_state import read_save_state_or_new, write_save_state
@@ -116,8 +116,11 @@ class RollbackOrchestrator:
 
         Raises its refusals, ``SyncEngine.live_device_id``'s among them, taken
         before the server's saves are listed; a RomM error from listing them,
-        from the transfer or from acknowledging an adopt propagates, and an
-        ``OSError`` from the local side refuses with ``resolve_failed``.
+        from the transfer or from acknowledging an adopt propagates — but for
+        an acknowledgement once the local file holds the head's bytes, which
+        answers success (:meth:`_resolve_conflict_use_server`,
+        :meth:`_resolve_conflict_keep_local`) — and an ``OSError`` from the
+        local side refuses with ``resolve_failed``.
         """
         rom_id = int(rom_id)
 
@@ -248,10 +251,36 @@ class RollbackOrchestrator:
         path RetroArch reads. Drives state-key consistency too: the baseline
         is recorded under the same target name the file lands at. Mutates
         *save_state* in memory; ``resolve`` owns the write UoW.
+
+        A RomM error once the file is in place — its acknowledgement was not
+        taken — is logged as a warning and the choice counts as carried out,
+        with nothing recorded for the file, so the next sync adopts and
+        acknowledges it (#2664 D7). The file counts as in place when it hashes
+        to *server*'s ``content_hash``; without one the error propagates.
         """
         target = local_save_target(server, rom_name, known_names=save_names)
         default_slot = resolve_default_slot(self._settings)
-        self._transfer.download_save_file(server, saves_dir, target, save_state, device_id, system, default_slot)
+        try:
+            self._transfer.download_save_file(server, saves_dir, target, save_state, device_id, system, default_slot)
+        except RommApiError as e:
+            if not self._holds_server_save(os.path.join(saves_dir, target), server):
+                raise
+            self._logger.warning(
+                "resolve_sync_conflict: %s is the server save now, but RomM did not take its acknowledgement (%s);"
+                " the next sync adopts it",
+                target,
+                e,
+            )
+
+    def _holds_server_save(self, local_path: str, server: dict[str, Any]) -> bool:
+        """Whether *local_path* holds *server*'s bytes, by its ``content_hash``; ``False`` where that cannot be told."""
+        server_hash = server.get("content_hash")
+        if not server_hash or not self._save_file_store.is_file(local_path):
+            return False
+        try:
+            return self._save_file_store.content_hash(local_path) == server_hash
+        except OSError:
+            return False
 
     def _resolve_conflict_keep_local(
         self,
@@ -284,8 +313,12 @@ class RollbackOrchestrator:
         device, through the retry strategy, and records the sync boundary and
         the baseline only once that succeeded — after the user resolved the
         conflict this device must be current on the head. A failure propagates
-        with nothing recorded. A file that no longer hashes as it did when it
-        was compared is uploaded instead, as a file that differs is.
+        with nothing recorded, but for a RomM error while the local file holds
+        *server*'s bytes (:meth:`_holds_server_save`): the resolution is carried
+        out on this device, so it is logged as a warning and counts as done, and
+        the next sync adopts and acknowledges the file (#2664 D9). A file that no
+        longer hashes as it did when it was compared is uploaded instead, as a
+        file that differs is.
 
         The comparison fetches the server copy (:meth:`SaveTransfer.hash_server_copy`).
         A device write error there is logged as a warning and any other failure
@@ -315,21 +348,31 @@ class RollbackOrchestrator:
             server_hash = None
 
         default_slot = resolve_default_slot(self._settings)
-        if (
-            server_hash
-            and local_hash == server_hash
-            and server.get("id") is not None
-            and self._transfer.adopt_server_head(
-                save_state,
-                target,
-                server,
-                local_path,
-                local_hash,
-                device_id=device_id,
-                system=system,
-                default_slot=default_slot,
-            )
-        ):
+        if server_hash and local_hash == server_hash and server.get("id") is not None:
+            try:
+                adopted = self._transfer.adopt_server_head(
+                    save_state,
+                    target,
+                    server,
+                    local_path,
+                    local_hash,
+                    device_id=device_id,
+                    system=system,
+                    default_slot=default_slot,
+                )
+            except RommApiError as e:
+                if not self._holds_server_save(local_path, server):
+                    raise
+                self._logger.warning(
+                    "keep_local: %s is the server save, but RomM did not take its acknowledgement (%s);"
+                    " the next sync adopts it",
+                    target,
+                    e,
+                )
+                return
+        else:
+            adopted = False
+        if adopted:
             # The head's own ``content_hash`` (never the recomputed
             # ``server_hash``, which is parity-derived) is what the adopt stores as
             # ``last_sync_server_hash``, so a later identity check can take the
