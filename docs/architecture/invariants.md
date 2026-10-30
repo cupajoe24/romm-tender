@@ -962,12 +962,13 @@ Format: **invariant** — tier — enforced by.
   path writes over a save swapped under it, and the next sync uploads that over the other device's newer save without a
   conflict; one that keeps the file open writes the session into the copy moved aside
   ([A game that is running](save-file-sync-architecture.md#a-game-that-is-running)). The exempt paths run before the
-  start or after it: a conflict the launch check resolves is passed `before_start` from that one call site
-  (`gamepadLaunchPrompts.resolveConflicts`), never inferred. `tests/services/saves/test_running_game.py` pins the
-  sweep's skip and its sentence, each refused press and the same press with the game not running, the platform delete,
-  the follow on the status read, the local-save check and the platform count, the two exempt syncs, the conflict
-  resolved before a start, and the stop of a sweep's and a Sync Saves' sync of the started game with another game's
-  untouched; `tests/services/prune/test_planning.py::TestARunningGameIsLeftOut` the cleanup's skip before any probe and
+  start or after it: a conflict the launch check resolves is passed `before_start` from the launch prompts'
+  `resolveConflicts` — `gamepadLaunchPrompts`', and in the desktop dev build `desktopLaunchPrompts`' — never inferred.
+  `tests/services/saves/test_running_game.py` pins the sweep's skip and its sentence, each refused press and the same
+  press with the game not running, the platform delete, the follow on the status read, the local-save check and the
+  platform count, the two exempt syncs, the conflict resolved before a start, and the stop of a sweep's and a Sync
+  Saves' sync of the started game with another game's untouched;
+  `tests/services/prune/test_planning.py::TestARunningGameIsLeftOut` the cleanup's skip before any probe and
   `tests/services/prune/test_service.py::test_a_running_removed_game_is_left_as_it_is_and_offered_again` its re-check
   before the Steam action; `tests/contract/test_running_game.py` the sweep, Sync Saves, the platform delete and the two
   conflict resolutions, and
@@ -2184,21 +2185,28 @@ Format: **invariant** — tier — enforced by.
   the child it remembers and would otherwise pull every later entry onto the row. Nothing joins that mark to
   `ENTRY_STOP_ATTR` either, and whether Steam honours either is device-only. Detail: `docs/architecture/qam-panel.md`,
   "Pages"
-- **Every change the desktop surface's navigation watcher makes to Steam's page goes through the restoration ledger, and
-  is given back on leaving the page whenever the ledger holds anything — a pass that threw partway included** (dev build
-  only) — test + prompt-only — the watcher runs a pass on every change Steam makes to a RomM game page, so a change that
-  bypasses the ledger, or a ledger that records the wrong original, is not an occasional leak but the page left changed
-  after every visit: a second pass that recorded `display: none` as the original would leave Steam's Play button, badges
-  and sections hidden once the page is left, and a style written straight onto the play bar would stay on it. Neither
-  shows in any one adaptation's test, because each of those checks its own element, so the rule is held by one test over
-  the whole page: `frontend/src/desktop/navigationWatcher.test.ts`, "every change it makes is given back", records the
-  `style` attribute of every element before the watcher starts, runs passes from Steam's mutations and from a change to
-  the set of RomM shortcuts, has a scroll and a resize re-pin the play bar — each asserted to have reached its listener
-  — leaves the page, and requires every attribute to match — once with both views handed and once with none. Leaving
-  restores whenever the ledger holds anything rather than once a page was entered, which is what gives back a pass that
-  threw after the sticky play bar was set up; "gives back what a pass changed before it threw" holds that. What the test
+- **Every change the desktop surface makes to Steam's desktop window goes through a restoration ledger and is given
+  back: the navigation watcher's on leaving the page whenever the ledger holds anything — a pass that threw partway
+  included — and each launch question's when the question settles** (dev build only) — test + prompt-only — the watcher
+  runs a pass on every change Steam makes to a RomM game page, so a change that bypasses the ledger, or a ledger that
+  records the wrong original, is not an occasional leak but the page left changed after every visit: a second pass that
+  recorded `display: none` as the original would leave Steam's Play button, badges and sections hidden once the page is
+  left, and a style written straight onto the play bar would stay on it. Neither shows in any one adaptation's test,
+  because each of those checks its own element, so the rule is held by one test over the whole page:
+  `frontend/src/desktop/navigationWatcher.test.ts`, "every change it makes is given back", records the `style` attribute
+  of every element before the watcher starts, runs passes from Steam's mutations and from a change to the set of RomM
+  shortcuts, has a scroll and a resize re-pin the play bar — each asserted to have reached its listener — leaves the
+  page, and requires every attribute to match — once with both views handed and once with none. Leaving restores
+  whenever the ledger holds anything rather than once a page was entered, which is what gives back a pass that threw
+  after the sticky play bar was set up; "gives back what a pass changed before it threw" holds that. What the test
   cannot see is a write to anything but `style` — a class, another attribute, a node moved — and a change to an element
-  its page does not hold; those are prompt-only. The rule's home is `.claude/rules/desktop-dom.md`, and the mechanism
+  its page does not hold; those are prompt-only. The launch prompt host keeps a ledger of its own for each question and
+  gives it back when the question settles (`docs/architecture/desktop-dom-architecture.md`, "Dialogs for a start the
+  launch watcher catches"); a container left behind would stay drawn over Steam's page after its start was settled.
+  `frontend/src/desktop/launchPromptHost.test.tsx` holds it: the container is gone from the window's body however the
+  question settles, a second window's included, and once it is answered the window's `pagehide` and `unload` listeners
+  are removed, and with the root's unmount the dialog's own `keydown` listener, which a component's effect cleanup gives
+  back outside the ledger. The rule's home is `.claude/rules/desktop-dom.md`, and the mechanism
   `docs/architecture/desktop-dom-architecture.md`, "The restoration ledger"
 - **No code under `frontend/src/desktop/` names one of Steam's minified class hashes** (dev build only) — check — a
   class hash is webpack's, and a Steam update may change it, so a selector that names one finds nothing after that

@@ -1323,8 +1323,9 @@ any surface that shows a conflict:
   `gamepadLaunchPrompts.resolveConflicts`), and through `resolveKnownConflicts` when the user resolves the conflict the
   button is already showing.
 - The launch watcher (`frontend/src/utils/launchInterceptor.ts`), through `handleConflicts` — on a `conflict` verdict
-  for a start it caught. It does not import the modal: `index.tsx` hands it `gamepadLaunchPrompts`
-  (`frontend/src/shared/launchPrompts.ts`), whose `resolveConflicts` is `handleConflicts`.
+  for a start whose questions go to the gamepad modals. It does not import the modal: `index.tsx` hands it
+  `gamepadLaunchPrompts` (`frontend/src/shared/launchPrompts.ts`), whose `resolveConflicts` is `handleConflicts`, as the
+  fallback of `launchPromptsForThisStart` ([Pre-launch sync](#pre-launch-sync)).
 - `VersionHistoryPanel.handleRestore` (in `SavesTab`), through `showSyncConflictModal` for the first conflict — when a
   version-restore pre-flight returns `conflict_blocked`.
 - `useCopyToSlot` (the Saves tab's "Copy to slot…"), through `showSyncConflictModal` for the first conflict — when a
@@ -1810,13 +1811,19 @@ check, the pre-launch sync itself (`runPreLaunchSync`) and what each verdict mea
 switched-off source toasts, resolved conflicts announce the save change to the page and then launch. A path supplies
 only what is its own:
 
-| Supplied by the path               | Play button                                                                                                                      | Launch watcher                                        |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`frontend/src/shared/launchPrompts.ts`)                                                                  | `gamepadLaunchPrompts`, from `frontend/src/index.tsx` |
-| Tracking setup                     | `ensureTrackingConfiguredBigPicture` — an answer it cannot settle aborts and opens the Saves tab (`applyLaunchGateSetupOutcome`) | adopts a default silently and always proceeds         |
-| Toast for a sync that moved saves  | yes                                                                                                                              | no                                                    |
-| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                                                   | nothing of its own; a pending migration is toasted    |
-| Acting on a verdict throws         | the trigger returns to Play                                                                                                      | fails open: the game starts (bare relaunch)           |
+| Supplied by the path               | Play button                                                                                                                      | Launch watcher                                     |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Prompts (`LaunchPrompts`)          | `gamepadLaunchPrompts` (`frontend/src/shared/launchPrompts.ts`)                                                                  | chosen once per start (below)                      |
+| Tracking setup                     | `ensureTrackingConfiguredBigPicture` — an answer it cannot settle aborts and opens the Saves tab (`applyLaunchGateSetupOutcome`) | adopts a default silently and always proceeds      |
+| Toast for a sync that moved saves  | yes                                                                                                                              | no                                                 |
+| A start that ends without a launch | the trigger returns to Play, or to Resolve Conflict after a cancelled conflict                                                   | nothing of its own; a pending migration is toasted |
+| Acting on a verdict throws         | the trigger returns to Play                                                                                                      | fails open: the game starts (bare relaunch)        |
+
+The watcher has no surface of its own, so `index.tsx` hands it a function rather than a set of prompts:
+`() => launchPromptsForThisStart(gamepadLaunchPrompts)` (`frontend/src/utils/launchPromptRouter.ts`), which it calls
+once per start, as that start's gate begins, so every question one start puts comes from the same surface. Which surface
+that is:
+[How the desktop surface adapts Steam's game page](desktop-dom-architecture.md#dialogs-for-a-start-the-launch-watcher-catches).
 
 The watcher listens on `SteamClient.Apps.RegisterForGameActionStart`, which reports a start with `action` `"LaunchApp"`
 before Steam creates the game's process. Its second argument is **not the appId but the 64-bit game ID** in decimal: for
@@ -1861,10 +1868,11 @@ limit of its own: `SyncEngine.pre_launch_sync` waits for the device gate and for
 free ([#2184](https://github.com/danielcopper/romm-tender/issues/2184) D1). When it has not answered within
 `SERVER_CALL_LIMIT_MS`, `runPreLaunchSync` (`frontend/src/utils/launchGateOps.ts`) asks `pre_launch_sync_state` what it
 is doing — within `LOCAL_CALL_LIMIT_MS`, where no answer, like a failed read, is "Tender is not answering" — and puts
-the "Waiting for Save Sync" question (`LaunchPrompts.askSyncWait`, drawn by `frontend/src/shared/SyncWaitModal.tsx`). It
-names the reason: another save sync holds the device (Sync All Saves Now, the sync after a game, a manual sync, or the
-sync of another start; `GateHolder`, `services/saves/sync_engine/_gate.py`), something else is busy with this game's
-saves (its `rom_lock`), this game's own sync is running, or Tender is not answering. Its three answers:
+the "Waiting for Save Sync" question (`LaunchPrompts.askSyncWait`, drawn by the start's prompts —
+`frontend/src/shared/SyncWaitModal.tsx` on the gamepad surface). It names the reason: another save sync holds the device
+(Sync All Saves Now, the sync after a game, a manual sync, or the sync of another start; `GateHolder`,
+`services/saves/sync_engine/_gate.py`), something else is busy with this game's saves (its `rom_lock`), this game's own
+sync is running, or Tender is not answering. Its three answers:
 
 - **Wait** waits `SYNC_WAIT_MORE_MS` (15 s) more. A sync that answers within it is acted on as one that answered within
   the first limit — the game starts, or the conflict or fallback dialog asks. One that does not brings the question
@@ -2048,10 +2056,10 @@ over `RunningRomIdsFn`; what counts as running, and how long a reading may take,
   delete, Delete Local Saves, a conflict resolution, and the setup wizard's migration of legacy saves. Each asks before
   it follows a moved save directory or touches a file, so a refused press writes nothing. A slot confirmation without a
   migration writes no save and is not refused while the game runs. The launch check's conflict dialog resolves before
-  the start and says so (`before_start`, from `gamepadLaunchPrompts.resolveConflicts`), so it is not refused where Steam
-  still lists a start the launch watcher cancelled for the check; a conflict resolved anywhere else — the Play button's
-  Resolve, a copy or a restore — is. A version switch's sync before the switch is a Sync Saves and is refused the same
-  way; the panel shows its message.
+  the start and says so (`before_start`, from the launch prompts' `resolveConflicts`: `gamepadLaunchPrompts`', or in the
+  desktop dev build `desktopLaunchPrompts`'), so it is not refused where Steam still lists a start the launch watcher
+  cancelled for the check; a conflict resolved anywhere else — the Play button's Resolve, a copy or a restore — is. A
+  version switch's sync before the switch is a Sync Saves and is refused the same way; the panel shows its message.
 - **Deleting all local saves of a platform** leaves a running game's saves and record alone, deletes the rest, and names
   it in `message` and `skipped_running`; its `N ROM(s)` leaves the ROMs it passed over out. `count_platform_saves` still
   counts the running game's files, so the button's number is what the delete removes once the game has been quit.
@@ -2604,7 +2612,8 @@ the quit line.
 Each launch guard logs one line per decision, whether it skips the gate or runs it. The launch watcher logs at `info`
 and the Play button at `debug`, so neither line is written at the default `warn` level. The line names the signal that
 decided (`session`, `store`, `stop` or `none`) beside the session state, whether a stop was observed, and the store's
-`diagnostics` — every listed entry with its display status.
+`diagnostics` — every listed entry with its display status. The launch watcher's line for a start it gates also names
+Steam's `launchSource` for it, which nothing acts on.
 
 ### State-aware Resume button (#1313)
 
